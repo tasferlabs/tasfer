@@ -203,6 +203,56 @@ export function useUpdateSpace<TContext = unknown>(
   });
 }
 
+/**
+ * Whether this space can still be made personal — it is shared, and every
+ * member is already one of this person's own devices.
+ *
+ * Asked of the platform rather than derived from the member list here: the
+ * rule is enforced in the engine, and a second copy of it in the UI would be
+ * the one that goes stale.
+ */
+export async function canMakeSpacePersonal(spaceId: string): Promise<boolean> {
+  const platform = getPlatform();
+  return platform.spaces.canMakePersonal(spaceId);
+}
+
+export function useCanMakeSpacePersonal(spaceId?: string) {
+  return useQuery({
+    queryKey: ["space-can-make-personal", spaceId],
+    queryFn: () => canMakeSpacePersonal(spaceId!),
+    enabled: !!spaceId,
+  });
+}
+
+export async function makeSpacePersonal(spaceId: string): Promise<void> {
+  const platform = getPlatform();
+  await platform.spaces.makePersonal(spaceId);
+}
+
+/**
+ * One-way: the space is personal afterwards and no call brings it back. Every
+ * space view has to refetch, since this changes who counts as a member (the
+ * gate is applied at read time) and removes the ability to invite.
+ */
+export function useMakeSpacePersonal<TContext = unknown>(
+  options?: UseMutationOptions<void, Error, string, TContext>,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: makeSpacePersonal,
+    ...options,
+    onSuccess: (data, spaceId, ...rest) => {
+      queryClient.invalidateQueries({ queryKey: ["spaces"] });
+      queryClient.invalidateQueries({ queryKey: ["space", spaceId] });
+      queryClient.invalidateQueries({ queryKey: ["space-members", spaceId] });
+      queryClient.invalidateQueries({
+        queryKey: ["space-can-make-personal", spaceId],
+      });
+      options?.onSuccess?.(data, spaceId, ...rest);
+    },
+  });
+}
+
 export async function getArchivedSpaces(): Promise<ArchivedSpaceItem[]> {
   const platform = getPlatform();
   return platform.spaces.listArchived();

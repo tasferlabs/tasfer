@@ -321,8 +321,9 @@ export interface Space {
   /**
    * A personal space admits only the owner's own devices and mints no invites,
    * so nothing written in it can later become someone else's to read. Set at
-   * creation and never cleared — see the `spaces.personal` column for why the
-   * one-way direction is the point.
+   * creation or later by {@link Platform.spaces.makePersonal}, and never
+   * cleared — see the `spaces.personal` column for why the one-way direction
+   * is the point.
    */
   personal?: boolean;
 }
@@ -696,6 +697,26 @@ export interface Platform {
      * permanently — it mints no invites and cannot be un-personalised.
      */
     create(name: string, options?: { personal?: boolean }): Promise<Space>;
+    /**
+     * Whether {@link makePersonal} would succeed on this space right now:
+     * it is shared, and every member is already one of this person's devices.
+     * False for a space that is personal already.
+     */
+    canMakePersonal(id: string): Promise<boolean>;
+    /**
+     * Turn an existing shared space personal, permanently.
+     *
+     * Allowed only while every member is one of this person's own devices.
+     * The flag's promise is about the past as much as the future: a co-member
+     * holds a full replica of everything the space ever had, and no op takes
+     * that back, so flipping a space someone else has been in would leave the
+     * promise on screen and false in fact. Revokes any pending invite, then
+     * rejects with an error if the space is not this person's alone.
+     *
+     * There is no way back. The op is monotonic and reaches every replica, so
+     * this is neither undoable nor scoped to the device that ran it.
+     */
+    makePersonal(id: string): Promise<void>;
     /** Rename a space */
     rename(id: string, name: string): Promise<void>;
     /** Archive a space locally (stop syncing, hide from list) */

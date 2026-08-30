@@ -32,8 +32,12 @@ import {
   useUpdateSpace,
   useGetSpace,
   useGetSpaceMembers,
+  useCanMakeSpacePersonal,
+  useMakeSpacePersonal,
   type ISpace,
 } from "../api/spaces.api";
+import { useConfirmation } from "./ConfirmationDialog";
+import { useToast } from "./Toast";
 import { useAssetUrl } from "../api/images.api";
 import { useAuth } from "../contexts/AuthContext";
 import { AvatarPreviewDialog } from "./AvatarPreviewDialog";
@@ -67,7 +71,7 @@ export function EditGroupDialog({
     <Tabs defaultValue="general">
       <TabsList className="grid w-full grid-cols-2">
         <TabsTrigger value="general">{t("common.general", "General")}</TabsTrigger>
-        <TabsTrigger value="members">{t("space.members", "Members")}</TabsTrigger>
+        <TabsTrigger value="members">{t("space.sharing", "Sharing")}</TabsTrigger>
       </TabsList>
       <TabsContent value="general">
         <GeneralTab
@@ -498,6 +502,37 @@ function MembersTab({
   );
   const { data: space } = useGetSpace(open ? spaceId : undefined);
 
+  const { getConfirmation } = useConfirmation();
+  const { toast } = useToast();
+  // Asked of the platform, never re-derived here: the rule is enforced in the
+  // engine, and a second copy of it in the UI would be the one that goes stale.
+  const { data: canMakePersonal } = useCanMakeSpacePersonal(
+    open ? spaceId : undefined,
+  );
+  const { mutate: makePersonal, isPending: isMakingPersonal } =
+    useMakeSpacePersonal({
+      onError: () =>
+        toast.error(
+          t("space.makePersonalFailed", "Could not make this space personal"),
+        ),
+    });
+
+  // The warning lives in the confirm step rather than beside the button: this
+  // is the only door in the app that does not open again, and a line of small
+  // print under a button is not where someone reads that.
+  async function handleMakePersonal() {
+    const confirmed = await getConfirmation({
+      title: t("space.makePersonal", "Make personal"),
+      description: t(
+        "space.makePersonalConfirm",
+        "Only your devices will open this space. This can't be undone.",
+      ),
+      confirmText: t("space.makePersonal", "Make personal"),
+      cancelText: t("common.cancel", "Cancel"),
+    });
+    if (confirmed) makePersonal(spaceId);
+  }
+
   const handlePreview = (avatar: string, name: string | null) =>
     setPreviewMember({ avatar, name });
 
@@ -596,9 +631,22 @@ function MembersTab({
           )}
         </p>
       ) : (
-        <Button variant="secondary" onClick={openInviteMembers} className="w-full">
-          {t("share.inviteMembers", "Invite members")}
-        </Button>
+        <div className="space-y-2">
+          <Button variant="secondary" onClick={openInviteMembers} className="w-full">
+            {t("share.inviteMembers", "Invite members")}
+          </Button>
+          {canMakePersonal === true && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full text-muted-foreground"
+              loading={isMakingPersonal}
+              onClick={handleMakePersonal}
+            >
+              {t("space.makePersonal", "Make personal")}
+            </Button>
+          )}
+        </div>
       )}
 
       <AvatarPreviewDialog

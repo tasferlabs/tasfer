@@ -513,7 +513,8 @@ export class Engine implements Platform {
     }
 
     // spaces.personal — existing spaces default to shared, which is what they
-    // already are; personal is only ever set at creation.
+    // already are. Making one personal afterwards is a deliberate act with its
+    // own guard (see spaces.makePersonal), never something a migration infers.
     const spaceCols = await this.driver.db.query<{ name: string }>(
       "PRAGMA table_info(spaces)",
     );
@@ -1153,6 +1154,41 @@ export class Engine implements Platform {
     return row?.personal === 1;
   }
 
+  /**
+   * Members of a space this replica cannot resolve to one of its own devices —
+   * a co-member, or a device whose certificate never arrived.
+   *
+   * The mirror of the gate in {@link queryVisibleMembers}, so "none foreign"
+   * means exactly "the gate would admit everyone already there". Soft-removed
+   * rows count too: a member who was removed still replicated the space while
+   * they were in it, and for deciding whether it was ever anyone else's that
+   * is the same thing as being in it now.
+   *
+   * A replica with no root key counts every member foreign, itself included.
+   * That is the honest answer rather than an edge case — the gate keyed on a
+   * null root admits nobody, so there is no sense in which such a space would
+   * be this person's alone.
+   */
+  private async foreignMemberCount(spaceId: string): Promise<number> {
+    const [identityRow] = await this.driver.db.query<{
+      root_public_key: string | null;
+    }>("SELECT root_public_key FROM identity WHERE id = 1");
+    const rootKey = identityRow?.root_public_key ?? null;
+
+    // Spelled out rather than negating the gate's condition: `d.root_key = ?`
+    // is NULL for an uncertified member, and NOT NULL is still NULL, so a
+    // negation would quietly drop exactly the rows this has to catch.
+    const [row] = await this.driver.db.query<{ n: number }>(
+      `SELECT COUNT(*) AS n
+         FROM space_members m
+         LEFT JOIN devices d ON d.public_key = m.public_key
+        WHERE m.space_id = ?
+          AND (? IS NULL OR d.root_key IS NULL OR d.root_key <> ?)`,
+      [spaceId, rootKey, rootKey],
+    );
+    return row?.n ?? 0;
+  }
+
   /** Every certificate issued under this replica's root, oldest device first. */
   private async getOwnDeviceCerts(): Promise<DeviceCert[]> {
     const [identityRow] = await this.driver.db.query<{
@@ -1693,6 +1729,37 @@ export class Engine implements Platform {
       await this.enrollOwnDevices(id);
 
       return { id, name, createdAt: now, personal };
+    },
+
+    canMakePersonal: async (id: string): Promise<boolean> => {
+      if (await this.isPersonalSpace(id)) return false;
+      return (await this.foreignMemberCount(id)) === 0;
+    },
+
+    makePersonal: async (id: string): Promise<void> => {
+      if (await this.isPersonalSpace(id)) return;
+
+      // Revoked before the check rather than after it. An outstanding code is
+      // a join that has not happened yet, and one completing between a check
+      // and the flip would land a co-member in a space already promising it
+      // has none. Killing the code first is what leaves no such window.
+      await this.pairing.revokeInvite(id);
+
+      if ((await this.foreignMemberCount(id)) > 0) {
+        throw new Error(
+          `Space ${id} has members that are not your devices: it cannot be made personal`,
+        );
+      }
+
+      await this.driver.db.mutate("UPDATE spaces SET personal = 1 WHERE id = ?", [
+        id,
+      ]);
+      await this.emitSpaceOp(id, {
+        op: "space_set",
+        field: "personal",
+        value: true,
+      });
+      this.notifySpaceChange(id);
     },
 
     rename: async (id: string, name: string): Promise<void> => {
@@ -4614,11 +4681,12 @@ export class Engine implements Platform {
     const now = new Date().toISOString();
     switch (op.op) {
       case "space_set":
-        // `personal` is monotonic rather than LWW: it is set once, at creation,
-        // and no op ever clears it. Resolving it last-writer-wins would let a
-        // later-clocked op turn it off, which is the one thing the flag exists
-        // to rule out. Upsert, since it can arrive before the name op for a
-        // space this replica has never seen.
+        // `personal` is monotonic rather than LWW: it is set once — at
+        // creation, or later by spaces.makePersonal — and no op ever clears
+        // it. Resolving it last-writer-wins would let a later-clocked op turn
+        // it off, which is the one thing the flag exists to rule out. Upsert,
+        // since it can arrive before the name op for a space this replica has
+        // never seen.
         if (op.field === "personal") {
           if (op.value === true) {
             await this.driver.db.mutate(
