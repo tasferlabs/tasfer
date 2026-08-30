@@ -52,6 +52,75 @@ class CalloutNode extends AtomicNode {
 const schema = baseSchema.extend({ nodes: [new CalloutNode()] });
 ```
 
+<h3 id="nested-caret">A caret inside a node's own content</h3>
+
+Most nodes hold their text in the block, and the editor's caret addresses it by index. A node whose content lives entirely in a [structured attachment](/docs/editor/api-schema#structured) — a table's cells, say — has no such index, so it owns both directions of the caret itself:
+
+```ts
+class GridNode extends Node {
+  // point → address: where a click lands, as an identity-bearing ContentPoint.
+  contentSelectionFromPoint(layout, local, c, options) { … }
+
+  // address → point: the rect to draw the caret at. Without this a nested
+  // caret is simply never painted, because core's caret geometry ends at
+  // TextNode.caretRect, which takes a flat text index.
+  contentCaretRect(layout, point, c) {
+    return { x: c.origin.x + …, y: c.origin.y + …, height: … };
+  }
+}
+```
+
+`c.origin` is the block's top-left in whichever space the caller works in (viewport when painting, document when scrolling the caret into view), so return the rect relative to it and both callers get what they need. Returning `null` — or leaving `contentCaretRect` unset, as every built-in node does — keeps the ordinary text-caret path.
+
+Implementing the hook is also what makes the engine _paint_ a caret in a block that has no flat text of its own. Both cursor paths otherwise stop at blocks the schema marks as textual; a node that declares `contentCaretRect` is admitted past that gate, and `editor.view.coordsAtContent(point)` starts returning coordinates for the same point instead of `null`. Core never names the block type — the node's own hook is the credential.
+
+Collaborators come through the same gate. A remote peer's caret inside your content arrives as a [caret decoration](/docs/editor/collaboration#presence) carrying a `ContentPoint`, and core places it with `contentCaretRect` exactly as it places the local one — you write nothing extra for it. Their _selection_ is a **range** decoration, and range decorations are painted by the node that owns the geometry: read `state.ui.decorations` in `paint` and fill the rects your local selection already uses, in the decoration's own `color` and `opacity`. Skip that and a peer's caret shows in your node while their highlight is the one thing missing from it.
+
+The rect is drawn verbatim, so the node owns how tall its caret looks. Return **text height** — ascent + descent — anchored at the top of the line, which is how prose measures its own caret. A line box is taller than that (it also carries the row's leading), so returning the full line height draws a caret noticeably taller than the one in the paragraph beside it.
+
+To draw the text itself, use `paintTextRun`: it is the engine's own marked-line renderer, so a node that lays out its own line boxes still resolves marks, batches for Arabic ligatures and paints replacement runs identically to prose.
+
+```ts
+import { paintTextRun } from "@tasfer/editor";
+
+paintTextRun({
+  ctx,
+  chars, // the field's document-order characters
+  formats, // its mark ranges
+  startIndex,
+  endIndex, // the visible range of this line
+  x, // the run's start edge — its RIGHT edge in RTL text
+  baselineY,
+  textStyle,
+  fontFamily,
+  styles,
+  marks,
+  isRTL,
+  requestRedraw,
+});
+```
+
+<h3 id="document-edge">Leaving a node at the document's edge</h3>
+
+A block that stores no flat text has no caret position to offer at its own top or bottom edge. So when one sits first or last in the document, the editor grows an empty paragraph there rather than trapping the caret: clicking or tapping the blank page above or below it starts that paragraph and puts the caret in it, and so do ArrowUp/ArrowDown and PageUp/PageDown. A document whose only block is your node is never a document with nowhere to type.
+
+Custom nodes get this without opting in — the engine asks whether the block type stores text, and a type it has never seen does not. Registered text blocks opt in per type instead, since the end of a paragraph is a perfectly good place for a caret.
+
+The one thing to implement yourself is the keyboard half of a node with a **nested caret**. Claiming the vertical moves (as the [nested-caret hooks](#nested-caret) above describe) means claiming them at your node's edges too: while a nested selection is live the engine stands aside, because only your node knows whether the caret is on its last row or merely somewhere in the middle. When your own walk runs out of content, hand the caret on:
+
+```ts
+import {
+  appendTrailingParagraph,
+  prependLeadingParagraph,
+} from "@tasfer/editor";
+
+// No block after this one: grow the paragraph to land in. Both helpers clamp
+// to the schema's `content` expression and return `{ kind: "fallthrough" }`
+// when it forbids a block there — leave the caret put in that case.
+const edge = appendTrailingParagraph(state, block);
+if (edge.kind === "break") return { state: edge.state, ops: edge.ops };
+```
+
 <h2 id="strings">Localized strings live on the node</h2>
 
 A node owns the canvas strings it paints — status labels, prompts — as a `strings` catalog of English defaults. The editor ships no i18n library; a localized host overrides per type via `theme.nodeStrings`. Read them inside `draw` with the protected `str(state, key)` helper. (The core image node and the opt-in math node own their labels exactly this way — they're no longer in a global string table.)
@@ -132,7 +201,7 @@ const marked = defineMark("highlight", {
 });
 ```
 
-A `Mark` subclass can also declare `selectionWrap` — the typed delimiters that apply it over a held selection, VS Code-style auto-surround with markdown meaning. Typing a trigger char while text is selected applies the mark instead of replacing the selection (the core marks declare `` ` `` → code and `~` → strike; the optional math extension declares `$` → inline math). Marks sharing a char at different `level`s cycle with the delimiter count on repeated presses, the way emphasis (`*`, level 1) and strong (`*`, level 2) walk *em* → **strong** → ***both*** → plain:
+A `Mark` subclass can also declare `selectionWrap` — the typed delimiters that apply it over a held selection, VS Code-style auto-surround with markdown meaning. Typing a trigger char while text is selected applies the mark instead of replacing the selection (the core marks declare `` ` `` → code and `~` → strike; the optional math extension declares `$` → inline math). Marks sharing a char at different `level`s cycle with the delimiter count on repeated presses, the way emphasis (`*`, level 1) and strong (`*`, level 2) walk _em_ → **strong** → **_both_** → plain:
 
 ```ts
 class HighlightMark extends Mark {
@@ -197,10 +266,10 @@ codecs that read them.
   together, the way you'd ship a database migration.
 </Callout>
 
-To constrain which of these registered types a given editor may *author* — a
+To constrain which of these registered types a given editor may _author_ — a
 one-line title, a comment box — narrow the schema with
 [`restrict`](/docs/editor/api-schema#restrict). It gates creation only: a
-restricted editor still *renders* a `callout` that a collaborator (or a paste)
+restricted editor still _renders_ a `callout` that a collaborator (or a paste)
 brings in, because the type stays registered.
 
 <h2 id="next">What to read next</h2>

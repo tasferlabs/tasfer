@@ -44,6 +44,11 @@ import { Card, CardGrid, Lede, PropsTable } from "../../docsComponents";
       type: "---",
       desc: 'Leaf horizontal divider (the classic "hr").',
     },
+    {
+      name: "table",
+      type: "| a | b |",
+      desc: "Grid of rich-text cells. The block stores nothing; its columns, rows and cells are one structured attachment. Registered by the opt-in @tasfer/table.",
+    },
   ]}
 />
 
@@ -211,6 +216,290 @@ which registers a block type that core does not otherwise know at all.
 The package also exports `CODE_LANGUAGES` and `codeLanguageLabel` (for a language
 picker), the `INDENT_CODE` / `OUTDENT_CODE` actions for a toolbar, and
 `highlightLine` if you want the tokenizer on its own.
+
+<h2 id="table">Optional tables</h2>
+
+`@tasfer/table` registers the `table` block: a grid of rich-text cells that
+round-trips as a GitHub-flavored Markdown table. The block itself stores
+nothing — its columns, rows and the text of every cell live in one structured
+attachment, so a table merges cell-by-cell and character-by-character rather
+than as one opaque value.
+
+```bash
+npm install @tasfer/editor @tasfer/table
+```
+
+```ts
+import { baseSchema } from "@tasfer/editor";
+import { tableExtension } from "@tasfer/table";
+
+const schema = baseSchema.use(tableExtension());
+```
+
+Headless hosts (workers, Markdown tooling, the CLI) take the canvas-free half
+instead, which registers the CRDT shape and the round-trip but no renderer:
+
+```ts
+import { baseDataSchema } from "@tasfer/editor";
+import { tableDataExtension } from "@tasfer/table/data";
+
+const schema = baseDataSchema.extend(tableDataExtension());
+```
+
+The attachment's shape is:
+
+```
+root  (kind "table", authority "block")
+  ├── slot "columns" → column nodes    { align? }
+  └── slot "rows"    → row nodes
+         └── slot "cells" → cell nodes { columnId }, textFields { text }
+```
+
+**Columns are identity-bearing nodes and each cell names its column.** That is
+what lets two people insert a column and a row at the same moment and still
+converge: positional cells could not say which column the new row was missing.
+The visible consequence is that a table is **not** guaranteed rectangular — a
+row can legitimately have no cell for some column yet, which reads as an empty
+cell. `readTable` resolves cells by column identity and reports those gaps, so
+build on it rather than indexing a row's cells by position.
+
+Because a cell holds ordinary editor text, marks work inside it (see
+`markFields` below). Cell content is _inline_ Markdown, matching GFM: `**bold**`
+is bold, while `# not a heading` stays literal.
+
+### Markdown shortcuts in cells
+
+Typing `**bold**` in a cell can auto-format the way it does in a paragraph. It
+is off unless you ask for it — a table of glob patterns or shell snippets wants
+`*` and `` ` `` to stay literal:
+
+```ts
+const schema = baseSchema.use(tableExtension({ markdownShortcuts: true }));
+```
+
+Hosts assembling a schema by hand build the rule directly, with
+`createTableInputRule({ markdownShortcuts: true })` in place of the default
+`tableInputRule` export. Both carry the same rule id, so only one can be
+installed.
+
+The recognizers are the engine's own (`**bold**`, `*italic*`, `~~strike~~` and
+`` `code` ``), and they fire on the keystroke that closes the delimiter — pasted
+text is untouched. Backspace, or the first undo, immediately after one takes the
+wrap back and leaves the syntax literal, which is how you type `*text*` in a
+cell. Only inline syntax applies: block prefixes stay literal in a cell, since a
+GFM cell cannot be a heading or a list.
+
+### On the canvas
+
+The grid always fits the block width — the editor scrolls vertically only — so
+columns split that width evenly. Only a resize drag makes one column wider than
+another: what a cell holds never moves an edge, so typing in a table does not
+rearrange it. Cell text wraps inside the width its column already has, and no
+column is laid out under `styles.blocks.table.minColumnWidth` — unless the page
+is too narrow to give every column even that, where the columns share what
+there is rather than run off the page.
+
+Cell text then wraps inside whatever width its column got, and each row takes
+the height of its tallest cell — a paragraph in one cell grows that row and
+leaves the others alone. When the grid is squeezed so far that even a single
+glyph no longer fits its column, the cell clips its own overflow at the
+hairline rather than painting across its neighbour.
+
+The caret inside a table is a `ContentPoint` addressing one cell's text field,
+never a block text index, so a collaborator editing another cell cannot move
+it. Arrow keys step within a cell and cross into the next at its edges, Tab
+walks the cells in row-major order, and Enter moves down a row rather than
+splitting the block (a GFM cell holds a single line). The vertical arrows also
+enter the table from the block above or below and leave it at its edge rows.
+
+Selecting works the same way in cell addresses. Shift with any of those keys
+grows a range from wherever the caret was anchored, a double-click (or
+double-tap) takes the word under it and a triple-click the whole cell, and a
+drag sweeps from the press. A range inside one cell highlights the characters
+it covers, exactly as prose does; a range that spans cells covers each of them
+whole, because a partial band across a grid reads as a rendering error and
+whole cells are the unit the clipboard, the mark toggles and the deletes all
+work in. At the grid's first and last stop the keys stay claimed and the range
+simply stops growing — a nested range and a flat one are different models, and
+there is no half-nested selection to hand the rest of the document.
+
+Copying a range inside one cell puts its characters on the clipboard; across
+cells it puts the covered cells, tab-separated within a row and newline
+separated between rows, which is the grid convention a spreadsheet reads. That
+projection is the kind's `contentSelection` adapter, and — like math's — it is
+installed by `tableExtension()` only: a worker replaying operations never holds
+a selection. Hosts assembling a schema by hand add `tableContentSelectionKind`
+to their `structuredKinds`.
+
+The deletes a cell answers to are the ones every other text surface does:
+Backspace and Delete, their word-wise variants (Alt/Ctrl+Backspace,
+Alt/Ctrl+Delete) and the line-wise ones (Cmd+Backspace, Cmd+Delete and Ctrl+K
+on macOS), which reach the cell's own edges since a GFM cell holds one line.
+They break words where the prose beside the table breaks them, and none of them
+crosses out of the cell: at an edge the key stays claimed and does nothing.
+
+Deleting the table from inside it takes two presses, as it does for a block
+equation: Backspace at the very start of the first cell selects the table whole
+— painted with the `blocks.table` `selectionOpacity` wash — and the next press
+deletes it. Ctrl/Cmd+A climbs the same container one rung per press: first the
+caret's own cell, then the table whole, then — because holding the table clears
+the nested caret — the whole document. A press that could not widen skips a
+rung, so a selection already spanning two cells, or a caret in an empty one,
+holds the table straight away. Backspace at the start of any other cell stays
+inert: cells are a grid, not a text stream, so the key never merges two of them.
+
+The header row is not painted apart from the rest: every row carries the same
+background and the same weight, so the grid reads as plain cells. That is
+appearance only — structurally `rows[0]` is still the header, which is what
+GFM's title line and an HTML export's `<th>` are written from, and what the
+insert-above rule below protects.
+
+Appearance is the `blocks.table` theme leaf — `borderColor`, `borderWidth`,
+`borderRadius`, `cellPaddingX`,
+`selectionOpacity`, `resizeEdgeColor` / `resizeEdgeWidth` for the column edge
+under the pointer, plus the
+`TextStyle` fields every cell's prose uses. Like `blocks.code`, it resolves
+from the theme tokens, so a table follows a host's palette and dark mode
+without the feature shipping its own colors.
+
+### Rows, columns and alignment
+
+Structural edits are dispatched actions, addressed to the cell the caret is in
+(pass `rowIndex` / `columnIndex` to target another cell, and `blockId` to target
+another table — an on-canvas control acts on the grid under the pointer, which
+need not be the one the caret is in):
+
+```ts
+import {
+  TABLE_INSERT_ROW,
+  TABLE_DELETE_ROW,
+  TABLE_INSERT_COLUMN,
+  TABLE_DELETE_COLUMN,
+  TABLE_SET_COLUMN_ALIGN,
+} from "@tasfer/table";
+
+editor.dispatch(TABLE_INSERT_ROW, { side: "after" });
+editor.dispatch(TABLE_SET_COLUMN_ALIGN, { align: "right" });
+```
+
+Each emits ordinary `content_edit` operations against the attachment, so a
+structural edit merges, syncs and undoes exactly like a typed character. Two
+commands are refused rather than approximated: removing the last row or column
+(a grid with nothing in it has nowhere to put a caret), and inserting a row
+above the header, which GFM cannot write. A refused command changes nothing —
+a host's cue to disable the control.
+
+Two of those commands also have an on-canvas route. A mouse resting past the
+grid's right edge, or in the block's bottom margin, lights a band with a plus in
+it; clicking adds a column after the last one, or a row after the last, and
+lands the caret in the cell it just made. Like the resize bands these are a
+`Node.regions` hit region declaring its own `hover`, so the band that lights up
+is the one a click would take.
+
+Only those two edges carry a strip. The left gutter is the block-reorder grab
+band, which spans every block's full height, and there is nothing to put above
+the grid — GFM writes the first row as the column titles, so a row before them
+is the position `insertRow` refuses. The strips are mouse-only: hover is what
+reveals them, and both sit where a thumb rests while scrolling past a table.
+
+To label and enable that control, read the grid at the caret with
+`tableShapeAt(document, point)`, which returns `{ rows, columns, rowIndex,
+columnIndex, align }` from the same public currency a host already holds —
+`query.content()` and `state.contentSelection`.
+
+Converting a block to `table` creates a blank 3×3 grid with the caret in its
+first header cell. The feature claims `CONVERT_STRUCTURED_BLOCK` to do it: a
+generic morph would leave a `table` block with no attachment, which paints as
+nothing.
+
+### Column widths
+
+Dragging an interior column edge (a `Node.regions` hit region on the node)
+trades width between the two columns it separates. The outer edges are not
+draggable — the grid is always exactly as wide as the page, so they have
+nowhere to go, and keeping the pair's total fixed means no other column moves.
+On touch the drag arms behind a short hold (`touchHoldMs`), so a scroll or a
+long-press selection beginning near a column edge is never stolen.
+
+A mouse resting on an edge lights it up and takes the `ew-resize` cursor. The
+region declares that affordance itself (`hover` on the hit region, recorded in
+`ui.regionHover`), so the lit edge is by construction the one a press would
+grab; it stays lit for the length of the drag.
+
+A resized column stores its width as a **fraction** of the grid rather than a
+pixel count: the same document opens on a phone and a desktop, and a stored
+pixel width would be wrong on one of them. Untouched columns stay
+content-sized — never squeezed below the widest word they have to show. A
+column someone dragged is exactly as wide as they dragged it, down to
+`minColumnWidth`, and wraps or clips its text to suit. A stored width still
+yields when it would starve an untouched neighbour below that floor. The
+drag itself writes no operations until release, so a gesture costs one entry in
+the log rather than one per frame.
+
+Widths are presentation, not content — they live on the column node and never
+reach the Markdown.
+
+<h2 id="structured-marks">Marks inside structured content</h2>
+
+A structured node's `textFields` are the same character CRDT block text uses,
+and a node may carry `markFields` — inline marks over those fields, keyed by the
+same field name. That is what makes rich text inside a table cell (or any other
+structured node) possible.
+
+```ts
+import { getStructuredMarks, resolveMarkRunsFromChars } from "@tasfer/editor";
+
+// One `mark_set` structured edit, carried by an ordinary content_edit op:
+const edit = {
+  kind: "mark_set",
+  nodeId: cell.id,
+  field: "text",
+  charIds, // a contiguous document-order run of the field's char ids
+  mark: { type: "strong" },
+  value: true,
+};
+```
+
+To let a user _apply_ one of those marks, claim `TOGGLE_MARK`. It is the single
+action every mark toggle funnels through — Ctrl/Cmd+B, the mobile toolbar, the
+desktop Format menu, and `editor.change(c => c.setMark(name))` — and it carries
+the mark as a name, so one handler covers bold, italic, strike and code at once:
+
+```ts
+import { TOGGLE_MARK } from "@tasfer/editor";
+
+bus.registerState(
+  TOGGLE_MARK,
+  (state, { name }) => {
+    const context = activeContext(state);
+    return context ? toggleMarkInMyNode(state, context, name) : undefined;
+  },
+  100,
+);
+```
+
+Return `undefined` when the caret is elsewhere and the ordinary flat-text path
+runs unchanged. At a collapsed caret, set `ui.activeMarksMode` to
+`{ type: "explicit", formats }` rather than writing an edit, and apply those
+formats to the characters your insert path adds next — that is what makes
+"Ctrl+B, then type" come out bold inside a cell. Marks active on a nested
+selection are reported by `editor.state.activeMarks` for free.
+
+The spans anchor to character identities, so a mark survives edits inside its
+range and merges per character. Unlike a block's `formats`, they carry no HLC:
+structured edits fold in canonical op-log order, so the last write already wins.
+Read them with `getStructuredMarks(document, nodeId, field)` and resolve them
+with the same `resolveMarkRunsFromChars` the block path uses.
+
+Two more helpers matter once a structured document gets large enough to walk:
+
+- `buildStructuredChildIndex(document)` resolves every parent/slot's children
+  once; pass it as `getStructuredChildren(…, { index })`. Without it each lookup
+  scans the whole document, which is fine for a formula and quadratic for a grid.
+- `cloneStructuredDocumentWithFreshIdentities(…, { rewriteAttrs })` re-points
+  identity-bearing attrs when a snapshot mints new ids. A kind that stores a node
+  reference in an attr (a table cell's `columnId`) must supply this, or the copy
+  references identities that no longer exist.
 
 <h2 id="extend">Extending</h2>
 

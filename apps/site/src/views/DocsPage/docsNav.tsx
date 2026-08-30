@@ -196,7 +196,7 @@ export const NAV: NavSection[] = [
             titleKey: "docs.navModel.editor.customNodes",
             descKey: "docs.navModel.editor.customNodes.desc",
             Comp: EditorCustomNodes,
-            kw: "schema node mark callout highlight extend define class register overlay slot strings nodeStrings localize",
+            kw: "schema node mark callout highlight extend define class register overlay slot strings nodeStrings localize caret contentcaretrect painttextrun nested structured",
           },
           {
             route: "editor/theming",
@@ -234,7 +234,7 @@ export const NAV: NavSection[] = [
             titleKey: "docs.navModel.editor.apiSchema",
             descKey: "docs.navModel.editor.apiSchema.desc",
             Comp: EditorApiSchema,
-            kw: "schema baseschema nodes marks content expression math code highlight extension",
+            kw: "schema baseschema nodes marks content expression math code highlight extension table grid column row cell resize width align",
           },
           {
             route: "editor/api-react",

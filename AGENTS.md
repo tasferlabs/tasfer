@@ -26,6 +26,7 @@ Compatibility requirements are documented in
 | `packages/tex`             | Canvas-native LaTeX layout and rendering                                |
 | `packages/math`            | Opt-in math node and mark; owns the `@tasfer/tex` engine                |
 | `packages/code`            | Opt-in code-block node: canvas painting and syntax highlighting         |
+| `packages/table`           | Opt-in table node: grid CRDT, cell rich text, GFM round-trip            |
 | `packages/react`           | React bindings for the editor                                           |
 | `packages/provider-*`      | Persistence and collaboration providers                                 |
 | `apps/web`                 | Main React host and cross-platform product logic                        |
