@@ -21,6 +21,15 @@ import { appDataSchema } from "../appDataSchema";
 export { extractBodyText };
 
 /**
+ * The single block the page's title is derived from — the first non-empty
+ * heading, else the first non-empty text block (see `deriveTitles`). Re-exported
+ * here so callers that need the title line as *content* (duplicating a page's
+ * heading without its body) resolve it exactly the way the title columns do,
+ * and go through this module's canvas-free deep imports.
+ */
+export { findTitleBlock };
+
+/**
  * Both title record strings, derived from the doc's blocks: `title` is the
  * title line's visible text (marks stripped — search, tab titles, filenames),
  * `titleMd` the same line as inline markdown (marks intact — rich previews

@@ -18,7 +18,7 @@ import { useSpaces } from "../../contexts/SpaceContext";
 import useLocalStorage from "../../hooks/useLocalStorage";
 import useMobileLayout from "../../hooks/useMobileLayout";
 import type { Block } from "@tasfer/editor";
-import { deriveTitles } from "@/lib/pageTitle";
+import { deriveTitles, findTitleBlock } from "@/lib/pageTitle";
 import { getResolvedTimezone } from "@/lib/dateTimePreferences";
 import { getPlatform } from "@/platform";
 import {
@@ -504,10 +504,11 @@ export default function CalendarPage() {
   );
 
   // Duplicate an existing event into a new page: copies its title, parent,
-  // color, duration, task flag, and body content. `scheduledAt` overrides the
-  // copy's time (used by Ctrl/Cmd-drag to drop the copy at a new slot); when
-  // omitted the copy lands at the original's time. `select` opens the new
-  // event's preview afterwards (used by the Duplicate button).
+  // color, duration, and task flag, but NOT its body — a duplicated event is a
+  // fresh occasion, not a second copy of the original's notes. `scheduledAt`
+  // overrides the copy's time (used by Ctrl/Cmd-drag to drop the copy at a new
+  // slot); when omitted the copy lands at the original's time. `select` opens
+  // the new event's preview afterwards (used by the Duplicate button).
   const duplicatePage = useCallback(
     async (
       sourceId: string,
@@ -535,10 +536,15 @@ export default function CalendarPage() {
       if (src.color) {
         await updatePageApi({ id: newPage.id, color: src.color });
       }
-      // writeBlocks reuses the new page's init block for the first block, so we
-      // don't end up with a duplicated leading heading.
-      if (src.blocks && src.blocks.length > 0) {
-        await getPlatform().ops.writeBlocks(newPage.id, src.blocks);
+      // Carry the heading over as content, not just as the title columns: those
+      // columns are a derived cache of the doc, so a copy whose doc was left
+      // empty would have its title wiped the next time the page is rebuilt.
+      // writeBlocks reuses the new page's init block for the first block, so
+      // writing the title block on its own leaves the copy with that heading
+      // and an empty body.
+      const titleBlock = findTitleBlock(src.blocks ?? undefined);
+      if (titleBlock) {
+        await getPlatform().ops.writeBlocks(newPage.id, [titleBlock]);
       }
       queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
       queryClient.invalidateQueries({ queryKey: ["pages"] });
