@@ -46,6 +46,7 @@
     "packages/tex/src",
     "packages/math/src",
     "packages/code/src",
+    "packages/table/src",
     "shared"
   ]
 }

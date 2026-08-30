@@ -289,6 +289,21 @@ const MATH_CAPS: BlockCapabilities = {
   titleInlineMarkdown: (text) => `$${text}$`,
 };
 
+// A table block stores nothing flat: its columns, rows and cells all live in
+// its authoritative structured attachment, so the block itself is a bare
+// identity. It is non-textual, which is what makes a caret move or a click past
+// the document edge escape into a fresh paragraph rather than land inside it —
+// though the grid owns its own caret, so it answers the keyboard half itself
+// (see `exitTable` in `@tasfer/table`).
+const TABLE_CAPS: BlockCapabilities = {
+  hasText: false,
+  hasFormats: false,
+  indentable: false,
+  togglable: false,
+  // No `morphGroup`: a grid does not read as prose in any other type, so a
+  // schema that bans tables drops the block rather than flattening it.
+};
+
 // Each descriptor uses `satisfies BlockTypeDescriptor` so it is checked against
 // the descriptor shape while keeping its own inferred type for local reads.
 
@@ -458,6 +473,17 @@ const codeDescriptor = {
   // that path doesn't consult `morphGroup`.
 } satisfies BlockTypeDescriptor;
 
+const tableDescriptor = {
+  type: "table",
+  capabilities: TABLE_CAPS,
+  defaults: (id: string, orderKey: string): Block =>
+    ({
+      ...makeBase(id, orderKey),
+      type: "table",
+    }) as unknown as Block,
+  fields: { type: typeField },
+} satisfies BlockTypeDescriptor;
+
 // The built-in block-type table — the single runtime source of truth for the
 // built-in set. Every "what block types exist" query (validation, the "type"
 // field's validator, morph compatibility) derives from this map; there is no
@@ -475,6 +501,7 @@ export const BLOCK_REGISTRY = {
   line: lineDescriptor,
   math: mathDescriptor,
   code: codeDescriptor,
+  table: tableDescriptor,
 } satisfies Record<BlockType, BlockTypeDescriptor>;
 
 // =============================================================================

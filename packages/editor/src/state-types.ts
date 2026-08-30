@@ -1120,6 +1120,57 @@ export interface BlockStyles {
   readonly todoList: TextStyle;
   readonly code: CodeBlockStyle;
   readonly quote: QuoteBlockStyle;
+  readonly table: TableBlockStyle;
+}
+
+/**
+ * Grid appearance of a table block. Extends {@link TextStyle} because a cell is
+ * ordinary prose — the base leaves give a cell its font and color, and the rest
+ * describes the grid drawn around it.
+ *
+ * Like `code` and `math`, this leaf lives in the core theme even though the node
+ * that paints it ships in an optional package: resolving it here from the theme
+ * tokens is what keeps a table's hairlines and cell washes following a host's
+ * palette (dark mode included) instead of freezing whatever colors the feature
+ * bundle happened to ship.
+ */
+export interface TableBlockStyle extends TextStyle {
+  /** Outer flow margin above/below the grid, separating it from prose. */
+  readonly marginTop: number;
+  readonly marginBottom: number;
+  /** Hairline color and thickness for every cell edge. */
+  readonly borderColor: string;
+  readonly borderWidth: number;
+  readonly borderRadius: number;
+  /** Padding inside each cell, between its border and its text. */
+  readonly cellPaddingX: number;
+  readonly cellPaddingY: number;
+  /**
+   * Narrowest a column may be squeezed to before its text is allowed to
+   * overflow its own wrap width. A table always fits the page width (there is
+   * no horizontal scroll), so this is the floor that keeps a many-column table
+   * from collapsing its columns to slivers.
+   */
+  readonly minColumnWidth: number;
+  /** Fill behind the cell the caret is in, marking the active cell. */
+  readonly activeCellBackgroundColor: string;
+  /**
+   * The column edge under the pointer, or being dragged: its color and how
+   * thick it draws. Wider than a hairline so the edge reads as grabbable before
+   * the press, and stays visible under the pointer during the drag.
+   */
+  readonly resizeEdgeColor: string;
+  readonly resizeEdgeWidth: number;
+  /**
+   * Opacity for the wash marking the table as selected whole.
+   *
+   * Its own token rather than the shared `selection.opacity`, for the reason a
+   * block equation has one: that value is tuned to composite over the plain
+   * page, and a table's wash lands on the header fill and the active-cell
+   * background instead, where it reads as weaker than the same selection on
+   * prose.
+   */
+  readonly selectionOpacity: number;
 }
 
 export interface QuoteBlockStyle extends TextStyle {

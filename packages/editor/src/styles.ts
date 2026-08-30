@@ -244,7 +244,7 @@ export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
     },
     fonts,
     fontFamily: theme.fontFamily ?? null,
-    // Block typography follows standard prose guidelines, 
+    // Block typography follows standard prose guidelines,
     // (which agree with e.g. the Tailwind Typography scale):
     //   - body text at 16px with a 1.5 line-height;
     //   - headings on a 1.875em / 1.5em / 1.25em ratio scale (30/24/20px) with
@@ -359,6 +359,37 @@ export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
         // on narrow screens, so the placeholder renders at 0.8× (was baked into
         // QuoteNode; now a theme leaf).
         placeholder: { fontScale: 0.8 },
+      },
+      table: {
+        // Same outer-margin rationale as `code`.
+        marginTop: 8,
+        marginBottom: 16,
+        // A notch under body prose: a grid packs many short strings, and 15px
+        // keeps a wide table readable without forcing its columns narrower.
+        fontSize: 15,
+        fontWeight: "normal",
+        color: t.text,
+        lineHeight: 1.5,
+        paddingTop: 0,
+        paddingBottom: 0,
+        borderColor: t.border,
+        borderWidth: 1,
+        borderRadius: 6,
+        cellPaddingX: 10,
+        cellPaddingY: 7,
+        // ~3 characters plus both paddings: narrow enough that an 8-column
+        // table still fits a phone, wide enough to stay a column.
+        minColumnWidth: 48,
+        activeCellBackgroundColor: t.muted,
+        // The accent already means "live handle" elsewhere (the quote rule, the
+        // checked box), and 2px is the thinnest band that still reads as a grip
+        // rather than a slightly darker hairline.
+        resizeEdgeColor: t.primary,
+        resizeEdgeWidth: 2,
+        // Same rationale as the block equation's: the shared 0.2 is tuned for a
+        // wash over the plain page, and over a table's own cell fill it reads as
+        // less selected than the prose around it.
+        selectionOpacity: 0.4,
       },
       line: {
         height: 32, // Total block height
