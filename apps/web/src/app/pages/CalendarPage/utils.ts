@@ -36,6 +36,14 @@ export function minCreateMinutes(hourHeight: number): number {
   return steps * SNAP_MINUTES;
 }
 
+/**
+ * Where a keyboard-created event starts on a day that isn't today, and how long
+ * it runs. A drag says both with the pointer; pressing "c" has to pick, so it
+ * picks the start of the working day and an hour — both editable before saving.
+ */
+export const KEYBOARD_CREATE_START_MINUTES = 9 * 60;
+export const KEYBOARD_CREATE_MINUTES = 60;
+
 export type ViewMode = "day" | "week";
 
 export interface CalendarInterval {

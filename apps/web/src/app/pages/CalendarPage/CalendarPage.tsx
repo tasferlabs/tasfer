@@ -33,6 +33,8 @@ import {
   DEFAULT_HOUR_HEIGHT,
   TOTAL_HOURS,
   SNAP_MINUTES,
+  KEYBOARD_CREATE_START_MINUTES,
+  KEYBOARD_CREATE_MINUTES,
   MIN_DRAG_MINUTES,
   minCreateMinutes,
   clampHourHeight,
@@ -2003,6 +2005,21 @@ export default function CalendarPage() {
           e.preventDefault();
           goToToday();
           break;
+        case "c": {
+          e.preventDefault();
+          // Land where the user is looking: the next quarter-hour when today is
+          // on screen, the start of the working day otherwise. The draft opens
+          // with the title focused, so a whole event is "c", type, ⌘↵ — no
+          // pointer, and no drag to place a card the fields can restate.
+          const start = isToday
+            ? Math.ceil(nowMinutes / SNAP_MINUTES) * SNAP_MINUTES
+            : KEYBOARD_CREATE_START_MINUTES;
+          createPageAtTime(
+            Math.min(start, TOTAL_HOURS * 60 - KEYBOARD_CREATE_MINUTES),
+            KEYBOARD_CREATE_MINUTES,
+          );
+          break;
+        }
         case "1":
           e.preventDefault();
           setViewMode("day");
@@ -2016,7 +2033,14 @@ export default function CalendarPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [createPageAtTime, viewMode, previewPageId, draftEvent]);
+  }, [
+    createPageAtTime,
+    viewMode,
+    previewPageId,
+    draftEvent,
+    isToday,
+    nowMinutes,
+  ]);
 
   const noopHandler = useCallback(() => {}, []);
 
