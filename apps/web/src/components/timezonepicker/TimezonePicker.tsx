@@ -225,10 +225,7 @@ export function TimezonePicker({
           <span className="shrink-0 text-xs text-muted-foreground">
             {formatGmtOffset(selectedOffset)}
           </span>
-          <span className="ms-auto shrink-0 text-xs tabular-nums text-muted-foreground">
-            {zoneTime(selectedOffset)}
-          </span>
-          <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground" />
+          <ChevronDownIcon className="ms-auto size-4 shrink-0 text-muted-foreground" />
         </button>
       </Popover.Trigger>
       <Popover.Portal>
