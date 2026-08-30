@@ -2171,14 +2171,13 @@ function PageEditor({
     () =>
       createMobileToolbarModel(
         {
-          // Selecting an image keeps the editor focused but may not raise the
-          // soft keyboard, so also show the bar (with its image settings button)
-          // whenever an image block is the selection. iOS ignores `visible` —
-          // UIKit attaches the accessory only with the keyboard.
-          visible:
-            !readonly &&
-            !toolbarSuppressed &&
-            (keyboardOpen || mobileToolbar.blockType === "image"),
+          // The bar rides the soft keyboard and nothing else: it is a keyboard
+          // accessory, so it must never stand on its own over a closed keyboard
+          // (selecting an image used to do that, and left a bar with no keyboard
+          // under it — the image controls live in the long-press menu instead).
+          // iOS ignores `visible` — UIKit attaches the accessory only with the
+          // keyboard.
+          visible: !readonly && !toolbarSuppressed && keyboardOpen,
           bottomInset: keyboardHeight,
           ...mobileToolbar,
         },
@@ -3429,6 +3428,53 @@ function PageEditor({
           void downloadImage(imageUrl, imageAlt);
         },
       });
+    }
+
+    // The image's own settings, on the same terms as matrix/table below: a
+    // selected image needs no text selection. This is the touch entry point —
+    // the on-canvas edit/reposition chrome is revealed by hover, which a finger
+    // never produces, and the keyboard toolbar exists only while the keyboard
+    // is open, which selecting an image does not do.
+    if (!readonly && block?.type === "image") {
+      const imageBlockId = block.id;
+      items.push({
+        id: "editImage",
+        label: t("editor.image.editImage", "Edit Image"),
+        icon: <ImageIcon size={16} />,
+        action: () => {
+          const editorApi = mountedRef.current?.editor;
+          if (!editorApi) return;
+          // Anchor in canvas/container space (the overlay shifts it back into
+          // viewport space). On touch this renders as a full-screen drawer, so
+          // the point is only a rough origin; on desktop it opens under the
+          // right-click. Mirrors the format-button path above.
+          const container = wrapperRef.current?.getBoundingClientRect();
+          const menu = contextMenuState;
+          const x =
+            container && menu
+              ? menu.x - container.left
+              : (container?.width ?? 0) / 2;
+          const y = container && menu ? menu.y - container.top : 100;
+          openImageUploadMenu(editorApi, imageBlockId, x, y);
+        },
+      });
+      // Offered only for a crop with room to move, and never while the mode is
+      // already running — re-entering would re-stamp the origin Cancel restores
+      // to. Same test the keyboard toolbar's button uses.
+      if (
+        mobileToolbar.canRepositionImage &&
+        !mobileToolbar.repositioningImage
+      ) {
+        items.push({
+          id: "repositionImage",
+          label: t("image.reposition", "Reposition"),
+          icon: <Move size={16} />,
+          action: () => {
+            // From here the pinned on-canvas chrome carries Done/Cancel.
+            mountedRef.current?.editor.dispatch(ENTER_IMAGE_REPOSITION, {});
+          },
+        });
+      }
     }
 
     // "Edit matrix" when the caret sits in a grid construct. Unlike Format this

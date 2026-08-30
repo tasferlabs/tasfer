@@ -217,7 +217,15 @@ export function MobileKeyboardToolbar({
       ref={containerRef}
       data-editor-overlay
       className="fixed bottom-0 left-0 right-0 z-50 flex flex-col"
-      style={{ bottom: `${model.bottomInset}px` }}
+      // Sits on the keyboard, and never below the system bars: an Android
+      // gesture/nav bar taller than the reported IME inset would otherwise draw
+      // its buttons straight over this row. Android injects the inset as
+      // `--safe-area-inset-bottom` (MainActivity) where `env()` reads 0, so
+      // both sources are consulted — same formula as BottomToolDock /
+      // ActionCenter.
+      style={{
+        bottom: `max(${model.bottomInset}px, var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))`,
+      }}
       onTouchStart={(e) => e.stopPropagation()}
       // Controls preserve the editor's focus themselves, but the bar's own
       // chrome — the empty stretch of the scrollable middle, dividers, the
@@ -315,18 +323,6 @@ export function MobileKeyboardToolbar({
           {layout.right.map(renderItem)}
         </div>
       </div>
-
-      {/* With the keyboard closed (image-selected case) the bar sits on the
-          screen edge, so extend its background under the home-indicator /
-          gesture area. An open keyboard covers that region itself. Rendered
-          inside the container so `--keyboard-toolbar-height` includes it and
-          the canvas / BottomToolDock clear the padded bar automatically. */}
-      {model.bottomInset === 0 && (
-        <div
-          className="bg-background"
-          style={{ height: "env(safe-area-inset-bottom, 0px)" }}
-        />
-      )}
     </div>
   );
 }

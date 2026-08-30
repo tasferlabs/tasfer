@@ -723,10 +723,12 @@ function buildLayout(
   const right = [controls.dismiss];
 
   // An image block has no inline text to format: its whole contextual bar is the
-  // settings controls (reposition, replace/remove), shown beside history.
-  // Selecting an image keeps the editor focused, so the bar/accessory stays up
-  // to host this. Reposition appears only for a crop that can actually move, and
-  // only here on touch — its on-canvas twin is revealed by hover.
+  // settings controls (reposition, replace/remove), shown beside history. This
+  // is the caret-on-an-image case with the keyboard still up (the bar never
+  // outlives the keyboard); with the keyboard closed the same two actions live
+  // in the long-press context menu. Reposition appears only for a crop that can
+  // actually move — its on-canvas twin is revealed by hover, which touch never
+  // produces.
   if (state.blockType === "image") {
     return {
       context: "image",
