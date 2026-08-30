@@ -33,10 +33,18 @@ export type { ArchivedSpaceItem };
  * Invalidate everything affected by a space changing its archived state.
  * Archiving or restoring a space moves it between the sidebar and the Archive,
  * and shifts which of its archived pages the Archive can surface (pages in an archived
- * space are hidden with it), so both space and page lists must refresh.
+ * space are hidden with it), so both space and page lists must refresh. The
+ * calendar is its own key and hides the space's events the same way, so it has
+ * to be named separately.
  */
 function spaceArchiveKeys(): string[][] {
-  return [["spaces"], ["spaces-archived"], ["pages"], ["pages-archived"]];
+  return [
+    ["spaces"],
+    ["spaces-archived"],
+    ["pages"],
+    ["pages-archived"],
+    ["calendar-pages"],
+  ];
 }
 
 export interface ISpaceMember {

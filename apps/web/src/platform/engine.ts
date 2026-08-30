@@ -3604,10 +3604,14 @@ export class Engine implements Platform {
         task: number;
         created_at: string;
       }>(
-        `SELECT * FROM pages
-         WHERE scheduled_at IS NOT NULL AND archived_at IS NULL
-         AND scheduled_at >= ? AND scheduled_at <= ?
-         ORDER BY scheduled_at ASC`,
+        // Pages in an archived space stay live but are hidden as a whole (see
+        // spaces.listArchived), so their events must not surface here either.
+        `SELECT p.* FROM pages p
+         LEFT JOIN spaces s ON s.id = p.space_id
+         WHERE p.scheduled_at IS NOT NULL AND p.archived_at IS NULL
+         AND (p.space_id IS NULL OR s.archived_at IS NULL)
+         AND p.scheduled_at >= ? AND p.scheduled_at <= ?
+         ORDER BY p.scheduled_at ASC`,
         [new Date(start).toISOString(), new Date(end).toISOString()],
       );
 
