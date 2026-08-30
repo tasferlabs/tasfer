@@ -216,7 +216,17 @@ export function ImportAllDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent
+        // Work in flight is stopped by Cancel and nothing else: an
+        // outside click or Escape would only hide the progress while
+        // the run kept going.
+        onInteractOutside={(e) => {
+          if (phase === "importing") e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          if (phase === "importing") e.preventDefault();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{t("import.title", "Import")}</DialogTitle>
           <DialogDescription>
