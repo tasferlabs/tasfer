@@ -6,8 +6,11 @@
  * first/last line and the block is the first/last in the document, a vertical
  * caret move (ArrowUp/Down, PageUp/Down) or a click in the empty area above/below
  * it starts a new paragraph there and moves the caret into it, rather than
- * clamping to the block's own text. Visual void blocks (image / line) escape the
- * same way regardless of caret line. Ordinary text blocks (paragraph / heading)
+ * clamping to the block's own text. Blocks with no flat text at all (image /
+ * line / table, and any block a host registers) escape the same way regardless
+ * of caret line, and without opting in — `escapesAtDocumentEdge` is the union
+ * the edge helpers ask, so a document whose only block is one of these is never
+ * left with nowhere to type. Ordinary text blocks (paragraph / heading / list)
  * do not escape. These drive the pure helpers over fabricated state (no canvas
  * mount). CodeNode-specific geometry (an inner line of a multi-line code block
  * must not escape) turns on the node's own wrapping and is covered in
@@ -22,7 +25,7 @@ import {
   escapeAboveSelfContainedBlock,
   escapeBelowSelfContainedBlock,
 } from "@tasfer/editor/actions/edit-actions";
-import { loadPage } from "@tasfer/editor/serlization/loadPage";
+import { type Block, loadPage } from "@tasfer/editor/serlization/loadPage";
 import type {
   CursorState,
   EditorState,
@@ -32,7 +35,10 @@ import {
   createInitialState,
   getBlockTextContent,
 } from "@tasfer/editor/state-utils";
-import { isSelfContained } from "@tasfer/editor/sync/block-registry";
+import {
+  escapesAtDocumentEdge,
+  isSelfContained,
+} from "@tasfer/editor/sync/block-registry";
 import { describe, expect, it } from "vitest";
 
 function stateFrom(markdown: string): EditorState {
@@ -76,6 +82,32 @@ describe("selfContained capability", () => {
     expect(isSelfContained(loadMathPage("> hi").blocks[0])).toBe(true);
     expect(isSelfContained(loadMathPage("hello").blocks[0])).toBe(false);
     expect(isSelfContained(loadMathPage("# title").blocks[0])).toBe(false);
+  });
+});
+
+describe("escapesAtDocumentEdge", () => {
+  const ofType = (type: string) => ({ type }) as unknown as Block;
+
+  it("covers self-contained text and every block with no flat text", () => {
+    for (const md of ["```\nx\n```", "$$x$$", "> hi", "![](/img.png)"]) {
+      expect(escapesAtDocumentEdge(loadMathPage(md).blocks[0])).toBe(true);
+    }
+    // Non-textual built-ins that markdown does not spell out here.
+    expect(escapesAtDocumentEdge(ofType("line"))).toBe(true);
+    expect(escapesAtDocumentEdge(ofType("table"))).toBe(true);
+  });
+
+  it("is the default for a block type the core registry never saw", () => {
+    // The guarantee for host-registered nodes: a document whose only block is
+    // a custom one still grows a paragraph when you click or arrow past it,
+    // without the node opting in.
+    expect(escapesAtDocumentEdge(ofType("some-host-node"))).toBe(true);
+  });
+
+  it("leaves ordinary continuable text alone", () => {
+    for (const md of ["hello", "# title", "- item"]) {
+      expect(escapesAtDocumentEdge(loadMathPage(md).blocks[0])).toBe(false);
+    }
   });
 });
 
@@ -243,6 +275,25 @@ describe("createParagraphBelowOnClick / createParagraphAboveOnClick", () => {
     expect(createParagraphAboveOnClick(s, 100_000, VIEWPORT).kind).toBe(
       "fallthrough",
     );
+  });
+
+  it("escapes a non-textual block too, in both directions", () => {
+    // A document whose only block stores no flat text has nowhere to put the
+    // caret, so clicking the empty page past it has to grow somewhere to type.
+    const s = stateFrom("![](/img.png)");
+    expect(s.document.page.blocks).toHaveLength(1);
+
+    const below = createParagraphBelowOnClick(s, 100_000, VIEWPORT);
+    expect(below.kind).toBe("break");
+    if (below.kind !== "break") return;
+    expect(below.state.document.page.blocks[1].type).toBe("paragraph");
+    expect(below.state.document.cursor?.position.blockIndex).toBe(1);
+
+    const above = createParagraphAboveOnClick(s, -100, VIEWPORT);
+    expect(above.kind).toBe("break");
+    if (above.kind !== "break") return;
+    expect(above.state.document.page.blocks[0].type).toBe("paragraph");
+    expect(above.state.document.cursor?.position.blockIndex).toBe(0);
   });
 
   it("falls through for ordinary trailing/leading paragraphs", () => {

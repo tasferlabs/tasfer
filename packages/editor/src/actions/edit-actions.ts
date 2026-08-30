@@ -49,6 +49,7 @@ import type { EditorState, Operation, ViewportState } from "../state-types";
 import { getBlockTextContent } from "../state-utils";
 import { findBlock } from "../sync/block-lookup";
 import {
+  escapesAtDocumentEdge,
   isPreformattedType,
   isSelfContained,
   isTextualBlock,
@@ -774,13 +775,18 @@ export function escapeAboveSelfContainedBlock(
 }
 
 /**
- * Pointer counterpart to {@link escapeBelowSelfContainedBlock}: a click/tap in
- * the empty area below the last block, when that block is a self-contained text
- * block (`selfContained` — code / math / quote), starts a fresh trailing
- * paragraph and places the caret there instead of clamping it to the block's
- * end. Clicks that land on the block's own content fall through (`canvasY` is
- * tested against the content's bottom edge). Visual void blocks keep their
- * existing node-level click handling and are not considered here. Returns
+ * Pointer counterpart to the keyboard escapes: a click/tap in the empty area
+ * below the last block, when that block does not want the caret at its edge
+ * (`escapesAtDocumentEdge` — the self-contained text blocks code / math / quote,
+ * every non-textual block such as image / line / table, and any block a host
+ * registers), starts a fresh trailing paragraph and places the caret there
+ * instead of clamping it into the block.
+ *
+ * This is what keeps a document whose only block is a quote, an image or a
+ * table writable: clicking the empty page below it gives you somewhere to type.
+ * Clicks that land on the block's own content fall through (`canvasY` is tested
+ * against the content's bottom edge), as do ordinary trailing paragraphs and
+ * headings, whose end is a perfectly good place for the caret. Returns
  * `fallthrough` unless the edge applies.
  */
 export function createParagraphBelowOnClick(
@@ -793,7 +799,9 @@ export function createParagraphBelowOnClick(
 
   const lastVisible = visibleBlocks[visibleBlocks.length - 1];
   const lastBlock = state.document.page.blocks[lastVisible.originalIndex];
-  if (!lastBlock || !isSelfContained(lastBlock)) return { kind: "fallthrough" };
+  if (!lastBlock || !escapesAtDocumentEdge(lastBlock)) {
+    return { kind: "fallthrough" };
+  }
   if (!isPointBelowContent(canvasY, state, viewport)) {
     return { kind: "fallthrough" };
   }
@@ -803,10 +811,9 @@ export function createParagraphBelowOnClick(
 
 /**
  * Upward mirror of {@link createParagraphBelowOnClick}: a click/tap in the empty
- * area above the first block (the top padding), when that block is a
- * self-contained text block (`selfContained` — code / math / quote), starts a
- * fresh leading paragraph and places the caret there. Returns `fallthrough`
- * unless the edge applies.
+ * area above the first block (the top padding), when that block escapes at the
+ * document edge, starts a fresh leading paragraph and places the caret there.
+ * Returns `fallthrough` unless the edge applies.
  */
 export function createParagraphAboveOnClick(
   state: EditorState,
@@ -817,7 +824,7 @@ export function createParagraphAboveOnClick(
   if (visibleBlocks.length === 0) return { kind: "fallthrough" };
 
   const firstBlock = state.document.page.blocks[visibleBlocks[0].originalIndex];
-  if (!firstBlock || !isSelfContained(firstBlock)) {
+  if (!firstBlock || !escapesAtDocumentEdge(firstBlock)) {
     return { kind: "fallthrough" };
   }
   if (!isPointAboveContent(canvasY, state, viewport)) {

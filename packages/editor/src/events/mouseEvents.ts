@@ -327,10 +327,11 @@ export function handleMouseDown(
   const isClickInTopPadding =
     canvasY < styles.canvas.paddingTop - viewport.scrollY;
 
-  // If clicking in top padding, start a fresh paragraph above a leading
-  // self-contained block (code/math/quote); otherwise put the caret at the top
-  // of the document and arm a drag, so a sweep that starts in the margin above
-  // the text selects downward from the start.
+  // If clicking in top padding, start a fresh paragraph above a leading block
+  // that has no caret to offer at its edge (code/math/quote, and every
+  // non-textual block — image/line/table/custom); otherwise put the caret at the
+  // top of the document and arm a drag, so a sweep that starts in the margin
+  // above the text selects downward from the start.
   if (isClickInTopPadding) {
     if (state.ui.mode !== "readonly") {
       const edge = createParagraphAboveOnClick(state, canvasY, viewport);
@@ -493,9 +494,10 @@ export function handleMouseDown(
     };
   }
 
-  // A single click in the empty area below a trailing self-contained block
-  // (code/math/quote) starts a fresh paragraph there, so the caret lands in
-  // editable text rather than inside the block.
+  // A single click in the empty area below a trailing block that has no caret
+  // to offer at its edge (code/math/quote, and every non-textual block —
+  // image/line/table/custom) starts a fresh paragraph there, so the caret lands
+  // in editable text rather than inside the block.
   if (!isMultiClick && state.ui.mode !== "readonly") {
     const edge = createParagraphBelowOnClick(state, canvasY, viewport);
     if (edge.kind === "break") {

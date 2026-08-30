@@ -58,8 +58,12 @@ export interface BlockCapabilities {
    * empty area above/below it starts a fresh paragraph there and places the caret
    * in it, instead of clamping to the block's own text. Set on code / math /
    * quote; left off for paragraph / heading / list, whose edge lines are ordinary
-   * continuable text. Visual void blocks (image / line) get the same effect via
-   * the non-textual branch and don't set this.
+   * continuable text.
+   *
+   * This flag is only needed by blocks that DO store text. A block with no flat
+   * text of its own (image / line / table, and any host-registered block) has no
+   * edge to clamp to and escapes anyway — see {@link escapesAtDocumentEdge},
+   * which is the predicate the edge helpers actually ask.
    */
   readonly selfContained?: boolean;
   /**
@@ -534,11 +538,31 @@ export function titleInlineMarkdownProjection(
  * Whether a vertical caret move or a click past the edge of this block should
  * escape into a fresh paragraph above/below it rather than land inside the block
  * (see {@link BlockCapabilities.selfContained}). True for code / math / quote;
- * false for ordinary text blocks. Visual void blocks are handled by the
- * non-textual branch and report false here.
+ * false for ordinary text blocks. Non-textual blocks report false here and
+ * escape through the other arm of {@link escapesAtDocumentEdge}.
  */
 export function isSelfContained(block: Block): boolean {
   return REGISTRY[block.type]?.capabilities.selfContained ?? false;
+}
+
+/**
+ * Whether a caret move or a click *past* this block, while it sits at the
+ * document's edge, should grow a fresh paragraph there rather than land back
+ * inside the block. True for two families, for the same reason:
+ *
+ *   - `selfContained` text blocks (code / math / quote) — their edge line is
+ *     not continuable prose, so you fall out of them rather than typing on;
+ *   - every non-textual block (image / line / table, and any block a host
+ *     registers that stores no flat text) — there is no text to land in at all.
+ *
+ * The second arm is the default for unknown types, which is deliberate: a
+ * custom block gets the escape without opting in, so a document whose only
+ * block is one is never a trap with nowhere to type. Ordinary text blocks
+ * (paragraph / heading / list) report false — their edge is continuable, and a
+ * click past it belongs at the end of their own text.
+ */
+export function escapesAtDocumentEdge(block: Block): boolean {
+  return !isTextualBlock(block) || isSelfContained(block);
 }
 
 export function isIndentable(type: string): boolean {

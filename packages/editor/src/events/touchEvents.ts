@@ -1025,8 +1025,9 @@ export function handleTouchEnd(
     const isTapInTopPadding =
       tapPosition.y < styles.canvas.paddingTop - viewport.scrollY;
 
-    // If tapping in top padding, start a fresh paragraph above a leading
-    // self-contained block (code/math/quote); otherwise clear selection.
+    // If tapping in top padding, start a fresh paragraph above a leading block
+    // that has no caret to offer at its edge (code/math/quote, and every
+    // non-textual block — image/line/table/custom); otherwise clear selection.
     if (isTapInTopPadding) {
       const edge =
         state.ui.mode !== "readonly"
@@ -1351,8 +1352,9 @@ export function handleTouchEnd(
       }
 
       // Single tap: collapse any selection, position the caret, and close the
-      // context menu. A tap in the empty area below a trailing self-contained
-      // block (code/math/quote) starts a fresh paragraph there instead.
+      // context menu. A tap in the empty area below a trailing block that has no
+      // caret to offer at its edge (code/math/quote, and every non-textual block
+      // — image/line/table/custom) starts a fresh paragraph there instead.
       else {
         const edge =
           state.ui.mode !== "readonly"
