@@ -35,23 +35,28 @@ export async function fetchImageBlob(url: string): Promise<Blob | null> {
     url.startsWith("https://");
 
   // Resolve asset hashes to a real URL the same way the renderer does
-  let resolvedUrl = url;
+  let resolvedUrl: string | null = url;
   if (!isAlreadyUrl) {
     try {
       resolvedUrl = await getPlatform().assets.getUrl(url);
     } catch {
-      // ignore — fall through to fetch attempt / cache fallback
+      // Unresolvable — and a bare hash is not a URL, so fetching it would only
+      // resolve against the document base (under Electron, a file:// path that
+      // cannot exist) and fail. Skip straight to the cache fallback.
+      resolvedUrl = null;
     }
   }
 
-  try {
-    const response = await fetch(resolvedUrl);
-    if (response.ok) {
-      const blob = await response.blob();
-      if (blob.size > 0) return blob;
+  if (resolvedUrl !== null) {
+    try {
+      const response = await fetch(resolvedUrl);
+      if (response.ok) {
+        const blob = await response.blob();
+        if (blob.size > 0) return blob;
+      }
+    } catch {
+      // fetch failed — fall through to imageCache
     }
-  } catch {
-    // fetch failed — fall through to imageCache
   }
 
   // Fallback: extract from the renderer's in-memory image cache (handles revoked blob URLs)

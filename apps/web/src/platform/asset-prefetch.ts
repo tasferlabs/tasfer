@@ -9,7 +9,7 @@
  * staying receiver-driven: whenever the engine learns of asset references
  * (remote page ops, avatar updates, the startup sweep), the hashes missing
  * from the local store are queued and pulled over the existing
- * asset-req/asset-data protocol.
+ * asset-req/asset-data/asset-miss protocol.
  *
  * No wire change: peers already serve any asset they hold from disk, and we
  * only ask for hashes learned from our own replicated data — the same access

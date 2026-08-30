@@ -26,6 +26,7 @@ import { extractTitleFromBlocks } from "@tasfer/editor/internal";
 import { renderToSVG } from "@tasfer/math";
 import { getTexFontUrl } from "@/fonts";
 import { extFromMime, fetchImageBlob } from "@/lib/exportAssets";
+import { ASSET_FETCH_CONCURRENCY, mapWithConcurrency } from "@/lib/spaceExport";
 import { getPage } from "../api/pages.api";
 import type { PageMetadata } from "@tasfer/editor";
 import { downloadFile } from "@/downloadFile";
@@ -141,17 +142,27 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
   };
 
   const buildExportHtml = async (): Promise<string> => {
-    // Resolve image URLs to data URLs so they survive across windows / native renderers
+    // Resolve image URLs to data URLs so they survive across windows / native
+    // renderers. Fetched together: a ref nothing can supply costs a fixed wait,
+    // and serially that wait is paid once per missing image.
     const imageUrlMap = new Map<string, string>();
-    for (const url of collectAssetRefs(currentBlocks, appDataSchema)) {
-      const blob = await fetchImageBlob(url);
-      if (blob) {
+    const urls = [...collectAssetRefs(currentBlocks, appDataSchema)];
+    const dataUrls = await mapWithConcurrency(
+      urls,
+      ASSET_FETCH_CONCURRENCY,
+      async (url) => {
+        const blob = await fetchImageBlob(url);
+        if (!blob) return null;
         try {
-          imageUrlMap.set(url, await blobToDataUrl(blob));
+          return await blobToDataUrl(blob);
         } catch {
-          // ignore — the image just won't render
+          return null; // the image just won't render
         }
-      }
+      },
+    );
+    for (const [i, url] of urls.entries()) {
+      const dataUrl = dataUrls[i];
+      if (dataUrl) imageUrlMap.set(url, dataUrl);
     }
 
     const title = getBaseName();
@@ -295,8 +306,15 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
       const urlToFileName = new Map<string, string>();
       let imgIndex = 0;
 
-      for (const url of assetUrls) {
-        const blob = await fetchImageBlob(url);
+      // Fetched together for the same reason as above; names are still handed
+      // out in url order so the bundle does not depend on completion order.
+      const blobs = await mapWithConcurrency(
+        assetUrls,
+        ASSET_FETCH_CONCURRENCY,
+        (url) => fetchImageBlob(url),
+      );
+      for (const [i, url] of assetUrls.entries()) {
+        const blob = blobs[i];
         if (blob) {
           const ext = extFromMime(blob.type);
           const fileName = `image_${imgIndex}.${ext}`;
