@@ -19,6 +19,7 @@ import { clsx } from "clsx";
 import {
   Archive,
   ChevronDown,
+  ChevronUp,
   FileText,
   PanelLeftClose,
   Plus,
@@ -674,14 +675,39 @@ export function SidebarContent({
   const avatarUrl = useAssetUrl(user?.avatar);
   const adapter = detectAdapterDetailed();
   const isElectron = adapter.startsWith("electron");
-  const shouldShowTheProfileAtTop =
-    hasSidebarProfile && adapter !== "electron-macos";
+  // On the macOS app the sidebar header is the traffic-light strip, so an
+  // account row there sits right next to the window buttons. The footer row
+  // carries the identity instead — and, being the only one, the menu with it.
+  const isMacApp = adapter === "electron-macos";
+  const shouldShowTheProfileAtTop = hasSidebarProfile && !isMacApp;
+  const hasAccountMenuInFooter = isMacApp && hasSidebarProfile;
   const shouldOverlaySidebarClose =
     !hasSidebarProfile && !isMobile && !isElectron;
   // The bare /page route is the editor's "no page" empty state (and, without a
   // space, the screen that stands in for it) — the one place where closing the
   // drawer uncovers nothing to come back to.
   const hasOpenPage = !useMatch("/page");
+
+  // Whichever row carries the account menu shows the same items.
+  const accountMenuItems = (
+    <>
+      {avatarUrl && (
+        <>
+          <DropdownMenuItem onSelect={() => setAvatarPreviewOpen(true)}>
+            {t("profile.viewAvatar", "View avatar")}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+        </>
+      )}
+      <DropdownMenuItem onSelect={() => navigate("/settings")}>
+        {t("settings.title", "Settings")}
+      </DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => navigate("/archive")}>
+        {t("archive.open", "Open Archive")}
+      </DropdownMenuItem>
+    </>
+  );
+
   return (
     <>
       {/* Portal target for page panels (e.g. calendar event preview) — replaces entire sidebar */}
@@ -706,57 +732,46 @@ export function SidebarContent({
                 style.appSidebarHeaderMobile,
               )}
             >
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="unstyled"
-                    size="unstyled"
-                    className={clsx(
-                      style.mobileAccountTrigger,
-                      "justify-start",
-                    )}
-                  >
-                    <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0 overflow-hidden">
-                      {avatarUrl ? (
-                        <img
-                          src={avatarUrl}
-                          alt=""
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        initials || <User size={16} className="size-4" />
+              {/* The macOS app moves this menu to the footer row, leaving the
+                  traffic lights alone in the strip they share with the header. */}
+              {!hasAccountMenuInFooter && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="unstyled"
+                      size="unstyled"
+                      className={clsx(
+                        style.mobileAccountTrigger,
+                        "justify-start",
                       )}
-                    </div>
-                    {displayName && (
-                      <span className="text-sm font-medium text-foreground truncate">
-                        {displayName}
+                    >
+                      <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0 overflow-hidden">
+                        {avatarUrl ? (
+                          <img
+                            src={avatarUrl}
+                            alt=""
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          initials || <User size={16} className="size-4" />
+                        )}
+                      </div>
+                      {displayName && (
+                        <span className="text-sm font-medium text-foreground truncate">
+                          {displayName}
+                        </span>
+                      )}
+                      <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span className="sr-only">
+                        {t("sidebar.accountMenu", "Account menu")}
                       </span>
-                    )}
-                    <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <span className="sr-only">
-                      {t("sidebar.accountMenu", "Account menu")}
-                    </span>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  {avatarUrl && (
-                    <>
-                      <DropdownMenuItem
-                        onSelect={() => setAvatarPreviewOpen(true)}
-                      >
-                        {t("profile.viewAvatar", "View avatar")}
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                    </>
-                  )}
-                  <DropdownMenuItem onSelect={() => navigate("/settings")}>
-                    {t("settings.title", "Settings")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => navigate("/archive")}>
-                    {t("archive.open", "Open Archive")}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    {accountMenuItems}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
               <span className="flex-1" />
               <Button
                 type="button"
@@ -1022,30 +1037,41 @@ export function SidebarContent({
             <StorageProtectionBanner />
           </div>
 
-          {!shouldShowTheProfileAtTop && hasSidebarProfile && (
+          {hasAccountMenuInFooter && (
             <div className={style.appSidebarFooter}>
-              <Button
-                variant="unstyled"
-                size="unstyled"
-                className="w-full min-w-0 justify-start gap-2 rounded-md px-1.5 py-1 hover:bg-accent/50"
-                onClick={() => avatarUrl && setAvatarPreviewOpen(true)}
-                style={{ cursor: avatarUrl ? "pointer" : "default" }}
-              >
-                <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0 overflow-hidden">
-                  {avatarUrl ? (
-                    <img
-                      src={avatarUrl}
-                      alt=""
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    initials
-                  )}
-                </div>
-                <span className="text-sm font-medium text-foreground truncate">
-                  {displayName}
-                </span>
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="unstyled"
+                    size="unstyled"
+                    className="w-full min-w-0 cursor-pointer justify-start gap-2 rounded-md px-1.5 py-1 hover:bg-accent/50"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-medium shrink-0 overflow-hidden">
+                      {avatarUrl ? (
+                        <img
+                          src={avatarUrl}
+                          alt=""
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        initials || <User size={16} className="size-4" />
+                      )}
+                    </div>
+                    <span className="text-sm font-medium text-foreground truncate">
+                      {displayName}
+                    </span>
+                    <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0 ms-auto" />
+                    <span className="sr-only">
+                      {t("sidebar.accountMenu", "Account menu")}
+                    </span>
+                  </Button>
+                </DropdownMenuTrigger>
+                {/* The row is the last thing in the sidebar, so the menu opens
+                    upward over the spaces tree. */}
+                <DropdownMenuContent side="top" align="start">
+                  {accountMenuItems}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           )}
         </>
