@@ -11,6 +11,7 @@ import {
   Minus,
   Quote,
   Sigma,
+  Table,
   Type,
 } from "lucide-react";
 import React, {
@@ -38,6 +39,7 @@ export type SlashBlockType =
   | "image"
   | "math"
   | "code"
+  | "table"
   | "quote"
   | "bullet_list"
   | "numbered_list"
@@ -189,6 +191,22 @@ function useSlashActions(): SlashItem[] {
           "monospace",
           "```",
           "pre",
+        ],
+        category: "media" as const,
+      },
+      {
+        id: "table",
+        type: "table" as const,
+        label: t("blocks.table", "Table"),
+        description: t("blocks.desc.table", "Grid of rows and columns."),
+        icon: <Table size={18} />,
+        keywords: [
+          "table",
+          t("blocks.tableKw", "table"),
+          "grid",
+          t("blocks.gridKw", "grid"),
+          "row",
+          "column",
         ],
         category: "media" as const,
       },

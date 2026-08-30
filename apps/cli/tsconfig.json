@@ -40,6 +40,12 @@
       "@tasfer/code/*": [
         "../../packages/code/src/*"
       ],
+      "@tasfer/table": [
+        "../../packages/table/src/index.ts"
+      ],
+      "@tasfer/table/*": [
+        "../../packages/table/src/*"
+      ],
       "@tasfer/tex": [
         "../../packages/tex/src/index.ts"
       ],

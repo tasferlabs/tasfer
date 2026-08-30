@@ -1,3 +1,4 @@
+import type { TableAlign, TableInsertSide } from "@tasfer/table";
 import {
   mathElementLabel,
   mathMenuMode,
@@ -17,6 +18,11 @@ export type MobileToolbarBlockType =
   | "code"
   | "math"
   | "image"
+  // Inserting a table from the block switcher. The caret is never *in* a table
+  // when the switcher is shown — a cell's own menu takes that slot (see
+  // `buildLayout`) — so this entry only ever converts prose into a fresh grid,
+  // the way the desktop slash menu's "Table" does.
+  | "table"
   | "line";
 
 export type MobileToolbarIcon =
@@ -39,7 +45,8 @@ export type MobileToolbarIcon =
   | "list_todo"
   | "image"
   // Enter an image's reposition mode. Touch has no hover, so the on-canvas
-  // affordance never appears there — this is the only way in.
+  // affordance never appears there — this and the long-press context menu are
+  // the way in.
   | "reposition"
   | "link"
   | "line"
@@ -58,6 +65,22 @@ export type MobileToolbarIcon =
   // tabular construct; opens the row/column editor (dialog on desktop, drawer on
   // touch).
   | "matrix"
+  // The table menu's trigger. Shown when the caret sits in a table cell; its
+  // options are the structural commands below. Touch has no right-click, so this
+  // menu is the ONLY way to reach a table's structural commands on a phone.
+  | "table"
+  // The table menu's own glyphs: insert a row above/below or a column
+  // before/after the caret's cell, drop the row/column it is in (`trash`), and
+  // set the column's alignment. Same Lucide art the desktop table menu draws.
+  | "row_above"
+  | "row_below"
+  | "column_before"
+  | "column_after"
+  | "trash"
+  | "align_default"
+  | "align_left"
+  | "align_center"
+  | "align_right"
   | "caret_left"
   | "caret_right"
   // The code block's language-picker trigger. Distinct from `code` (the inline
@@ -84,6 +107,15 @@ export type MobileToolbarAction =
   // caret sits in. The host renders it as a dialog on desktop and a drawer on
   // touch — the same surface the desktop context menu's "Edit matrix" opens.
   | { type: "open-matrix-editor" }
+  // The table's structural commands, every one relative to the cell the caret is
+  // in — the same commands the desktop table menu dispatches. They ride the
+  // toolbar's table menu rather than a surface of their own: a phone has no
+  // right-click and no room beside the grid for a floating bar.
+  | { type: "table-insert-row"; side: TableInsertSide }
+  | { type: "table-delete-row" }
+  | { type: "table-insert-column"; side: TableInsertSide }
+  | { type: "table-delete-column" }
+  | { type: "table-align"; align: TableAlign | null }
   | { type: "toggle-strikethrough" }
   | { type: "set-block"; blockType: MobileToolbarBlockType }
   | { type: "indent-list" }
@@ -149,6 +181,18 @@ export interface MobileToolbarMathContext {
   matrix: MobileToolbarMatrixContext | null;
 }
 
+/**
+ * The table the caret rests in, as much of it as the toolbar's menu needs: how
+ * big the grid is (a table's last row and last column cannot be deleted, so
+ * those commands are left out rather than offered and refused) and how the
+ * caret's column is aligned, which the menu check-marks.
+ */
+export interface MobileToolbarTableContext {
+  rows: number;
+  columns: number;
+  align: TableAlign | null;
+}
+
 /** The grid the caret rests in — its environment, dimensions, and the caret's
  *  cell. Seeds the matrix editor's initial row/column counts. */
 export interface MobileToolbarMatrixContext {
@@ -179,6 +223,16 @@ export type MobileToolbarItem =
       /** Highlight the trigger (primary tint) — e.g. an overflow menu whose
        *  hidden controls include an active one. */
       active?: boolean;
+      /**
+       * Keep the options panel up after a pick, instead of closing it the way a
+       * one-shot choice (block type, code language) does. For the table's
+       * commands, which come in runs — three rows, then align the column — and
+       * whose options are rebuilt from the grid's live shape after every edit.
+       *
+       * In-webview only: the native iOS accessory renders menus as a `UIMenu`,
+       * which always dismisses on selection.
+       */
+      sticky?: boolean;
       options: Array<{
         id: string;
         /** Optional — language options are label-only. */
@@ -282,6 +336,13 @@ interface MobileToolbarState {
   isCode: boolean;
   isMath: boolean;
   canOpenMathCommands: boolean;
+  /**
+   * The grid the caret sits in, or null when it is not in a table. Touch has no
+   * right-click, so the toolbar's table menu is the only way to reach a table's
+   * structural commands on a phone — this is what puts it there, and its shape
+   * is what decides which of them the menu can offer.
+   */
+  table: MobileToolbarTableContext | null;
   isStrikethrough: boolean;
   blockType: MobileToolbarBlockType;
   /** Indent depth of the current list item (0 when not in a list). */
@@ -331,6 +392,7 @@ const BLOCKS: ReadonlyArray<{
   { type: "code", icon: "code", labelKey: "blocks.code" },
   { type: "math", icon: "math", labelKey: "blocks.math" },
   { type: "image", icon: "image", labelKey: "blocks.image" },
+  { type: "table", icon: "table", labelKey: "blocks.table" },
   { type: "line", icon: "line", labelKey: "blocks.divider" },
 ];
 
@@ -342,6 +404,112 @@ const LIST_BLOCK_TYPES: readonly MobileToolbarBlockType[] = [
 
 /** Deepest indent a list item can reach; mirrors `indentListItem`'s clamp. */
 const MAX_LIST_INDENT = 6;
+
+/** One entry in a toolbar menu's options panel. */
+type MenuOption = Extract<
+  MobileToolbarItem,
+  { kind: "menu" }
+>["options"][number];
+
+/**
+ * The table's command menu.
+ *
+ * The same commands, in the same order, as the desktop table menu — a table is
+ * edited with one vocabulary whichever shell you reach it from. Every one is
+ * relative to the caret's cell, so the menu carries no target of its own.
+ *
+ * A command that cannot run is left out rather than offered and refused: the
+ * only two are the deletes, and a table's last row and last column have nothing
+ * to fall back to. `selected` names the caret column's alignment — the native
+ * accessory check-marks that option, the in-webview panel highlights its cell.
+ */
+function buildTableMenu(
+  table: MobileToolbarTableContext,
+  t: Translate,
+): MobileToolbarItem {
+  const rows: MenuOption[] = [
+    {
+      id: "row-above",
+      icon: "row_above",
+      label: t("editor.table.addRowAbove", "Add row above"),
+      action: { type: "table-insert-row", side: "before" },
+    },
+    {
+      id: "row-below",
+      icon: "row_below",
+      label: t("editor.table.addRowBelow", "Add row below"),
+      action: { type: "table-insert-row", side: "after" },
+    },
+  ];
+  if (table.rows > 1) {
+    rows.push({
+      id: "row-delete",
+      icon: "trash",
+      label: t("editor.table.removeRow", "Remove row"),
+      action: { type: "table-delete-row" },
+    });
+  }
+
+  const columns: MenuOption[] = [
+    {
+      id: "column-before",
+      icon: "column_before",
+      label: t("editor.table.addColumnBefore", "Add column before"),
+      action: { type: "table-insert-column", side: "before" },
+    },
+    {
+      id: "column-after",
+      icon: "column_after",
+      label: t("editor.table.addColumnAfter", "Add column after"),
+      action: { type: "table-insert-column", side: "after" },
+    },
+  ];
+  if (table.columns > 1) {
+    columns.push({
+      id: "column-delete",
+      icon: "trash",
+      label: t("editor.table.removeColumn", "Remove column"),
+      action: { type: "table-delete-column" },
+    });
+  }
+
+  const alignment: MenuOption[] = [
+    {
+      id: "align-default",
+      icon: "align_default",
+      label: t("editor.table.alignDefault", "Default alignment"),
+      action: { type: "table-align", align: null },
+    },
+    {
+      id: "align-left",
+      icon: "align_left",
+      label: t("editor.table.alignLeft", "Align left"),
+      action: { type: "table-align", align: "left" },
+    },
+    {
+      id: "align-center",
+      icon: "align_center",
+      label: t("editor.table.alignCenter", "Align center"),
+      action: { type: "table-align", align: "center" },
+    },
+    {
+      id: "align-right",
+      icon: "align_right",
+      label: t("editor.table.alignRight", "Align right"),
+      action: { type: "table-align", align: "right" },
+    },
+  ];
+
+  return {
+    kind: "menu",
+    id: "table",
+    icon: "table",
+    label: t("editor.table.title", "Edit table"),
+    selected: `align-${table.align ?? "default"}`,
+    sticky: true,
+    options: [...rows, ...columns, ...alignment],
+  };
+}
 
 /**
  * Build the math row for a caret-in-math context (or null when not in math).
@@ -509,6 +677,14 @@ export function createMobileToolbarModel(
     t("editor.math.matrix.menu", "Edit matrix"),
     { type: "open-matrix-editor" },
   );
+  // The table control — the same command set the desktop table menu carries,
+  // hung off the toolbar as a menu of its own. The commands are relative to the
+  // caret's cell, so they belong wherever the caret is being typed; on a phone
+  // that is this bar, not a floating strip the soft keyboard would cover.
+  //
+  // Sticky: adding three rows should not mean opening the menu three times. Its
+  // options are rebuilt from the grid's live shape, so the panel keeps up.
+  const tableMenu = state.table ? buildTableMenu(state.table, t) : null;
   const dismiss = button(
     "dismiss",
     "keyboard_dismiss",
@@ -588,6 +764,7 @@ export function createMobileToolbarModel(
     inlineMath,
     mathTrigger,
     matrixButton,
+    tableMenu,
     blockMenu,
     dismiss,
     link,
@@ -698,6 +875,8 @@ function buildLayout(
     inlineMath: MobileToolbarItem;
     mathTrigger: MobileToolbarItem;
     matrixButton: MobileToolbarItem;
+    /** The table menu, or null when the caret is not in a table. */
+    tableMenu: MobileToolbarItem | null;
     blockMenu: MobileToolbarItem;
     dismiss: MobileToolbarItem;
     link: MobileToolbarItem;
@@ -888,13 +1067,21 @@ function buildLayout(
   // Format (prose): keep block type before inline marks; the rarer marks live
   // in the drawer. A divider sits after the block switcher to separate it from
   // the inline format controls — they are two different kinds of action.
+  //
+  // A table cell is prose, so this row is right there too — the caret can be
+  // bold, linked and italic inside a cell like anywhere else. What it cannot be
+  // is another block type: a table owns its content surface, so every entry in
+  // the block switcher would be refused. The table's own control takes that
+  // slot instead — the one structural affordance a table has on touch, in the
+  // position the structural control already occupies.
+  const inTableCell = controls.tableMenu != null;
   return {
     context: "format",
     left: [
       undo,
       redo,
       controlsDivider(),
-      blockMenu,
+      controls.tableMenu ?? blockMenu,
       blockDivider(),
       bold,
       italic,
@@ -902,7 +1089,14 @@ function buildLayout(
     middle: { kind: "items", items: [] },
     // The link control lives in the overflow drawer ("extra") alongside the
     // rarer marks: it edits an existing link or creates one from the selection.
-    more: [strikethrough, inlineCode, inlineMath, link],
+    //
+    // Inline math is the one mark a cell is NOT offered. A math mark's content
+    // lives in a separate attachment, and a cell has no route to one — the
+    // toggle is refused in the engine (`toggleTableMark`), so the button would
+    // be dead. Drop it rather than show a control that does nothing.
+    more: inTableCell
+      ? [strikethrough, inlineCode, link]
+      : [strikethrough, inlineCode, inlineMath, link],
     right,
   };
 }

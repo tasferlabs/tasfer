@@ -103,6 +103,7 @@ import {
   Search,
   Sigma,
   Strikethrough,
+  Table as TableIcon,
   Type,
   X,
 } from "lucide-react";
@@ -118,6 +119,18 @@ import {
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
+import { TableTools } from "../editor/TableTools";
+import { TableToolsContext, useTableTools } from "../editor/tableContext";
+import { tableContextForCaret } from "../editor/tableContext";
+import {
+  TABLE_DELETE_COLUMN,
+  TABLE_DELETE_ROW,
+  TABLE_INSERT_COLUMN,
+  TABLE_INSERT_ROW,
+  TABLE_SET_COLUMN_ALIGN,
+  TABLE_TOOLS_OVERLAY,
+  type TableToolsOverlayData,
+} from "@tasfer/table";
 import {
   toNativeMenu,
   getNativeContextMenuPresenter,
@@ -168,6 +181,7 @@ import {
   type MobileToolbarBlockType,
   type MobileToolbarMathContext,
   type MobileToolbarMatrixContext,
+  type MobileToolbarTableContext,
   type NativeMobileToolbarModel,
 } from "./mobileToolbar";
 import {
@@ -999,12 +1013,54 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
   );
 };
 
+/**
+ * The table's inline structural controls (TableNode.overlays → "table-tools").
+ *
+ * A grip anchored to the cell the caret is in, opening a menu of the row/column
+ * commands — every one of which is relative to that cell, so they are acted on
+ * where they apply. The desktop context menu's "Edit table" opens the same menu.
+ *
+ * Nothing on a phone: there the keyboard toolbar's table menu carries the
+ * identical commands, within reach of a thumb and clear of the soft keyboard, so
+ * a second on-canvas surface for them would only compete with it.
+ */
+const TableToolsOverlay: ComponentType<NodeOverlayProps> = ({
+  overlay,
+  editor,
+  portalContainer,
+}) => {
+  const data = overlay.data as TableToolsOverlayData | undefined;
+  const { open, setOpen } = useTableTools();
+  if (!data || isTouchOnlyDevice()) return null;
+  return (
+    <TableTools
+      container={portalContainer}
+      shape={data.shape}
+      anchor={{
+        x: overlay.rect.x,
+        y: overlay.rect.y,
+        width: overlay.rect.width ?? 0,
+        height: overlay.rect.height ?? 0,
+      }}
+      grid={data.grid}
+      open={open}
+      onOpenChange={setOpen}
+      onInsertRow={(side) => editor.dispatch(TABLE_INSERT_ROW, { side })}
+      onDeleteRow={() => editor.dispatch(TABLE_DELETE_ROW, {})}
+      onInsertColumn={(side) => editor.dispatch(TABLE_INSERT_COLUMN, { side })}
+      onDeleteColumn={() => editor.dispatch(TABLE_DELETE_COLUMN, {})}
+      onAlign={(align) => editor.dispatch(TABLE_SET_COLUMN_ALIGN, { align })}
+    />
+  );
+};
+
 const NODE_OVERLAYS: Record<string, ComponentType<NodeOverlayProps>> = {
   "image-upload": ImageUploadOverlay,
   "image-hover": ImageHoverOverlay,
   "link-tooltip": LinkTooltipOverlay,
   "link-edit": LinkEditOverlay,
   "code-language": CodeLanguageOverlay,
+  [TABLE_TOOLS_OVERLAY]: TableToolsOverlay,
 };
 
 /**
@@ -1479,6 +1535,24 @@ function PageEditor({
     if (!isTouchOnlyDevice()) mountedRef.current?.editor.focus();
   }, []);
 
+  // Whether the table's on-canvas menu is open (pointer devices; on touch the
+  // keyboard toolbar carries those commands instead). Host state rather than the
+  // engine's `activeMenu`, because this menu is host chrome with its own
+  // lifecycle: an outside press dismisses the popover, and the context menu
+  // re-opens it — the engine has no part in either.
+  const [tableToolsOpen, setTableToolsOpen] = useState(false);
+
+  // The context menu's "Edit table" opens the grip's menu rather than a surface
+  // of its own — one menu for the grid, two ways in.
+  const openTableEditor = useCallback(() => {
+    setTableToolsOpen(true);
+  }, []);
+
+  const tableTools = useMemo(
+    () => ({ open: tableToolsOpen, setOpen: setTableToolsOpen }),
+    [tableToolsOpen],
+  );
+
   // True while a text-input popover (image upload/edit or link edit) is open, so
   // the editor enters "suspended" mode and the canvas stops capturing input. These
   // popovers now render via the node/mark overlay registry; this mirror is just
@@ -1536,6 +1610,7 @@ function PageEditor({
     isCode: false,
     isMath: false,
     canOpenMathCommands: false,
+    table: null as MobileToolbarTableContext | null,
     isStrikethrough: false,
     blockType: "paragraph" as MobileToolbarBlockType,
     listIndent: 0,
@@ -2030,6 +2105,24 @@ function PageEditor({
         }
         case "open-matrix-editor":
           openMatrixEditor();
+          break;
+        // The table's structural commands, dispatched straight at the caret's
+        // cell — the same actions the desktop table menu fires. The toolbar's
+        // table menu is where they live on touch.
+        case "table-insert-row":
+          editor.dispatch(TABLE_INSERT_ROW, { side: action.side });
+          break;
+        case "table-delete-row":
+          editor.dispatch(TABLE_DELETE_ROW, {});
+          break;
+        case "table-insert-column":
+          editor.dispatch(TABLE_INSERT_COLUMN, { side: action.side });
+          break;
+        case "table-delete-column":
+          editor.dispatch(TABLE_DELETE_COLUMN, {});
+          break;
+        case "table-align":
+          editor.dispatch(TABLE_SET_COLUMN_ALIGN, { align: action.align });
           break;
         case "dismiss":
           dismissMobileKeyboard();
@@ -3068,6 +3161,11 @@ function PageEditor({
             true,
       );
 
+      // The tools belong to the table the caret is in; carrying "expanded" out
+      // of the grid would pop them straight back open on the next table entered.
+      const tableShape = tableContextForCaret(mounted.editor);
+      if (!tableShape) setTableToolsOpen(false);
+
       setMobileToolbar({
         canUndo: snapshot.canUndo,
         canRedo: snapshot.canRedo,
@@ -3076,6 +3174,15 @@ function PageEditor({
         isCode: snapshot.activeMarks.has("code"),
         isMath: snapshot.activeMarks.has("math"),
         canOpenMathCommands,
+        // Only what the toolbar's table menu reads: which commands the grid
+        // can still offer, and the alignment it check-marks.
+        table: tableShape
+          ? {
+              rows: tableShape.rows,
+              columns: tableShape.columns,
+              align: tableShape.align,
+            }
+          : null,
         isStrikethrough: snapshot.activeMarks.has("strike"),
         blockType,
         listIndent,
@@ -3494,6 +3601,24 @@ function PageEditor({
       });
     }
 
+    // "Edit table" on the same terms: a bare caret in a cell is the primary
+    // case, so it needs no selection either, and it opens the grid's own menu at
+    // the caret's cell. Pointer devices only — on touch that menu is not
+    // rendered on the canvas at all; the keyboard toolbar's table menu is where
+    // a table's commands live there, and this entry would open nothing.
+    const tableMenuCtx =
+      !readonly && !isTouchOnlyDevice() && mountedRef.current
+        ? tableContextForCaret(mountedRef.current.editor)
+        : null;
+    if (tableMenuCtx) {
+      items.push({
+        id: "table",
+        label: t("editor.table.title", "Edit table"),
+        icon: <TableIcon size={16} />,
+        action: () => openTableEditor(),
+      });
+    }
+
     // Add Format submenu for desktop when text is selected (not in readonly
     // mode). Blocks that can't carry inline marks — math and code, per the block
     // registry's `hasFormats: false` — never offer formatting, matching the
@@ -3501,7 +3626,13 @@ function PageEditor({
     // The marks active across the selection (the canonical "all chars carry it"
     // reading, with explicit/caret-inherited formats folded in).
     const marks = mountedRef.current?.editor.state.activeMarks;
-    const blockAllowsFormats = block ? canHaveFormats(block.type) : true;
+    // A table's own `hasFormats` is false — the BLOCK carries no marks — but its
+    // cells hold ordinary prose that does, so the caret being in one allows
+    // formatting. Same conclusion the mobile toolbar already reached when it
+    // keeps its mark buttons in a cell.
+    const blockAllowsFormats = block
+      ? canHaveFormats(block.type) || tableMenuCtx !== null
+      : true;
     // A selection whose every character carries the math mark is an inline-math
     // run; formatting doesn't apply there either, mirroring the mobile toolbar.
     const selectionIsInlineMath = marks?.has("math") ?? false;
@@ -3555,17 +3686,27 @@ function PageEditor({
               mountedRef.current?.editor.change((c) => c.setMark("strike")),
             active: isStrikethrough,
           },
-          {
-            id: "format-math",
-            label: t("contextMenu.math", "Math"),
-            icon: <Sigma size={16} />,
-            // A togglable mark: over a selection this wraps it as an inline
-            // math chip (the chip's visible chars are its LaTeX), mirroring the
-            // mobile toolbar's "toggle-math".
-            action: () =>
-              mountedRef.current?.editor.change((c) => c.setMark("math")),
-            active: isMath,
-          },
+          // A togglable mark: over a selection this wraps it as an inline math
+          // chip (the chip's visible chars are its LaTeX), mirroring the mobile
+          // toolbar's "toggle-math".
+          //
+          // Not offered inside a table cell. A math mark's content lives in a
+          // separate attachment, and a cell has no route to one — the toggle is
+          // refused in the engine (`toggleTableMark`), so the entry would be
+          // dead. The mobile toolbar drops it from a cell's drawer for the same
+          // reason.
+          ...(tableMenuCtx === null
+            ? [
+                {
+                  id: "format-math",
+                  label: t("contextMenu.math", "Math"),
+                  icon: <Sigma size={16} />,
+                  action: () =>
+                    mountedRef.current?.editor.change((c) => c.setMark("math")),
+                  active: isMath,
+                },
+              ]
+            : []),
           {
             id: "format-link",
             label: t("contextMenu.link", "Link"),
@@ -3645,207 +3786,211 @@ function PageEditor({
   }, [modalPopoverOpen]);
 
   return (
-    <div
-      // The hook owns `containerRef` (it mounts the canvas here); we keep
-      // `wrapperRef` for the existing layout/positioning reads. One element,
-      // both refs.
-      ref={(el) => {
-        wrapperRef.current = el;
-        containerRef.current = el;
-      }}
-      // `data-vaul-no-drag` is toggled on this element by scroll position (see
-      // the SCROLL handler): absent at the top so a downward drag closes a host
-      // drawer, present once scrolled so the swipe scrolls the canvas instead.
-      className={cn(
-        "relative w-full h-full overflow-hidden focus:outline-none",
-        className,
-      )}
-      // Cap the canvas above the mobile toolbar and the Android IME inset. The
-      // toolbar publishes its live full height (persistent bar + any open drawer
-      // panel) as `--keyboard-toolbar-height` while mounted, 0px otherwise — so
-      // this shrinks the canvas by the real toolbar height, growing when the
-      // drawer opens. Keeping `viewport.height` accurate is what lets the engine
-      // pin bottom chrome (out-of-view peer indicators, the caret) above the
-      // toolbar instead of behind it. Both terms collapse to 0 when the keyboard
-      // and toolbar are gone, leaving the plain `h-full` height.
-      style={{
-        height: `max(100px, calc(100% - ${keyboardHeight}px - var(--keyboard-toolbar-height, 0px)))`,
-      }}
-      // The editable surface and its ARIA semantics (role="textbox",
-      // aria-label, aria-multiline) now live on the engine's contenteditable
-      // input element; this wrapper is just a layout container.
-    >
-      {/* Spinner overlay — visible until local storage state is confirmed.
+    <TableToolsContext.Provider value={tableTools}>
+      <div
+        // The hook owns `containerRef` (it mounts the canvas here); we keep
+        // `wrapperRef` for the existing layout/positioning reads. One element,
+        // both refs.
+        ref={(el) => {
+          wrapperRef.current = el;
+          containerRef.current = el;
+        }}
+        // `data-vaul-no-drag` is toggled on this element by scroll position (see
+        // the SCROLL handler): absent at the top so a downward drag closes a host
+        // drawer, present once scrolled so the swipe scrolls the canvas instead.
+        className={cn(
+          "relative w-full h-full overflow-hidden focus:outline-none",
+          className,
+        )}
+        // Cap the canvas above the mobile toolbar and the Android IME inset. The
+        // toolbar publishes its live full height (persistent bar + any open drawer
+        // panel) as `--keyboard-toolbar-height` while mounted, 0px otherwise — so
+        // this shrinks the canvas by the real toolbar height, growing when the
+        // drawer opens. Keeping `viewport.height` accurate is what lets the engine
+        // pin bottom chrome (out-of-view peer indicators, the caret) above the
+        // toolbar instead of behind it. Both terms collapse to 0 when the keyboard
+        // and toolbar are gone, leaving the plain `h-full` height.
+        style={{
+          height: `max(100px, calc(100% - ${keyboardHeight}px - var(--keyboard-toolbar-height, 0px)))`,
+        }}
+        // The editable surface and its ARIA semantics (role="textbox",
+        // aria-label, aria-multiline) now live on the engine's contenteditable
+        // input element; this wrapper is just a layout container.
+      >
+        {/* Spinner overlay — visible until local storage state is confirmed.
           Absolutely positioned so it overlays the canvas regardless of DOM order,
           preventing the skeleton from pushing the canvas below the viewport
           (which would block mousedown events from reaching the canvas).
           Opaque background: the canvas mounts and paints underneath while this
           is still up (the reveal intentionally waits for the first canvas
           frame), so a transparent overlay would show both at once. */}
-      {!isContentReady && (
-        <div className="absolute inset-0 z-10 bg-background">
-          <EditorLoadingState />
-        </div>
-      )}
-      {/* Slash menu — self-contained, always mounted: it observes the engine's
+        {!isContentReady && (
+          <div className="absolute inset-0 z-10 bg-background">
+            <EditorLoadingState />
+          </div>
+        )}
+        {/* Slash menu — self-contained, always mounted: it observes the engine's
           TEXT_INPUT command to open and drives CONVERT_BLOCK to apply. */}
-      {mountedRef.current?.portalContainer &&
-        mountedRef.current.editor &&
-        createPortal(
-          <SlashActionMenu
-            editor={mountedRef.current.editor}
-            getContainerRect={getSlashContainerRect}
-          />,
-          mountedRef.current.portalContainer,
+        {mountedRef.current?.portalContainer &&
+          mountedRef.current.editor &&
+          createPortal(
+            <SlashActionMenu
+              editor={mountedRef.current.editor}
+              getContainerRect={getSlashContainerRect}
+            />,
+            mountedRef.current.portalContainer,
+          )}
+
+        {/* Math `\` command menu — Corca-style autocomplete inside math chips. */}
+        {mountedRef.current?.portalContainer &&
+          mountedRef.current.editor &&
+          createPortal(
+            <MathCommandMenu
+              editor={mountedRef.current.editor}
+              getContainerRect={getSlashContainerRect}
+            />,
+            mountedRef.current.portalContainer,
+          )}
+
+        {/* Context menu portal */}
+        {contextMenuState && (
+          <ContextMenu
+            x={contextMenuState.x}
+            y={contextMenuState.y}
+            items={getContextMenuItems()}
+            onClose={() => {
+              // Clears the engine's capture flag (observer) and dismisses the menu
+              // (our CLOSE_CONTEXT_MENU handler calls setMenu(null)).
+              mountedRef.current?.editor.dispatch(CLOSE_CONTEXT_MENU);
+            }}
+            collisionBoundary={mountedRef.current?.portalContainer}
+            container={mountedRef.current?.portalContainer}
+            hoveredItemId={contextMenuState.hoveredItemId}
+          />
         )}
 
-      {/* Math `\` command menu — Corca-style autocomplete inside math chips. */}
-      {mountedRef.current?.portalContainer &&
-        mountedRef.current.editor &&
-        createPortal(
-          <MathCommandMenu
-            editor={mountedRef.current.editor}
-            getContainerRect={getSlashContainerRect}
-          />,
-          mountedRef.current.portalContainer,
-        )}
-
-      {/* Context menu portal */}
-      {contextMenuState && (
-        <ContextMenu
-          x={contextMenuState.x}
-          y={contextMenuState.y}
-          items={getContextMenuItems()}
-          onClose={() => {
-            // Clears the engine's capture flag (observer) and dismisses the menu
-            // (our CLOSE_CONTEXT_MENU handler calls setMenu(null)).
-            mountedRef.current?.editor.dispatch(CLOSE_CONTEXT_MENU);
-          }}
-          collisionBoundary={mountedRef.current?.portalContainer}
-          container={mountedRef.current?.portalContainer}
-          hoveredItemId={contextMenuState.hoveredItemId}
-        />
-      )}
-
-      {/* Link tooltip + link edit/create popover render via the mark-overlay
+        {/* Link tooltip + link edit/create popover render via the mark-overlay
           registry below (TasferLinkMark.overlays → "link-tooltip" /
           "link-edit"). */}
 
-      {/* Node-declared overlay slots — located by the engine
+        {/* Node-declared overlay slots — located by the engine
           (editor.collectOverlays), rendered here via the NODE_OVERLAYS
           registry. The engine stays framework-free; this is where a node's
           declared `key` becomes a React component, positioned at its rect. */}
-      {(() => {
-        const mounted = mountedRef.current;
-        if (!mounted?.portalContainer) return null;
-        return nodeOverlays.map((overlay) => {
-          const Component = NODE_OVERLAYS[overlay.key];
-          if (!Component) return null;
-          return createPortal(
-            <div
-              key={`${overlay.key}:${overlay.blockId}`}
-              // Marks this layer as host-rendered editor chrome. The engine's
-              // canvas `mouseleave` handler reads the event's relatedTarget and,
-              // when the pointer is crossing onto an element inside this layer
-              // (e.g. the image hover toolbar's buttons), keeps the backing hover
-              // state alive instead of tearing the overlay down mid-traversal.
-              data-editor-overlay=""
-              style={{
-                position: "absolute",
-                left: `${overlay.rect.x}px`,
-                top: `${overlay.rect.y}px`,
-                width: `${overlay.rect.width}px`,
-                height: `${overlay.rect.height}px`,
-                pointerEvents: "none",
-              }}
-            >
-              <Component
-                overlay={overlay}
-                editor={mounted.editor}
-                portalContainer={mounted.portalContainer}
-                refocus={mounted.refocus}
-              />
-            </div>,
-            mounted.portalContainer,
-          );
-        });
-      })()}
+        {(() => {
+          const mounted = mountedRef.current;
+          if (!mounted?.portalContainer) return null;
+          return nodeOverlays.map((overlay) => {
+            const Component = NODE_OVERLAYS[overlay.key];
+            if (!Component) return null;
+            return createPortal(
+              <div
+                key={`${overlay.key}:${overlay.blockId}`}
+                // Marks this layer as host-rendered editor chrome. The engine's
+                // canvas `mouseleave` handler reads the event's relatedTarget and,
+                // when the pointer is crossing onto an element inside this layer
+                // (e.g. the image hover toolbar's buttons), keeps the backing hover
+                // state alive instead of tearing the overlay down mid-traversal.
+                data-editor-overlay=""
+                style={{
+                  position: "absolute",
+                  left: `${overlay.rect.x}px`,
+                  top: `${overlay.rect.y}px`,
+                  width: `${overlay.rect.width}px`,
+                  height: `${overlay.rect.height}px`,
+                  pointerEvents: "none",
+                }}
+              >
+                <Component
+                  overlay={overlay}
+                  editor={mounted.editor}
+                  portalContainer={mounted.portalContainer}
+                  refocus={mounted.refocus}
+                />
+              </div>,
+              mounted.portalContainer,
+            );
+          });
+        })()}
 
-      {/* Image upload/edit popover + hover buttons render via the node-overlay
+        {/* Image upload/edit popover + hover buttons render via the node-overlay
           registry above (TasferImageNode.overlays → "image-upload" /
           "image-hover"). The suspended-mode signal is the `modalPopoverOpen`
           mirror, derived from the engine's active menu. */}
 
-      {/* Inline math is edited in place on the canvas — the chip itself renders
+        {/* Inline math is edited in place on the canvas — the chip itself renders
           large enough to read/edit (see MathMark's INLINE_MATH_SCALE), so there
           is no separate mirror popover. */}
 
-      {/* Image hover buttons + native image drawer render via the
+        {/* Image hover buttons + native image drawer render via the
           node-overlay registry above (TasferImageNode.overlays → "image-hover"
           / "image-upload"). The native link drawer renders via the mark-overlay
           registry (TasferLinkMark → "link-edit"). */}
 
-      {/* Find bar — rendered last so it sits above the canvas container in DOM order */}
-      {findBarOpen && (
-        <FindBar
-          searchText={findSearchText}
-          onSearchChange={handleFindSearchChange}
-          onNext={handleFindNext}
-          onPrevious={handleFindPrevious}
-          onClose={handleFindClose}
-          currentMatch={findActiveIndex}
-          totalMatches={findMatches.length}
-        />
-      )}
+        {/* Find bar — rendered last so it sits above the canvas container in DOM order */}
+        {findBarOpen && (
+          <FindBar
+            searchText={findSearchText}
+            onSearchChange={handleFindSearchChange}
+            onNext={handleFindNext}
+            onPrevious={handleFindPrevious}
+            onClose={handleFindClose}
+            currentMatch={findActiveIndex}
+            totalMatches={findMatches.length}
+          />
+        )}
 
-      {/* Matrix editor — grid preview + row/column steppers. Opened by the
+        {/* Matrix editor — grid preview + row/column steppers. Opened by the
           context-menu "Edit matrix" and the mobile toolbar's matrix button;
           renders as a modal dialog on desktop and a bottom drawer on touch. */}
-      {matrixEditor && (
-        <MatrixEditor
-          open={true}
-          rows={matrixEditor.rows}
-          cols={matrixEditor.cols}
-          onResize={handleMatrixResize}
-          onClose={closeMatrixEditor}
-        />
-      )}
+        {matrixEditor && (
+          <MatrixEditor
+            open={true}
+            rows={matrixEditor.rows}
+            cols={matrixEditor.cols}
+            onResize={handleMatrixResize}
+            onClose={closeMatrixEditor}
+          />
+        )}
 
-      {/* Rides the soft keyboard: shown while it is open, gone the instant it
+        {/* Rides the soft keyboard: shown while it is open, gone the instant it
           closes (incl. external dismissals), regardless of editor focus.
           Android uses the reported IME inset; iOS resizes the native WebView.
           On iOS this is replaced by the native inputAccessoryView toolbar, so the
           React bar renders on Android/web only. */}
-      {mobileToolbarModel.visible && isTouchDevice() && !IS_IOS_NATIVE && (
-        <MobileKeyboardToolbar
-          model={mobileToolbarModel}
-          onAction={handleMobileToolbarAction}
-        />
-      )}
-
-      {/* Cursor magnifier for mobile cursor drag repositioning */}
-      {magnifierActive &&
-        createPortal(
-          <CursorMagnifier
-            active={magnifierActive}
-            getCaretCoords={() =>
-              mountedRef.current?.editor.view.coordsAtPos("caret") ?? null
-            }
-            getTouch={() => latestTouchRef.current}
-            contentCanvas={
-              wrapperRef.current?.querySelector<HTMLCanvasElement>(
-                "#content-layer",
-              ) ?? null
-            }
-            cursorCanvas={
-              wrapperRef.current?.querySelector<HTMLCanvasElement>(
-                "#cursor-layer",
-              ) ?? null
-            }
-            containerRect={wrapperRef.current?.getBoundingClientRect() ?? null}
-          />,
-          document.body,
+        {mobileToolbarModel.visible && isTouchDevice() && !IS_IOS_NATIVE && (
+          <MobileKeyboardToolbar
+            model={mobileToolbarModel}
+            onAction={handleMobileToolbarAction}
+          />
         )}
-    </div>
+
+        {/* Cursor magnifier for mobile cursor drag repositioning */}
+        {magnifierActive &&
+          createPortal(
+            <CursorMagnifier
+              active={magnifierActive}
+              getCaretCoords={() =>
+                mountedRef.current?.editor.view.coordsAtPos("caret") ?? null
+              }
+              getTouch={() => latestTouchRef.current}
+              contentCanvas={
+                wrapperRef.current?.querySelector<HTMLCanvasElement>(
+                  "#content-layer",
+                ) ?? null
+              }
+              cursorCanvas={
+                wrapperRef.current?.querySelector<HTMLCanvasElement>(
+                  "#cursor-layer",
+                ) ?? null
+              }
+              containerRect={
+                wrapperRef.current?.getBoundingClientRect() ?? null
+              }
+            />,
+            document.body,
+          )}
+      </div>
+    </TableToolsContext.Provider>
   );
 }

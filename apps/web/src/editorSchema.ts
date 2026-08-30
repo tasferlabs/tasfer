@@ -29,6 +29,11 @@ import {
   MathMark,
   MathNode,
 } from "@tasfer/math";
+import {
+  createTableInputRule,
+  TableNode,
+  tableContentSelectionKind,
+} from "@tasfer/table";
 import { appDataSchema } from "./appDataSchema";
 import { getPlatform } from "@/platform";
 
@@ -76,8 +81,7 @@ class TasferImageNode extends ImageNode {
       const uploadStatus =
         (
           state.ui.nodeViewState[block.id] as
-            | { uploadStatus?: "uploading" | "error" }
-            | undefined
+            { uploadStatus?: "uploading" | "error" } | undefined
         )?.uploadStatus ?? "idle";
       result.push({
         key: "image-upload",
@@ -100,8 +104,7 @@ class TasferImageNode extends ImageNode {
     // during a pan that drags past its edge.
     const isResizing = !!(
       state.ui.nodeViewState[block.id] as
-        | { resizeHandle?: "left" | "right" | "bottom" }
-        | undefined
+        { resizeHandle?: "left" | "right" | "bottom" } | undefined
     )?.resizeHandle;
     const repositioning = isRepositioning(state, block.id);
     const hovered =
@@ -280,17 +283,30 @@ export function openCodeLanguageMenu(editor: AppEditor, blockId: string): void {
  * node is our hash-resolving {@link TasferImageNode}.
  *
  * The CRDT + serialization half is the app-owned `appDataSchema`: core data
- * plus the math data facets, each carried by the spec that owns it. The
- * interactive schema adds math's tree input and paste rules, the clipboard
- * selection serializer (it needs the tex layout engine, so it stays out of
- * worker bundles), and the matching rendering node/mark view list. Reducers
- * and workers do not need those authoring facets to replay the resulting
- * structured operations.
+ * plus the math and table data facets, each carried by the spec that owns it.
+ * The interactive schema adds math's tree input and paste rules, the table's
+ * cell-input rule (with markdown shortcuts turned on), both clipboard selection serializers (math's needs the tex
+ * layout engine, and neither is any use to a worker, which never holds a
+ * selection), and the matching rendering node/mark view list. Reducers and workers do not need those authoring facets
+ * to replay the resulting structured operations.
  */
 export const appSchema = new Schema(
   appDataSchema
-    .extend({ structuredKinds: [mathContentSelectionKind] })
-    .withFeatures({ inputRules: mathInputRules, pasteRules: [mathPasteRule] }),
+    .extend({
+      structuredKinds: [mathContentSelectionKind, tableContentSelectionKind],
+    })
+    .withFeatures({
+      // Cells opt into the inline markdown shortcuts: typing `**bold**` in a
+      // cell formats it the way it does in a paragraph, and Backspace right
+      // after takes the wrap back so the literal syntax stays typable. The
+      // table package leaves this off by default (a grid of shell snippets
+      // would not want it); this app is a Markdown editor, so it does.
+      inputRules: [
+        ...mathInputRules,
+        createTableInputRule({ markdownShortcuts: true }),
+      ],
+      pasteRules: [mathPasteRule],
+    }),
   [
     new LineNode(),
     new TasferImageNode(),
@@ -299,6 +315,7 @@ export const appSchema = new Schema(
     new TextNode(),
     new ListNode(),
     new TasferCodeNode(),
+    new TableNode(),
   ],
   [
     new StrongMark(),

@@ -1,12 +1,22 @@
 import { cn } from "@/lib/utils";
 import { renderToSVG } from "@tasfer/math";
 import {
+  AlignCenter,
+  AlignJustify,
+  AlignLeft,
+  AlignRight,
+  ArrowDownToLine,
   ArrowLeft,
+  ArrowLeftToLine,
   ArrowRight,
+  ArrowRightToLine,
+  ArrowUpToLine,
   Bold,
   Check,
   Code,
   Grid3x3,
+  Table,
+  Trash2,
   Heading1,
   Heading2,
   Heading3,
@@ -84,6 +94,16 @@ const ICONS: Record<MobileToolbarIcon, React.ReactNode> = {
   todo_check: <Check className="size-5" />,
   more: <MoreHorizontal className="size-5" />,
   matrix: <Grid3x3 className="size-5" />,
+  table: <Table className="size-5" />,
+  row_above: <ArrowUpToLine className="size-5" />,
+  row_below: <ArrowDownToLine className="size-5" />,
+  column_before: <ArrowLeftToLine className="size-5" />,
+  column_after: <ArrowRightToLine className="size-5" />,
+  trash: <Trash2 className="size-5" />,
+  align_default: <AlignJustify className="size-5" />,
+  align_left: <AlignLeft className="size-5" />,
+  align_center: <AlignCenter className="size-5" />,
+  align_right: <AlignRight className="size-5" />,
   keyboard_dismiss: <X className="size-5" />,
   caret_left: <ArrowLeft className="size-5" />,
   caret_right: <ArrowRight className="size-5" />,
@@ -246,7 +266,11 @@ export function MobileKeyboardToolbar({
               highlighted={openMenu.selected === option.id}
               onPress={() => {
                 onAction(option.action);
-                setOpenPanelId(null);
+                // A one-shot choice (block type, code language) is done once it
+                // is made; a sticky menu — the table's commands — comes in runs,
+                // and its options are rebuilt from the edited grid, so the panel
+                // stays up for the next one.
+                if (!openMenu.sticky) setOpenPanelId(null);
               }}
             />
           ))}

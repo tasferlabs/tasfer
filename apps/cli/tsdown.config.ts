@@ -39,6 +39,7 @@ const shared = {
     "@tasfer/editor": resolve(import.meta.dirname, "../../packages/editor/src"),
     "@tasfer/math": resolve(import.meta.dirname, "../../packages/math/src"),
     "@tasfer/code": resolve(import.meta.dirname, "../../packages/code/src"),
+    "@tasfer/table": resolve(import.meta.dirname, "../../packages/table/src"),
     "@tasfer/tex": resolve(import.meta.dirname, "../../packages/tex/src"),
     "@tasfer/provider-core": resolve(
       import.meta.dirname,

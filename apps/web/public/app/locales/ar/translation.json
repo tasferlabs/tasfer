@@ -1468,5 +1468,21 @@
   "version.diffRemoved_two": "إزالتان",
   "version.diffRemoved_few": "{{count, number}} إزالات",
   "version.diffRemoved_many": "{{count, number}} إزالةً",
-  "version.diffRemoved_other": "{{count, number}} إزالة"
+  "version.diffRemoved_other": "{{count, number}} إزالة",
+  "blocks.table": "جدول",
+  "blocks.desc.table": "شبكة من الصفوف والأعمدة.",
+  "blocks.tableKw": "جدول",
+  "blocks.gridKw": "شبكة",
+  "editor.table.title": "تحرير الجدول",
+  "editor.table.tools": "أدوات الجدول",
+  "editor.table.addRowAbove": "إضافة صف أعلاه",
+  "editor.table.addRowBelow": "إضافة صف أدناه",
+  "editor.table.removeRow": "إزالة الصف",
+  "editor.table.addColumnBefore": "إضافة عمود قبله",
+  "editor.table.addColumnAfter": "إضافة عمود بعده",
+  "editor.table.removeColumn": "إزالة العمود",
+  "editor.table.alignDefault": "محاذاة افتراضية",
+  "editor.table.alignLeft": "محاذاة لليسار",
+  "editor.table.alignCenter": "توسيط",
+  "editor.table.alignRight": "محاذاة لليمين"
 }

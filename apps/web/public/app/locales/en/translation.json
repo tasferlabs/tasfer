@@ -1400,5 +1400,21 @@
   "version.diffChanged_one": "{{count, number}} changed",
   "version.diffChanged_other": "{{count, number}} changed",
   "version.diffRemoved_one": "{{count, number}} removed",
-  "version.diffRemoved_other": "{{count, number}} removed"
+  "version.diffRemoved_other": "{{count, number}} removed",
+  "blocks.table": "Table",
+  "blocks.desc.table": "Grid of rows and columns.",
+  "blocks.tableKw": "table",
+  "blocks.gridKw": "grid",
+  "editor.table.title": "Edit table",
+  "editor.table.tools": "Table tools",
+  "editor.table.addRowAbove": "Add row above",
+  "editor.table.addRowBelow": "Add row below",
+  "editor.table.removeRow": "Remove row",
+  "editor.table.addColumnBefore": "Add column before",
+  "editor.table.addColumnAfter": "Add column after",
+  "editor.table.removeColumn": "Remove column",
+  "editor.table.alignDefault": "Default alignment",
+  "editor.table.alignLeft": "Align left",
+  "editor.table.alignCenter": "Align center",
+  "editor.table.alignRight": "Align right"
 }

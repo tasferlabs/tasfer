@@ -1,9 +1,10 @@
 import { appDataSchema } from "./appDataSchema";
 import { appSchema } from "./editorSchema";
 import { MATH_STRUCTURED_KIND } from "@tasfer/math/data";
+import { TABLE_STRUCTURED_KIND } from "@tasfer/table/data";
 import { describe, expect, it } from "vitest";
 
-describe("app editor math composition", () => {
+describe("app editor feature composition", () => {
   it("installs both display and inline structured-tree input", () => {
     const ids = appSchema.data
       .inputRules("before-insert")
@@ -18,14 +19,35 @@ describe("app editor math composition", () => {
     expect(appSchema.data.transformPastedText(latex)).toBe(`$${latex}$`);
   });
 
-  it("carries math's spec facets on the worker-safe data schema", () => {
+  it("carries the features' spec facets on the worker-safe data schema", () => {
     expect(appDataSchema.syntaxRules().map((rule) => rule.id)).toEqual([
       "math.display-dollar-fence",
       "math.inline-dollar-delimiter",
+      "table/gfm",
     ]);
     expect(appDataSchema.structuredMark("math")).toBeDefined();
     // Live authoring facets stay out of reducers and workers.
     expect(appDataSchema.inputRules("before-insert")).toEqual([]);
+  });
+
+  it("installs the table block on both halves, and its input rule only live", () => {
+    // The canvas-free half is what a worker replays a table's operations with,
+    // so the block type and its round-trip have to be there too — only the
+    // painter and the cell-input rule are the interactive schema's own.
+    expect(appDataSchema.structuredKind(TABLE_STRUCTURED_KIND)).toBeDefined();
+    expect(
+      appSchema.data.inputRules("before-insert").map((rule) => rule.id),
+    ).toContain("table.cell.input");
+    expect(appSchema.nodes.some((node) => node.type === "table")).toBe(true);
+
+    // What a range inside a cell copies as is a main-thread question too: the
+    // worker replays operations and never holds a selection.
+    expect(
+      appDataSchema.structuredKind(TABLE_STRUCTURED_KIND)?.contentSelection,
+    ).toBeUndefined();
+    expect(
+      appSchema.data.structuredKind(TABLE_STRUCTURED_KIND)?.contentSelection,
+    ).toBeDefined();
   });
 
   it("installs the kind's selection adapters interactively only", () => {
