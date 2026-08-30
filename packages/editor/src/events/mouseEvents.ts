@@ -366,7 +366,15 @@ export function handleMouseDown(
   let isMultiClick = false;
   let clickCount = 1;
 
-  if (continuesClickRun(state, canvasX, canvasY)) {
+  // Shift is the EXTENSION modifier, never part of a click count: ⇧-click drags
+  // the selection's focus to the press, whatever came before it. A run only has
+  // to land within 5px of the last press to continue, which is less than one
+  // glyph — so extending a selection by a character or two put the press inside
+  // the window and it was read as a double-click, selecting the word instead
+  // (and the press after that, the line). Most visible inside a table cell,
+  // where the word/line gestures are claimed by the node and there is no flat
+  // selection to fall back on, but the misread was never right anywhere.
+  if (!event.shiftKey && continuesClickRun(state, canvasX, canvasY)) {
     clickCount = state.view.clickTracker.count + 1;
     isMultiClick = true;
   }
