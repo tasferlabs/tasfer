@@ -14,6 +14,13 @@ export const REMEMBER_KEYS = {
   importSpace: "import-space",
   /** Space a new calendar event is drafted into. */
   eventSpace: "event-space",
+  /**
+   * Whether the event draft's parent picker shows its "Recent" shortcut row.
+   * Someone who always files from the tree can fold it away for good.
+   */
+  recentParents: "calendar-recent-parents",
+  /** Whether that same picker shows the page tree it drills through. */
+  parentTree: "calendar-parent-tree",
 } as const;
 
 /**

@@ -23,6 +23,11 @@ import {
 import { deriveTitles } from "@/lib/pageTitle";
 import { getResolvedTimezone } from "@/lib/dateTimePreferences";
 import { REMEMBER_KEYS } from "@/lib/rememberedChoice";
+import {
+  getLastParent,
+  recordParentUse,
+  type RecentParent,
+} from "@/lib/parentUsage";
 import { DURATION_OPTIONS, formatDurationLabel } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
@@ -240,6 +245,13 @@ export function EventPreview({
 
   // Parent page selection
   const [draftParent, setDraftParent] = useState<ISearchPage | null>(null);
+  // Whether the user has answered the parent question for this draft. Once they
+  // have, the pre-fill stays out of the way — including when the answer was to
+  // clear it.
+  const draftParentTouchedRef = useRef(false);
+  // The parent a new draft opens tagged with, before it has been checked
+  // against the live rows. See the pre-fill block further down.
+  const [prefillParent, setPrefillParent] = useState<RecentParent | null>(null);
   const [draftIsTask, setDraftIsTask] = useState(true);
   const [draftSpaceId, setDraftSpaceId] = useState<string | null>(
     activeSpaceId,
@@ -341,13 +353,18 @@ export function EventPreview({
       setSize({ ...lastSizeRef.current });
       setPos(null); // will be computed from anchor
       setDraftParent(null);
+      draftParentTouchedRef.current = false;
       setDraftIsTask(true);
       // A draft opens in the space the last one was filed under, not in
       // whichever space the sidebar happens to be showing.
-      setDraftSpaceId(
+      const targetSpaceId =
         rememberedSpaceId(REMEMBER_KEYS.eventSpace, spacesRef.current) ??
-          activeSpaceId,
-      );
+        activeSpaceId;
+      setDraftSpaceId(targetSpaceId);
+      // Read the pre-fill candidate here, as the draft opens, rather than
+      // deriving it: every draft in a run has to ask again, and only a draft
+      // asks at all.
+      setPrefillParent(pageId ? null : getLastParent(targetSpaceId));
       setParentSearchOpen(false);
       setDetailsOpen(false);
     }
@@ -617,8 +634,11 @@ export function EventPreview({
 
   const handleDraftSpaceChange = useCallback((spaceId: string) => {
     setDraftSpaceId(spaceId);
-    // Parent pages cannot cross space boundaries.
+    // Parent pages cannot cross space boundaries, so the choice — and the
+    // pre-fill that would have made it — starts over in the new space.
     setDraftParent(null);
+    draftParentTouchedRef.current = false;
+    setPrefillParent(getLastParent(spaceId));
     setParentSearchOpen(false);
   }, []);
 
@@ -629,20 +649,27 @@ export function EventPreview({
     }
     if (!pageId || !previewPage) return;
     updatePage({ id: pageId, task: !previewPage.task });
+    onTaskToggled?.(pageId, !!previewPage.task);
     // Optimistically update the cached page
     queryClient.setQueryData(["page", pageId], (old: any) =>
       old ? { ...old, task: !old.task } : old,
     );
     queryClient.invalidateQueries({ queryKey: ["pages"] });
-  }, [isDraft, pageId, previewPage, updatePage, queryClient]);
+  }, [isDraft, pageId, previewPage, updatePage, onTaskToggled, queryClient]);
 
   const handleParentChange = useCallback(
     (page: ISearchPage | null) => {
       if (isDraft) {
+        // The user has answered the parent question themselves; the pre-fill
+        // must not answer it again over the top of them.
+        draftParentTouchedRef.current = true;
         setDraftParent(page);
         return;
       }
       if (!pageId) return;
+      // Filing an existing page under a parent counts as using that parent,
+      // same as drafting an event under it.
+      if (page) recordParentUse(eventSpaceId, page);
       // The picker keeps the chosen tag lit from `previewPage`, so paint the
       // move into the cache now rather than waiting out the round trip.
       queryClient.setQueryData(["page", pageId], (old: any) =>
@@ -666,8 +693,37 @@ export function EventPreview({
       );
       movePage({ id: pageId, parentId: page?.id ?? null });
     },
-    [isDraft, pageId, movePage, queryClient],
+    [isDraft, pageId, eventSpaceId, movePage, queryClient],
   );
+
+  // ── Pre-filling the parent of a new draft ──
+  //
+  // A run of events usually belongs under one page, so a fresh draft opens
+  // already tagged with the parent this space was last filing under — for as
+  // long as that choice is fresh (see PREFILL_FRESH_MS). The tag is visibly
+  // selected in the picker and one tap clears it, so nothing is filed anywhere
+  // the user can't see before saving.
+  // Resolved against the live rows rather than trusted: a parent deleted since
+  // it was last used must not quietly adopt a new page. Its own children row is
+  // the one the picker loads anyway, so this is usually already in cache.
+  const { data: prefillSiblings } = useGetPages(
+    prefillParent ? draftTargetSpaceId : null,
+    prefillParent?.parentId ?? null,
+  );
+  useEffect(() => {
+    if (!isDraft || !prefillParent || draftParentTouchedRef.current) return;
+    const live = prefillSiblings?.find((p) => p.id === prefillParent.id);
+    if (!live) return;
+    setDraftParent({
+      id: live.id,
+      title: live.title,
+      titleMd: live.titleMd,
+      parentId: live.parentId,
+      spaceId: live.spaceId ?? null,
+      color: live.color ?? null,
+      path: prefillParent.path,
+    });
+  }, [isDraft, prefillParent, prefillSiblings]);
 
   // Derive current parent for existing pages. `parents` is the page's own
   // ancestor chain, root first, so everything above the parent is the parent's
@@ -1049,6 +1105,10 @@ export function EventPreview({
   const handleDraftSaveClick = useCallback(() => {
     const content = draftContentRef.current;
     if (!draftTargetSpaceId) return;
+    // Record the filing, not the browsing: the ranking that feeds the picker's
+    // shortcut row (and the pre-fill above) counts events actually saved under
+    // a parent, so tapping through tags to look around doesn't skew it.
+    if (draftParent) recordParentUse(draftTargetSpaceId, draftParent);
     onDraftSave?.(
       content?.blocks,
       null,

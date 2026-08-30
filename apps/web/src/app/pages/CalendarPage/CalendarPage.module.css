@@ -842,10 +842,80 @@
   display: none;
 }
 
-/* Deeper rows are inset so the drill path reads top-to-bottom. */
-.draftTagRow ~ .draftTagRow,
-.draftTagLevels .draftTagRow:not(:first-child) {
+/* Deeper rows are inset so the drill path reads top-to-bottom. Marked by the
+   row's depth rather than its position: the "Recent" shortcut row sits above
+   the top level without being part of the path. */
+.draftTagRowNested {
   padding-inline-start: 16px;
+}
+
+/* Caption over the shortcut row — the only row that isn't a level of the tree,
+   so it says what it is, and folds it away for anyone who files from the tree
+   instead. Sized to the label so the rest of the line stays dead space rather
+   than a hit target that collapses the row by accident. */
+.draftTagRowLabel {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  /* Sits directly on its row rather than midway between two. */
+  margin-bottom: -2px;
+}
+
+.draftTagRowLabel:hover {
+  color: var(--foreground);
+}
+
+/* The tree's rows, grouped so the caption above can name them to assistive tech
+   and fold them as one. Carries the column layout the picker gives its own
+   children, since the group takes their place in it. */
+.draftTagLevelGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Parts the tree from the shortcuts above it: they are two ways of answering
+   the same question, and at the row gap alone they read as one list. Space
+   alone does it — the two captions already mark where one ends. */
+.draftTagRowLabelParted {
+  margin-top: 10px;
+}
+
+.draftTagRowLabel:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* On touch the caption is a thumb target, not a caption with a hit box: it
+   takes the full width so the whole line folds the section, stands as tall as
+   the bar's own controls, and sends the chevron to the far end where a mobile
+   accordion keeps it. Short landscape screens keep the compact one — there the
+   rows themselves are the scarce thing. */
+@media (pointer: coarse) and (min-height: 601px) {
+  .draftTagRowLabel {
+    align-self: stretch;
+    min-block-size: 2.75rem;
+    gap: 8px;
+    font-size: 0.8125rem;
+  }
+
+  .draftTagRowLabel svg {
+    inline-size: 1rem;
+    block-size: 1rem;
+  }
+
+  .draftTagRowLabel svg:last-child {
+    margin-inline-start: auto;
+  }
 }
 
 .draftTag {
@@ -867,6 +937,13 @@
 
 .draftTag:hover {
   background-color: var(--accent);
+}
+
+/* The rows are one tab stop with the arrows moving between tags, so the ring is
+   the only thing saying where the keyboard is. */
+.draftTag:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
 }
 
 /* An open branch can also be the selected parent, so the selected fill is
