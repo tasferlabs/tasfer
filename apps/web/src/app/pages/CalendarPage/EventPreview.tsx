@@ -182,6 +182,9 @@ export function EventPreview({
   onDraftSave,
   onDraftScheduleChange,
   onDraftContentChange,
+  onArchived,
+  onScheduleEdited,
+  onTaskToggled,
   calendarInteractionActive = false,
 }: {
   pageId: string | null;
@@ -210,6 +213,16 @@ export function EventPreview({
   // Reports whether the draft has a typed title, so the host can guard
   // navigation away from an in-progress draft.
   onDraftContentChange?: (hasContent: boolean) => void;
+  // The three edits below are reported to the host so it can put them on the
+  // calendar's undo stack — it owns that history, and holds the mutations that
+  // reverse them.
+  onArchived?: (pageId: string) => void;
+  onScheduleEdited?: (
+    pageId: string,
+    before: { scheduledAt: string | null; duration: number | null },
+    after: { scheduledAt: string | null; duration: number | null },
+  ) => void;
+  onTaskToggled?: (pageId: string, previousTask: boolean) => void;
   // Lets the active calendar move, resize, or creation gesture own Escape.
   calendarInteractionActive?: boolean;
 }) {
@@ -874,8 +887,16 @@ export function EventPreview({
     });
     if (!confirmed) return;
 
-    deletePage({ id: pageId });
-  }, [deletePage, getConfirmation, isDeleting, pageId, previewPage, t]);
+    deletePage({ id: pageId }, { onSuccess: () => onArchived?.(pageId) });
+  }, [
+    deletePage,
+    getConfirmation,
+    isDeleting,
+    onArchived,
+    pageId,
+    previewPage,
+    t,
+  ]);
 
   const handleDuplicate = useCallback(async () => {
     if (!pageId || !onDuplicate) return;
@@ -889,8 +910,18 @@ export function EventPreview({
     (scheduledAt: string, duration: number | null) => {
       if (!pageId) return;
       updatePage({ id: pageId, scheduledAt, duration });
+      if (previewPage) {
+        onScheduleEdited?.(
+          pageId,
+          {
+            scheduledAt: previewPage.scheduledAt ?? null,
+            duration: previewPage.duration ?? null,
+          },
+          { scheduledAt, duration },
+        );
+      }
     },
-    [pageId, updatePage],
+    [pageId, previewPage, updatePage, onScheduleEdited],
   );
 
   const isTask = isDraft ? draftIsTask : previewPage?.task;

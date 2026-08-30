@@ -25,10 +25,13 @@ import {
   useGetCalendarPages,
   useCreatePage,
   useDeletePage,
+  useRestorePage,
   useUpdatePage,
   updatePage as updatePageApi,
   type ICalendarPage,
 } from "../../api/pages.api";
+import { useToast } from "../../components/Toast";
+import { useCalendarUndo } from "./useCalendarUndo";
 import {
   DEFAULT_HOUR_HEIGHT,
   TOTAL_HOURS,
@@ -377,6 +380,68 @@ export default function CalendarPage() {
 
   const { data: pages } = useGetCalendarPages(activeSpaceId, start, end);
 
+  // ── Undo / redo for calendar-level edits ──
+  // Only what the calendar itself does to a page: moves, resizes, creations,
+  // duplications, archives, reschedules. Body text typed inside an event's
+  // preview stays with the editor's own CRDT undo stack.
+  const {
+    record: recordUndo,
+    undo: popUndo,
+    redo: popRedo,
+    clear: clearUndo,
+  } = useCalendarUndo();
+  const { toast } = useToast();
+
+  const { mutate: deletePage } = useDeletePage({
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
+      queryClient.invalidateQueries({ queryKey: ["pages"] });
+      queryClient.removeQueries({ queryKey: ["page", variables.id] });
+      if (previewPageId === variables.id) closePreviewNow();
+    },
+  });
+
+  const { mutate: restorePage } = useRestorePage({
+    onSuccess: () => {
+      // useRestorePage already refreshes the page and archive lists; the
+      // calendar's own range query is not one of them.
+      queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
+    },
+  });
+
+  // Archiving is a soft delete, so restore is its exact inverse. It is also why
+  // undoing a creation archives the new page rather than erasing it — the
+  // engine has no hard delete — which leaves the undone event sitting in the
+  // Archive, recoverable, rather than gone.
+  const recordArchiveUndo = useCallback(
+    (pageId: string) => {
+      recordUndo({
+        undoMessage: t(
+          "calendar.undo.archiveUndone",
+          "Page restored from the Archive",
+        ),
+        redoMessage: t("calendar.undo.archiveRedone", "Page archived again"),
+        pageId,
+        undo: () => restorePage({ id: pageId }),
+        redo: () => deletePage({ id: pageId }),
+      });
+    },
+    [recordUndo, restorePage, deletePage, t],
+  );
+
+  const recordCreateUndo = useCallback(
+    (pageId: string, undoMessage: string, redoMessage: string) => {
+      recordUndo({
+        undoMessage,
+        redoMessage,
+        pageId,
+        undo: () => deletePage({ id: pageId }),
+        redo: () => restorePage({ id: pageId }),
+      });
+    },
+    [recordUndo, restorePage, deletePage],
+  );
+
   const { mutate: createPage } = useCreatePage({
     onSuccess: async (newPage) => {
       // Save draft title and body to the new page
@@ -392,6 +457,11 @@ export default function CalendarPage() {
         await getPlatform().ops.writeBlocks(newPage.id, blocks);
       }
       draftSnapshotRef.current = {};
+      recordCreateUndo(
+        newPage.id,
+        t("calendar.undo.createUndone", "New page archived"),
+        t("calendar.undo.createRedone", "Page restored"),
+      );
       queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
       queryClient.invalidateQueries({ queryKey: ["pages"] });
       setDraftEvent(null);
@@ -447,14 +517,44 @@ export default function CalendarPage() {
     },
   });
 
-  const { mutate: deletePage } = useDeletePage({
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
-      queryClient.invalidateQueries({ queryKey: ["pages"] });
-      queryClient.removeQueries({ queryKey: ["page", variables.id] });
-      if (previewPageId === variables.id) closePreviewNow();
+  // Edits made inside the preview land on the same stack as the grid's, but
+  // only become reachable once the preview closes: while it is open ⌘Z belongs
+  // to the editor inside it.
+  const handlePreviewScheduleEdited = useCallback(
+    (
+      pageId: string,
+      before: { scheduledAt: string | null; duration: number | null },
+      after: { scheduledAt: string | null; duration: number | null },
+    ) => {
+      recordUndo({
+        undoMessage: t(
+          "calendar.undo.rescheduleUndone",
+          "Previous time restored",
+        ),
+        redoMessage: t("calendar.undo.rescheduleRedone", "Time changed again"),
+        pageId,
+        undo: () => updatePage({ id: pageId, ...before }),
+        redo: () => updatePage({ id: pageId, ...after }),
+      });
     },
-  });
+    [recordUndo, updatePage, t],
+  );
+
+  const handlePreviewTaskToggled = useCallback(
+    (pageId: string, previousTask: boolean) => {
+      recordUndo({
+        undoMessage: t("calendar.undo.taskToggleUndone", "Page type restored"),
+        redoMessage: t(
+          "calendar.undo.taskToggleRedone",
+          "Page type changed again",
+        ),
+        pageId,
+        undo: () => updatePage({ id: pageId, task: previousTask }),
+        redo: () => updatePage({ id: pageId, task: !previousTask }),
+      });
+    },
+    [recordUndo, updatePage, t],
+  );
 
   const handleEventDelete = useCallback(
     async (pageId: string) => {
@@ -479,9 +579,14 @@ export default function CalendarPage() {
         cancelText: t("common.cancel", "Cancel"),
         confirmText: t("common.archive", "Archive"),
       });
-      if (confirmed) deletePage({ id: pageId });
+      if (confirmed) {
+        deletePage(
+          { id: pageId },
+          { onSuccess: () => recordArchiveUndo(pageId) },
+        );
+      }
     },
-    [deletePage, getConfirmation, t],
+    [deletePage, getConfirmation, recordArchiveUndo, t],
   );
 
   const createPageAtTime = useCallback(
@@ -548,6 +653,11 @@ export default function CalendarPage() {
       if (titleBlock) {
         await getPlatform().ops.writeBlocks(newPage.id, [titleBlock]);
       }
+      recordCreateUndo(
+        newPage.id,
+        t("calendar.undo.duplicateUndone", "Duplicate archived"),
+        t("calendar.undo.duplicateRedone", "Duplicate restored"),
+      );
       queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
       queryClient.invalidateQueries({ queryKey: ["pages"] });
       if (opts?.select) {
@@ -555,7 +665,7 @@ export default function CalendarPage() {
         setPreviewAnchor(null);
       }
     },
-    [activeSpaceId, queryClient],
+    [activeSpaceId, queryClient, recordCreateUndo, t],
   );
 
   // After the draft card renders, resolve its position as the anchor
@@ -1027,9 +1137,15 @@ export default function CalendarPage() {
             prev ? { ...prev, scheduledAt: newISO } : prev,
           );
         } else {
-          updatePage({
-            id: activeDragPage.id,
-            scheduledAt: newISO,
+          const movedId = activeDragPage.id;
+          const previousISO = activeDragPage.scheduledAt;
+          updatePage({ id: movedId, scheduledAt: newISO });
+          recordUndo({
+            undoMessage: t("calendar.undo.moveUndone", "Page moved back"),
+            redoMessage: t("calendar.undo.moveRedone", "Page moved again"),
+            pageId: movedId,
+            undo: () => updatePage({ id: movedId, scheduledAt: previousISO }),
+            redo: () => updatePage({ id: movedId, scheduledAt: newISO }),
           });
         }
       }
@@ -1123,7 +1239,20 @@ export default function CalendarPage() {
         if (r.pageId === "__draft__") {
           setDraftEvent((prev) => (prev ? { ...prev, duration: d } : prev));
         } else {
-          updatePage({ id: r.pageId, duration: d });
+          const resizedId = r.pageId;
+          const previousDuration = r.originalDuration;
+          updatePage({ id: resizedId, duration: d });
+          recordUndo({
+            undoMessage: t("calendar.undo.resizeUndone", "Duration restored"),
+            redoMessage: t(
+              "calendar.undo.resizeRedone",
+              "Duration changed again",
+            ),
+            pageId: resizedId,
+            undo: () =>
+              updatePage({ id: resizedId, duration: previousDuration }),
+            redo: () => updatePage({ id: resizedId, duration: d }),
+          });
         }
       }
       resetResize();
@@ -1981,16 +2110,54 @@ export default function CalendarPage() {
     return () => clearInterval(interval);
   }, []);
 
+  // The stack describes pages in the space that was open when they were
+  // recorded, and its entries are meaningless once the calendar shows another
+  // space's events.
+  useEffect(() => {
+    clearUndo();
+  }, [activeSpaceId, clearUndo]);
+
+  // An undone event is often on a day that isn't on screen, so say what
+  // happened rather than letting the keystroke look like it did nothing.
+  const runUndo = useCallback(async () => {
+    const entry = await popUndo();
+    if (entry) toast({ message: entry.undoMessage });
+  }, [popUndo, toast]);
+
+  const runRedo = useCallback(async () => {
+    const entry = await popRedo();
+    if (entry) toast({ message: entry.redoMessage });
+  }, [popRedo, toast]);
+
   // ── Keyboard shortcuts ──
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null;
       if (
         e.target instanceof HTMLInputElement ||
         e.target instanceof HTMLTextAreaElement ||
+        // The editor types into a hidden contenteditable and owns undo while it
+        // has focus — its history is the document's, not the calendar's.
+        target?.isContentEditable ||
         previewPageId ||
         draftEvent
       )
         return;
+
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && (e.key === "z" || e.key === "Z")) {
+        e.preventDefault();
+        void (e.shiftKey ? runRedo() : runUndo());
+        return;
+      }
+      if (mod && (e.key === "y" || e.key === "Y")) {
+        e.preventDefault();
+        void runRedo();
+        return;
+      }
+      // The single-letter shortcuts below must not swallow the browser's own
+      // modifier combos (⌘P, ⌘T).
+      if (mod || e.altKey) return;
 
       switch (e.key) {
         case "p":
@@ -2040,6 +2207,8 @@ export default function CalendarPage() {
     draftEvent,
     isToday,
     nowMinutes,
+    runUndo,
+    runRedo,
   ]);
 
   const noopHandler = useCallback(() => {}, []);
@@ -2720,6 +2889,9 @@ export default function CalendarPage() {
           setDraftEvent((d) => (d ? { ...d, scheduledAt, duration } : d))
         }
         onDraftContentChange={setDraftHasContent}
+        onArchived={recordArchiveUndo}
+        onScheduleEdited={handlePreviewScheduleEdited}
+        onTaskToggled={handlePreviewTaskToggled}
         calendarInteractionActive={
           activeDragPage !== null || resize !== null || createDrag !== null
         }
