@@ -233,6 +233,13 @@ describe("markdown delimiter wrapping (marks)", () => {
     expect(rangeHasFormat(again.state, 0, 4, 5, "math")).toBe(true);
   });
 
+  it("wraps a selection as math on the \u20ac alias too", () => {
+    let state = stateWithSelection("E = mc^2\n", at(0, 4), at(0, 8));
+    state = type(state, "\u20ac").state;
+    expect(blockText(state, 0)).toBe(`E = ${STRUCTURED_MARK_ANCHOR_CHAR}`);
+    expect(rangeHasFormat(state, 0, 4, 5, "math")).toBe(true);
+  });
+
   it("completes a partially-marked selection instead of toggling it off", () => {
     // "*it*alic": only the first two chars are emphasized.
     let state = stateWithSelection("*it*alic\n", at(0, 0), at(0, 6));

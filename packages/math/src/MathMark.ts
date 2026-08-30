@@ -422,7 +422,11 @@ export class MathMark extends Mark {
   readonly codec = mathMarkCodec;
   // Typing `$` over a selection wraps it as an inline chip (the selected chars
   // become the LaTeX source); `$` again over a full chip selection unwraps it.
-  readonly selectionWrap: readonly SelectionWrapTrigger[] = [{ char: "$" }];
+  // `\u20ac` is the same shortcut's undocumented alias (see `input-rules.ts`).
+  readonly selectionWrap: readonly SelectionWrapTrigger[] = [
+    { char: "$" },
+    { char: "\u20ac" },
+  ];
   style(): MarkStyle {
     return {};
   }

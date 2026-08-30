@@ -191,6 +191,45 @@ describe("optional math live-input rules", () => {
     ).toBeDefined();
   });
 
+  it("accepts \u20ac as the undocumented alias for both math shortcuts", () => {
+    const inline = type(
+      createMathTestState(loadMathPage("")),
+      "\u20acx+y\u20ac",
+    ).state;
+    expect(source(inline)).toBe(STRUCTURED_MARK_ANCHOR_CHAR);
+    expect(chipLatex(inline)).toEqual(["x+y"]);
+    // Nothing serializes to `\u20ac`: the alias is a live-authoring trigger only.
+    expect(
+      serializeToMarkdown(inline.document.page.blocks, undefined, {
+        schema: inline.schema,
+      }),
+    ).toBe("$x+y$");
+
+    const display = type(
+      createMathTestState(loadMathPage("")),
+      "\u20ac\u20ac",
+    ).state;
+    expect(display.document.page.blocks[0].type).toBe("math");
+    expect(
+      getMathStructuredDocument(display.document.page.blocks[0]),
+    ).toBeDefined();
+  });
+
+  it("never closes one math delimiter with the other", () => {
+    expect(
+      source(type(createMathTestState(loadMathPage("")), "$x\u20ac").state),
+    ).toBe("$x\u20ac");
+    expect(
+      source(type(createMathTestState(loadMathPage("")), "\u20acx$").state),
+    ).toBe("\u20acx$");
+    const mixedPair = type(
+      createMathTestState(loadMathPage("")),
+      "$\u20ac",
+    ).state;
+    expect(mixedPair.document.page.blocks[0].type).toBe("paragraph");
+    expect(source(mixedPair)).toBe("$\u20ac");
+  });
+
   it("keeps full-extension input facets available to custom editor schemas", () => {
     const appDataSchema = mathTestSchema.data;
     expect(

@@ -4,6 +4,11 @@
  * The editor core treats `$` as ordinary text. Installing these rules opts one
  * schema into the familiar authoring shortcuts without teaching the generic
  * input pipeline about a `math` block or mark type.
+ *
+ * `€` is an undocumented alias for `$` on every one of these shortcuts — an
+ * easter egg for keyboards where the euro key is the easy one. It is live
+ * authoring only: nothing serializes to `€`, and markdown import still speaks
+ * plain `$`.
  */
 
 import { createStructuredMathMarkAttachment } from "./inline-structured";
@@ -36,7 +41,18 @@ import {
 } from "@tasfer/editor/sync/crdt-utils";
 import { applyOp } from "@tasfer/editor/sync/reducer";
 
-const INLINE_MATH = /\$([^$\n]+)\$$/;
+/** Delimiters that open and close a math shortcut. Pairs must not be mixed. */
+const MATH_DELIMITERS = ["$", "\u20ac"] as const;
+type MathDelimiter = (typeof MATH_DELIMITERS)[number];
+
+const INLINE_MATH: Record<MathDelimiter, RegExp> = {
+  $: /\$([^$\n]+)\$$/,
+  "\u20ac": /\u20ac([^\u20ac\n]+)\u20ac$/,
+};
+
+function asMathDelimiter(input: string): MathDelimiter | undefined {
+  return MATH_DELIMITERS.find((char) => char === input);
+}
 
 function blockAtCursor(state: EditorState) {
   const cursor = state.document.cursor;
@@ -86,7 +102,9 @@ const displayDollarRule: FeatureInputRule = {
       !block ||
       !isTextualBlock(block) ||
       isPreformatted(state, block.type) ||
-      getVisibleTextFromRuns(block.charRuns) !== "$$"
+      !MATH_DELIMITERS.some(
+        (char) => getVisibleTextFromRuns(block.charRuns) === char + char,
+      )
     ) {
       return undefined;
     }
@@ -160,7 +178,8 @@ const inlineDollarRule: FeatureInputRule = {
   apply: ({ state, input }) => {
     // The legacy shortcut was deliberately keystroke-only: paste/IME commits
     // containing a complete `$…$` source remain literal until parsed/imported.
-    if (input !== "$" || !state.schema.isMarkAllowed("math")) {
+    const delimiter = asMathDelimiter(input);
+    if (!delimiter || !state.schema.isMarkAllowed("math")) {
       return undefined;
     }
 
@@ -193,7 +212,7 @@ const inlineDollarRule: FeatureInputRule = {
       return undefined;
     }
 
-    const match = fullText.slice(0, textIndex).match(INLINE_MATH);
+    const match = fullText.slice(0, textIndex).match(INLINE_MATH[delimiter]);
     if (!match) return undefined;
 
     const matchStart = textIndex - match[0].length;
