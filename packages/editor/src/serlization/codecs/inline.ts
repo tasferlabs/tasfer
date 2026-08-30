@@ -22,7 +22,7 @@ import {
   type CharRun,
   type Mark,
   markKey,
-  type MarkSpan,
+  type MarkRange,
 } from "../loadPage";
 import type { MarkHtmlCtx } from "./mark-codec";
 import type { ReplacementRenderer } from "./types";
@@ -56,7 +56,7 @@ function formatKeysToFormats(
 /** Group visible chars into runs of identical formatting. */
 export function groupSegments(
   charRuns: CharRun[],
-  formats: MarkSpan[],
+  formats: readonly MarkRange[],
 ): Segment[] {
   const visibleChars: string[] = [];
   for (const { char } of iterateVisibleChars(charRuns)) {
@@ -138,7 +138,7 @@ export function escapeAttr(s: string): string {
  */
 export function inlineToMarkdown(
   charRuns: CharRun[],
-  formats: MarkSpan[],
+  formats: readonly MarkRange[],
   schema: DataSchema,
   attachments?: StructuredContentMap,
 ): string {
@@ -166,7 +166,7 @@ export function inlineToMarkdown(
  */
 export function inlineToHtml(
   charRuns: CharRun[],
-  formats: MarkSpan[],
+  formats: readonly MarkRange[],
   schema: DataSchema,
   renderReplacement?: ReplacementRenderer,
   preferSource?: boolean,
@@ -216,7 +216,7 @@ export function inlineToHtml(
  */
 export function inlineToText(
   charRuns: CharRun[],
-  formats: MarkSpan[],
+  formats: readonly MarkRange[],
   schema: DataSchema,
   attachments?: StructuredContentMap,
 ): string {

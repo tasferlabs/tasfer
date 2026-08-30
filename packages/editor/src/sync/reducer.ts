@@ -39,12 +39,12 @@ import {
   getCharIdAtVisiblePosition,
   getVisibleTextFromRuns,
   insertIntoRuns,
-  isCharIdInRange,
   iterateAllChars,
   iterateVisibleChars,
 } from "./char-runs";
 import { sortBlocksByOrder } from "./crdt-utils";
 import { compareHLC } from "./hlc";
+import { applyMarkToRange, removeMarkFromRange } from "./mark-spans";
 import type { DataSchema } from "./schema";
 import {
   adoptAttachmentsFromPage,
@@ -276,86 +276,21 @@ function applyFormatSet(
     return state;
   }
 
+  // The span algebra itself (union on apply, tolerant split on remove) lives in
+  // `mark-spans`, shared with the structured store so the two can never drift.
+  // What is block-specific stays here: the HLC each span carries, and the clock
+  // idempotency guard.
   let newFormats: MarkSpan[];
 
   if (op.value === false) {
-    newFormats = [];
-    const selectionSet = new Set(op.charIds);
-
-    for (const span of block.formats) {
-      if (span.format.type !== op.format.type) {
-        newFormats.push(span);
-        continue;
-      }
-
-      const overlaps = op.charIds.some((charId) =>
-        isCharIdInRange(
-          block.charRuns,
-          charId,
-          span.startCharId,
-          span.endCharId,
-        ),
-      );
-      if (!overlaps) {
-        newFormats.push(span);
-        continue;
-      }
-
-      // Resolve the span's surviving (visible) chars tolerantly, by document
-      // order: a span endpoint can be tombstoned (e.g. the chip's leading char
-      // was deleted) while its interior survives. Anchoring on the exact boundary
-      // id over *visible* chars would never see a tombstoned endpoint, so the
-      // walk would collect nothing and drop the whole span on the floor — turning
-      // a partial un-format into a total one (an inline-math chip losing its mark
-      // and rendering as raw source). Matching `resolveMarkRuns`, key off ordinals
-      // computed over ALL chars so a deleted endpoint still bounds the run.
-      const ordinal = new Map<string, number>();
-      const visibleIds: string[] = [];
-      let ord = 0;
-      for (const { id, deleted } of iterateAllChars(block.charRuns)) {
-        ordinal.set(id, ord++);
-        if (!deleted) visibleIds.push(id);
-      }
-      const startOrd = ordinal.get(span.startCharId);
-      const endOrd = ordinal.get(span.endCharId);
-      if (startOrd === undefined || endOrd === undefined) {
-        // Both anchors gone entirely — can't resolve the run; keep it untouched
-        // rather than dropping data. (Unreachable when the overlap check above
-        // passed, since that walks the same all-chars list.)
-        newFormats.push(span);
-        continue;
-      }
-      const spanCharIds = visibleIds.filter((id) => {
-        const o = ordinal.get(id)!;
-        return o >= startOrd && o <= endOrd;
-      });
-
-      let runStart: string | null = null;
-      let runEnd: string | null = null;
-      for (const charId of spanCharIds) {
-        if (!selectionSet.has(charId)) {
-          if (runStart === null) runStart = charId;
-          runEnd = charId;
-        } else if (runStart !== null && runEnd !== null) {
-          newFormats.push({
-            startCharId: runStart,
-            endCharId: runEnd,
-            format: span.format,
-            clock: span.clock,
-          });
-          runStart = null;
-          runEnd = null;
-        }
-      }
-      if (runStart !== null && runEnd !== null) {
-        newFormats.push({
-          startCharId: runStart,
-          endCharId: runEnd,
-          format: span.format,
-          clock: span.clock,
-        });
-      }
-    }
+    newFormats =
+      removeMarkFromRange(
+        iterateAllChars(block.charRuns),
+        block.formats,
+        op.charIds,
+        op.format.type,
+        (range, source) => ({ ...range, clock: source.clock }),
+      ) ?? block.formats;
   } else {
     const alreadyApplied = block.formats.some(
       (span) =>
@@ -366,73 +301,16 @@ function applyFormatSet(
       return state;
     }
 
-    // Document-order ordinals over ALL chars (tombstones included), so a span
-    // whose endpoint was tombstoned still bounds a range — matching the
-    // op.value === false branch and `resolveMarkRuns`.
-    const ordinal = new Map<string, number>();
-    let ord = 0;
-    for (const { id } of iterateAllChars(block.charRuns)) {
-      ordinal.set(id, ord++);
-    }
-
-    // The op's own range, as ordinals. charIds is a contiguous document-order
-    // run, but min/max defends against any ordering.
-    let startId = op.charIds[0];
-    let endId = op.charIds[op.charIds.length - 1];
-    let startOrd = ordinal.get(startId);
-    let endOrd = ordinal.get(endId);
-    if (startOrd === undefined || endOrd === undefined) {
-      // Op targets chars absent from this block — nothing coherent to set.
-      return state;
-    }
-    if (startOrd > endOrd) {
-      [startOrd, endOrd] = [endOrd, startOrd];
-      [startId, endId] = [endId, startId];
-    }
-
-    // Fold each overlapping same-type span INTO the new range (union) rather
-    // than dropping it: a mark that already covered chars outside the op's
-    // range must keep covering them. Replacing the span with just the op's
-    // range silently shrinks coverage — e.g. after an inline-math chip is split
-    // across a block boundary (Enter) and the blocks are rejoined (Backspace),
-    // re-marking the second half would otherwise strip the mark from the first
-    // half, leaving it to render as raw LaTeX source.
-    const kept: MarkSpan[] = [];
-    for (const span of block.formats) {
-      if (span.format.type !== op.format.type) {
-        kept.push(span);
-        continue;
-      }
-      const sOrd = ordinal.get(span.startCharId);
-      const eOrd = ordinal.get(span.endCharId);
-      if (sOrd === undefined || eOrd === undefined) {
-        kept.push(span);
-        continue;
-      }
-      // Ranges intersect in document order (using the new range as it grows, so
-      // a chain of overlapping spans coalesces into one).
-      const overlaps = sOrd <= endOrd && eOrd >= startOrd;
-      if (!overlaps) {
-        kept.push(span);
-        continue;
-      }
-      if (sOrd < startOrd) {
-        startOrd = sOrd;
-        startId = span.startCharId;
-      }
-      if (eOrd > endOrd) {
-        endOrd = eOrd;
-        endId = span.endCharId;
-      }
-    }
-
-    const newSpan: MarkSpan = {
-      startCharId: startId,
-      endCharId: endId,
-      format: op.format,
-      clock: op.clock,
-    };
-    newFormats = [...kept, newSpan];
+    const applied = applyMarkToRange(
+      iterateAllChars(block.charRuns),
+      block.formats,
+      op.charIds,
+      op.format,
+      (range) => ({ ...range, clock: op.clock }),
+    );
+    // Op targets chars absent from this block — nothing coherent to set.
+    if (!applied) return state;
+    newFormats = applied;
   }
 
   // Heal a structured mark whose attachment lives on another block: a merge or

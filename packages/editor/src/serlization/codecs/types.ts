@@ -31,7 +31,7 @@
  */
 
 import type { StructuredContentMap } from "../../sync/structured-content";
-import type { Block, CharRun, MarkSpan } from "../loadPage";
+import type { Block, CharRun, MarkRange, MarkSpan } from "../loadPage";
 import type { Token, TokenType } from "../tokenizer";
 
 export type SerialFormat = "markdown" | "html" | "text";
@@ -47,7 +47,7 @@ export type ReplacementRenderer = (
 export interface OutputCtx {
   readonly format: SerialFormat;
   /** Render rich text content (char runs + format spans) in the active format. */
-  inline(charRuns: CharRun[], formats: MarkSpan[]): string;
+  inline(charRuns: CharRun[], formats: readonly MarkRange[]): string;
   /**
    * Map an asset reference (content-hash url etc.) to the url to emit.
    * Identity by default; export flows supply bundle paths or data URIs.

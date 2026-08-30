@@ -391,7 +391,14 @@ export {
 // exported as `StoredMark` so the top-level `Mark` can be the rendering base
 // class (the extension point authors subclass); `StoredMark` is the `{ type,
 // attrs }` record a run carries, reachable as `MarkStyleCtx.mark`.
-export type { Block, Page, Mark as StoredMark } from "./serlization/loadPage";
+export type {
+  Block,
+  // A stored mark anchored to a character range — what a structured node's
+  // `markFields` holds, and the clock-free half of a block's `MarkSpan`.
+  MarkRange,
+  Page,
+  Mark as StoredMark,
+} from "./serlization/loadPage";
 export type {
   ContentEdit,
   EditorState,
@@ -452,9 +459,11 @@ export {
   applyStructuredEdit,
   applyStructuredEdits,
   applyStructuredMutation,
+  buildStructuredChildIndex,
   canonicalizeStructuredDocument,
   createStructuredDocument,
   getStructuredChildren,
+  getStructuredMarks,
   getStructuredNode,
   getStructuredText,
   hasStructuredBlockAuthority,

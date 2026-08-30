@@ -6,6 +6,7 @@ import type { TextBlock } from "../nodes/TextNode";
 import type { VisualBlock } from "../rendering/nodes/AtomicNode";
 import type { BlockRuntimeState } from "../rendering/nodes/Node";
 import { generateNKeysBetween } from "../sync/fractional-index";
+import { areMarksEqual, markKey } from "../sync/mark-spans";
 import type { DataSchema } from "../sync/schema";
 import type { HLC } from "../sync/sync";
 import { normalizeBlocks } from "./normalize";
@@ -44,51 +45,29 @@ export interface CharRun {
   deletedMask?: number[]; // Bitmask: bit i set = char at offset i is deleted
 }
 
-// Format span that references characters by ID
-export interface MarkSpan {
+/**
+ * A mark anchored to a character range by CRDT id — the shape shared by every
+ * store that keeps inline marks. Both endpoints may be tombstoned; resolution
+ * is tolerant (see `mark-runs.ts`).
+ */
+export interface MarkRange {
   startCharId: string;
   endCharId: string;
   format: Mark;
+}
+
+// Format span that references characters by ID
+export interface MarkSpan extends MarkRange {
   clock: HLC; // For LWW conflict resolution
 }
 
-/** Shallow value-equality of two marks' attribute bags (order-independent). */
-function attrsEqual(
-  a: Record<string, unknown> | undefined,
-  b: Record<string, unknown> | undefined,
-): boolean {
-  if (a === b) return true;
-  const aKeys = a ? Object.keys(a) : [];
-  const bKeys = b ? Object.keys(b) : [];
-  if (aKeys.length !== bKeys.length) return false;
-  for (const key of aKeys) {
-    if (a![key] !== b?.[key]) return false;
-  }
-  return true;
-}
-
-// Helper function to compare two Mark objects
-export function areMarksEqual(a: Mark, b: Mark): boolean {
-  if (a.type !== b.type) return false;
-  return attrsEqual(a.attrs, b.attrs);
-}
-
 /**
- * A stable string identity for a mark — its type plus a deterministic encoding
- * of its attrs. Two marks share a key iff `areMarksEqual` considers them equal.
- * Used to batch/group runs of identically-formatted characters (rendering and
- * the parser's active-mark tracking).
+ * Mark identity/equality lives in `sync/mark-spans` — a leaf module the mark
+ * algebra can be imported from anywhere in the load order (this module pulls in
+ * the parser and the base schema at runtime, so nothing early may import it).
+ * Re-exported here because this is where callers have always found them.
  */
-export function markKey(mark: Mark): string {
-  if (!mark.attrs) return mark.type;
-  const keys = Object.keys(mark.attrs).sort();
-  if (keys.length === 0) return mark.type;
-  return (
-    mark.type +
-    ":" +
-    keys.map((k) => `${k}=${String(mark.attrs![k])}`).join(",")
-  );
-}
+export { areMarksEqual, markKey };
 
 // Helper function to compare two arrays of Mark objects
 export function areMarkArraysEqual(

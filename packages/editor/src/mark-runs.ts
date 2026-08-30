@@ -19,7 +19,7 @@
  * cycle.
  */
 
-import type { Block, Char, MarkSpan } from "./serlization/loadPage";
+import type { Block, Char, MarkRange } from "./serlization/loadPage";
 import { isTextualBlock } from "./sync/block-registry";
 import { iterateAllChars } from "./sync/char-runs";
 
@@ -56,10 +56,14 @@ export function resolveMarkRuns(block: Block): MarkRunData[] {
  * resolved `Char[]`, not a `Block`) resolves runs through the SAME tolerant
  * logic as the edit/caret path. `chars` must include deleted chars so
  * document-order ordinals line up with the span anchors.
+ *
+ * Takes the clock-free {@link MarkRange} rather than a block's `MarkSpan`, so a
+ * structured node's `markFields` (which carry no clock) resolve through exactly
+ * this function too. A `MarkSpan` is assignable as-is.
  */
 export function resolveMarkRunsFromChars(
   chars: Iterable<Char>,
-  formats: MarkSpan[],
+  formats: readonly MarkRange[],
 ): MarkRunData[] {
   const ordinal = new Map<string, number>(); // char id → document-order position
   const visibleOrd: number[] = []; // ordinal of each visible char, ascending

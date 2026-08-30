@@ -81,6 +81,7 @@ import type {
   Char,
   CharRun,
   Mark,
+  MarkRange,
   MarkSpan,
 } from "../serlization/loadPage";
 import {
@@ -146,7 +147,7 @@ interface ReplacementRun {
  */
 function replacementRuns(
   chars: Char[],
-  formats: MarkSpan[],
+  formats: readonly MarkRange[],
   marks: MarkRegistry,
   attachments?: StructuredContentMap,
 ): ReplacementRun[] {
@@ -871,7 +872,7 @@ function composeMarkStyle(
 function renderLine(
   ctx: CanvasRenderingContext2D,
   chars: Char[],
-  formats: MarkSpan[],
+  formats: readonly MarkRange[],
   lineStartIndex: number,
   lineEndIndex: number,
   x: number,

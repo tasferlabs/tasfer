@@ -14,8 +14,11 @@ import { containsCJK, isCJKCharacter } from "./cjk";
 import { isHighSurrogate, isLowSurrogate } from "./code-points";
 import { resolveMarkRunsFromChars } from "./mark-runs";
 import type { MarkRegistry, MarkReplacement } from "./rendering/marks";
-import type { Char, CharRun, Mark, MarkSpan } from "./serlization/loadPage";
-// Formatted text measurement - handles Char[] with MarkSpan[]
+import type { Char, CharRun, Mark, MarkRange } from "./serlization/loadPage";
+// Formatted text measurement - handles Char[] with mark ranges. The span type
+// is the clock-free `MarkRange`, so a structured node's `markFields` measure,
+// wrap and paint through exactly this pipeline (a block's `MarkSpan` is
+// assignable as-is).
 import { markKey } from "./serlization/loadPage";
 import type {
   EditorStyles,
@@ -411,7 +414,7 @@ export function measureTexFallbackEm(
 // Helper: Check if a char is within a format span
 function isCharInSpan(
   charIndex: number,
-  span: MarkSpan,
+  span: MarkRange,
   chars: Char[],
 ): boolean {
   const startIdx = chars.findIndex((c) => c.id === span.startCharId);
@@ -426,7 +429,7 @@ function isCharInSpan(
 export function getFormatsAtIndex(
   charIndex: number,
   chars: Char[],
-  formats: MarkSpan[],
+  formats: readonly MarkRange[],
 ): Mark[] {
   const activeMarks: Mark[] = [];
 
@@ -452,7 +455,7 @@ export function getFormatKey(formats: Mark[]): string {
 // This preserves Arabic ligatures by keeping same-formatted chars together
 export function batchChars(
   chars: Char[],
-  formats: MarkSpan[],
+  formats: readonly MarkRange[],
   startIndex: number,
   endIndex: number,
   marks?: MarkRegistry,
@@ -597,7 +600,7 @@ export function measureBatchedText(
  */
 export function measureCRDTPositions(
   chars: Char[],
-  formats: MarkSpan[],
+  formats: readonly MarkRange[],
   startIndex: number,
   endIndex: number,
   fontSize: number,
@@ -727,11 +730,11 @@ export function measureCRDTPositions(
   return positions;
 }
 
-// Measure width of CRDT text (Char[] with MarkSpan[]) up to a specific character position
+// Measure width of CRDT text (Char[] with mark ranges) up to a specific character position
 // Uses batching to preserve Arabic ligature widths
 export function measureTextUpToIndex(
   chars: Char[],
-  formats: MarkSpan[],
+  formats: readonly MarkRange[],
   startIndex: number,
   endIndex: number,
   fontSize: number,
@@ -855,7 +858,7 @@ export function measureTextUpToIndex(
  */
 export function measureCharsUpToIndex(
   charRuns: CharRun[],
-  formats: MarkSpan[],
+  formats: readonly MarkRange[],
   startIndex: number,
   endIndex: number,
   fontSize: number,
@@ -895,11 +898,11 @@ interface ChipPlan {
   width(fromBound: number, toBound: number): number;
 }
 
-// Wrap CRDT text (Char[] with MarkSpan[]) for rendering
+// Wrap CRDT text (Char[] with mark ranges) for rendering
 // Uses incremental character measurement for O(n) complexity
 export function wrapText(
   chars: Char[],
-  formats: MarkSpan[],
+  formats: readonly MarkRange[],
   maxWidth: number,
   fontSize: number,
   baseFontWeight: string,

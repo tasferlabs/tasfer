@@ -13,7 +13,7 @@
  * materialized snapshot.
  */
 
-import type { Char, CharRun } from "../serlization/loadPage";
+import type { Char, CharRun, Mark, MarkRange } from "../serlization/loadPage";
 import {
   charRunsToChars,
   charsToRuns,
@@ -22,6 +22,12 @@ import {
   insertIntoRuns,
   iterateAllChars,
 } from "./char-runs";
+import {
+  applyMarkToRange,
+  areMarksEqual,
+  markKey,
+  removeMarkFromRange,
+} from "./mark-spans";
 import type { IdentityAllocator } from "@shared/identity";
 
 /** A JSON-safe value accepted in a structured node's attribute bag. */
@@ -55,6 +61,18 @@ export interface StructuredNode {
   readonly attrs: Readonly<Record<string, StructuredValue>>;
   /** Character-CRDT fields (`text`, `latex`, `name`, ...), keyed by adapter. */
   readonly textFields: Readonly<Record<string, readonly CharRun[]>>;
+  /**
+   * Inline marks over {@link textFields}, keyed by the SAME field name — so a
+   * nested text field can carry bold/link/… exactly as block text does, and
+   * resolves through the same `resolveMarkRunsFromChars`. Anchored to char
+   * identities, so a mark survives concurrent edits inside its range.
+   *
+   * Unlike a block's `formats`, the spans carry no HLC: structured edits fold in
+   * canonical op-log order, so the last applied write already wins. Absent (not
+   * an empty object) when a node carries no marks, which keeps documents that
+   * never use them byte-identical to before this field existed.
+   */
+  readonly markFields?: Readonly<Record<string, readonly MarkRange[]>>;
   /** Node tombstone. Descendants remain in the store and become visible again. */
   readonly deleted?: boolean;
 }
@@ -66,6 +84,7 @@ export interface StructuredNodeSeed {
   readonly placement: StructuredPlacement;
   readonly attrs?: Readonly<Record<string, StructuredValue>>;
   readonly textFields?: Readonly<Record<string, readonly CharRun[]>>;
+  readonly markFields?: Readonly<Record<string, readonly MarkRange[]>>;
 }
 
 /**
@@ -232,6 +251,17 @@ export type StructuredEdit =
       readonly nodeId: string;
       readonly field: string;
       readonly charIds: readonly string[];
+    }
+  | {
+      /** Apply or remove one inline mark over a range of a text field. */
+      readonly kind: "mark_set";
+      readonly nodeId: string;
+      readonly field: string;
+      /** A contiguous document-order run of the field's character ids. */
+      readonly charIds: readonly string[];
+      readonly mark: Mark;
+      /** `true` marks the range, `false` clears this mark type from it. */
+      readonly value: boolean;
     };
 
 /** Page-op payload: atomically initialize an attachment or edit it thereafter. */
@@ -260,6 +290,21 @@ export function getStructuredNode(
   nodeId: string,
 ): StructuredNode | undefined {
   return document.nodes[nodeId];
+}
+
+/**
+ * The inline marks over one text field, in canonical order.
+ *
+ * Pair with `iterateAllChars` over the same field and hand both to
+ * `resolveMarkRunsFromChars` to get the field's mark runs at caret-edge
+ * offsets — the identical resolution block text uses.
+ */
+export function getStructuredMarks(
+  document: StructuredDocument,
+  nodeId: string,
+  field: string,
+): readonly MarkRange[] {
+  return document.nodes[nodeId]?.markFields?.[field] ?? [];
 }
 
 /** Read the visible value of one character-CRDT field. */
@@ -318,6 +363,8 @@ export function applyStructuredEdit(
       return applyTextInsert(document, edit);
     case "text_delete":
       return applyTextDelete(document, edit);
+    case "mark_set":
+      return applyMarkSet(document, edit);
   }
 }
 
@@ -464,6 +511,63 @@ export function invertStructuredEdit(
           ]
         : [];
     }
+
+    case "mark_set": {
+      // Mirrors the block-level `mark_set` inverse: restore what each character
+      // carried *before* the edit, grouped into runs of identical prior state,
+      // rather than blindly toggling the mark back. That keeps the inverse
+      // concurrency-safe — it never replaces a whole field's spans, so a remote
+      // mark made meanwhile survives the undo.
+      const node = documentBefore.nodes[edit.nodeId];
+      const runs = node?.textFields[edit.field];
+      if (!node || !runs) return [];
+      const spans = node.markFields?.[edit.field] ?? [];
+
+      const ordinal = new Map<string, number>();
+      let position = 0;
+      for (const { id } of iterateAllChars([...runs])) {
+        ordinal.set(id, position++);
+      }
+      // At most one same-type span can cover a character: the apply side unions
+      // overlapping same-type spans into one.
+      const priorMark = (charId: string): Mark | null => {
+        const at = ordinal.get(charId);
+        if (at === undefined) return null;
+        for (const span of spans) {
+          if (span.format.type !== edit.mark.type) continue;
+          const start = ordinal.get(span.startCharId);
+          const end = ordinal.get(span.endCharId);
+          if (start === undefined || end === undefined) continue;
+          if (at >= start && at <= end) return span.format;
+        }
+        return null;
+      };
+      const samePrior = (a: Mark | null, b: Mark | null): boolean =>
+        a === null || b === null ? a === b : areMarksEqual(a, b);
+
+      const inverses: StructuredEdit[] = [];
+      let index = 0;
+      while (index < edit.charIds.length) {
+        const prior = priorMark(edit.charIds[index]);
+        let last = index;
+        while (
+          last + 1 < edit.charIds.length &&
+          samePrior(priorMark(edit.charIds[last + 1]), prior)
+        ) {
+          last++;
+        }
+        inverses.push({
+          kind: "mark_set",
+          nodeId: edit.nodeId,
+          field: edit.field,
+          charIds: edit.charIds.slice(index, last + 1),
+          mark: prior ?? edit.mark,
+          value: prior !== null,
+        });
+        index = last + 1;
+      }
+      return inverses;
+    }
   }
 }
 
@@ -485,11 +589,18 @@ export function canonicalizeStructuredDocument(
     for (const field of Object.keys(node.textFields).sort()) {
       textFields[field] = node.textFields[field].map(cloneCharRun);
     }
+    const markFields: Record<string, readonly MarkRange[]> = {};
+    for (const field of Object.keys(node.markFields ?? {}).sort()) {
+      const spans = normalizeMarkSpans(node.markFields![field]);
+      if (spans.length > 0) markFields[field] = spans;
+    }
+    const { markFields: _previous, ...rest } = node;
     nodes[id] = {
-      ...node,
+      ...rest,
       placement: { ...node.placement },
       attrs,
       textFields,
+      ...(Object.keys(markFields).length > 0 ? { markFields } : {}),
     };
   }
   return {
@@ -564,15 +675,40 @@ export function cloneStructuredDocumentWithFreshIdentities(
       textFields[field] = charsToRuns(chars);
     }
 
+    // Mark spans anchor to character identities, so they are re-addressed with
+    // the characters they cover. A span whose anchor did not survive the copy
+    // (it named a char this field never had) is dropped rather than left
+    // pointing into the source's identity domain.
+    const markFields: Record<string, readonly MarkRange[]> = {};
+    for (const field of Object.keys(sourceNode.markFields ?? {}).sort()) {
+      const spans: MarkRange[] = [];
+      for (const span of sourceNode.markFields![field]) {
+        const startCharId = charIds.get(span.startCharId);
+        const endCharId = charIds.get(span.endCharId);
+        if (!startCharId || !endCharId) continue;
+        spans.push(cloneMarkSpan({ ...span, startCharId, endCharId }));
+      }
+      const normalized = normalizeMarkSpans(spans);
+      if (normalized.length > 0) markFields[field] = normalized;
+    }
+
+    const attrs = options.rewriteAttrs
+      ? options.rewriteAttrs(sourceNode.attrs, (sourceId) =>
+          nodeIds.get(sourceId),
+        )
+      : sourceNode.attrs;
+
+    const { markFields: _previous, ...rest } = sourceNode;
     nodes[targetId] = {
-      ...sourceNode,
+      ...rest,
       id: targetId,
       placement: {
         ...sourceNode.placement,
         parentId: targetParentId ?? null,
       },
-      attrs: { ...sourceNode.attrs },
+      attrs: { ...attrs },
       textFields,
+      ...(Object.keys(markFields).length > 0 ? { markFields } : {}),
     };
   }
 
