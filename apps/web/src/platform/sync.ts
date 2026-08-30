@@ -62,6 +62,7 @@
  *   Asset (pull; requested on-demand at render and eagerly by AssetPrefetcher):
  *     { type: "asset-req",  hash }
  *     { type: "asset-data", hash, ext, data }
+ *     { type: "asset-miss", hash }
  *
  *   Pairing (one-time topic):
  *     { type: "pair-hello", publicKey, name, proof, spaceId, spaceName }
@@ -371,6 +372,25 @@ interface AssetReqMsg {
   type: "asset-req";
   hash: string;
 }
+/**
+ * Negative answer to an {@link AssetReqMsg}: "I don't have that one either."
+ *
+ * Silence would say the same thing eventually, but it is indistinguishable
+ * from a peer that is offline or slow, so the requester could only learn it by
+ * running its timeout out. Answering the miss turns "nobody has this" into one
+ * round trip.
+ *
+ * Adding this is deliberately not a {@link PROTOCOL_VERSION} bump, for the
+ * same reason as {@link OwnStateMsg.prefs}: it carries no merge semantics an
+ * older peer could get wrong, an older peer ignores it as an unknown type, and
+ * a mismatch refuses sync outright — denying a peer every op to shave a
+ * timeout would be much the worse trade. A peer that never sends it just falls
+ * back to the timeout it has today.
+ */
+interface AssetMissMsg {
+  type: "asset-miss";
+  hash: string;
+}
 /** First message of the one-time pairing handshake. The sender introduces themselves with their public key, display name, a cryptographic proof (Ed25519 signature over the shared invite secret), and the space they want to share. */
 interface PairHelloMsg {
   type: "pair-hello";
@@ -476,6 +496,7 @@ type Message =
   | SyncReqMsg
   | SyncResMsg
   | AssetReqMsg
+  | AssetMissMsg
   | PairHelloMsg
   | PairAckMsg
   | DeviceLinkMsg;
@@ -642,10 +663,23 @@ export class Replicator {
   /** Active pairing sessions, keyed by invite secret */
   private pairingSessions = new Map<string, PairingSession>();
 
-  /** Pending asset requests: hash → resolve callbacks waiting for the data */
+  /**
+   * In-flight asset pulls: hash → the callers waiting on the result, the peers
+   * still expected to answer, and the backstop timer.
+   *
+   * `awaiting` is what makes a miss cheap. A peer that has the asset sends it;
+   * a peer that does not replies `asset-miss` and removes itself, so the pull
+   * fails the moment the last peer has answered instead of running the timer
+   * out. A peer too old to send `asset-miss` never removes itself, which is
+   * exactly why the timer stays as a backstop.
+   */
   private pendingAssetRequests = new Map<
     string,
-    Array<(found: boolean) => void>
+    {
+      callbacks: Array<(found: boolean) => void>;
+      awaiting: Set<string>;
+      timer: ReturnType<typeof setTimeout>;
+    }
   >();
 
   /** Per-room awareness throttle state (50 ms leading+trailing) */
@@ -846,6 +880,7 @@ export class Replicator {
       this.peers.delete(publicKey);
       this.emitConnectedPeers();
       this.settlePeerPulls(publicKey);
+      this.settlePeerAssetRequests(publicKey);
     }
     for (const [hex, entry] of this.topics) {
       if (entry.remotePubKey === publicKey) {
@@ -1228,6 +1263,12 @@ export class Replicator {
   /**
    * Request an asset by hash from all connected peers.
    * Returns true if any peer responded with the data, false if none had it.
+   *
+   * A negative result is reached as soon as every peer has said it does not
+   * have the asset, so a hash nobody holds costs one round trip rather than
+   * the full timeout. That matters most where misses come in bulk — an export
+   * resolves every referenced asset in turn, and a per-hash timeout there is
+   * paid once per missing image.
    */
   requestAsset(hash: string): Promise<boolean> {
     if (this.peers.size === 0) return Promise.resolve(false);
@@ -1236,28 +1277,58 @@ export class Replicator {
     const existing = this.pendingAssetRequests.get(hash);
     if (existing) {
       return new Promise<boolean>((resolve) => {
-        existing.push(resolve);
+        existing.callbacks.push(resolve);
       });
     }
 
     return new Promise<boolean>((resolve) => {
-      const callbacks = [resolve];
-      this.pendingAssetRequests.set(hash, callbacks);
-
-      // Broadcast request to all peers
-      const msg: AssetReqMsg = { type: "asset-req", hash };
-      for (const conn of this.peers.values()) {
-        this.sendDirect(conn, msg);
+      // Only peers the request can actually reach are worth waiting on: an
+      // incompatible peer is never sent to (see sendDirect), so waiting on one
+      // would hold the pull open to the backstop for an answer that is not
+      // coming. With none reachable the answer is already known.
+      const reachable = [...this.peers.values()].filter(
+        (conn) => conn.versionCompatible === true,
+      );
+      if (reachable.length === 0) {
+        resolve(false);
+        return;
       }
 
-      // Timeout after 10s — peer might be offline or not have it
-      setTimeout(() => {
-        if (this.pendingAssetRequests.has(hash)) {
-          this.pendingAssetRequests.delete(hash);
-          for (const cb of callbacks) cb(false);
-        }
-      }, 10_000);
+      // Recorded before sending so a reply can never arrive un-tracked.
+      this.pendingAssetRequests.set(hash, {
+        callbacks: [resolve],
+        awaiting: new Set(reachable.map((conn) => conn.publicKey)),
+        // Backstop: a peer may vanish without closing, or be too old to
+        // answer a miss at all.
+        timer: setTimeout(() => this.settleAssetRequest(hash, false), 10_000),
+      });
+
+      const msg: AssetReqMsg = { type: "asset-req", hash };
+      for (const conn of reachable) {
+        this.sendDirect(conn, msg);
+      }
     });
+  }
+
+  /** Resolve one in-flight asset pull and drop its bookkeeping. */
+  private settleAssetRequest(hash: string, found: boolean): void {
+    const pending = this.pendingAssetRequests.get(hash);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.pendingAssetRequests.delete(hash);
+    for (const cb of pending.callbacks) cb(found);
+  }
+
+  /**
+   * Stop waiting on a peer that can no longer answer, settling any pull it was
+   * the last outstanding respondent for. Without this a dropped connection
+   * leaves every pull it was part of running to the timeout.
+   */
+  private settlePeerAssetRequests(publicKey: string): void {
+    for (const [hash, pending] of [...this.pendingAssetRequests]) {
+      if (!pending.awaiting.delete(publicKey)) continue;
+      if (pending.awaiting.size === 0) this.settleAssetRequest(hash, false);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1513,6 +1584,7 @@ export class Replicator {
     const unsubClose = netPeer.onClose(() => {
       this.peers.delete(remotePubKey);
       this.emitConnectedPeers();
+      this.settlePeerAssetRequests(remotePubKey);
       this.removeConnectionPresence(remotePubKey);
       this.updateConnectionState();
     });
@@ -1543,6 +1615,7 @@ export class Replicator {
     this.peers.delete(publicKey);
     this.emitConnectedPeers();
     this.settlePeerPulls(publicKey);
+    this.settlePeerAssetRequests(publicKey);
     this.removeConnectionPresence(publicKey);
     this.updateConnectionState();
   }
@@ -1649,6 +1722,9 @@ export class Replicator {
       // Asset
       case "asset-req":
         await this.handleAssetReq(fromPubKey, msg);
+        break;
+      case "asset-miss":
+        this.handleAssetMiss(fromPubKey, msg);
         break;
     }
   }
@@ -2139,7 +2215,11 @@ export class Replicator {
     if (!conn) return;
 
     const asset = await this.host.getAssetData(msg.hash);
-    if (!asset) return; // We don't have it either
+    if (!asset) {
+      // Say so rather than going quiet: see AssetMissMsg.
+      this.sendDirect(conn, { type: "asset-miss", hash: msg.hash });
+      return;
+    }
 
     // Send as a raw binary frame — eliminates the ~33% base64 overhead.
     // Layout: [BINARY_ASSET_TAG][32 raw hash bytes][1 ext-len byte][ext][data]
@@ -2185,8 +2265,7 @@ export class Replicator {
 
     // Unsolicited: nobody asked for this hash. Dropping it denies a peer the
     // ability to plant a file we never requested.
-    const callbacks = this.pendingAssetRequests.get(hash);
-    if (!callbacks) return;
+    if (!this.pendingAssetRequests.has(hash)) return;
 
     // The hash names the content. Storing bytes that hash to something else
     // would let a peer bind arbitrary content to a hash other peers resolve.
@@ -2199,10 +2278,20 @@ export class Replicator {
 
     await this.host.storeAssetData(hash, ext, data);
 
-    // Re-read: an await elapsed, and the 10s timeout may have settled these.
-    if (!this.pendingAssetRequests.has(hash)) return;
-    this.pendingAssetRequests.delete(hash);
-    for (const cb of callbacks) cb(true);
+    // An await elapsed, so the backstop may already have settled this — in
+    // which case settleAssetRequest finds nothing pending and does nothing.
+    this.settleAssetRequest(hash, true);
+  }
+
+  /**
+   * A peer answered that it does not have the asset. Once no peer is left to
+   * answer, the pull has its result and need not wait for the backstop.
+   */
+  private handleAssetMiss(fromPubKey: string, msg: AssetMissMsg): void {
+    const pending = this.pendingAssetRequests.get(msg.hash);
+    if (!pending) return;
+    pending.awaiting.delete(fromPubKey);
+    if (pending.awaiting.size === 0) this.settleAssetRequest(msg.hash, false);
   }
 
   // ---------------------------------------------------------------------------

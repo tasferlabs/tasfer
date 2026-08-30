@@ -734,7 +734,10 @@ export class Engine implements Platform {
     this.replicator = repl;
     // A peer completing its handshake is the earliest moment queued asset
     // pulls can succeed — retry everything still missing.
-    repl.onPeerReady(() => this.assetPrefetcher.retry());
+    repl.onPeerReady(() => {
+      this.peerMissingAssets.clear();
+      this.assetPrefetcher.retry();
+    });
   }
 
   /**
@@ -3776,6 +3779,17 @@ export class Engine implements Platform {
 
   private blobUrlCache = new Map<string, string>();
 
+  /**
+   * Hashes no connected peer could supply. This suppresses the peer request
+   * only — the local lookup still runs on every call, so an asset that reaches
+   * disk by any route is still found. Cleared whenever a peer completes its
+   * handshake, since an arriving peer may hold what the previous set did not.
+   *
+   * Without it a flow that resolves many assets at once, like an export, pays
+   * a fresh round trip per missing hash every time it runs.
+   */
+  private peerMissingAssets = new Set<string>();
+
   private createBlobUrl(data: Uint8Array, mimeType?: string): string {
     const blob = new Blob([data as BlobPart], {
       type: mimeType || "application/octet-stream",
@@ -3831,11 +3845,13 @@ export class Engine implements Platform {
       let match = files.find((f) => f.startsWith(hash));
 
       // Not found locally — try requesting from connected peers
-      if (!match && this.replicator) {
+      if (!match && this.replicator && !this.peerMissingAssets.has(hash)) {
         const found = await this.replicator.requestAsset(hash);
         if (found) {
           files = await this.driver.fs.list(assetsDir);
           match = files.find((f) => f.startsWith(hash));
+        } else {
+          this.peerMissingAssets.add(hash);
         }
       }
 
@@ -3866,11 +3882,13 @@ export class Engine implements Platform {
       let files = await this.driver.fs.list(assetsDir);
       let match = files.find((f) => f.startsWith(hash));
 
-      if (!match && this.replicator) {
+      if (!match && this.replicator && !this.peerMissingAssets.has(hash)) {
         const found = await this.replicator.requestAsset(hash);
         if (found) {
           files = await this.driver.fs.list(assetsDir);
           match = files.find((f) => f.startsWith(hash));
+        } else {
+          this.peerMissingAssets.add(hash);
         }
       }
 

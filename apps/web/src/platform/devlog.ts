@@ -98,6 +98,8 @@ function buildSummary(msg: Record<string, unknown>): string {
       return `hash ${sid(msg.hash)}`;
     case "asset-data":
       return `hash ${sid(msg.hash)}`;
+    case "asset-miss":
+      return `hash ${sid(msg.hash)} — not held`;
     case "pair-hello":
     case "pair-ack":
       return `${(msg.name as string) ?? ""}`;
