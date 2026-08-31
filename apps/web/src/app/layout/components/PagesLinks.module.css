@@ -30,6 +30,22 @@
   background-color: color-mix(in srgb, var(--primary), transparent 75%);
 }
 
+/* Multi-selection. Reads as a lighter relative of the open-page highlight —
+   several rows can carry it at once, so it stays quieter than .active and
+   leans on the ring to mark the run. */
+.link.selected {
+  background-color: color-mix(in srgb, var(--primary), transparent 88%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary), transparent 60%);
+}
+
+.link.selected:hover {
+  background-color: color-mix(in srgb, var(--primary), transparent 80%);
+}
+
+.link.active.selected {
+  background-color: color-mix(in srgb, var(--primary), transparent 78%);
+}
+
 .link.isOver {
   background-color: color-mix(in srgb, var(--primary), transparent 20%);
 }

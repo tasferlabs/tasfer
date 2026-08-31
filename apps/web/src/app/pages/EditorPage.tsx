@@ -1083,7 +1083,7 @@ function MovePageButton({
   return (
     <PagePicker
       spaceId={activeSpaceId}
-      excludeId={pageId}
+      excludeIds={[pageId]}
       showNoneOption={!!currentParentId}
       onChange={(page) => move({ id: pageId, parentId: page?.id ?? null })}
     >

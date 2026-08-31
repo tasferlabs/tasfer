@@ -59,10 +59,16 @@ import { useActionCenter } from "../contexts/ActionCenterContext";
 import { useAuth } from "../contexts/AuthContext";
 import { useSpaces } from "../contexts/SpaceContext";
 import { useOrderedSpaces, useSpacePrefs } from "../contexts/SpacePrefsContext";
+import {
+  selectionRoots,
+  usePageSelection,
+  type SelectedPage,
+} from "../contexts/PageSelectionContext";
 import { setRecentDragEnd } from "./components/PageLink";
 import { TitlePreview } from "../TitlePreview";
 import { SpaceSection } from "./components/SpaceSection";
 import { SidebarTailDrop } from "./components/SidebarTailDrop";
+import type { IParentsStack } from "./components/PagesLinks";
 // import pageLinkStyle from "./components/PagesLinks.module.css";
 import { detectAdapterDetailed } from "@/platform";
 import { isApplePlatform } from "@tasfer/editor";
@@ -128,12 +134,24 @@ const navLinkClass = clsx(style.appNavigationLink, "justify-start font-normal");
 const byOrder = (a: IListPage, b: IListPage) =>
   a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
-/** Pick an order value strictly between two neighbours (null = open end). */
-function midOrder(lower: number | null, upper: number | null): number {
-  if (lower === null && upper === null) return 1;
-  if (lower === null) return upper! - 1;
-  if (upper === null) return lower + 1;
-  return (lower + upper) / 2;
+/**
+ * Pick `count` ascending order values strictly between two neighbours (null =
+ * open end), so a whole batch lands in one gap without disturbing the pages
+ * already there. With `count` 1 this is just the midpoint.
+ */
+function spreadOrders(
+  lower: number | null,
+  upper: number | null,
+  count: number,
+): number[] {
+  if (lower === null && upper === null)
+    return Array.from({ length: count }, (_, i) => i + 1);
+  if (lower === null)
+    return Array.from({ length: count }, (_, i) => upper! - (count - i));
+  if (upper === null)
+    return Array.from({ length: count }, (_, i) => lower + i + 1);
+  const step = (upper - lower) / (count + 1);
+  return Array.from({ length: count }, (_, i) => lower + step * (i + 1));
 }
 
 export function SidebarContent({
@@ -161,6 +179,19 @@ export function SidebarContent({
   // Holds the `data.current` of whatever is being dragged — a page (IListPage)
   // or a space ({ type: "spaceLink", ... }). Read `.type` to distinguish.
   const [activeDragData, setActiveDragData] = useState<ActiveDrag | null>(null);
+  // How many pages the in-progress drag carries, frozen at drag start so the
+  // overlay keeps its label even as the lists update underneath.
+  const [dragCount, setDragCount] = useState(1);
+  const selection = usePageSelection();
+
+  // Escape drops a multi-page selection, the way it does in a file browser.
+  React.useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") selection.clear();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selection]);
 
   // Dialog states
   const [avatarPreviewOpen, setAvatarPreviewOpen] = useState(false);
@@ -187,7 +218,7 @@ export function SidebarContent({
     },
   });
 
-  const { mutate: movePage } = useMovePage({
+  const { mutate: movePage, mutateAsync: movePageAsync } = useMovePage({
     onMutate: async (variables) => {
       await queryClient.cancelQueries({ queryKey: ["pages"] });
       const previousData = queryClient.getQueriesData<IListPage[]>({
@@ -327,8 +358,14 @@ export function SidebarContent({
   }
 
   function handleDragStart(event: DragStartEvent) {
-    setActiveId(event.active.id as string);
-    setActiveDragData(event.active.data.current as ActiveDrag);
+    const id = event.active.id as string;
+    const data = event.active.data.current as ActiveDrag;
+    // Grabbing a row outside the selection abandons it: this is a new, single
+    // page gesture. Grabbing one inside it carries the whole selection along.
+    if (data?.type !== "spaceLink" && !selection.has(id)) selection.clear();
+    setDragCount(selection.has(id) ? selection.getSelection().length : 1);
+    setActiveId(id);
+    setActiveDragData(data);
     triggerHaptic("medium");
   }
 
@@ -350,24 +387,31 @@ export function SidebarContent({
   }
 
   /**
-   * Compute the target order for inserting before/after `targetPageId` within a
-   * sibling list that does NOT contain the dragged page. Returns the new order
-   * plus the ids that would bracket it (used for no-op detection).
+   * Locate the gap that inserting before/after `targetPageId` opens up, within
+   * a sibling list that does NOT contain the dragged pages. Returns the pages
+   * bracketing the gap — their ids for no-op detection, their orders to spread
+   * the batch across.
    */
   function placeRelative(
     others: IListPage[],
     targetPageId: string,
     position: "before" | "after",
-  ): { order: number; lowerId: string | null; upperId: string | null } | null {
+  ): {
+    lowerId: string | null;
+    upperId: string | null;
+    lowerOrder: number | null;
+    upperOrder: number | null;
+  } | null {
     const ti = others.findIndex((p) => p.id === targetPageId);
     if (ti === -1) return null;
     const insertIdx = position === "after" ? ti + 1 : ti;
     const lower = others[insertIdx - 1] ?? null;
     const upper = others[insertIdx] ?? null;
     return {
-      order: midOrder(lower?.order ?? null, upper?.order ?? null),
       lowerId: lower?.id ?? null,
       upperId: upper?.id ?? null,
+      lowerOrder: lower?.order ?? null,
+      upperOrder: upper?.order ?? null,
     };
   }
 
@@ -442,7 +486,7 @@ export function SidebarContent({
     const activeData = active.data.current as IListPage & {
       type?: string;
       spaceId?: string;
-      parentsStack?: any;
+      parentsStack?: IParentsStack;
     };
     const overData = over.data.current as any;
 
@@ -459,23 +503,55 @@ export function SidebarContent({
       return;
     }
 
-    // Drop on the Archive nav link: soft-delete the page (restorable from /archive).
-    // Same confirmation and navigate-away behavior as the context-menu delete.
+    // What this drag carries. handleDragStart has already made sure a grab
+    // outside the selection cleared it, so a selection containing the grabbed
+    // row means the whole selection travels. Pages nested under another page
+    // in the batch are dropped: moving the ancestor already takes them.
+    const selected = selection.has(activeData.id)
+      ? selection.getSelection()
+      : [];
+    const moving: SelectedPage[] =
+      selected.length > 1
+        ? selectionRoots(selected)
+        : [
+            {
+              page: activeData,
+              spaceId: activeData.spaceId,
+              parentsStack: activeData.parentsStack ?? [],
+            },
+          ];
+    if (moving.length === 0) return;
+    const movingIds = new Set(moving.map((m) => m.page.id));
+    const movingCount = moving.length;
+    // What the dialogs say. The rows the person highlighted, not the pruned
+    // set: a subpage swept along with its parent still disappears from view.
+    const count = Math.max(selected.length, 1);
+
+    // Drop on the Archive nav link: soft-delete the pages (restorable from
+    // /archive). Same confirmation and navigate-away behavior as the
+    // context-menu delete.
     if (overData?.type === "archive-drop-zone") {
       const confirmed = await getConfirmation({
-        title: t("page.archivePage", "Archive Page"),
-        description: t(
-          "page.confirmArchivePage",
-          "Archiving deletes nothing. This page and its subpages move to the Archive, where you can restore them anytime.",
-        ),
+        title: t("page.archivePages", {
+          count,
+          defaultValue_one: "Archive page",
+          defaultValue_other: "Archive pages",
+        }),
+        description: t("page.confirmArchivePages", {
+          count,
+          defaultValue_one:
+            "Archiving deletes nothing. This page and its subpages move to the Archive, where you can restore them anytime.",
+          defaultValue_other:
+            "Archiving deletes nothing. These {{count, number}} pages and their subpages move to the Archive, where you can restore them anytime.",
+        }),
         cancelText: t("common.cancel", "Cancel"),
         confirmText: t("common.archive", "Archive"),
       });
       if (!confirmed) return;
 
-      if (currentPageId === activeData.id) {
-        const remaining = getSiblings(activeData.spaceId, null).filter(
-          (p) => p.id !== activeData.id,
+      if (currentPageId && movingIds.has(currentPageId)) {
+        const remaining = getSiblings(moving[0].spaceId, null).filter(
+          (p) => !movingIds.has(p.id),
         );
         if (remaining.length > 0) {
           navigate(`/page/${remaining[0].id}`);
@@ -483,7 +559,8 @@ export function SidebarContent({
           navigate("/page");
         }
       }
-      deletePage({ id: activeData.id });
+      for (const m of moving) deletePage({ id: m.page.id });
+      selection.clear();
       return;
     }
 
@@ -492,15 +569,15 @@ export function SidebarContent({
       return;
     }
 
-    // Helper function to check if targetId is a descendant of pageId
-    const isDescendant = (pageId: string, targetId: string | null): boolean => {
-      if (!targetId) return false;
-      if (pageId === targetId) return true;
+    // Whether the drop target is one of the pages on the move, or sits inside
+    // one of them — either way the drop would fold a page into itself.
+    const isInsideMovingSet = (targetId: string | null): boolean => {
+      if (targetId && movingIds.has(targetId)) return true;
 
       // Check using parentsStack if available
       if (overData?.parentsStack) {
         return overData.parentsStack.some(
-          (parent: any) => parent.id === pageId,
+          (parent: any) => parent.id && movingIds.has(parent.id),
         );
       }
 
@@ -509,7 +586,7 @@ export function SidebarContent({
 
     // Prevent dropping a page into itself or its descendants
     if (overData?.type === "drop-zone" && overData.position === "inside") {
-      if (isDescendant(activeData.id, overData.parentId)) {
+      if (isInsideMovingSet(overData.parentId)) {
         return;
       }
     }
@@ -519,16 +596,16 @@ export function SidebarContent({
       overData?.type === "drop-zone" &&
       (overData.position === "before" || overData.position === "after")
     ) {
-      if (isDescendant(activeData.id, overData.targetPageId)) {
+      if (isInsideMovingSet(overData.targetPageId)) {
         return;
       }
-      if (isDescendant(activeData.id, overData.parentId)) {
+      if (isInsideMovingSet(overData.parentId)) {
         return;
       }
     }
 
     // Detect cross-space move
-    const sourceSpaceId = activeData.spaceId;
+    const sourceSpaceId = moving[0].spaceId;
     const targetSpaceId = overData?.spaceId;
     const isCrossSpace = !!(
       sourceSpaceId &&
@@ -540,16 +617,54 @@ export function SidebarContent({
     if (isCrossSpace) {
       const targetName = getSpaceName(targetSpaceId);
       const confirmed = await getConfirmation({
-        title: t("page.movePage", "Move page"),
-        description: t(
-          "page.confirmMoveToSpace",
-          'Move this page to "{{targetName}}"? All sub-pages will also be moved.',
-          { targetName },
-        ),
+        title: t("page.movePages", {
+          count,
+          defaultValue_one: "Move page",
+          defaultValue_other: "Move pages",
+        }),
+        description: t("page.confirmMovePagesToSpace", {
+          count,
+          targetName,
+          defaultValue_one:
+            'Move this page to "{{targetName}}"? All sub-pages will also be moved.',
+          defaultValue_other:
+            'Move {{count, number}} pages to "{{targetName}}"? All sub-pages will also be moved.',
+        }),
         confirmText: t("common.move", "Move"),
         cancelText: t("common.cancel", "Cancel"),
       });
       if (!confirmed) return;
+    }
+
+    /**
+     * Hand the batch to its destination, in the order the rows are painted.
+     * Cross-space moves run one at a time: each one recreates a subtree and
+     * reports progress, and they must not interleave.
+     */
+    async function applyMove(
+      targetParentId: string | null,
+      orders: (number | undefined)[],
+    ) {
+      if (isCrossSpace) {
+        for (const [i, m] of moving.entries()) {
+          await moveAcrossSpaces(
+            m.page,
+            targetSpaceId!,
+            targetParentId,
+            orders[i],
+          );
+        }
+        // The pages were recreated under new ids; the old selection is gone.
+        selection.clear();
+      } else {
+        for (const [i, m] of moving.entries()) {
+          movePage({
+            id: m.page.id,
+            parentId: targetParentId,
+            order: orders[i],
+          });
+        }
+      }
     }
 
     // Scenarios 1 & 2: Drop on a "before"/"after" insertion zone.
@@ -558,107 +673,111 @@ export function SidebarContent({
       (overData.position === "before" || overData.position === "after")
     ) {
       const targetParentId = overData.parentId as string | null;
+      // A plain reorder only when every page on the move already lives in the
+      // destination list; a mixed batch takes the reparenting path for all.
       const sameParent =
-        !isCrossSpace && activeData.parentId === targetParentId;
+        !isCrossSpace &&
+        moving.every((m) => m.page.parentId === targetParentId);
 
-      if (sameParent) {
-        const siblings = getSiblings(overData.spaceId, targetParentId);
-        const others = siblings.filter((p) => p.id !== activeData.id);
-        const placement = placeRelative(
-          others,
-          overData.targetPageId,
-          overData.position,
-        );
-        if (!placement) return;
+      const siblings = getSiblings(overData.spaceId, targetParentId);
+      const others = siblings.filter((p) => !movingIds.has(p.id));
+      // Null only if the row the pointer is on is missing from the cached
+      // destination list, which leaves nothing to insert relative to — fall
+      // back to the end of the list, as omitting the order used to.
+      const placement = placeRelative(
+        others,
+        overData.targetPageId,
+        overData.position,
+      );
 
-        // No-op: dropping back into the gap the page already occupies.
-        const ai = siblings.findIndex((p) => p.id === activeData.id);
-        const curPrev = siblings[ai - 1]?.id ?? null;
-        const curNext = siblings[ai + 1]?.id ?? null;
-        if (placement.lowerId === curPrev && placement.upperId === curNext) {
+      if (sameParent && placement) {
+        // No-op: the batch already sits, in one unbroken run, in the very gap
+        // it was dropped into.
+        const runStart = siblings.findIndex((p) => movingIds.has(p.id));
+        const isUnbrokenRun =
+          runStart !== -1 &&
+          moving.every((m, i) => siblings[runStart + i]?.id === m.page.id);
+        if (
+          isUnbrokenRun &&
+          (siblings[runStart - 1]?.id ?? null) === placement.lowerId &&
+          (siblings[runStart + movingCount]?.id ?? null) === placement.upperId
+        ) {
           return;
         }
+      }
 
-        reorderPage({ id: activeData.id, order: placement.order });
-      } else {
-        // Cross-parent / cross-space: order is computed in the destination
-        // list, which does not yet contain the dragged page.
-        const siblings = getSiblings(overData.spaceId, targetParentId);
-        const placement = placeRelative(
-          siblings,
-          overData.targetPageId,
-          overData.position,
-        );
-        if (isCrossSpace) {
-          await moveAcrossSpaces(
-            activeData,
-            targetSpaceId!,
-            targetParentId,
-            placement?.order,
+      const orders = placement
+        ? spreadOrders(placement.lowerOrder, placement.upperOrder, movingCount)
+        : spreadOrders(
+            others[others.length - 1]?.order ?? null,
+            null,
+            movingCount,
           );
-        } else {
-          movePage({
-            id: activeData.id,
-            parentId: targetParentId,
-            order: placement?.order,
-          });
-        }
+
+      if (sameParent) {
+        moving.forEach((m, i) =>
+          reorderPage({ id: m.page.id, order: orders[i] }),
+        );
+      } else {
+        await applyMove(targetParentId, orders);
       }
     }
     // Scenario 3: Drop on "inside" zone (nest under the hovered page).
     else if (overData?.type === "drop-zone" && overData.position === "inside") {
       const newParentId = overData.parentId as string | null;
 
-      // Already a direct child, or nesting into itself: nothing to do.
-      if (
-        activeData.id === newParentId ||
-        (!isCrossSpace && activeData.parentId === newParentId)
-      ) {
-        return;
-      }
+      // Nesting into itself, or pages already sitting there: nothing to do.
+      if (newParentId && movingIds.has(newParentId)) return;
+      const landing = moving.filter(
+        (m) => isCrossSpace || m.page.parentId !== newParentId,
+      );
+      if (landing.length === 0) return;
 
-      // Order omitted → the engine appends to the new parent's children.
+      // The destination may be collapsed, in which case its children were
+      // never queried and no order can be computed here. Leave the order out
+      // and let the engine append — awaited one by one, so a batch keeps its
+      // running order instead of every move racing for the same slot.
       if (isCrossSpace) {
-        await moveAcrossSpaces(activeData, targetSpaceId!, newParentId);
+        for (const m of landing) {
+          await moveAcrossSpaces(m.page, targetSpaceId!, newParentId);
+        }
+        selection.clear();
       } else {
-        movePage({
-          id: activeData.id,
-          parentId: newParentId,
-        });
+        for (const m of landing) {
+          await movePageAsync({ id: m.page.id, parentId: newParentId });
+        }
       }
     }
     // Scenario 4: Drop on the pages area (append to the end of that list).
     else if (overData?.type === "pages-area") {
       const targetParentId = overData.parentId as string | null;
 
-      if (isDescendant(activeData.id, targetParentId)) {
+      if (isInsideMovingSet(targetParentId)) {
         return;
       }
 
       const sameParent =
-        !isCrossSpace && activeData.parentId === targetParentId;
+        !isCrossSpace &&
+        moving.every((m) => m.page.parentId === targetParentId);
       const siblings = getSiblings(overData.spaceId, targetParentId);
-      const others = siblings.filter((p) => p.id !== activeData.id);
+      const others = siblings.filter((p) => !movingIds.has(p.id));
       const last = others[others.length - 1] ?? null;
-      const order = last ? last.order + 1 : 1;
+      const orders = spreadOrders(last?.order ?? null, null, movingCount);
 
       if (sameParent) {
-        // No-op: the page is already last in this list.
-        if (siblings[siblings.length - 1]?.id === activeData.id) return;
-        reorderPage({ id: activeData.id, order });
-      } else if (isCrossSpace) {
-        await moveAcrossSpaces(
-          activeData,
-          targetSpaceId!,
-          targetParentId,
-          order,
+        // No-op: the batch is already the tail of this list, in order.
+        const tail = siblings.slice(siblings.length - movingCount);
+        if (
+          tail.length === movingCount &&
+          tail.every((p, i) => p.id === moving[i].page.id)
+        ) {
+          return;
+        }
+        moving.forEach((m, i) =>
+          reorderPage({ id: m.page.id, order: orders[i] }),
         );
       } else {
-        movePage({
-          id: activeData.id,
-          parentId: targetParentId,
-          order,
-        });
+        await applyMove(targetParentId, orders);
       }
     }
   }
@@ -957,7 +1076,16 @@ export function SidebarContent({
             )}
 
             <div className={style.appSidebarMain}>
-              <ScrollArea className={style.appSidebarScrollArea}>
+              <ScrollArea
+                className={style.appSidebarScrollArea}
+                // Anywhere in the tree that is not a page row is a way out of
+                // a selection, the same as clicking the desktop.
+                onPointerDownCapture={(e) => {
+                  if (!(e.target as HTMLElement).closest("[data-page-row]")) {
+                    selection.clear();
+                  }
+                }}
+              >
                 {orderedSpaces.length === 0 ? (
                   /* Every space archived. Nothing here is droppable and no tree
                      can be drawn. On desktop a line of text is all this column
@@ -1011,6 +1139,18 @@ export function SidebarContent({
                       <span>
                         {activeDragData.name ||
                           t("common.untitled", "Untitled")}
+                      </span>
+                    </div>
+                  ) : dragCount > 1 ? (
+                    /* A batch has no one title to show, so it is counted. */
+                    <div className={style.dragOverlay}>
+                      <FileText size={20} />
+                      <span>
+                        {t("page.pagesCount", {
+                          count: dragCount,
+                          defaultValue_one: "{{count, number}} page",
+                          defaultValue_other: "{{count, number}} pages",
+                        })}
                       </span>
                     </div>
                   ) : (

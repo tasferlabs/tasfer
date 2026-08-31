@@ -54,6 +54,14 @@ import useResponsive from "@/app/hooks/useResponsive";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { useIsExpanded, useTreeExpand } from "../../contexts/TreeExpandContext";
+import {
+  selectionRoots,
+  useIsPageSelected,
+  usePageSelection,
+  usePageSelectionRow,
+  type SelectedPage,
+} from "../../contexts/PageSelectionContext";
+import { isApplePlatform } from "@tasfer/editor";
 
 const PRESET_COLORS = [
   "#EF4444",
@@ -90,6 +98,20 @@ export function setRecentDragEnd() {
   }, 100);
 }
 
+/**
+ * Whether a click is asking to change the selection rather than open the page.
+ * macOS reserves Ctrl-click for the context menu, so the additive modifier is
+ * Cmd there and Ctrl everywhere else; Shift extends a range on both.
+ */
+function isMultiSelectClick(e: {
+  metaKey: boolean;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+}) {
+  if (e.shiftKey) return true;
+  return isApplePlatform() ? e.metaKey : e.ctrlKey;
+}
+
 export function PageLink({
   data,
   spaceId,
@@ -118,6 +140,29 @@ export function PageLink({
   );
   const treeExpand = useTreeExpand();
   const isExpanded = useIsExpanded(data.id);
+  const selection = usePageSelection();
+  const isSelected = useIsPageSelected(data.id);
+  usePageSelectionRow({ page: data, spaceId, parentsStack });
+  // The selection this row's menu acts on, frozen when the menu opens. A menu
+  // is a still moment, so freezing keeps every label and every action in it
+  // agreeing on one list. Fewer than two rows means the plain single-page menu.
+  const [menuBatch, setMenuBatch] = useState<SelectedPage[]>([]);
+  const batchCount = menuBatch.length;
+  const isBatch = batchCount > 1;
+
+  /**
+   * The pages the menu's actions run on. Descendants of another selected page
+   * are dropped: archiving or moving the ancestor already takes them.
+   */
+  const menuTargets: SelectedPage[] = isBatch
+    ? selectionRoots(menuBatch)
+    : [{ page: data, spaceId, parentsStack }];
+
+  /** Snapshot what is selected as the menu opens. */
+  const captureMenuBatch = useCallback(() => {
+    const selected = selection.has(data.id) ? selection.getSelection() : [];
+    setMenuBatch(selected.length > 1 ? selected : []);
+  }, [selection, data.id]);
   const reduceMotion = useReducedMotion();
   const setIsExpanded = useCallback(
     (value: boolean | ((old: boolean) => boolean)) => {
@@ -190,51 +235,34 @@ export function PageLink({
     },
   });
 
+  // A menu action can now run over a whole selection, whose pages sit under
+  // different parents, so the optimistic update sweeps every cached page list
+  // rather than this row's own.
   const { mutate: deletePage, isPending: isDeleting } = useDeletePage<{
-    previousPages: IListPage[] | undefined;
+    previousData: [readonly unknown[], IListPage[] | undefined][];
   }>({
     onMutate: async (variables) => {
-      // Cancel any outgoing refetches
-      await queryClient.cancelQueries({
-        queryKey: [
-          "pages",
-          { spaceId: spaceId ?? null, parentId: data.parentId },
-        ],
+      await queryClient.cancelQueries({ queryKey: ["pages"] });
+      const previousData = queryClient.getQueriesData<IListPage[]>({
+        queryKey: ["pages"],
       });
 
-      // Snapshot the previous value
-      const previousPages = queryClient.getQueryData<IListPage[]>([
-        "pages",
-        { parentId: data.parentId },
-      ]);
-
-      // Optimistically remove the page
-      queryClient.setQueryData<IListPage[]>(
-        ["pages", { spaceId: spaceId ?? null, parentId: data.parentId }],
-        (old) => {
-          return old?.filter((page) => page.id !== variables.id);
-        },
+      queryClient.setQueriesData<IListPage[]>({ queryKey: ["pages"] }, (old) =>
+        old ? old.filter((page) => page.id !== variables.id) : old,
       );
 
-      return { previousPages };
+      return { previousData };
     },
     onError: (_err, _variables, context) => {
-      // Rollback on error
-      if (context?.previousPages) {
-        queryClient.setQueryData<IListPage[]>(
-          ["pages", { spaceId: spaceId ?? null, parentId: data.parentId }],
-          context.previousPages,
-        );
+      if (context?.previousData) {
+        for (const [key, cached] of context.previousData) {
+          queryClient.setQueryData(key, cached);
+        }
       }
     },
     onSettled: () => {
-      // Refetch to ensure sync with server
-      queryClient.invalidateQueries({
-        queryKey: [
-          "pages",
-          { spaceId: spaceId ?? null, parentId: data.parentId },
-        ],
-      });
+      queryClient.invalidateQueries({ queryKey: ["pages"] });
+      queryClient.invalidateQueries({ queryKey: ["pages-archived"] });
     },
   });
 
@@ -280,21 +308,33 @@ export function PageLink({
   }, [isDragging]);
 
   async function handleDelete() {
+    const targets = menuTargets;
+    // The dialog counts the highlighted rows, not the pruned targets: a
+    // subpage archived along with its parent still disappears from view.
+    const count = batchCount || 1;
     const confirmed = await getConfirmation({
-      title: t("page.archivePage", "Archive Page"),
-      description: t(
-        "page.confirmArchivePage",
-        "Archiving deletes nothing. This page and its subpages move to the Archive, where you can restore them anytime.",
-      ),
+      title: t("page.archivePages", {
+        count,
+        defaultValue_one: "Archive page",
+        defaultValue_other: "Archive pages",
+      }),
+      description: t("page.confirmArchivePages", {
+        count,
+        defaultValue_one:
+          "Archiving deletes nothing. This page and its subpages move to the Archive, where you can restore them anytime.",
+        defaultValue_other:
+          "Archiving deletes nothing. These {{count, number}} pages and their subpages move to the Archive, where you can restore them anytime.",
+      }),
       cancelText: t("common.cancel", "Cancel"),
       confirmText: t("common.archive", "Archive"),
     });
 
     if (confirmed) {
+      const ids = new Set(targets.map((x) => x.page.id));
       // If we're deleting the currently open page, navigate away first
-      if (currentPageId === data.id) {
-        // Find the first root page that is NOT the one being deleted
-        const remainingPages = rootPages?.filter((page) => page.id !== data.id);
+      if (currentPageId && ids.has(currentPageId)) {
+        // Find the first root page that is NOT on its way to the archive
+        const remainingPages = rootPages?.filter((page) => !ids.has(page.id));
         if (remainingPages && remainingPages.length > 0) {
           // Navigate to the first available page
           navigate(`/page/${remainingPages[0].id}`);
@@ -303,7 +343,8 @@ export function PageLink({
           navigate("/page");
         }
       }
-      deletePage({ id: data.id });
+      for (const x of targets) deletePage({ id: x.page.id });
+      selection.clear();
     }
   }
 
@@ -328,7 +369,7 @@ export function PageLink({
   }
 
   function handleColorChange(newColor: string | null) {
-    updatePage({ id: data.id, color: newColor });
+    for (const x of menuTargets) updatePage({ id: x.page.id, color: newColor });
     // Optimistically update cache
     queryClient.setQueryData<IListPage[]>(
       ["pages", { spaceId: spaceId ?? null, parentId: data.parentId }],
@@ -337,6 +378,8 @@ export function PageLink({
           page.id === data.id ? { ...page, color: newColor } : page,
         ),
     );
+    // A batch reaches pages in lists this row's own mutation never invalidates.
+    if (isBatch) queryClient.invalidateQueries({ queryKey: ["pages"] });
     // Invalidate calendar queries
     queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
   }
@@ -371,9 +414,11 @@ export function PageLink({
 
         <div
           ref={setNodeRef}
+          data-page-row=""
           className={clsx(style.link, {
             [style.isDragging]: isDragging,
             [style.active]: currentPageId === data.id,
+            [style.selected]: isSelected,
           })}
           style={{ opacity: isDragging ? 0.4 : 1 }}
           {...attributes}
@@ -385,8 +430,21 @@ export function PageLink({
             listeners?.onPointerDown?.(e);
           }}
           onDragStart={(e) => e.preventDefault()}
+          // Captured, so a modified click picks the row instead of reaching the
+          // chevron or the title underneath and navigating away.
+          onClickCapture={(e) => {
+            if (!isMultiSelectClick(e)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.shiftKey) selection.extendTo(data.id);
+            else selection.toggle(data.id);
+          }}
           onContextMenu={(e) => {
             e.preventDefault();
+            // Right-clicking outside the selection starts over on this row;
+            // inside it, the menu takes aim at the whole selection.
+            if (!selection.has(data.id)) selection.selectOnly(data.id);
+            captureMenuBatch();
             if (!isCoarse) {
               setContextPos({ x: e.clientX, y: e.clientY });
             }
@@ -451,6 +509,7 @@ export function PageLink({
                   wasDraggingRef.current = false;
                   return;
                 }
+                selection.selectOnly(data.id);
                 setIsExpanded(true);
                 navigate(`/page/${data.id}`);
               }}
@@ -460,7 +519,13 @@ export function PageLink({
           </div>
           <PageLinkMenu
             open={menuOpen}
-            onOpenChange={setMenuOpen}
+            onOpenChange={(open) => {
+              if (open) {
+                if (!selection.has(data.id)) selection.selectOnly(data.id);
+                captureMenuBatch();
+              }
+              setMenuOpen(open);
+            }}
             isCoarse={isCoarse}
             color={data.color}
             onColorChange={handleColorChange}
@@ -471,6 +536,7 @@ export function PageLink({
             onAdd={handleAdd}
             onImport={handleImport}
             isCreating={isCreating}
+            batchCount={batchCount}
             t={t}
           />
         </div>
@@ -516,6 +582,7 @@ export function PageLink({
                   onImport={handleImport}
                   isCreating={isCreating}
                   color={data.color}
+                  batchCount={batchCount}
                   t={t}
                 />
               </PopoverPrimitive.Content>
@@ -580,8 +647,10 @@ export function PageLink({
       />
       {spaceId && (
         <MovePageDialog
-          pageId={data.id}
-          currentParentId={data.parentId}
+          pages={menuTargets.map((x) => ({
+            id: x.page.id,
+            parentId: x.page.parentId,
+          }))}
           sourceSpaceId={spaceId}
           open={showMoveDialog}
           onOpenChange={setShowMoveDialog}
@@ -648,6 +717,7 @@ function PageLinkMenuContent({
   onImport,
   isCreating,
   color,
+  batchCount,
   t,
 }: {
   onClose: () => void;
@@ -660,23 +730,42 @@ function PageLinkMenuContent({
   onImport: () => void;
   isCreating: boolean;
   color: string | null | undefined;
+  /** Rows the menu was opened on; 0 or 1 means the plain single-page menu. */
+  batchCount: number;
   t: TFunction;
 }) {
+  // Rename, Add subpage and Import each need one page to aim at — a title to
+  // edit, a parent to nest under, a destination to import into — so they step
+  // aside for a selection rather than silently picking one row out of it.
+  const isBatch = batchCount > 1;
+  const count = batchCount || 1;
+
   return (
     <>
       <div className="flex flex-col p-2 gap-1">
-        <Button
-          variant="unstyled"
-          size="unstyled"
-          className={menuItemClass}
-          onClick={() => {
-            onClose();
-            onRename();
-          }}
-        >
-          <Icons.Edit width={18} height={18} />
-          {t("common.rename", "Rename")}
-        </Button>
+        {isBatch && (
+          <div className="px-3 pb-1 pt-1 text-xs text-muted-foreground">
+            {t("page.pagesCount", {
+              count,
+              defaultValue_one: "{{count, number}} page",
+              defaultValue_other: "{{count, number}} pages",
+            })}
+          </div>
+        )}
+        {!isBatch && (
+          <Button
+            variant="unstyled"
+            size="unstyled"
+            className={menuItemClass}
+            onClick={() => {
+              onClose();
+              onRename();
+            }}
+          >
+            <Icons.Edit width={18} height={18} />
+            {t("common.rename", "Rename")}
+          </Button>
+        )}
         {onMove && (
           <Button
             variant="unstyled"
@@ -688,38 +777,46 @@ function PageLinkMenuContent({
             }}
           >
             <FolderInput size={18} />
-            {t("page.movePage", "Move page")}
+            {t("page.movePages", {
+              count,
+              defaultValue_one: "Move page",
+              defaultValue_other: "Move pages",
+            })}
           </Button>
         )}
-        <Button
-          variant="unstyled"
-          size="unstyled"
-          className={menuItemClass}
-          onClick={() => {
-            onClose();
-            onAdd();
-          }}
-          disabled={isCreating}
-        >
-          {isCreating ? (
-            <LoaderCircle className="spin" size={18} />
-          ) : (
-            <Icons.Plus width={18} height={18} />
-          )}
-          {t("page.addSubpage", "Add subpage")}
-        </Button>
-        <Button
-          variant="unstyled"
-          size="unstyled"
-          className={menuItemClass}
-          onClick={() => {
-            onClose();
-            onImport();
-          }}
-        >
-          <Download size={18} />
-          {t("import.title", "Import")}
-        </Button>
+        {!isBatch && (
+          <>
+            <Button
+              variant="unstyled"
+              size="unstyled"
+              className={menuItemClass}
+              onClick={() => {
+                onClose();
+                onAdd();
+              }}
+              disabled={isCreating}
+            >
+              {isCreating ? (
+                <LoaderCircle className="spin" size={18} />
+              ) : (
+                <Icons.Plus width={18} height={18} />
+              )}
+              {t("page.addSubpage", "Add subpage")}
+            </Button>
+            <Button
+              variant="unstyled"
+              size="unstyled"
+              className={menuItemClass}
+              onClick={() => {
+                onClose();
+                onImport();
+              }}
+            >
+              <Download size={18} />
+              {t("import.title", "Import")}
+            </Button>
+          </>
+        )}
         <Button
           variant="unstyled"
           size="unstyled"
@@ -735,7 +832,13 @@ function PageLinkMenuContent({
           ) : (
             <Archive size={18} />
           )}
-          {t("common.archive", "Archive")}
+          {isBatch
+            ? t("page.archivePages", {
+                count,
+                defaultValue_one: "Archive page",
+                defaultValue_other: "Archive pages",
+              })
+            : t("common.archive", "Archive")}
         </Button>
       </div>
       <div className="px-4 pb-4 pt-1">
@@ -767,6 +870,7 @@ function PageLinkMenu({
   onAdd,
   onImport,
   isCreating,
+  batchCount,
   t,
 }: {
   open: boolean;
@@ -781,6 +885,7 @@ function PageLinkMenu({
   onAdd: () => void;
   onImport: () => void;
   isCreating: boolean;
+  batchCount: number;
   t: TFunction;
 }) {
   const triggerButton = (
@@ -808,6 +913,7 @@ function PageLinkMenu({
     onImport,
     isCreating,
     color,
+    batchCount,
     t,
   };
 

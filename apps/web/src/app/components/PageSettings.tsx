@@ -109,8 +109,7 @@ export function PageSettings() {
       />
       {pageId && page?.spaceId && (
         <MovePageDialog
-          pageId={pageId}
-          currentParentId={page.parentId}
+          pages={[{ id: pageId, parentId: page.parentId }]}
           sourceSpaceId={page.spaceId}
           open={showMoveDialog}
           onOpenChange={setShowMoveDialog}

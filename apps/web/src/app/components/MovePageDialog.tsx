@@ -20,16 +20,18 @@ import { type ISearchPage, useMovePage } from "../api/pages.api";
 import { useToast } from "./Toast";
 
 interface MovePageDialogProps {
-  pageId: string;
-  currentParentId: string | null;
+  /**
+   * The pages to move, in the order they should land. More than one comes
+   * from a sidebar multi-selection; they always share a space.
+   */
+  pages: { id: string; parentId: string | null }[];
   sourceSpaceId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
 export function MovePageDialog({
-  pageId,
-  currentParentId,
+  pages,
   sourceSpaceId,
   open,
   onOpenChange,
@@ -51,8 +53,11 @@ export function MovePageDialog({
   const isMoving = isMovingWithinSpace || isMovingAcrossSpaces;
   const isWorking = isMoving || isForking;
   const selectedParentId = selectedParent?.id ?? null;
+  const count = pages.length;
+  // Nothing to do only when every page is already sitting exactly there.
   const isSamePosition =
-    selectedSpaceId === sourceSpaceId && selectedParentId === currentParentId;
+    selectedSpaceId === sourceSpaceId &&
+    pages.every((p) => p.parentId === selectedParentId);
 
   useEffect(() => {
     if (!open) return;
@@ -69,20 +74,30 @@ export function MovePageDialog({
     if (!selectedSpaceId || isSamePosition || isWorking) return;
 
     try {
+      // One at a time, so a batch lands in the order it was listed: each move
+      // appends to the end of the destination's children.
       if (selectedSpaceId === sourceSpaceId) {
-        await movePage({
-          id: pageId,
-          parentId: selectedParentId,
-        });
+        for (const page of pages) {
+          await movePage({
+            id: page.id,
+            parentId: selectedParentId,
+          });
+        }
       } else {
         setIsMovingAcrossSpaces(true);
-        const { idMap } = await movePageAcrossSpaces(pageId, selectedSpaceId, {
-          targetParentId: selectedParentId,
-        });
-        queryClient.invalidateQueries({ queryKey: ["pages-archived"] });
-        if (currentPageId && idMap.has(currentPageId)) {
-          navigate(`/page/${idMap.get(currentPageId)}`);
+        for (const page of pages) {
+          const { idMap } = await movePageAcrossSpaces(
+            page.id,
+            selectedSpaceId,
+            { targetParentId: selectedParentId },
+          );
+          // The open page may have been inside this subtree: it now has a new
+          // id, so follow it rather than leaving the editor on a dead route.
+          if (currentPageId && idMap.has(currentPageId)) {
+            navigate(`/page/${idMap.get(currentPageId)}`);
+          }
         }
+        queryClient.invalidateQueries({ queryKey: ["pages-archived"] });
       }
 
       queryClient.invalidateQueries({ queryKey: ["pages"] });
@@ -102,16 +117,27 @@ export function MovePageDialog({
 
     setIsForking(true);
     try {
-      const { newRootId } = await forkPageToSpace(pageId, selectedSpaceId, {
-        targetParentId: selectedParentId,
-      });
+      let firstNewRootId: string | null = null;
+      for (const page of pages) {
+        const { newRootId } = await forkPageToSpace(page.id, selectedSpaceId, {
+          targetParentId: selectedParentId,
+        });
+        if (newRootId) {
+          queryClient.invalidateQueries({ queryKey: ["page", newRootId] });
+          firstNewRootId ??= newRootId;
+        }
+      }
 
       queryClient.invalidateQueries({ queryKey: ["pages"] });
-      if (newRootId) {
-        queryClient.invalidateQueries({ queryKey: ["page", newRootId] });
-        navigate(`/page/${newRootId}`);
-      }
-      toast.success(t("page.forkDone", "Page forked"));
+      // A batch has no one copy to land on, so the first stands for the rest.
+      if (firstNewRootId) navigate(`/page/${firstNewRootId}`);
+      toast.success(
+        t("page.forkPagesDone", {
+          count,
+          defaultValue_one: "Page forked",
+          defaultValue_other: "{{count, number}} pages forked",
+        }),
+      );
       onOpenChange(false);
     } catch (error) {
       console.error("[MovePageDialog] fork failed", error);
@@ -131,7 +157,13 @@ export function MovePageDialog({
         className="w-full justify-start gap-2 px-2.5 hover:bg-muted focus-visible:bg-muted"
       >
         <MoveRight className="text-primary rtl:rotate-180" />
-        <span>{t("page.movePage", "Move page")}</span>
+        <span>
+          {t("page.movePages", {
+            count,
+            defaultValue_one: "Move page",
+            defaultValue_other: "Move pages",
+          })}
+        </span>
       </Button>
 
       <Button
@@ -151,12 +183,21 @@ export function MovePageDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t("page.movePage", "Move page")}</DialogTitle>
+          <DialogTitle>
+            {t("page.movePages", {
+              count,
+              defaultValue_one: "Move page",
+              defaultValue_other: "Move pages",
+            })}
+          </DialogTitle>
           <DialogDescription>
-            {t(
-              "page.movePageDescription",
-              "Choose a space and parent page. Sub-pages move with it.",
-            )}
+            {t("page.movePagesDescription", {
+              count,
+              defaultValue_one:
+                "Choose a space and, optionally, a parent page. Sub-pages move with it.",
+              defaultValue_other:
+                "Choose a space and, optionally, a parent page. Sub-pages move with them.",
+            })}
           </DialogDescription>
         </DialogHeader>
 
@@ -180,7 +221,11 @@ export function MovePageDialog({
               spaceId={selectedSpaceId}
               value={selectedParent}
               onChange={setSelectedParent}
-              excludeId={selectedSpaceId === sourceSpaceId ? pageId : undefined}
+              excludeIds={
+                selectedSpaceId === sourceSpaceId
+                  ? pages.map((p) => p.id)
+                  : undefined
+              }
               showNoneOption
               noneLabel={t("page.spaceRoot", "Space root (no parent)")}
             />

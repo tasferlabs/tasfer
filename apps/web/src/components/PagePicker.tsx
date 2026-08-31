@@ -24,7 +24,8 @@ interface PagePickerProps {
   value?: ISearchPage | null;
   onChange: (page: ISearchPage | null) => void;
   noneLabel?: string;
-  excludeId?: string;
+  /** Pages that cannot be the parent — they and their subtrees are hidden. */
+  excludeIds?: string[];
   showNoneOption?: boolean;
   className?: string;
   children?: React.ReactNode;
@@ -37,7 +38,7 @@ export function PagePicker({
   value,
   onChange,
   noneLabel,
-  excludeId,
+  excludeIds,
   showNoneOption,
   className,
   children,
@@ -57,11 +58,11 @@ export function PagePicker({
     enabled: !!spaceId,
   });
 
-  const filtered = excludeId
+  const filtered = excludeIds?.length
     ? pages?.filter(
         (p) =>
-          p.id !== excludeId &&
-          !p.path?.some((ancestor) => ancestor.id === excludeId),
+          !excludeIds.includes(p.id) &&
+          !p.path?.some((ancestor) => excludeIds.includes(ancestor.id)),
       )
     : pages;
 
