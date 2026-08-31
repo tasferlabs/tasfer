@@ -145,9 +145,11 @@ How the cycle works:
   and signs the desktop app and uploads the artifacts onto that release.
   macOS is the only platform currently built; the Windows and Linux targets are
   configured but switched off in the workflow.
-- The `packages/*` libraries go to npm by bumping their `package.json` versions,
-  then dispatching the **npm Publish** workflow, which builds them in dependency
-  order and pins the peer ranges between them at publish time. It has to be
+- The `packages/*` libraries go to npm by bumping `packagesVersion` in
+  `version.json`, then dispatching the **npm Publish** workflow, which builds
+  them in dependency order, stamps that version onto every manifest and pins the
+  peer ranges between them at publish time. No `packages/*` manifest carries a
+  version of its own, so the bump is one line here too. It has to be
   dispatched directly rather than chained off anything: npm's trusted publishing
   validates the *calling* workflow's filename. Versions already on the registry
   are skipped, so re-running it is safe.

@@ -1,6 +1,5 @@
 {
   "name": "@tasfer/tex",
-  "version": "0.1.2",
   "description": "Canvas-native, live-editable LaTeX math layout & rendering engine.",
   "type": "module",
   "license": "MIT",

@@ -1,6 +1,5 @@
 {
   "name": "@tasfer/math",
-  "version": "0.1.2",
   "description": "Opt-in math node and mark for @tasfer/editor (owns the @tasfer/tex layout engine).",
   "type": "module",
   "license": "MIT",

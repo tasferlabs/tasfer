@@ -1,6 +1,5 @@
 {
   "name": "@tasfer/cli",
-  "version": "0.1.6",
   "license": "AGPL-3.0-or-later",
   "description": "Headless Tasfer host — a replica of your spaces that stays online on your own machine",
   "homepage": "https://github.com/tasferlabs/tasfer",

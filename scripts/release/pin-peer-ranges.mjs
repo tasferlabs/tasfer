@@ -36,8 +36,18 @@ for (const { path, json } of manifests) {
   if (!peers) continue;
   let changed = false;
   for (const name of Object.keys(peers)) {
+    // A name absent from the map is an outside peer (typescript, react) and is
+    // left alone. A sibling that is present but carries no version means
+    // package-version.mjs --write has not run: the manifests hold no literal of
+    // their own. Refuse rather than leave the peer at "*", which is the one
+    // range a published tarball must never ship.
+    if (!versionByName.has(name)) continue;
     const version = versionByName.get(name);
-    if (version === undefined) continue;
+    if (!version) {
+      throw new Error(
+        `${json.name}: sibling ${name} has no version — run scripts/release/package-version.mjs --write before pinning peer ranges`,
+      );
+    }
     const range = `^${version}`;
     if (peers[name] !== range) {
       peers[name] = range;

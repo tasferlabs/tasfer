@@ -1,6 +1,5 @@
 {
   "name": "@tasfer/table",
-  "version": "0.1.0",
   "description": "Table node for @tasfer/editor (opt-in; grid layout, cell editing and GFM round-trip).",
   "type": "module",
   "license": "MIT",

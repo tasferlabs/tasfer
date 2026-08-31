@@ -1,14 +1,17 @@
 // The version the @tasfer/* libraries publish at, read from /version.json —
 // the same file that carries the app's marketing version (see app-version.mjs).
-// The libraries move in lockstep, so one field covers all of them; each manifest
-// still stores a literal because npm publishes whatever package.json says.
+// The libraries move in lockstep, so one field covers all of them, and no
+// `packages/*` manifest carries a version of its own — the same arrangement the
+// apps use. npm publishes whatever package.json says, so the publish workflow
+// stamps the manifests from here first; the write is a build artifact and is
+// never committed.
 //
 //   node scripts/release/package-version.mjs            0.1.2
 //   node scripts/release/package-version.mjs --write     write it into every manifest
 //
-// Bump by editing version.json, then run --write and commit the manifests it
-// touches. The publish workflow runs --write itself, so a forgotten sync can
-// never ship a stale version.
+// Bump by editing version.json — that is the whole edit, with no manifests to
+// follow up. Because the publish workflow runs --write itself, a manifest can
+// never ship a version that has gone stale against version.json.
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
@@ -29,6 +32,11 @@ export function packagesVersion() {
 
 /**
  * Stamp `version` onto every packages/* manifest. Returns the names it changed.
+ *
+ * The manifests carry no `version` key of their own, so one is inserted rather
+ * than overwritten. It goes directly after `name` — where npm itself writes it
+ * and where a reader expects it — instead of being appended after the
+ * dependency blocks, which is where a plain assignment would land it.
  */
 export function writePackageVersions(version = packagesVersion()) {
   const packagesDir = resolve(repoRoot, "packages");
@@ -43,8 +51,14 @@ export function writePackageVersions(version = packagesVersion()) {
       continue;
     }
     if (json.version === version) continue;
-    json.version = version;
-    writeFileSync(path, JSON.stringify(json, null, 2) + "\n");
+    const stamped = {};
+    for (const [key, value] of Object.entries(json)) {
+      if (key === "version") continue;
+      stamped[key] = value;
+      if (key === "name") stamped.version = version;
+    }
+    if (!("version" in stamped)) stamped.version = version;
+    writeFileSync(path, JSON.stringify(stamped, null, 2) + "\n");
     changed.push(json.name);
   }
   return changed;

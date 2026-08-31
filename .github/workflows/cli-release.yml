@@ -113,11 +113,6 @@ jobs:
         working-directory: apps/cli
         run: npm run typecheck
 
-      # The manifest is stamped here as well as in the repo, so a forgotten
-      # `--write` after an appVersion bump cannot ship a mismatched build.
-      - name: Stamp the version from version.json
-        run: node scripts/release/cli-version.mjs --write
-
       # macOS binaries are ad-hoc signed. Gatekeeper lets a curl'd archive run
       # unsigned-but-notarized-free because nothing quarantines it; a browser
       # download would need a Developer ID here (set MAC_SIGN_IDENTITY once the
