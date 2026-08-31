@@ -28,7 +28,6 @@ import {
   writeFileSync,
 } from "node:fs";
 import { access, constants } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
 import { CliError } from "./args";
@@ -44,6 +43,8 @@ const TAG_PREFIX = "v";
 const RELEASE_PAGE_SIZE = 30;
 /** The CLI's own checksum list, named apart from the app's release assets. */
 const CHECKSUMS = "tasfer-checksums.txt";
+/** Staging directories live in the install dir; sweep() knows them by this. */
+const STAGING_PREFIX = ".update-";
 
 interface ReleaseAsset {
   name: string;
@@ -166,28 +167,59 @@ async function verify(
  * on the next run's cleanup.
  */
 function swapIn(installDir: string, staged: string): void {
-  for (const entry of readdirSync(staged)) {
-    const target = join(installDir, entry);
-    const aside = `${target}.old`;
-    if (existsSync(target)) {
-      rmSync(aside, { recursive: true, force: true });
-      renameSync(target, aside);
+  /** What has been renamed aside so far, so a failure can put it back. */
+  const displaced: [target: string, aside: string][] = [];
+
+  try {
+    for (const entry of readdirSync(staged)) {
+      const target = join(installDir, entry);
+      const aside = `${target}.old`;
+      if (existsSync(target)) {
+        rmSync(aside, { recursive: true, force: true });
+        renameSync(target, aside);
+        displaced.push([target, aside]);
+      }
+      renameSync(join(staged, entry), target);
     }
-    renameSync(join(staged, entry), target);
+  } catch (e) {
+    // A half-swapped install is worse than no update: the entries already
+    // renamed aside are gone from their names, so the next `tasfer` run finds
+    // no `node_modules` and the one after that sweeps the only copy away.
+    // Undo in reverse and let the caller report the original failure.
+    for (const [target, aside] of displaced.reverse()) {
+      rmSync(target, { recursive: true, force: true });
+      renameSync(aside, target);
+    }
+    throw e;
+  }
+
+  // Only once every entry is in place. Unlinking these can fail while another
+  // process still executes them; sweep() collects whatever is left next time.
+  for (const [, aside] of displaced) {
     rmSync(aside, { recursive: true, force: true });
   }
 }
 
-/** Drop `*.old` left behind by a previous update that could not unlink them. */
+/**
+ * Drop what a previous update could not clean up: `*.old` it could not unlink
+ * while they were executing, and staging directories left by a run that died
+ * between extract and swap.
+ */
 function sweep(installDir: string): void {
   for (const entry of readdirSync(installDir)) {
-    if (!entry.endsWith(".old")) continue;
+    if (!entry.endsWith(".old") && !entry.startsWith(STAGING_PREFIX)) continue;
     rmSync(join(installDir, entry), { recursive: true, force: true });
   }
 }
 
-async function extract(archive: Buffer, name: string): Promise<string> {
-  const staging = mkdtempSync(join(tmpdir(), "tasfer-update-"));
+async function extract(archive: Buffer, name: string, installDir: string): Promise<string> {
+  // Inside the install directory, not the system temp dir: `swapIn` moves the
+  // build in with rename(), which is same-filesystem only. On a box where /tmp
+  // is its own mount — a tmpfs /tmp is the default on most systemd distros —
+  // staging there fails the whole update with EXDEV. The install directory is
+  // the one place guaranteed to be both writable (checked before we download)
+  // and on the same device as the files being replaced.
+  const staging = mkdtempSync(join(installDir, STAGING_PREFIX));
   const archivePath = join(staging, name);
   writeFileSync(archivePath, archive);
 
@@ -234,13 +266,16 @@ export async function updateCli({ checkOnly }: UpdateOptions): Promise<number> {
     throw new CliError("update.notWritable", { path: installDir });
   }
 
+  // Before staging, not after: staging directories now live in installDir too,
+  // and sweep() cannot tell this run's from an abandoned one.
+  sweep(installDir);
+
   console.log(t("update.downloading", { name: asset.name }));
   const archive = await download(asset.browser_download_url);
   await verify(release, archive, asset.name);
 
-  const staged = await extract(archive, asset.name);
+  const staged = await extract(archive, asset.name, installDir);
   try {
-    sweep(installDir);
     swapIn(installDir, staged);
     chmodSync(join(installDir, basename(process.execPath)), 0o755);
   } finally {
