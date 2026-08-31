@@ -786,12 +786,56 @@ class WebRtcTopic implements NetworkTopic {
     const isCurrent = () => this.ws === socket;
     let opened = false;
 
-    // Fail fast instead of waiting out the OS TCP timeout. close() drives the
-    // normal onclose path, so the retry loop needs no special case for this.
-    const connectTimer = setTimeout(() => {
+    /**
+     * Tear this socket down and queue the next attempt. Runs at most once,
+     * driven by whichever arrives first: the close event, or the connect
+     * deadline below.
+     *
+     * It cannot live in `onclose` alone. Node's global WebSocket (undici) does
+     * not fire a close event when close() is called on a socket still in
+     * CONNECTING: it emits `error`, parks the socket in CLOSING for good, and
+     * never runs onclose. With the retry queued only from onclose, a single
+     * connect timeout ended that topic's reconnect loop for the life of the
+     * process — and left `connect()` awaiting a promise that never settled.
+     */
+    let wentDown = false;
+    let connectTimer: ReturnType<typeof setTimeout> | undefined;
+    const handleDown = (reason: string) => {
+      if (wentDown) return;
+      wentDown = true;
+      clearTimeout(connectTimer);
+
+      // If the socket died before onopen fired, reject the pending promise
+      // so callers don't hang forever.
+      if (!opened) {
+        rejectReady(new Error(`WebSocket closed before open (${reason})`));
+      }
+
+      // Superseded socket: a newer one owns the peers, the reconnect timer and
+      // the `ws` reference. Touching any of them here would tear down a live
+      // connection and start a second reconnect loop.
+      if (!isCurrent()) return;
+
+      // Only now: while superseded, the timers belong to the newer socket.
+      this.clearSocketTimers();
+
+      // Drop only what the socket was carrying. Listeners stay so reconnected
+      // peers re-trigger handlePeerJoin in the Replicator.
+      this._dropSignalingDependentPeers();
+      this.ws = null;
+
+      this.scheduleReconnect(topicShort);
+    };
+
+    // Fail fast instead of waiting out the OS TCP timeout.
+    connectTimer = setTimeout(() => {
       if (opened || !isCurrent()) return;
       console.error(`[WS] connect timed out topic=${topicShort} after ${WS_CONNECT_TIMEOUT_MS}ms`);
+      // Best effort: this socket may never leave CLOSING and may still emit a
+      // late `error`. Clearing our reference in handleDown is what makes those
+      // stray events no-ops.
       try { socket.close(); } catch { /* already gone */ }
+      handleDown(`connect timeout after ${WS_CONNECT_TIMEOUT_MS}ms`);
     }, WS_CONNECT_TIMEOUT_MS);
 
     socket.onopen = () => {
@@ -815,37 +859,19 @@ class WebRtcTopic implements NetworkTopic {
     };
 
     socket.onclose = (ev) => {
-      clearTimeout(connectTimer);
       console.log(`[WS] closed topic=${topicShort} code=${ev.code} clean=${ev.wasClean} reason=${ev.reason || "(none)"}`);
       if (!ev.wasClean) {
         console.error(`[WS] unexpected close topic=${topicShort} code=${ev.code} reason=${ev.reason || "(none)"}`);
       }
-
-      // If the socket closed before onopen fired, reject the pending promise
-      // so callers don't hang forever.
-      if (!opened) {
-        rejectReady(new Error(`WebSocket closed before open (code=${ev.code})`));
-      }
-
-      // Superseded socket: a newer one owns the peers, the reconnect timer and
-      // the `ws` reference. Touching any of them here would tear down a live
-      // connection and start a second reconnect loop.
-      if (!isCurrent()) return;
-
-      // Only now: while superseded, the timers belong to the newer socket.
-      this.clearSocketTimers();
-
-      // Drop only what the socket was carrying. Listeners stay so reconnected
-      // peers re-trigger handlePeerJoin in the Replicator.
-      this._dropSignalingDependentPeers();
-      this.ws = null;
-
-      this.scheduleReconnect(topicShort);
+      handleDown(`code=${ev.code}`);
     };
 
     socket.onerror = () => {
+      // A socket we already gave up on can still emit this — see handleDown.
+      if (!isCurrent()) return;
       console.error(`[WS] connection error topic=${topicShort} url=${url}`);
-      // onerror is always followed by onclose, which handles reconnection
+      // Reconnection is driven by handleDown, not from here: an error is not
+      // reliably followed by a close event.
     };
 
     return this.wsReady;
