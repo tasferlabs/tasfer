@@ -14,6 +14,7 @@ const linkedPackages = [
   "editor",
   "math",
   "code",
+  "table",
   "tex",
   "react",
   "provider-core",
