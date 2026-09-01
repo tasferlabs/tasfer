@@ -277,13 +277,25 @@
   background-color: transparent;
 }
 
-/* Insertion line at the row's outer edge. */
-.dropZoneActive.dropZoneBefore {
-  box-shadow: inset 0 2px 0 0 var(--primary);
+/* Insertion line, centred on the seam between two rows. Row N's `after` zone
+   and row N+1's `before` zone mean the same drop, so both draw on the same
+   two pixels — one inside each row — and crossing the seam changes nothing.
+   The list's block padding leaves room for the 1px overhang at either end. */
+.dropZoneActive.dropZoneBefore::after,
+.dropZoneActive.dropZoneAfter::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  height: 2px;
+  background-color: var(--primary);
 }
 
-.dropZoneActive.dropZoneAfter {
-  box-shadow: inset 0 -2px 0 0 var(--primary);
+.dropZoneActive.dropZoneBefore::after {
+  top: -1px;
+}
+
+.dropZoneActive.dropZoneAfter::after {
+  bottom: -1px;
 }
 
 .dropZoneActive.dropZoneInside {
