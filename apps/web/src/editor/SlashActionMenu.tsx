@@ -28,6 +28,7 @@ import { isTouchOnlyDevice } from "@tasfer/editor/internal";
 import { ScrollArea } from "../components/ui/scroll-area";
 import { shouldOpenKeyboardMenu } from "./keyboardMenuInput";
 import { activeTreeMath } from "./treeMath";
+import { rankSlashItems } from "../lib/slashRanking";
 
 /** Block types the slash menu can insert. Assignable to the engine's `Block["type"]`. */
 export type SlashBlockType =
@@ -461,21 +462,15 @@ const SlashMenuList: React.FC<SlashMenuListProps> = ({
     return Math.max(150, Math.min(maxAllowed, availableSpace));
   }, [y]);
 
-  // Filter actions based on input
-  const filteredActions = React.useMemo(() => {
-    if (!filter) return slashActions;
-    const lowerFilter = filter.toLowerCase();
-    return slashActions.filter(
-      (cmd) =>
-        cmd.label.toLowerCase().includes(lowerFilter) ||
-        cmd.description.toLowerCase().includes(lowerFilter) ||
-        cmd.keywords?.some((keyword) =>
-          keyword.toLowerCase().startsWith(lowerFilter),
-        ),
-    );
-  }, [filter, slashActions]);
+  // Rank actions by how well the typed text matches (label > keywords >
+  // description); an exact "/table" lands on Table, not on "sui-table".
+  const filteredActions = React.useMemo(
+    () => rankSlashItems(slashActions, filter),
+    [filter, slashActions],
+  );
 
-  // Group actions by category
+  // Group actions by category. Groups follow the order of their best-ranked
+  // item, so the category holding the top match renders first.
   const groupedActions = React.useMemo(() => {
     const groups: Record<string, SlashItem[]> = {};
     for (const cmd of filteredActions) {
