@@ -116,6 +116,69 @@ function dispatchCursorCrossed(
   }).state;
 }
 
+/** The Cocoa emacs chords (⌃A/⌃E/⌃K/…) the keymap answers on macOS. */
+const MAC_EMACS_CODES = [
+  "KeyA",
+  "KeyE",
+  "KeyB",
+  "KeyF",
+  "KeyP",
+  "KeyN",
+  "KeyH",
+  "KeyD",
+  "KeyK",
+];
+
+/**
+ * Whether the built-in keymap answers this Ctrl/Cmd chord. The input surface
+ * asks before it swallows a keydown: a claimed chord is consumed and queued,
+ * anything else is left alone so it bubbles to the host — a save, a sidebar
+ * toggle, a command palette. Kept beside the keymap so the two cannot drift,
+ * and it consults the schema, so an editor whose schema lacks or disallows a
+ * mark also frees that mark's chord. Copy, cut and paste are not claimed: they
+ * must reach the browser's native clipboard events. A chord with Alt down is
+ * never claimed — on Windows that is AltGr, which types a character.
+ */
+export function builtInKeymapClaims(
+  state: EditorState,
+  e: Pick<
+    KeyboardEvent,
+    "code" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey"
+  >,
+): boolean {
+  const isApple = isApplePlatform();
+  if (isApple && e.ctrlKey && !e.metaKey && !e.altKey) {
+    return MAC_EMACS_CODES.includes(e.code);
+  }
+  const isCmd = isApple ? e.metaKey : e.ctrlKey;
+  if (!isCmd || e.altKey) return false;
+  const toggles = (name: string) =>
+    !e.shiftKey &&
+    state.marks.get(name) !== undefined &&
+    state.schema.isMarkAllowed(name);
+  switch (e.code) {
+    case "KeyZ":
+    case "KeyY":
+    case "KeyA":
+      return true;
+    case "KeyB":
+      return toggles("strong");
+    case "KeyI":
+      return toggles("emphasis");
+    case "KeyE":
+      return toggles("code");
+    case "KeyX":
+      // ⌘⇧X is strike-through; a plain ⌘X is the native cut and stays free.
+      return (
+        e.shiftKey &&
+        state.marks.get("strike") !== undefined &&
+        state.schema.isMarkAllowed("strike")
+      );
+    default:
+      return false;
+  }
+}
+
 export function handleKeyDown(
   state: EditorState,
   viewport: ViewportState,

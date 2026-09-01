@@ -22,7 +22,7 @@ import useMobileLayout from "../hooks/useMobileLayout";
 import { serializeToMarkdown } from "@tasfer/editor";
 import { serializeToHTML } from "@tasfer/editor";
 import { collectAssetRefs } from "@tasfer/editor";
-import { extractTitleFromBlocks } from "@tasfer/editor/internal";
+import { exportBaseName } from "@/lib/exportFileName";
 import { renderToSVG } from "@tasfer/math";
 import { getTexFontUrl } from "@/fonts";
 import { extFromMime, fetchImageBlob } from "@/lib/exportAssets";
@@ -65,15 +65,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
     onOpenChange(next);
   };
 
-  const getBaseName = () => {
-    const title = extractTitleFromBlocks(currentBlocks) || "document";
-    const sanitized = title
-      .replace(/[<>:"/\\|?*]/g, "")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 100);
-    return sanitized || "document";
-  };
+  const getBaseName = () => exportBaseName(currentBlocks);
 
   const downloadTextFile = async (
     content: string,

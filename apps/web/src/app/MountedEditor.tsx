@@ -45,6 +45,8 @@ import {
   type Decoration,
   type DocPoint,
 } from "@tasfer/editor";
+import { downloadFile } from "@/downloadFile";
+import { exportBaseName } from "@/lib/exportFileName";
 import {
   INSERT_MATH_COMMAND,
   RESIZE_MATH_MATRIX,
@@ -3323,6 +3325,25 @@ function PageEditor({
       if (isCmd && e.code === "KeyF") {
         e.preventDefault();
         setFindBarOpen(true);
+      } else if (isCmd && e.code === "KeyS" && !e.shiftKey && !e.altKey) {
+        // ⌘S downloads the page as Markdown. The engine lets the chord
+        // through — what saving means is the host's call — and the browser's
+        // own "save page" dialog is never what was meant here. Held down, it
+        // still saves once; only the editing instance answers, or a readonly
+        // preview on the same page would download a copy too.
+        e.preventDefault();
+        if (e.repeat || readonly) return;
+        const mounted = mountedRef.current;
+        if (!mounted?.doc) return;
+        const markdown = mounted.editor.getMarkdown();
+        const name = exportBaseName(
+          mounted.doc.getRawBlocks().filter((b) => !b.deleted),
+        );
+        void downloadFile(
+          new Blob([markdown], { type: "text/markdown" }),
+          `${name}.md`,
+          "text/markdown",
+        );
       } else if (e.key === "Escape" && findBarOpenRef.current) {
         e.preventDefault();
         handleFindCloseRef.current?.();

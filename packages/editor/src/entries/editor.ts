@@ -54,6 +54,7 @@ import {
   isInLongPressMode,
   ownsPointerGesture,
 } from "../events/interaction-session";
+import { builtInKeymapClaims } from "../events/keysEvents";
 import { pressArmsTextDrag } from "../events/mouseEvents";
 import { touchStartsOwnedGesture } from "../events/touchEvents";
 import { onFontsReady } from "../fonts";
@@ -3861,70 +3862,17 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         return;
       }
 
-      // Save as Markdown - handle here (not in events queue) to preserve user gesture for download
-      if (e.code === "KeyS") {
-        e.preventDefault();
-        e.stopPropagation();
-        if (e.repeat) return;
-        const markdown = serializeToMarkdown(
-          this._state.document.page.blocks,
-          undefined,
-          { schema: this._state.schema },
-        );
-        const blob = new Blob([markdown], { type: "text/markdown" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        const firstBlock = this._state.document.page.blocks.find(
-          (b) => !b.deleted && isTextualBlock(b),
-        );
-        const firstBlockText =
-          firstBlock && "charRuns" in firstBlock
-            ? firstBlock.charRuns
-                .map((r) => r.text)
-                .join("")
-                .trim()
-            : "";
-        a.download = `${firstBlockText || "untitled"}.md`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-        return;
-      }
-
       // Copy/cut (KeyC/KeyX) are intentionally excluded: they must fall through
       // so the browser fires native `copy`/`cut` events (handled by
       // copyHandler/cutHandler), which write the clipboard synchronously.
       //
-      // The macOS emacs text bindings (⌃A/⌃E/⌃K/…) also arrive as Ctrl chords,
-      // so they land in this branch. Forward them only on Apple platforms: off
-      // Apple the same codes are host shortcuts — Ctrl+F opens find — and must
-      // keep bubbling to the app's own listeners.
-      const macEmacs =
-        isApplePlatform() && e.ctrlKey && !e.metaKey && !e.altKey
-          ? ["KeyD", "KeyE", "KeyF", "KeyH", "KeyK", "KeyN", "KeyP"]
-          : [];
-      const handledShortcuts = [
-        "KeyZ",
-        "KeyY",
-        "KeyA",
-        "KeyB",
-        "KeyI",
-        "KeyE",
-        ...macEmacs,
-      ];
-      // ⌘⇧X (strikethrough) — excluded from the list above so a plain ⌘X still
-      // reaches the native cut path.
-      if (e.code === "KeyX" && e.shiftKey) {
-        e.preventDefault();
-        e.stopPropagation();
-        this.eventsQueue.push(e);
-        this.scheduleRender();
-        return;
-      }
-      if (handledShortcuts.includes(e.code)) {
-        // For editor shortcuts, forward to the events queue.
+      // Only the chords the built-in keymap answers are taken; everything
+      // else — a host's save, a sidebar toggle, a palette — bubbles on. The
+      // macOS emacs chords (⌃A/⌃E/⌃K/…) arrive here too and are claimed only
+      // on Apple: elsewhere the same codes are host shortcuts (Ctrl+F opens
+      // find). The keymap is the one authority on the list, so the two
+      // cannot drift.
+      if (builtInKeymapClaims(this._state, e)) {
         e.preventDefault();
         e.stopPropagation();
         this.eventsQueue.push(e);

@@ -117,6 +117,21 @@ A handful of built-in actions are dispatched by the engine for hosts (and custom
   { name: "paste", type: "() => Promise<boolean>", desc: "Paste the system clipboard at the caret/selection — one undoable step. Resolves to whether it did anything." },
 ]} />
 
+<h2 id="keyboard">Keyboard</h2>
+
+The editor consumes only the chords its keymap answers, and lets every other Ctrl/Cmd chord bubble to the host untouched — so an app-level listener for save, find, a command palette or a sidebar toggle works while the caret is in the canvas, with no editor configuration. "Cmd" below is ⌘ on Apple platforms and Ctrl elsewhere; chords are matched on the physical key (`KeyboardEvent.code`), so they survive a non-Latin layout.
+
+<PropsTable cols={["Chord", "Action", "Notes"]} rows={[
+  { name: "Cmd+Z / Cmd+Shift+Z / Cmd+Y", type: "undo / redo", desc: "Always claimed." },
+  { name: "Cmd+A", type: "select all", desc: "Always claimed." },
+  { name: "Cmd+B / Cmd+I / Cmd+E", type: "toggle strong / emphasis / code", desc: "Claimed only while the schema registers and allows that mark: a title field built with restrict({ marks: [] }) lets Cmd+B through to the host." },
+  { name: "Cmd+Shift+X", type: "toggle strike", desc: "Same rule as the other marks. A plain Cmd+X is the native cut and is never claimed." },
+  { name: "Cmd+Enter, Shift+F10, Menu", type: "context menu", desc: "Dispatches OPEN_CONTEXT_MENU (see above)." },
+  { name: "Ctrl+A/E/B/F/P/N/H/D/K", type: "emacs caret moves", desc: "macOS only, bare Ctrl. Elsewhere these codes reach the host — Ctrl+F is its find." },
+]} />
+
+Copy, cut and paste are not intercepted at all: they reach the browser's native clipboard events, which is what the `copy`/`cut`/`paste` methods above also drive. A chord with Alt held is never claimed either — on Windows that is AltGr, which types a character. There is no built-in save chord: what saving means is the host's decision, so listen for Cmd+S yourself and read `getMarkdown()` or the `Doc`.
+
 <h2 id="facets">View & host facets</h2>
 
 The everyday content/command/query surface lives flat on the handle. Two further groups, kept off the root so the common surface stays small, are reached through namespaced facets — `editor.view.*` for geometry and ephemeral paint, `editor.host.*` for the plumbing you only need when building UI chrome. Both are public and semver-stable; the React bindings never touch them.
