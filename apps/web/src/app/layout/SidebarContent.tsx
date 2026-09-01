@@ -1078,6 +1078,8 @@ export function SidebarContent({
             <div className={style.appSidebarMain}>
               <ScrollArea
                 className={style.appSidebarScrollArea}
+                // Scope for arrow-key navigation between page rows.
+                data-page-tree=""
                 // Anywhere in the tree that is not a page row is a way out of
                 // a selection, the same as clicking the desktop.
                 onPointerDownCapture={(e) => {

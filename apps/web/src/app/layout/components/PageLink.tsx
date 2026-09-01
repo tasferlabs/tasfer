@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent,
 } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
@@ -48,6 +49,12 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { DropZone } from "./DropZone";
 import { PagesArea } from "./PagesArea";
 import { SUBTREE_EASE, SUBTREE_MOTION_MS } from "./subtreeMotion";
+import {
+  logicalTreeKey,
+  readTreeRows,
+  resolveTreeKey,
+  visibleTreeRows,
+} from "./treeKeyboard";
 import { type IParentsStack } from "./PagesLinks";
 import style from "./PagesLinks.module.css";
 import useResponsive from "@/app/hooks/useResponsive";
@@ -384,6 +391,64 @@ export function PageLink({
     queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
   }
 
+  /** Open this page the way a plain click on its title does. */
+  function openPage() {
+    selection.selectOnly(data.id);
+    setIsExpanded(true);
+    navigate(`/page/${data.id}`);
+  }
+
+  /**
+   * Arrow keys walk the tree from this row. The handler sits on the row, so
+   * it also hears keys from the focusable title inside; keys from the row's
+   * buttons and menu are left alone, or Enter on the menu would open the page.
+   */
+  function handleRowKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    const target = e.target as HTMLElement;
+    if (target !== e.currentTarget && target.getAttribute("role") !== "link") {
+      return;
+    }
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const rowEl = e.currentTarget;
+    const rtl = getComputedStyle(rowEl).direction === "rtl";
+    const key = logicalTreeKey(e.key, rtl);
+    if (!key) return;
+
+    const scope = rowEl.closest("[data-page-tree]") ?? document.body;
+    const rows = visibleTreeRows(readTreeRows(scope));
+    const index = rows.findIndex((r) => r.id === data.id);
+    const move = resolveTreeKey(key, rows, index);
+    if (!move) return;
+    e.preventDefault();
+
+    switch (move.type) {
+      case "focus": {
+        const next = rows[move.index];
+        next.element.focus();
+        next.element.scrollIntoView({ block: "nearest" });
+        // Shift extends the selection the way shift-click does, from this row
+        // if nothing was picked yet.
+        if (e.shiftKey && (key === "next" || key === "prev")) {
+          if (!selection.has(data.id)) selection.selectOnly(data.id);
+          selection.extendTo(next.id);
+        }
+        return;
+      }
+      case "expand":
+        setIsExpanded(true);
+        return;
+      case "collapse":
+        setIsExpanded(false);
+        return;
+      case "open":
+        openPage();
+        return;
+      case "select":
+        selection.toggle(data.id);
+        return;
+    }
+  }
+
   const resolvedColor = data.color ?? color ?? null;
 
   return (
@@ -414,7 +479,10 @@ export function PageLink({
 
         <div
           ref={setNodeRef}
-          data-page-row=""
+          data-page-row={data.id}
+          data-page-parent={data.parentId ?? undefined}
+          data-page-expanded={isExpanded}
+          data-page-has-children={data.hasChildren}
           className={clsx(style.link, {
             [style.isDragging]: isDragging,
             [style.active]: currentPageId === data.id,
@@ -430,6 +498,7 @@ export function PageLink({
             listeners?.onPointerDown?.(e);
           }}
           onDragStart={(e) => e.preventDefault()}
+          onKeyDown={handleRowKeyDown}
           // Captured, so a modified click picks the row instead of reaching the
           // chevron or the title underneath and navigating away.
           onClickCapture={(e) => {
@@ -498,20 +567,12 @@ export function PageLink({
             <span
               role="link"
               tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  setIsExpanded(true);
-                  navigate(`/page/${data.id}`);
-                }
-              }}
               onClick={() => {
                 if (wasDraggingRef.current || recentDragEnd) {
                   wasDraggingRef.current = false;
                   return;
                 }
-                selection.selectOnly(data.id);
-                setIsExpanded(true);
-                navigate(`/page/${data.id}`);
+                openPage();
               }}
             >
               <TitlePreview title={data.title} titleMd={data.titleMd} />

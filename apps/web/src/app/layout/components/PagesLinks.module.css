@@ -22,6 +22,13 @@
   background-color: var(--accent);
 }
 
+/* Keyboard focus: the row is where arrow keys land, so it needs a ring of
+   its own. Mouse clicks focus it too but never show the ring. */
+.link:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
 .link.active {
   background-color: color-mix(in srgb, var(--primary), transparent 85%);
 }
@@ -107,6 +114,7 @@
 }
 
 .link:hover .menuTrigger,
+.link:focus-visible .menuTrigger,
 .menuTriggerOpen {
   display: flex;
 }
@@ -396,11 +404,13 @@
 }
 
 .link:hover .collapseBlob,
+.link:focus-visible .collapseBlob,
 .collapseAction:focus-visible .collapseBlob {
   opacity: 0;
 }
 
 .link:hover .collapseAction .collapseIcon,
+.link:focus-visible .collapseAction .collapseIcon,
 .collapseAction:focus-visible .collapseIcon {
   opacity: 1;
   background-color: color-mix(in srgb, var(--foreground), transparent 89%);
