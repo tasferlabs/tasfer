@@ -127,6 +127,38 @@ export function resolveTreeKey(
   }
 }
 
+/**
+ * Where the keyboard enters the tree when the tree container itself has
+ * focus rather than a row — after a click on the tree's background. Down and
+ * Up land on the open page's row when it is visible, so the first press
+ * settles on the highlighted row and the next one steps; with no open page
+ * they start from the nearest end. Home and End go to the ends. Returns null
+ * for keys that have no entry point, so they keep their default.
+ */
+export function treeEntryIndex(
+  key: TreeKey | null,
+  rows: TreeRow[],
+  currentId: string | null | undefined,
+): number | null {
+  if (rows.length === 0) return null;
+  switch (key) {
+    case "next":
+    case "prev": {
+      const current = currentId
+        ? rows.findIndex((r) => r.id === currentId)
+        : -1;
+      if (current >= 0) return current;
+      return key === "next" ? 0 : rows.length - 1;
+    }
+    case "first":
+      return 0;
+    case "last":
+      return rows.length - 1;
+    default:
+      return null;
+  }
+}
+
 export type DomTreeRow = TreeRow & { element: HTMLElement };
 
 /**

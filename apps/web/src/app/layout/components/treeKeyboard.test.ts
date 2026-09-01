@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   logicalTreeKey,
   resolveTreeKey,
+  treeEntryIndex,
   visibleTreeRows,
   type TreeRow,
 } from "./treeKeyboard";
@@ -127,5 +128,32 @@ describe("logicalTreeKey", () => {
   it("leaves other keys alone", () => {
     expect(logicalTreeKey("Tab", false)).toBeNull();
     expect(logicalTreeKey("a", false)).toBeNull();
+  });
+});
+
+describe("treeEntryIndex", () => {
+  const rows = [row("a", null), row("b", null), row("c", null)];
+
+  it("lands Down and Up on the open page's row when it is visible", () => {
+    expect(treeEntryIndex("next", rows, "b")).toBe(1);
+    expect(treeEntryIndex("prev", rows, "b")).toBe(1);
+  });
+
+  it("starts from the nearest end when no open page is in the tree", () => {
+    expect(treeEntryIndex("next", rows, null)).toBe(0);
+    expect(treeEntryIndex("next", rows, "hidden")).toBe(0);
+    expect(treeEntryIndex("prev", rows, undefined)).toBe(2);
+  });
+
+  it("sends Home and End to the ends regardless of the open page", () => {
+    expect(treeEntryIndex("first", rows, "b")).toBe(0);
+    expect(treeEntryIndex("last", rows, "b")).toBe(2);
+  });
+
+  it("leaves other keys and an empty tree alone", () => {
+    expect(treeEntryIndex("expand", rows, "b")).toBeNull();
+    expect(treeEntryIndex("open", rows, "b")).toBeNull();
+    expect(treeEntryIndex(null, rows, "b")).toBeNull();
+    expect(treeEntryIndex("next", [], "b")).toBeNull();
   });
 });

@@ -2,6 +2,7 @@ import { Menubar as MenubarPrimitive } from "radix-ui";
 import { useTranslation } from "react-i18next";
 import { Check, Minus, Square, X } from "lucide-react";
 import { useDevToolsEnabled } from "@/lib/devTools";
+import { ShortcutKeys } from "../components/ShortcutKeys";
 
 const invoke = (channel: string) => (window as any).tasfer?.invoke(channel);
 
@@ -20,19 +21,19 @@ export function ElectronMenuBar() {
     <div className="flex items-center h-9 shrink-0 w-full bg-background border-b" style={{ WebkitAppRegion: "drag" } as React.CSSProperties}>
       <MenubarPrimitive.Root className="flex items-center h-full text-xs text-muted-foreground px-1" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
         <Menu label={t("menu.file", "File")}>
-          <Item label={t("menu.quit", "Quit")} shortcut="Ctrl+Q" onSelect={() => invoke("app:quit")} />
+          <Item label={t("menu.quit", "Quit")} keys={["Ctrl", "Q"]} onSelect={() => invoke("app:quit")} />
         </Menu>
         <Menu label={t("menu.view", "View")}>
-          <Item label={t("menu.reload", "Reload")} shortcut="Ctrl+R" onSelect={() => invoke("app:reload")} />
-          <Item label={t("menu.forceReload", "Force Reload")} shortcut="Ctrl+Shift+R" onSelect={() => invoke("app:force-reload")} />
-          <Item label={t("menu.toggleDevTools", "Toggle Developer Tools")} shortcut="Ctrl+Shift+I" onSelect={() => invoke("app:toggle-devtools")} />
+          <Item label={t("menu.reload", "Reload")} keys={["Ctrl", "R"]} onSelect={() => invoke("app:reload")} />
+          <Item label={t("menu.forceReload", "Force Reload")} keys={["Ctrl", "Shift", "R"]} onSelect={() => invoke("app:force-reload")} />
+          <Item label={t("menu.toggleDevTools", "Toggle Developer Tools")} keys={["Ctrl", "Shift", "I"]} onSelect={() => invoke("app:toggle-devtools")} />
           <Item label={t("settings.devTools.title", "Tasfer Inspector")} checked={devToolsEnabled} onSelect={() => invoke("devtools:toggle")} />
           <Separator />
-          <Item label={t("menu.resetZoom", "Reset Zoom")} shortcut="Ctrl+0" onSelect={() => invoke("app:reset-zoom")} />
-          <Item label={t("menu.zoomIn", "Zoom In")} shortcut="Ctrl+=" onSelect={() => invoke("app:zoom-in")} />
-          <Item label={t("menu.zoomOut", "Zoom Out")} shortcut="Ctrl+-" onSelect={() => invoke("app:zoom-out")} />
+          <Item label={t("menu.resetZoom", "Reset Zoom")} keys={["Ctrl", "0"]} onSelect={() => invoke("app:reset-zoom")} />
+          <Item label={t("menu.zoomIn", "Zoom In")} keys={["Ctrl", "="]} onSelect={() => invoke("app:zoom-in")} />
+          <Item label={t("menu.zoomOut", "Zoom Out")} keys={["Ctrl", "-"]} onSelect={() => invoke("app:zoom-out")} />
           <Separator />
-          <Item label={t("menu.fullscreen", "Toggle Fullscreen")} shortcut="F11" onSelect={() => invoke("app:toggle-fullscreen")} />
+          <Item label={t("menu.fullscreen", "Toggle Fullscreen")} keys={["F11"]} onSelect={() => invoke("app:toggle-fullscreen")} />
         </Menu>
       </MenubarPrimitive.Root>
 
@@ -84,7 +85,7 @@ function Menu({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
-function Item({ label, shortcut, checked, onSelect }: { label: string; shortcut?: string; checked?: boolean; onSelect: () => void }) {
+function Item({ label, keys, checked, onSelect }: { label: string; keys?: string[]; checked?: boolean; onSelect: () => void }) {
   return (
     <MenubarPrimitive.Item
       className="flex items-center gap-4 rounded-sm px-2 py-1.5 text-sm cursor-default select-none outline-none focus:bg-accent focus:text-accent-foreground"
@@ -94,7 +95,7 @@ function Item({ label, shortcut, checked, onSelect }: { label: string; shortcut?
         <Check className={`size-3.5 ${checked ? "opacity-100" : "opacity-0"}`} />
       )}
       <span className="flex-1">{label}</span>
-      {shortcut && <span className="text-xs text-muted-foreground ms-auto">{shortcut}</span>}
+      {keys && <ShortcutKeys keys={keys} className="ms-auto" />}
     </MenubarPrimitive.Item>
   );
 }

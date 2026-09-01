@@ -1406,13 +1406,23 @@ function holdsTypedInput(el: Element | null): boolean {
 }
 
 /**
- * Whether `el` is a sidebar page row the user reached with the keyboard.
- * Arrow keys open pages as they walk the tree; if the editor took focus on
- * each one, the second arrow would move the caret instead. A row focused by
- * mouse does not match `:focus-visible`, so a click still lands in the editor.
+ * Whether `el` is a sidebar page row, or the title inside one, that should
+ * keep focus after opening its page. The docked sidebar works like a file
+ * explorer: opening a page leaves focus on its row, so the arrow keys keep
+ * walking the tree, and a click in the canvas is what brings typing into the
+ * editor. If the editor took focus on every opened page, the arrow after a
+ * click would move the caret instead. In the mobile drawer a tap is not
+ * conceded to — the drawer closes on navigation and the editor is what is
+ * left — but a row reached with the keyboard is, wherever it sits.
  */
-function isKeyboardFocusedPageRow(el: Element | null): boolean {
-  return el instanceof HTMLElement && el.matches("[data-page-row]:focus-visible");
+function isFocusedPageRow(el: Element | null): boolean {
+  if (!(el instanceof HTMLElement)) return false;
+  const row = el.closest("[data-page-row]");
+  if (!row) return false;
+  return (
+    el.matches(":focus-visible") ||
+    row.closest('[data-page-tree="docked"]') !== null
+  );
 }
 
 /**
@@ -3221,7 +3231,7 @@ function PageEditor({
       // conceded — the caret and scroll are still restored below, so the page
       // is where it was left when focus does come back.
       const active = document.activeElement;
-      if (!holdsTypedInput(active) && !isKeyboardFocusedPageRow(active)) {
+      if (!holdsTypedInput(active) && !isFocusedPageRow(active)) {
         mounted.editor.focus();
       }
 

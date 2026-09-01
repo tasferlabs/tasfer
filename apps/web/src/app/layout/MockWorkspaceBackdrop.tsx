@@ -16,7 +16,7 @@
 import { Archive, Ellipsis, Plus, Search } from "lucide-react";
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import { isApplePlatform } from "@tasfer/editor";
+import { CommandShortcutKeys } from "../components/ShortcutKeys";
 import clsx from "clsx";
 import Icons from "../components/uiKit/Icons/Icons";
 import style from "./Layout.module.css";
@@ -94,19 +94,17 @@ function MockPage({
 function MockNavRow({
   icon,
   label,
-  shortcut,
+  commandKey,
 }: {
   icon: React.ReactNode;
   label: string;
-  shortcut?: string;
+  commandKey?: string;
 }) {
   return (
     <span className={clsx(style.appNavigationLink, "justify-start font-normal")}>
       <span className={style.appNavigationLinkIcon}>{icon}</span>
       {label}
-      {shortcut && (
-        <kbd className={style.appNavigationLinkShortcut}>{shortcut}</kbd>
-      )}
+      {commandKey && <CommandShortcutKeys commandKey={commandKey} />}
     </span>
   );
 }
@@ -126,7 +124,7 @@ export function MockWorkspaceBackdrop() {
               <MockNavRow
                 icon={<Search size={20} />}
                 label={t("sidebar.search", "Search")}
-                shortcut={isApplePlatform() ? "⌘K" : "Ctrl+K"}
+                commandKey="K"
               />
               <MockNavRow
                 icon={<Icons.Gear width={24} height={24} />}

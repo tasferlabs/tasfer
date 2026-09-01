@@ -1,5 +1,5 @@
 import React from "react";
-import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Outlet, useLocation, useMatch, useNavigate } from "react-router-dom";
 import { ActionCenter } from "../components/ActionCenter";
 import { AddSpaceDialog } from "../components/AddSpaceDialog";
 import { BottomToolDock } from "../components/BottomToolDock";
@@ -13,7 +13,10 @@ import { OnboardingScreen } from "../components/OnboardingScreen";
 import { UnsavedChangesDialogProvider } from "../components/UnsavedChangesDialog";
 import { WordCountOverlay } from "../components/WordCountOverlay";
 import { ActionCenterProvider } from "../contexts/ActionCenterContext";
-import { ActiveEditorProvider } from "../contexts/ActiveEditorContext";
+import {
+  ActiveEditorProvider,
+  useActiveEditor,
+} from "../contexts/ActiveEditorContext";
 import { PageSettingsProvider } from "../contexts/PageSettingsContext";
 import { PeerVersionProvider } from "../contexts/PeerVersionContext";
 import { SidebarPanelProvider } from "../contexts/SidebarPanelContext";
@@ -28,12 +31,14 @@ import { useP2PPageEventsWithQueryClient } from "../hooks/useP2PPageEvents";
 import useLocalStorage from "../hooks/useLocalStorage";
 import useMobileLayout from "../hooks/useMobileLayout";
 import { useDevToolsEnabled } from "@/lib/devTools";
+import { isApplePlatform } from "@tasfer/editor";
 import { setHasWorkspace } from "@/lib/workspaceMarker";
 import { FileDropChrome } from "./FileDropChrome";
 import { FloatingSidebar } from "./FloatingSidebar";
 import style from "./Layout.module.css";
 import { MockWorkspaceBackdrop } from "./MockWorkspaceBackdrop";
 import { ResizableSidebar } from "./ResizableSidebar";
+import { readTreeRows, visibleTreeRows } from "./components/treeKeyboard";
 import { TopActionBar } from "./TopActionBar";
 import { TopActionBarSlotProvider } from "./TopActionBarSlot";
 
@@ -153,6 +158,74 @@ function LayoutInner() {
     archivedLoading,
     needsOnboarding,
   ]);
+
+  // ⌘. / Ctrl+. toggles the sidebar, from anywhere — mid-sentence included.
+  // The period is the one non-letter key that sits unshifted on every layout
+  // (backslash, Notion's pick, is AltGr+plus on a Swedish keyboard), and no
+  // browser or the editor claims the chord. Matched on `code` so it survives
+  // a non-Latin layout, and silent during onboarding, where the shell is a
+  // drawn mock with nothing to toggle.
+  //
+  // The chord is a keyboard gesture, so the keyboard follows it: opening puts
+  // focus on the open page's row in the tree, where the arrows walk pages the
+  // way they already do after a click there, and closing hands the keyboard
+  // back to the editor — but only when it was in the sidebar or nowhere, so a
+  // dialog or search field being typed in is left alone. The mouse button
+  // stays as it is: a click already says where focus goes.
+  const { editor } = useActiveEditor();
+  const sidebarOpen = isMobile ? !!floatingOpen : !!resizableOpen;
+  const focusTreeOnOpen = React.useRef(false);
+  React.useEffect(() => {
+    if (needsOnboarding) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      const isCmd = isApplePlatform() ? e.metaKey : e.ctrlKey;
+      if (!isCmd || e.shiftKey || e.altKey || e.code !== "Period") return;
+      e.preventDefault();
+      const setOpen = isMobile ? setFloatingOpen : setResizableOpen;
+      if (sidebarOpen) {
+        setOpen(false);
+        const active = document.activeElement;
+        if (
+          !active ||
+          active === document.body ||
+          active.closest("[data-app-sidebar]")
+        ) {
+          editor?.focus();
+        }
+      } else {
+        focusTreeOnOpen.current = true;
+        setOpen(true);
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [
+    needsOnboarding,
+    isMobile,
+    sidebarOpen,
+    editor,
+    setFloatingOpen,
+    setResizableOpen,
+  ]);
+
+  // The docked sidebar mounts only once open, so the row can be focused no
+  // earlier than here. Rows still loading fall back to the tree itself, whose
+  // first arrow press steps into the open page's row anyway.
+  const currentPageId = useMatch("/page/:id")?.params.id;
+  React.useEffect(() => {
+    if (!sidebarOpen || !focusTreeOnOpen.current) return;
+    focusTreeOnOpen.current = false;
+    const tree = document.querySelector<HTMLElement>("[data-page-tree]");
+    if (!tree) return;
+    const rows = visibleTreeRows(readTreeRows(tree));
+    const row = rows.find((r) => r.id === currentPageId) ?? rows[0];
+    if (!row) {
+      tree.focus();
+      return;
+    }
+    row.element.focus();
+    row.element.scrollIntoView({ block: "nearest" });
+  }, [sidebarOpen, currentPageId]);
 
   // A remembered page id stops resolving the moment its space is gone. Drop
   // back to the page root, which renders whichever zero-space state applies.

@@ -72,6 +72,7 @@ export function ResizableSidebar({
       {open && (
         <motion.div
           ref={sidebarRef}
+          data-app-sidebar=""
           className={style.appSidebar}
           style={{ width: sidebarWidthDefaulted }}
           initial={

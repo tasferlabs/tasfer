@@ -1,4 +1,5 @@
 import { isApplePlatform } from "@tasfer/editor";
+import { ShortcutKeys } from "./ShortcutKeys";
 import { Command } from "cmdk";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -731,21 +732,15 @@ export function ActionCenter() {
       {/* Footer */}
       <div className="border-t border-border px-4 py-2 flex items-center gap-4 text-xs text-muted-foreground">
         <span className="flex items-center gap-1">
-          <kbd className="px-1.5 py-0.5 rounded bg-muted font-mono text-[10px]">
-            ↑↓
-          </kbd>
+          <ShortcutKeys keys={["↑", "↓"]} />
           {t("page.navigateKw", "navigate")}
         </span>
         <span className="flex items-center gap-1">
-          <kbd className="px-1.5 py-0.5 rounded bg-muted font-mono text-[10px]">
-            ↵
-          </kbd>
+          <ShortcutKeys keys={["↵"]} />
           {t("common.selectKw", "select")}
         </span>
         <span className="flex items-center gap-1">
-          <kbd className="px-1.5 py-0.5 rounded bg-muted font-mono text-[10px]">
-            esc
-          </kbd>
+          <ShortcutKeys keys={["esc"]} />
           {t("common.closeKw", "close")}
         </span>
       </div>

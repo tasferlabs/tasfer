@@ -407,18 +407,6 @@
   color: var(--destructive);
 }
 
-.appNavigationLinkShortcut {
-  /* margin-inline-start: auto; */
-  font-size: 0.7rem;
-  font-family: inherit;
-  color: var(--muted-foreground);
-  background-color: var(--muted);
-  padding: 2px 6px;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  line-height: 1;
-}
-
 .appNavigationLinkBadge {
   background-color: var(--primary);
   color: var(--background);

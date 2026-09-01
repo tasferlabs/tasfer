@@ -71,7 +71,14 @@ import { SidebarTailDrop } from "./components/SidebarTailDrop";
 import type { IParentsStack } from "./components/PagesLinks";
 // import pageLinkStyle from "./components/PagesLinks.module.css";
 import { detectAdapterDetailed } from "@/platform";
-import { isApplePlatform } from "@tasfer/editor";
+import { ShortcutTooltip } from "../components/ShortcutTooltip";
+import { CommandShortcutKeys } from "../components/ShortcutKeys";
+import {
+  logicalTreeKey,
+  readTreeRows,
+  treeEntryIndex,
+  visibleTreeRows,
+} from "./components/treeKeyboard";
 import { useTranslation } from "react-i18next";
 import { useSidebarPanel } from "../contexts/SidebarPanelContext";
 import useResponsive from "../hooks/useResponsive";
@@ -967,10 +974,34 @@ export function SidebarContent({
                 </span>
               </Button>
               {!isMobile && (
+                <ShortcutTooltip
+                  label={t("sidebar.close", "Close sidebar")}
+                  commandKey="."
+                >
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="text-muted-foreground hover:text-foreground ms-auto"
+                    onClick={() => setOpen(false)}
+                  >
+                    <PanelLeftClose className="h-4 w-4 rtl:-scale-x-100" />
+                    <span className="sr-only">
+                      {t("sidebar.close", "Close sidebar")}
+                    </span>
+                  </Button>
+                </ShortcutTooltip>
+              )}
+            </div>
+          ) : !isMobile && !shouldOverlaySidebarClose ? (
+            <div className={style.appSidebarHeader}>
+              <ShortcutTooltip
+                label={t("sidebar.close", "Close sidebar")}
+                commandKey="."
+              >
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  className="text-muted-foreground hover:text-foreground ms-auto"
+                  className="text-muted-foreground hover:text-foreground"
                   onClick={() => setOpen(false)}
                 >
                   <PanelLeftClose className="h-4 w-4 rtl:-scale-x-100" />
@@ -978,14 +1009,21 @@ export function SidebarContent({
                     {t("sidebar.close", "Close sidebar")}
                   </span>
                 </Button>
-              )}
+              </ShortcutTooltip>
             </div>
-          ) : !isMobile && !shouldOverlaySidebarClose ? (
-            <div className={style.appSidebarHeader}>
+          ) : null}
+          {shouldOverlaySidebarClose && (
+            <ShortcutTooltip
+              label={t("sidebar.close", "Close sidebar")}
+              commandKey="."
+            >
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className="text-muted-foreground hover:text-foreground"
+                className={clsx(
+                  style.appSidebarCloseOverlay,
+                  "text-muted-foreground hover:text-foreground",
+                )}
                 onClick={() => setOpen(false)}
               >
                 <PanelLeftClose className="h-4 w-4 rtl:-scale-x-100" />
@@ -993,23 +1031,7 @@ export function SidebarContent({
                   {t("sidebar.close", "Close sidebar")}
                 </span>
               </Button>
-            </div>
-          ) : null}
-          {shouldOverlaySidebarClose && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={clsx(
-                style.appSidebarCloseOverlay,
-                "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => setOpen(false)}
-            >
-              <PanelLeftClose className="h-4 w-4 rtl:-scale-x-100" />
-              <span className="sr-only">
-                {t("sidebar.close", "Close sidebar")}
-              </span>
-            </Button>
+            </ShortcutTooltip>
           )}
           {/* The DndContext wraps the nav links too, so the Archive link can act
               as a drop target for pages dragged out of the spaces tree. */}
@@ -1039,11 +1061,7 @@ export function SidebarContent({
                     <Search size={20} />
                   </div>
                   {t("sidebar.search", "Search")}
-                  {isFine && (
-                    <kbd className={clsx(style.appNavigationLinkShortcut)}>
-                      {isApplePlatform() ? "\u2318K" : "Ctrl+K"}
-                    </kbd>
-                  )}
+                  {isFine && <CommandShortcutKeys commandKey="K" />}
                 </Button>
                 <SidebarNavLink to="/settings">
                   <div className={style.appNavigationLinkIcon}>
@@ -1078,8 +1096,34 @@ export function SidebarContent({
             <div className={style.appSidebarMain}>
               <ScrollArea
                 className={style.appSidebarScrollArea}
-                // Scope for arrow-key navigation between page rows.
-                data-page-tree=""
+                // Scope for arrow-key navigation between page rows. The value
+                // tells the editor whether a click here keeps focus in the
+                // tree (docked) or hands it over once the drawer closes.
+                data-page-tree={isMobile ? "drawer" : "docked"}
+                // Focusable by click, not by Tab: a click on the tree's
+                // background keeps the keyboard in the tree instead of
+                // dropping it on the document, where the arrows would only
+                // scroll. Tab still lands on the rows themselves.
+                tabIndex={-1}
+                onKeyDown={(e) => {
+                  // Keys from the rows and buttons inside are theirs; this is
+                  // only the tree itself, which steps into the open page's
+                  // row the way a file explorer does.
+                  if (e.target !== e.currentTarget) return;
+                  if (e.metaKey || e.ctrlKey || e.altKey) return;
+                  const rtl =
+                    getComputedStyle(e.currentTarget).direction === "rtl";
+                  const rows = visibleTreeRows(readTreeRows(e.currentTarget));
+                  const index = treeEntryIndex(
+                    logicalTreeKey(e.key, rtl),
+                    rows,
+                    currentPageId,
+                  );
+                  if (index === null) return;
+                  e.preventDefault();
+                  rows[index].element.focus();
+                  rows[index].element.scrollIntoView({ block: "nearest" });
+                }}
                 // Anywhere in the tree that is not a page row is a way out of
                 // a selection, the same as clicking the desktop.
                 onPointerDownCapture={(e) => {

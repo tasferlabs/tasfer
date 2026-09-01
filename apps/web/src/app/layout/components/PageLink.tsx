@@ -399,9 +399,10 @@ export function PageLink({
   }
 
   /**
-   * Arrow keys walk the tree from this row. The handler sits on the row, so
-   * it also hears keys from the focusable title inside; keys from the row's
-   * buttons and menu are left alone, or Enter on the menu would open the page.
+   * Arrow keys walk the tree from this row, opening each page they land on
+   * the way a notes list does. The handler sits on the row, so it also hears
+   * keys from the focusable title inside; keys from the row's buttons and
+   * menu are left alone, or Enter on the menu would open the page.
    */
   function handleRowKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     const target = e.target as HTMLElement;
@@ -424,14 +425,23 @@ export function PageLink({
     switch (move.type) {
       case "focus": {
         const next = rows[move.index];
+        // Focus first: the editor concedes its auto-focus to a focused row,
+        // so the next arrow still reaches the tree.
         next.element.focus();
         next.element.scrollIntoView({ block: "nearest" });
-        // Shift extends the selection the way shift-click does, from this row
-        // if nothing was picked yet.
         if (e.shiftKey && (key === "next" || key === "prev")) {
+          // Shift extends the selection the way shift-click does, from this
+          // row if nothing was picked yet, without opening anything.
           if (!selection.has(data.id)) selection.selectOnly(data.id);
           selection.extendTo(next.id);
+          return;
         }
+        // Stepping into a child is a move within the open page's subtree, so
+        // Right only focuses; Up, Down, Home and End open what they land on.
+        // Unlike Enter they leave the page's subtree as it was.
+        if (key === "expand") return;
+        selection.selectOnly(next.id);
+        navigate(`/page/${next.id}`);
         return;
       }
       case "expand":

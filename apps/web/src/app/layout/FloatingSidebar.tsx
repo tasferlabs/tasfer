@@ -50,6 +50,7 @@ export function FloatingSidebar({
   return (
     <div
       ref={drawerRef}
+      data-app-sidebar=""
       className={style.floatingSidebar}
       inert={!open ? (true as unknown as boolean) : undefined}
     >
