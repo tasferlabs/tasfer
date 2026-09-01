@@ -20,6 +20,7 @@ import {
   setColumnWidths,
   TABLE_INSERT_COLUMN,
   TABLE_INSERT_ROW,
+  TABLE_MOVE_COLUMN,
 } from "./commands";
 import { commitTableEdits, withTableDocument } from "./context";
 import { tableBlockNodeCodec } from "./data";
@@ -29,7 +30,7 @@ import {
   tableEdgeStrips,
   withinEdgeBox,
 } from "./edge-adders";
-import { layoutTable, type TableLayout } from "./geometry";
+import { layoutTable, previewColumnMove, type TableLayout } from "./geometry";
 import { registerTableInputActions } from "./input";
 import { tableToolsOverlay } from "./overlays";
 import {
@@ -99,6 +100,12 @@ const COLUMN_RESIZE_REGION = "table-column-resize";
 
 /** Separator between the block and the edge index in a hover target name. */
 const COLUMN_EDGE_TARGET = ":column-edge:";
+
+/** The id the column-move grab band above the grid is registered (and hit) under. */
+const COLUMN_MOVE_REGION = "table-column-move";
+
+/** Separator between the block and the column index in a hover target name. */
+const COLUMN_MOVE_TARGET = ":column-move:";
 
 /** The id the outer-edge "add a row/column" strips are registered (and hit) under. */
 const EDGE_ADD_REGION = "table-edge-add";
@@ -205,7 +212,10 @@ export class TableNode extends Node<TableBlock> {
   // ── Paint ─────────────────────────────────────────────────────────────────
 
   paint(passedLayout: NodeLayout, c: NodePaintCtx): RenderedBlock {
-    const layout = passedLayout as TableLayout;
+    // While a column-move drag is held, everything is drawn from the previewed
+    // order — the grid shows where the column would land, and the document is
+    // untouched until the release says so.
+    const layout = previewedLayout(passedLayout as TableLayout, c);
     const { ctx } = c;
     const style = layout.style;
     const x = c.origin.x;
@@ -246,6 +256,7 @@ export class TableNode extends Node<TableBlock> {
         hoveredColumnEdge(c.state, c.block.id),
     );
     this.paintEdgeAdder(layout, c, x, y);
+    this.paintColumnMove(layout, c, x, y);
 
     return {
       block: c.block,
@@ -661,6 +672,75 @@ export class TableNode extends Node<TableBlock> {
     ctx.restore();
   }
 
+  /**
+   * The column under the move grip, or the one a drag is carrying.
+   *
+   * Nothing is drawn until the pointer rests on the band (or holds a column):
+   * the grips would otherwise put a row of bars over every table. Lit, the
+   * column gets a short pill in the top margin — the grip itself, where the
+   * pointer is — and a wash down its full height, so what is about to move is the whole
+   * column and not the title. While a drag holds it the grid is already drawn
+   * in the previewed order (`previewedLayout`), so the wash follows the column
+   * to where it would land: the preview IS the feedback, and needs no marker.
+   */
+  private paintColumnMove(
+    layout: TableLayout,
+    c: NodePaintCtx,
+    x: number,
+    y: number,
+  ): void {
+    const drag = columnDragOf(c.state, c.block.id);
+    const lit = drag
+      ? columnIndexForGap(drag)
+      : hoveredMoveColumn(c.state, c.block.id);
+    const column = lit === null ? undefined : layout.columns[lit];
+    if (!column) return;
+
+    const { ctx } = c;
+    const style = layout.style;
+    const gridTop = y + layout.gridTop;
+    ctx.save();
+    ctx.fillStyle = style.resizeEdgeColor;
+
+    // The wash, clipped to the grid's outline the way the cell washes are so
+    // the first and last columns cannot bleed past the rounded corners.
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(
+      x,
+      gridTop,
+      layout.gridWidth,
+      layout.gridHeight,
+      style.borderRadius,
+    );
+    ctx.clip();
+    ctx.globalAlpha = drag ? COLUMN_LIFT_OPACITY : COLUMN_HOVER_OPACITY;
+    ctx.fillRect(x + column.x, gridTop, column.width, layout.gridHeight);
+    ctx.restore();
+
+    // The grip: a short pill centred above the column, in the margin. Short,
+    // not the column's width — a full-width bar reads as a tab, and fights the
+    // grid's rounded corner under the outer columns; a handle is a small thing
+    // you pick up.
+    const pillHeight = Math.min(
+      COLUMN_GRIP_HEIGHT,
+      Math.max(0, layout.gridTop - COLUMN_GRIP_GAP * 2),
+    );
+    if (pillHeight > 0) {
+      const pillWidth = Math.min(COLUMN_GRIP_WIDTH, column.width / 2);
+      ctx.beginPath();
+      ctx.roundRect(
+        x + column.x + (column.width - pillWidth) / 2,
+        y + (layout.gridTop - pillHeight) / 2,
+        pillWidth,
+        pillHeight,
+        pillHeight / 2,
+      );
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   // ── Caret and hit-testing ─────────────────────────────────────────────────
 
   /**
@@ -693,7 +773,9 @@ export class TableNode extends Node<TableBlock> {
     point: ContentPoint,
     c: NodeContentCaretCtx<TableBlock>,
   ): NodeCaretRect | null {
-    const layout = passedLayout as TableLayout;
+    // The caret rides its cell, so during a column-move drag it is placed in
+    // the previewed order the grid is painted in.
+    const layout = previewedLayout(passedLayout as TableLayout, c);
     const document = getTableDocument(c.block);
     if (!document) return null;
     const caret = tableCaretFromContentPoint(document, point);
@@ -743,9 +825,11 @@ export class TableNode extends Node<TableBlock> {
     const minimum = layout.style.minColumnWidth;
 
     const regions: NodeHitRegion[] = [this.edgeAddRegion(layout, c)];
-    // Only interior edges resize, so a single-column grid has none at all.
+    // Only interior edges resize, and a single column has nowhere to be moved
+    // to, so a one-column grid has neither band.
     if (layout.columns.length < 2) return regions;
 
+    regions.push(this.columnMoveRegion(layout, c));
     regions.push(
       hitRegion({
         id: COLUMN_RESIZE_REGION,
@@ -837,6 +921,92 @@ export class TableNode extends Node<TableBlock> {
       }),
     );
     return regions;
+  }
+
+  /**
+   * The column-move grab band: the block's top margin, one grip per column.
+   *
+   * Above the grid rather than in the header cells, so a press there can never
+   * be a press aimed at a title: the margin is space the table already owns and
+   * nothing else uses (there is no row above the header for an add-strip to
+   * make). Resting the pointer on it lights the column below and takes the
+   * grab cursor; dragging carries that column sideways, and the grid redraws
+   * in the order the drop would produce — a preview painted from the same
+   * layout (`previewColumnMove`), the document untouched — so what you see is
+   * what release commits, in one operation. Escape, or any cancel, puts the
+   * picture back with nothing to undo. It is the block-reorder gesture turned
+   * on its side, and follows the same bargain: nothing is written until
+   * release, so a gesture costs one entry in the log.
+   *
+   * Mouse only, for the reason the add strips are: the band is revealed by
+   * hover, which a finger does not have, and a touch that lands there while
+   * scrolling past a table must not pick a column up. On a phone the same move
+   * is a pair of commands in the keyboard toolbar's table menu.
+   */
+  private columnMoveRegion(
+    layout: TableLayout,
+    c: NodeRegionCtx,
+  ): NodeHitRegion<ColumnMoveHit> {
+    const blockId = c.block.id;
+    const gridLeft = c.origin.x;
+    const top = c.origin.y;
+    // Down to, and including, the grid's own top hairline — the resize bands
+    // outrank this one, so an interior edge's top end still resizes.
+    const bottom = c.origin.y + layout.gridTop + 1;
+
+    return hitRegion({
+      id: COLUMN_MOVE_REGION,
+      // Below the resize bands and the add strips: this band's only meeting
+      // with either is the corner where an edge reaches the top margin.
+      priority: 50,
+      modes: ["edit", "select"],
+      hitTest: (p, pointerType): ColumnMoveHit | null => {
+        // `isReadonlyBase` rather than the mode, for the reason the resize band
+        // gives: a readonly editor still uses `select` mode to drag-select.
+        if (c.state.ui.isReadonlyBase || pointerType === "touch") return null;
+        if (p.y < top || p.y > bottom) return null;
+        const index = columnAtX(layout, p.x - gridLeft);
+        return index === null ? null : { blockId, index };
+      },
+      hover: (hit) => ({
+        cursor: "grab",
+        target: columnMoveTarget(hit.blockId, hit.index),
+      }),
+      drag: {
+        onStart: (hit, p, ctx) => ({
+          state: setColumnDrag(ctx.state, blockId, {
+            from: hit.index,
+            to: dropGapAtX(layout, p.x - gridLeft),
+          }),
+        }),
+        onMove: (p, ctx) => {
+          const drag = columnDragOf(ctx.state, blockId);
+          if (!drag) return { state: ctx.state };
+          return {
+            state: setColumnDrag(ctx.state, blockId, {
+              ...drag,
+              to: dropGapAtX(layout, p.x - gridLeft),
+            }),
+          };
+        },
+        onEnd: (_p, ctx) => {
+          // The STORED gap, not the release position: a window-level mouseup
+          // has none, and the indicator the user watched was drawn from it.
+          const drag = columnDragOf(ctx.state, blockId);
+          const released = setColumnDrag(ctx.state, blockId, null);
+          if (!drag) return { state: released };
+          const to = columnIndexForGap(drag);
+          if (to === drag.from) return { state: released };
+          const result = released.actionBus.dispatchState(
+            TABLE_MOVE_COLUMN,
+            released,
+            { blockId, columnIndex: drag.from, to },
+          );
+          return { state: result.state, ops: result.ops };
+        },
+        onCancel: (ctx) => setColumnDrag(ctx.state, blockId, null),
+      },
+    });
   }
 
   /**
@@ -948,6 +1118,75 @@ function hoveredColumnEdge(state: EditorState, blockId: string): number | null {
   return Number.isInteger(index) ? index : null;
 }
 
+/** The name this table gives one column's move grip, for `ui.regionHover`. */
+function columnMoveTarget(blockId: string, index: number): string {
+  return `${blockId}${COLUMN_MOVE_TARGET}${index}`;
+}
+
+/** The column of THIS table whose move grip the pointer is on, if any. */
+function hoveredMoveColumn(state: EditorState, blockId: string): number | null {
+  const hover = state.ui.regionHover;
+  if (!hover || hover.regionId !== COLUMN_MOVE_REGION) return null;
+  const prefix = `${blockId}${COLUMN_MOVE_TARGET}`;
+  if (!hover.target.startsWith(prefix)) return null;
+  const index = Number(hover.target.slice(prefix.length));
+  return Number.isInteger(index) ? index : null;
+}
+
+/** Hit data for a column-move drag: which table, and which column it lifts. */
+interface ColumnMoveHit {
+  readonly blockId: string;
+  readonly index: number;
+}
+
+/**
+ * A column-move drag in flight: the column lifted, and the gap — an index in
+ * `[0..columns]`, counted in the grid as it stands — the pointer is over.
+ */
+interface ColumnDragState {
+  readonly from: number;
+  readonly to: number;
+}
+
+/** Opacity of the wash over a column whose grip the pointer is resting on. */
+const COLUMN_HOVER_OPACITY = 0.08;
+/** Opacity of the wash over a column while a drag holds it. */
+const COLUMN_LIFT_OPACITY = 0.16;
+/** The grip pill's size, and the least air it keeps from the grid and the
+ *  block's top when the margin is too tight for it at full height. */
+const COLUMN_GRIP_WIDTH = 28;
+const COLUMN_GRIP_HEIGHT = 4;
+const COLUMN_GRIP_GAP = 1;
+
+/** The column whose span holds `localX` (relative to the grid's left edge). */
+function columnAtX(layout: TableLayout, localX: number): number | null {
+  if (localX < 0 || localX > layout.gridWidth) return null;
+  for (let at = layout.columns.length - 1; at >= 0; at--) {
+    if (localX >= layout.columns[at].x) return at;
+  }
+  return null;
+}
+
+/**
+ * The gap `localX` is nearest to: the number of columns whose midpoint lies
+ * before it, so a pointer past a column's middle means "after that column".
+ */
+function dropGapAtX(layout: TableLayout, localX: number): number {
+  let gap = 0;
+  for (const column of layout.columns) {
+    if (localX > column.x + column.width / 2) gap++;
+  }
+  return gap;
+}
+
+/**
+ * The index the lifted column ends up at if dropped in `drag.to`. A gap on
+ * either side of the column itself is where it already is.
+ */
+function columnIndexForGap(drag: ColumnDragState): number {
+  return drag.to > drag.from ? drag.to - 1 : drag.to;
+}
+
 /**
  * The table's transient per-block view-state (`ui.nodeViewState[block.id]`).
  *
@@ -955,9 +1194,65 @@ function hoveredColumnEdge(state: EditorState, blockId: string): number | null {
  * `ui.regionHover` already says that for a mouse, but it is a hover, and a
  * finger has none — so on touch the drag itself is the only thing that knows
  * which edge is live. Written by the drag, read by `paint`.
+ *
+ * `columnDrag` is a column-move drag in flight. The hover from the press still
+ * names the lifted column, but the gap the pointer is over is the drag's own
+ * knowledge, and `paint` draws the drop edge from it.
  */
 interface TableViewState {
   resizeEdge?: number;
+  columnDrag?: ColumnDragState;
+}
+
+/** Merge a column drag into a block's view-state (or clear it with `null`),
+ *  preserving whatever else a host has parked in the same slot. */
+function setColumnDrag(
+  state: EditorState,
+  blockId: string,
+  drag: ColumnDragState | null,
+): EditorState {
+  const previous = state.ui.nodeViewState[blockId] as
+    TableViewState | undefined;
+  const current = previous?.columnDrag;
+  if (
+    (current ?? null) === drag ||
+    (current && drag && current.from === drag.from && current.to === drag.to)
+  ) {
+    return state;
+  }
+  const next: TableViewState = { ...previous };
+  if (drag === null) delete next.columnDrag;
+  else next.columnDrag = drag;
+  return {
+    ...state,
+    ui: {
+      ...state.ui,
+      nodeViewState: { ...state.ui.nodeViewState, [blockId]: next },
+    },
+  };
+}
+
+/** The column-move drag THIS table is holding, if any. */
+function columnDragOf(
+  state: EditorState,
+  blockId: string,
+): ColumnDragState | undefined {
+  const view = state.ui.nodeViewState[blockId] as TableViewState | undefined;
+  return view?.columnDrag;
+}
+
+/**
+ * The layout to draw and place carets from: the real one, or — while a
+ * column-move drag holds this table — the same geometry in the previewed
+ * order. A drag parked beside its own column previews nothing.
+ */
+function previewedLayout(
+  layout: TableLayout,
+  c: { readonly state: EditorState; readonly block: { readonly id: string } },
+): TableLayout {
+  const drag = columnDragOf(c.state, c.block.id);
+  if (!drag) return layout;
+  return previewColumnMove(layout, drag.from, columnIndexForGap(drag));
 }
 
 /** Merge the held edge into a block's view-state (or clear it with `null`),

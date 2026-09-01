@@ -76,6 +76,8 @@ export type MobileToolbarIcon =
   | "row_below"
   | "column_before"
   | "column_after"
+  | "column_left"
+  | "column_right"
   | "trash"
   | "align_default"
   | "align_left"
@@ -115,6 +117,8 @@ export type MobileToolbarAction =
   | { type: "table-delete-row" }
   | { type: "table-insert-column"; side: TableInsertSide }
   | { type: "table-delete-column" }
+  // Move the caret's column so it ends up at `to` (the engine's own currency).
+  | { type: "table-move-column"; to: number }
   | { type: "table-align"; align: TableAlign | null }
   | { type: "toggle-strikethrough" }
   | { type: "set-block"; blockType: MobileToolbarBlockType }
@@ -190,6 +194,8 @@ export interface MobileToolbarMathContext {
 export interface MobileToolbarTableContext {
   rows: number;
   columns: number;
+  /** The caret's column, which decides whether it can still move left/right. */
+  columnIndex: number;
   align: TableAlign | null;
 }
 
@@ -464,6 +470,25 @@ function buildTableMenu(
       action: { type: "table-insert-column", side: "after" },
     },
   ];
+  // A move with nowhere to go is left out the same way: the first column has
+  // no left, the last no right. Physical sides — the grid is laid out left to
+  // right whichever way the UI reads.
+  if (table.columnIndex > 0) {
+    columns.push({
+      id: "column-left",
+      icon: "column_left",
+      label: t("editor.table.moveColumnLeft", "Move column left"),
+      action: { type: "table-move-column", to: table.columnIndex - 1 },
+    });
+  }
+  if (table.columnIndex < table.columns - 1) {
+    columns.push({
+      id: "column-right",
+      icon: "column_right",
+      label: t("editor.table.moveColumnRight", "Move column right"),
+      action: { type: "table-move-column", to: table.columnIndex + 1 },
+    });
+  }
   if (table.columns > 1) {
     columns.push({
       id: "column-delete",

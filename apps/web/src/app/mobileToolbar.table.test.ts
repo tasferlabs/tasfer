@@ -44,7 +44,12 @@ function tableMenu(table: MobileToolbarTableContext) {
   return item;
 }
 
-const square: MobileToolbarTableContext = { rows: 3, columns: 3, align: null };
+const square: MobileToolbarTableContext = {
+  rows: 3,
+  columns: 3,
+  columnIndex: 1,
+  align: null,
+};
 
 describe("the toolbar's table menu", () => {
   it("takes the block switcher's slot while the caret is in a cell", () => {
@@ -81,6 +86,8 @@ describe("the toolbar's table menu", () => {
       "row-delete",
       "column-before",
       "column-after",
+      "column-left",
+      "column-right",
       "column-delete",
       "align-default",
       "align-left",
@@ -90,7 +97,12 @@ describe("the toolbar's table menu", () => {
   });
 
   it("leaves out the delete of a last row or column", () => {
-    const oneRow = tableMenu({ rows: 1, columns: 4, align: null });
+    const oneRow = tableMenu({
+      rows: 1,
+      columns: 4,
+      columnIndex: 1,
+      align: null,
+    });
     expect(oneRow.options.map((option) => option.id)).not.toContain(
       "row-delete",
     );
@@ -98,12 +110,31 @@ describe("the toolbar's table menu", () => {
       "column-delete",
     );
 
-    const oneColumn = tableMenu({ rows: 4, columns: 1, align: null });
+    const oneColumn = tableMenu({
+      rows: 4,
+      columns: 1,
+      columnIndex: 0,
+      align: null,
+    });
     expect(oneColumn.options.map((option) => option.id)).toContain(
       "row-delete",
     );
     expect(oneColumn.options.map((option) => option.id)).not.toContain(
       "column-delete",
+    );
+  });
+
+  it("leaves out a move the caret's column cannot make", () => {
+    const ids = (table: MobileToolbarTableContext) =>
+      tableMenu(table).options.map((option) => option.id);
+    // The first column has no left; the last has no right.
+    expect(ids({ ...square, columnIndex: 0 })).not.toContain("column-left");
+    expect(ids({ ...square, columnIndex: 0 })).toContain("column-right");
+    expect(ids({ ...square, columnIndex: 2 })).toContain("column-left");
+    expect(ids({ ...square, columnIndex: 2 })).not.toContain("column-right");
+    // A lone column goes nowhere at all.
+    expect(ids({ rows: 3, columns: 1, columnIndex: 0, align: null })).toEqual(
+      expect.not.arrayContaining(["column-left", "column-right"]),
     );
   });
 
@@ -124,7 +155,7 @@ describe("the toolbar's table menu", () => {
   it("carries the commands into the flat native bar too", () => {
     const native = findItem(build(square).items, "table");
     expect(native?.kind).toBe("menu");
-    expect(native?.kind === "menu" && native.options).toHaveLength(10);
+    expect(native?.kind === "menu" && native.options).toHaveLength(12);
   });
 
   it("dispatches each command at the caret's own cell", () => {
@@ -141,6 +172,15 @@ describe("the toolbar's table menu", () => {
     });
     expect(actions["row-delete"]).toEqual({ type: "table-delete-row" });
     expect(actions["column-delete"]).toEqual({ type: "table-delete-column" });
+    // The move names the index the column ends up at, the engine's own currency.
+    expect(actions["column-left"]).toEqual({
+      type: "table-move-column",
+      to: 0,
+    });
+    expect(actions["column-right"]).toEqual({
+      type: "table-move-column",
+      to: 2,
+    });
     expect(actions["align-default"]).toEqual({
       type: "table-align",
       align: null,

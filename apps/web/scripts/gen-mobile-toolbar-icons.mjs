@@ -95,6 +95,8 @@ const LUCIDE = {
   row_below: "arrow-down-to-line",
   column_before: "arrow-left-to-line",
   column_after: "arrow-right-to-line",
+  column_left: "move-left",
+  column_right: "move-right",
   trash: "trash-2",
   align_default: "align-justify",
   align_left: "align-left",

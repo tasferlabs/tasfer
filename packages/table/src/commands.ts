@@ -1,5 +1,5 @@
 /**
- * Structural editing: add and remove rows and columns, set a column's
+ * Structural editing: add, remove and move rows and columns, set a column's
  * alignment, set its width, and create a table in the first place.
  *
  * Every command is a pure function from the current document to a batch of
@@ -272,6 +272,52 @@ export function deleteColumn(
   };
 }
 
+/**
+ * Move a column so that it ends up at `targetIndex`.
+ *
+ * `targetIndex` is where the column sits AFTER the move, counted in the grid
+ * as it is now — so `moveColumn(document, 0, 2)` on `A B C` gives `B C A`, and
+ * moving a column onto its own index is a no-op (`undefined`, like any other
+ * refused command). Hosts read the shape with `tableShapeAt`, so "move left"
+ * is `columnIndex - 1` and "move right" is `columnIndex + 1`.
+ *
+ * One `node_move` of the column node and nothing else: a cell names its column
+ * by id rather than by position, so the cells come along by construction.
+ * The move only re-keys the column among its siblings, which is why two peers
+ * moving two different columns at once still converge — each order key is a
+ * fraction between the neighbours it was computed against, and neither edit
+ * touches the other's node.
+ */
+export function moveColumn(
+  document: StructuredDocument,
+  columnIndex: number,
+  targetIndex: number,
+): TableCommand | undefined {
+  const view = readTable(document);
+  const column = view.columns[columnIndex];
+  if (!column) return undefined;
+  const target = Math.max(0, Math.min(targetIndex, view.columns.length - 1));
+  if (target === columnIndex) return undefined;
+
+  // The gap the column lands in, in the order with the column taken out —
+  // the same order the grid has once the move applies.
+  const others = view.columns.filter((_candidate, at) => at !== columnIndex);
+  const orderKey = orderKeyAt(others, target);
+  if (orderKey === undefined) return undefined;
+
+  return {
+    edits: [
+      {
+        kind: "node_move",
+        nodeId: column.id,
+        placement: { parentId: document.rootId, slot: COLUMNS_SLOT, orderKey },
+      },
+    ],
+    // The caret's cell moves with its column, so the caret stays with it.
+    caret: undefined,
+  };
+}
+
 /** Set (or, with `null`, clear) a column's alignment. */
 export function setColumnAlign(
   document: StructuredDocument,
@@ -374,6 +420,15 @@ export const TABLE_DELETE_COLUMN = stateAction<TableTargetPayload>(
   "table-delete-column",
   (state) => ({ state, ops: [] }),
 );
+
+/**
+ * Move the target column so it ends up at `to` (see {@link moveColumn}). The
+ * column-drag band on the canvas dispatches this on release; a menu passes the
+ * caret column's index ± 1.
+ */
+export const TABLE_MOVE_COLUMN = stateAction<
+  TableTargetPayload & { readonly to: number }
+>("table-move-column", (state) => ({ state, ops: [] }));
 
 export const TABLE_SET_COLUMN_ALIGN = stateAction<
   TableTargetPayload & { readonly align: TableAlign | null }
@@ -595,6 +650,13 @@ export function registerTableCommands(bus: ActionBus): void {
     TABLE_DELETE_COLUMN,
     run((_state, context, target) =>
       deleteColumn(context.document, target.column),
+    ),
+    100,
+  );
+  bus.registerState(
+    TABLE_MOVE_COLUMN,
+    run((_state, context, target, payload) =>
+      moveColumn(context.document, target.column, payload.to),
     ),
     100,
   );

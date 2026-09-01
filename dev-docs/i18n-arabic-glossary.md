@@ -137,6 +137,7 @@ One term, one rendering. Deviations are bugs.
 | Add / Remove (a row or column) | إضافة / إزالة (**never `إدراج` / `حذف`**) |
 | Above / Below (a row) | أعلاه / أدناه |
 | Before / After (a column) | قبله / بعده (**not `يمينه` / `يساره`**) |
+| Move left / right (a column) | تحريك العمود يسارًا / يمينًا |
 | Column alignment | محاذاة العمود |
 
 > **A column is `قبله`/`بعده`, never `يمينه`/`يساره`.** Word's Arabic table menu
@@ -144,6 +145,11 @@ One term, one rendering. Deviations are bugs.
 > does not: a table's columns keep document order whatever the interface
 > language, so a side-relative label would name the wrong edge in Arabic. The
 > order-relative pair is true in both directions.
+>
+> "Move column left/right" is the one place a physical side IS the label, for
+> the same reason: the grid never mirrors, so `يسارًا`/`يمينًا` names the edge
+> the column actually goes to in either language. `تحريك` (a nudge), not `نقل`
+> (relocating a page), matching `editor.math.moveCaretLeft/Right`.
 >
 > `إضافة`/`إزالة` matches the matrix editor next door, which is the surface a
 > user compares this one against.

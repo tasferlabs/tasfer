@@ -9,6 +9,8 @@ import {
   ArrowRightToLine,
   ArrowUpToLine,
   Check,
+  MoveLeft,
+  MoveRight,
   Table2,
   Trash2,
 } from "lucide-react";
@@ -30,6 +32,8 @@ interface TableToolsProps {
   onDeleteRow: () => void;
   onInsertColumn: (side: TableInsertSide) => void;
   onDeleteColumn: () => void;
+  /** Move the caret's column so it ends up at `to`. */
+  onMoveColumn: (to: number) => void;
   onAlign: (align: TableAlign | null) => void;
   /** Portal target for the menu — the editor's own overlay container. */
   container?: HTMLElement | null;
@@ -81,6 +85,7 @@ export function TableTools({
   onDeleteRow,
   onInsertColumn,
   onDeleteColumn,
+  onMoveColumn,
   onAlign,
   container,
 }: TableToolsProps) {
@@ -179,6 +184,29 @@ export function TableTools({
       icon: <ArrowRightToLine className="size-4" />,
       onSelect: () => onInsertColumn("after"),
     },
+    // A move with nowhere to go is left out the way an impossible delete is:
+    // the first column cannot go left, nor the last right. The grid is laid out
+    // left to right whichever way the UI reads, so these are physical sides.
+    ...(shape.columnIndex > 0
+      ? [
+          {
+            id: "column-left",
+            label: t("editor.table.moveColumnLeft", "Move column left"),
+            icon: <MoveLeft className="size-4" />,
+            onSelect: () => onMoveColumn(shape.columnIndex - 1),
+          },
+        ]
+      : []),
+    ...(shape.columnIndex < shape.columns - 1
+      ? [
+          {
+            id: "column-right",
+            label: t("editor.table.moveColumnRight", "Move column right"),
+            icon: <MoveRight className="size-4" />,
+            onSelect: () => onMoveColumn(shape.columnIndex + 1),
+          },
+        ]
+      : []),
     ...(shape.columns > 1
       ? [
           {

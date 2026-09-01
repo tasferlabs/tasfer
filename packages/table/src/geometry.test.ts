@@ -2,6 +2,7 @@ import {
   alignOffset,
   fitColumnWidths,
   layoutTable,
+  previewColumnMove,
   type TableLayoutCtx,
 } from "./geometry";
 import { matchGfmTable, tableSeedFromToken } from "./markdown";
@@ -298,5 +299,54 @@ describe("alignOffset with a line wider than its cell", () => {
     expect(alignOffset("right", "ltr", 40, 10)).toBe(30);
     expect(alignOffset("center", "ltr", 40, 10)).toBe(15);
     expect(alignOffset(null, "rtl", 40, 10)).toBe(30);
+  });
+});
+
+describe("previewColumnMove", () => {
+  it("re-orders the columns and shifts their cells and lines with them", () => {
+    const layout = layoutTable(
+      tableOf([
+        ["A", "B", "C"],
+        ["one", "two", "three"],
+      ]),
+      ctx(600),
+    );
+    const moved = previewColumnMove(layout, 0, 2);
+
+    // The columns keep their own widths; only their order and x change.
+    expect(moved.columns.map((column) => column.width)).toEqual([
+      layout.columns[1].width,
+      layout.columns[2].width,
+      layout.columns[0].width,
+    ]);
+    expect(moved.columns.map((column) => column.x)).toEqual([
+      layout.columns[0].x,
+      layout.columns[0].x + layout.columns[1].width,
+      layout.columns[0].x + layout.columns[1].width + layout.columns[2].width,
+    ]);
+    // Every cell of the moved column moved by the same distance as its column,
+    // lines included; the others slid back by its width.
+    const shift = layout.columns[1].width + layout.columns[2].width;
+    for (const row of moved.rows) {
+      const a = row.cells.find((cell) => cell.columnIndex === 0)!;
+      const before = layout.cells.find((cell) => cell.cellId === a.cellId)!;
+      expect(a.x).toBe(before.x + shift);
+      expect(a.textX).toBe(before.textX + shift);
+      expect(a.lines[0].x).toBe(before.lines[0].x + shift);
+      const b = row.cells.find((cell) => cell.columnIndex === 1)!;
+      const bBefore = layout.cells.find((cell) => cell.cellId === b.cellId)!;
+      expect(b.x).toBe(bBefore.x - layout.columns[0].width);
+    }
+    expect(moved.lines).toHaveLength(layout.lines.length);
+    // The rows, the grid's size and the document are exactly as they were.
+    expect(moved.gridWidth).toBe(layout.gridWidth);
+    expect(moved.rows.map((row) => row.y)).toEqual(layout.rows.map((r) => r.y));
+    expect(layout.columns[0].x).toBe(0);
+  });
+
+  it("returns the layout itself for a move that changes nothing", () => {
+    const layout = layoutTable(tableOf([["A", "B"]]), ctx(600));
+    expect(previewColumnMove(layout, 1, 1)).toBe(layout);
+    expect(previewColumnMove(layout, 5, 0)).toBe(layout);
   });
 });

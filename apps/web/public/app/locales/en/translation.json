@@ -1424,6 +1424,8 @@
   "editor.table.addColumnBefore": "Add column before",
   "editor.table.addColumnAfter": "Add column after",
   "editor.table.removeColumn": "Remove column",
+  "editor.table.moveColumnLeft": "Move column left",
+  "editor.table.moveColumnRight": "Move column right",
   "editor.table.alignDefault": "Default alignment",
   "editor.table.alignLeft": "Align left",
   "editor.table.alignCenter": "Align center",

@@ -12,6 +12,7 @@ import {
   emptyTableSeed,
   insertColumn,
   insertRow,
+  moveColumn,
   registerTableCommands,
   setColumnAlign,
   setColumnWidths,
@@ -19,6 +20,7 @@ import {
   TABLE_DELETE_ROW,
   TABLE_INSERT_COLUMN,
   TABLE_INSERT_ROW,
+  TABLE_MOVE_COLUMN,
   TABLE_SET_COLUMN_ALIGN,
   tableShapeAt,
 } from "./commands";
@@ -238,6 +240,139 @@ describe("columns", () => {
   });
 });
 
+describe("moving a column", () => {
+  const WIDE = [
+    "| A | B | C |",
+    "| --- | --- | --- |",
+    "| one | two | three |",
+  ].join("\n");
+
+  it("lands the column at the index it was sent to", () => {
+    const document = documentOf(stateOf(WIDE));
+
+    expect(
+      gridOf(applyStructuredEdits(document, moveColumn(document, 0, 2)!.edits)),
+    ).toEqual([
+      ["B", "C", "A"],
+      ["two", "three", "one"],
+    ]);
+    expect(
+      gridOf(applyStructuredEdits(document, moveColumn(document, 2, 0)!.edits)),
+    ).toEqual([
+      ["C", "A", "B"],
+      ["three", "one", "two"],
+    ]);
+    expect(
+      gridOf(applyStructuredEdits(document, moveColumn(document, 0, 1)!.edits)),
+    ).toEqual([
+      ["B", "A", "C"],
+      ["two", "one", "three"],
+    ]);
+  });
+
+  it("is one move of the column node and nothing else", () => {
+    const document = documentOf(stateOf(WIDE));
+    const moved = moveColumn(document, 0, 2)!;
+
+    // The cells name their column by id, so they need no edit of their own.
+    expect(moved.edits).toHaveLength(1);
+    expect(moved.edits[0]).toMatchObject({
+      kind: "node_move",
+      nodeId: readTable(document).columns[0].id,
+    });
+    // The column keeps everything it carried.
+    const aligned = applyStructuredEdits(
+      document,
+      setColumnAlign(document, 0, "right")!.edits,
+    );
+    const after = applyStructuredEdits(
+      aligned,
+      moveColumn(aligned, 0, 2)!.edits,
+    );
+    expect(columnAlign(readTable(after).columns[2])).toBe("right");
+  });
+
+  it("refuses a move that changes nothing, and clamps one past the edge", () => {
+    const document = documentOf(stateOf(WIDE));
+    expect(moveColumn(document, 1, 1)).toBeUndefined();
+    expect(moveColumn(document, 5, 0)).toBeUndefined();
+    // Past the last index is the last index — "move right" from the last
+    // column has nowhere to go.
+    expect(moveColumn(document, 2, 9)).toBeUndefined();
+    expect(
+      gridOf(
+        applyStructuredEdits(document, moveColumn(document, 0, 9)!.edits),
+      )[0],
+    ).toEqual(["B", "C", "A"]);
+  });
+
+  it("keeps the caret in its cell, which travels with the column", () => {
+    const state = caretAt(stateOf(WIDE), 1, 0);
+    const result = state.actionBus.dispatchState(TABLE_MOVE_COLUMN, state, {
+      to: 2,
+    });
+
+    expect(result.claimed).toBe(true);
+    expect(grid(result.state)[1]).toEqual(["two", "three", "one"]);
+    expect(shapeOf(result.state)).toMatchObject({
+      rowIndex: 1,
+      columnIndex: 2,
+    });
+    expect(
+      serializeToMarkdown(result.state.document.page.blocks, undefined, {
+        schema: schema.data,
+      }),
+    ).toBe(
+      ["| B | C | A |", "| --- | --- | --- |", "| two | three | one |"].join(
+        "\n",
+      ),
+    );
+  });
+
+  it("targets the table a payload names rather than the caret's", () => {
+    const two = [WIDE, "", TABLE].join("\n");
+    const state = caretAt(stateOf(two), 0, 0);
+    const second = state.document.page.blocks.find(
+      (block, at) => at > 0 && (block.type as string) === "table",
+    )!;
+    const result = state.actionBus.dispatchState(TABLE_MOVE_COLUMN, state, {
+      blockId: second.id,
+      columnIndex: 0,
+      to: 1,
+    });
+
+    expect(gridOf(getTableDocument(second)!)[0]).toEqual(["A", "B"]);
+    const moved = result.state.document.page.blocks.find(
+      (block) => block.id === second.id,
+    )!;
+    expect(gridOf(getTableDocument(moved)!)).toEqual([
+      ["B", "A"],
+      ["two", "one"],
+      ["four", "three"],
+    ]);
+    // The caret's own table is untouched.
+    expect(grid(result.state)[0]).toEqual(["A", "B", "C"]);
+  });
+
+  it("converges when two peers move different columns at once", () => {
+    const seed = documentOf(stateOf(WIDE));
+    const first = moveColumn(seed, 0, 2)!.edits; // A to the end
+    const second = moveColumn(seed, 2, 0)!.edits; // C to the front
+
+    const oneWay = applyStructuredEdits(
+      applyStructuredEdits(seed, first),
+      second,
+    );
+    const otherWay = applyStructuredEdits(
+      applyStructuredEdits(seed, second),
+      first,
+    );
+
+    expect(gridOf(oneWay)).toEqual(gridOf(otherWay));
+    expect(gridOf(oneWay)[0]).toEqual(["C", "B", "A"]);
+  });
+});
+
 describe("alignment and width", () => {
   it("sets and clears a column's alignment", () => {
     const state = caretAt(stateOf(TABLE), 0, 1);
@@ -383,6 +518,25 @@ describe("the operations alone carry a structural edit", () => {
     const document = getTableDocument(peer.blocks[0])!;
 
     expect(gridOf(document)).toEqual(grid(result.state));
+  });
+
+  it("reproduces a moved column the same way", () => {
+    const state = caretAt(stateOf(TABLE), 0, 0);
+    const result = state.actionBus.dispatchState(TABLE_MOVE_COLUMN, state, {
+      to: 1,
+    });
+    expect(result.ops).toHaveLength(1);
+
+    const peer = applyOps(
+      loadPage(TABLE, schema.data),
+      result.ops,
+      schema.data,
+    );
+    expect(gridOf(getTableDocument(peer.blocks[0])!)).toEqual([
+      ["B", "A"],
+      ["two", "one"],
+      ["four", "three"],
+    ]);
   });
 
   it("reproduces a removed column the same way", () => {

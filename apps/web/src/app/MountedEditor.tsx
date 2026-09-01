@@ -127,6 +127,7 @@ import {
   TABLE_DELETE_ROW,
   TABLE_INSERT_COLUMN,
   TABLE_INSERT_ROW,
+  TABLE_MOVE_COLUMN,
   TABLE_SET_COLUMN_ALIGN,
   TABLE_TOOLS_OVERLAY,
   type TableToolsOverlayData,
@@ -1049,6 +1050,7 @@ const TableToolsOverlay: ComponentType<NodeOverlayProps> = ({
       onDeleteRow={() => editor.dispatch(TABLE_DELETE_ROW, {})}
       onInsertColumn={(side) => editor.dispatch(TABLE_INSERT_COLUMN, { side })}
       onDeleteColumn={() => editor.dispatch(TABLE_DELETE_COLUMN, {})}
+      onMoveColumn={(to) => editor.dispatch(TABLE_MOVE_COLUMN, { to })}
       onAlign={(align) => editor.dispatch(TABLE_SET_COLUMN_ALIGN, { align })}
     />
   );
@@ -1401,6 +1403,16 @@ function holdsTypedInput(el: Element | null): boolean {
   return (
     el.isContentEditable || el.tagName === "INPUT" || el.tagName === "TEXTAREA"
   );
+}
+
+/**
+ * Whether `el` is a sidebar page row the user reached with the keyboard.
+ * Arrow keys open pages as they walk the tree; if the editor took focus on
+ * each one, the second arrow would move the caret instead. A row focused by
+ * mouse does not match `:focus-visible`, so a click still lands in the editor.
+ */
+function isKeyboardFocusedPageRow(el: Element | null): boolean {
+  return el instanceof HTMLElement && el.matches("[data-page-row]:focus-visible");
 }
 
 /**
@@ -2120,6 +2132,9 @@ function PageEditor({
           break;
         case "table-delete-column":
           editor.dispatch(TABLE_DELETE_COLUMN, {});
+          break;
+        case "table-move-column":
+          editor.dispatch(TABLE_MOVE_COLUMN, { to: action.to });
           break;
         case "table-align":
           editor.dispatch(TABLE_SET_COLUMN_ALIGN, { align: action.align });
@@ -3180,6 +3195,7 @@ function PageEditor({
           ? {
               rows: tableShape.rows,
               columns: tableShape.columns,
+              columnIndex: tableShape.columnIndex,
               align: tableShape.align,
             }
           : null,
@@ -3204,7 +3220,10 @@ function PageEditor({
       // keystrokes into the canvas hidden behind the palette. Only DOM focus is
       // conceded — the caret and scroll are still restored below, so the page
       // is where it was left when focus does come back.
-      if (!holdsTypedInput(document.activeElement)) mounted.editor.focus();
+      const active = document.activeElement;
+      if (!holdsTypedInput(active) && !isKeyboardFocusedPageRow(active)) {
+        mounted.editor.focus();
+      }
 
       // Restore by stable block id and viewport-relative anchor. The height
       // index can jump to this block using estimates, so opening near the end

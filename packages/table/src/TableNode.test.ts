@@ -5,6 +5,7 @@
  */
 
 import { registerTableActions } from "./actions";
+import { registerTableCommands } from "./commands";
 import type { TableLayout } from "./geometry";
 import {
   cellCaretHeight,
@@ -12,7 +13,7 @@ import {
   tableCellIds,
   tableRangeToContentSelection,
 } from "./selection";
-import { getTableDocument } from "./structured";
+import { cellText, getTableDocument, readTable } from "./structured";
 import { tableExtension } from "./table-extension";
 import { type TableBlock, TableNode } from "./TableNode";
 import { createNodeRegistry } from "@tasfer/editor";
@@ -28,6 +29,7 @@ import {
 } from "@tasfer/editor/actions/keyboard-actions";
 import { createChromeRegionRegistry } from "@tasfer/editor/events/chromeRegions";
 import { createInteractionSession } from "@tasfer/editor/events/interaction-session";
+import { handleKeyDown } from "@tasfer/editor/events/keysEvents";
 import { handleMouseMove } from "@tasfer/editor/events/mouseEvents";
 import { baseSchema } from "@tasfer/editor/schema";
 import { loadPage, type Page } from "@tasfer/editor/serlization/loadPage";
@@ -638,6 +640,23 @@ function strokesFor(state: EditorState): number {
   return calls.filter((call) => call.name === "stroke").length;
 }
 
+/** The lines painting the table reports, at their painted x. */
+function paintLines(state: EditorState) {
+  const { ctx } = recordingCtx();
+  return node.paint(layoutOf(state), {
+    block: state.document.page.blocks[0],
+    blockIndex: 0,
+    maxWidth: MAX_WIDTH,
+    isFirst: true,
+    styles,
+    marks: state.marks,
+    ctx,
+    state,
+    origin: { x: 0, y: 0 },
+    requestRedraw: () => {},
+  }).lines;
+}
+
 /** The region context a pointer event would build for the table block. */
 function regionCtx(state: EditorState) {
   return {
@@ -1181,5 +1200,317 @@ describe("select-all inside a table", () => {
     const result = state.actionBus.dispatchState(SELECT_ALL, state);
 
     expect(result.claimed).toBe(false);
+  });
+});
+
+describe("column move", () => {
+  const THREE = [
+    "| A | B | C |",
+    "| --- | --- | --- |",
+    "| one | two | three |",
+  ].join("\n");
+
+  function busState(source: string): EditorState {
+    const state = stateOf(source);
+    const bus = createActionBus();
+    registerTableCommands(bus);
+    return { ...state, actionBus: bus };
+  }
+
+  function moveRegion(state: EditorState) {
+    const regions = node.regions?.(regionCtx(state) as never) ?? [];
+    const region = regions.find((r) => r.id === "table-column-move");
+    expect(region).toBeDefined();
+    return region!;
+  }
+
+  /** The header row's titles, in grid order. */
+  function header(state: EditorState): string[] {
+    const document = getTableDocument(state.document.page.blocks[0])!;
+    return readTable(document).rows[0].cells.map((cell) =>
+      cell ? cellText(document, cell) : "",
+    );
+  }
+
+  /** Canvas x of the middle of column `index`. */
+  function middleOf(layout: TableLayout, index: number): number {
+    const column = layout.columns[index];
+    return styles.canvas.paddingLeft + column.x + column.width / 2;
+  }
+
+  /** A drag context whose captured hit is the region's own. */
+  function ctxOf(state: EditorState, hit: unknown) {
+    return {
+      state,
+      session: { captured: { region: { id: "table-column-move" }, hit } },
+    } as never;
+  }
+
+  it("offers a grip over each column in the block's top margin only", () => {
+    const state = busState(THREE);
+    const layout = layoutOf(state);
+    const region = moveRegion(state);
+    const inMargin = layout.gridTop / 2;
+
+    expect(
+      region.hitTest({ x: middleOf(layout, 0), y: inMargin }, "mouse"),
+    ).toMatchObject({ index: 0 });
+    expect(
+      region.hitTest({ x: middleOf(layout, 2), y: inMargin }, "mouse"),
+    ).toMatchObject({ index: 2 });
+    // Inside the grid the pointer is aimed at a cell, not a grip.
+    expect(
+      region.hitTest(
+        { x: middleOf(layout, 1), y: layout.gridTop + 6 },
+        "mouse",
+      ),
+    ).toBeNull();
+    // Beyond the grid's sides there is no column to lift.
+    expect(
+      region.hitTest(
+        { x: styles.canvas.paddingLeft + layout.gridWidth + 5, y: inMargin },
+        "mouse",
+      ),
+    ).toBeNull();
+    // A finger never gets one: the band is revealed by hover.
+    expect(
+      region.hitTest({ x: middleOf(layout, 0), y: inMargin }, "touch"),
+    ).toBeNull();
+  });
+
+  it("advertises the grab cursor and names the column under it", () => {
+    const state = busState(THREE);
+    const layout = layoutOf(state);
+    const region = moveRegion(state);
+    const hit = region.hitTest(
+      { x: middleOf(layout, 1), y: layout.gridTop / 2 },
+      "mouse",
+    )!;
+
+    expect(region.hover?.(hit)).toMatchObject({
+      cursor: "grab",
+      target: `${state.document.page.blocks[0].id}:column-move:1`,
+    });
+  });
+
+  it("moves the column to the gap it is dropped in, in one operation", () => {
+    const state = busState(THREE);
+    const layout = layoutOf(state);
+    const region = moveRegion(state);
+    const y = layout.gridTop / 2;
+    const hit = region.hitTest({ x: middleOf(layout, 0), y }, "mouse")!;
+
+    const started = region.drag!.onStart(
+      hit,
+      { x: middleOf(layout, 0), y },
+      ctxOf(state, hit),
+    )!;
+    // Past the last column's middle: the gap after it.
+    const moved = region.drag!.onMove(
+      { x: middleOf(layout, 2) + 10, y },
+      ctxOf(started.state, hit),
+    )!;
+    // The live drag paints; it writes nothing.
+    expect(moved.ops ?? []).toHaveLength(0);
+    expect(header(moved.state)).toEqual(["A", "B", "C"]);
+
+    // A window-level mouseup has no position; the stored gap decides.
+    const released = region.drag!.onEnd(null, ctxOf(moved.state, hit))!;
+    expect(released.ops).toHaveLength(1);
+    expect(released.ops?.[0].op).toBe("content_edit");
+    expect(header(released.state)).toEqual(["B", "C", "A"]);
+    expect(
+      released.state.ui.nodeViewState[state.document.page.blocks[0].id],
+    ).not.toHaveProperty("columnDrag");
+  });
+
+  it("treats a drop on either side of the lifted column as no move", () => {
+    const state = busState(THREE);
+    const layout = layoutOf(state);
+    const region = moveRegion(state);
+    const y = layout.gridTop / 2;
+    const hit = region.hitTest({ x: middleOf(layout, 1), y }, "mouse")!;
+
+    const started = region.drag!.onStart(
+      hit,
+      { x: middleOf(layout, 1), y },
+      ctxOf(state, hit),
+    )!;
+    // Just past column A's middle is the gap between A and B — where B is.
+    const moved = region.drag!.onMove(
+      { x: middleOf(layout, 0) + 4, y },
+      ctxOf(started.state, hit),
+    )!;
+    const released = region.drag!.onEnd(null, ctxOf(moved.state, hit))!;
+
+    expect(released.ops ?? []).toHaveLength(0);
+    expect(header(released.state)).toEqual(["A", "B", "C"]);
+  });
+
+  it("drops the drag on cancel without moving anything", () => {
+    const state = busState(THREE);
+    const layout = layoutOf(state);
+    const region = moveRegion(state);
+    const y = layout.gridTop / 2;
+    const hit = region.hitTest({ x: middleOf(layout, 2), y }, "mouse")!;
+
+    const started = region.drag!.onStart(
+      hit,
+      { x: middleOf(layout, 2), y },
+      ctxOf(state, hit),
+    )!;
+    const moved = region.drag!.onMove(
+      { x: middleOf(layout, 0) - 4, y },
+      ctxOf(started.state, hit),
+    )!;
+    const cancelled = region.drag!.onCancel(ctxOf(moved.state, hit));
+
+    expect(header(cancelled)).toEqual(["A", "B", "C"]);
+    expect(
+      cancelled.ui.nodeViewState[state.document.page.blocks[0].id],
+    ).not.toHaveProperty("columnDrag");
+  });
+
+  it("previews the move in the picture, not the document, while held", () => {
+    const state = busState(THREE);
+    const layout = layoutOf(state);
+    const region = moveRegion(state);
+    const y = layout.gridTop / 2;
+    const hit = region.hitTest({ x: middleOf(layout, 0), y }, "mouse")!;
+    const started = region.drag!.onStart(
+      hit,
+      { x: middleOf(layout, 0), y },
+      ctxOf(state, hit),
+    )!;
+    const moved = region.drag!.onMove(
+      { x: middleOf(layout, 2) + 10, y },
+      ctxOf(started.state, hit),
+    )!;
+
+    // The document has not moved.
+    expect(header(moved.state)).toEqual(["A", "B", "C"]);
+    expect(layoutOf(moved.state).columns[0].x).toBe(layout.columns[0].x);
+
+    // The painted lines have: A's header now sits where the last column is.
+    const painted = paintLines(moved.state);
+    const titleA = painted.find((line) => line.text === "A")!;
+    const titleB = painted.find((line) => line.text === "B")!;
+    const base = paintLines(state);
+    expect(titleB.x).toBe(
+      base.find((line) => line.text === "B")!.x - layout.columns[0].width,
+    );
+    expect(titleA.x).toBe(
+      base.find((line) => line.text === "A")!.x +
+        layout.columns[1].width +
+        layout.columns[2].width,
+    );
+
+    // A drag parked beside its own column previews nothing.
+    const home = region.drag!.onMove(
+      { x: middleOf(layout, 0), y },
+      ctxOf(started.state, hit),
+    )!;
+    expect(paintLines(home.state).find((line) => line.text === "A")!.x).toBe(
+      base.find((line) => line.text === "A")!.x,
+    );
+  });
+
+  it("carries the caret along with its previewed column", () => {
+    const state = busState(THREE);
+    const layout = layoutOf(state);
+    const region = moveRegion(state);
+    const y = layout.gridTop / 2;
+    const block = state.document.page.blocks[0];
+    const document = getTableDocument(block)!;
+    const firstCell = readTable(document).rows[0].cells[0]!;
+    const point = {
+      kind: "text" as const,
+      blockId: block.id,
+      contentId: document.rootId,
+      nodeId: firstCell.id,
+      field: "text",
+      afterCharId: null,
+      affinity: "forward" as const,
+    };
+    const caretX = (s: EditorState) =>
+      node.contentCaretRect(layoutOf(s), point, {
+        block: s.document.page.blocks[0] as unknown as TableBlock,
+        blockIndex: 0,
+        maxWidth: MAX_WIDTH,
+        isFirst: true,
+        styles,
+        marks: s.marks,
+        state: s,
+        origin: { x: 0, y: 0 },
+      })!.x;
+
+    const hit = region.hitTest({ x: middleOf(layout, 0), y }, "mouse")!;
+    const started = region.drag!.onStart(
+      hit,
+      { x: middleOf(layout, 0), y },
+      ctxOf(state, hit),
+    )!;
+    const moved = region.drag!.onMove(
+      { x: middleOf(layout, 2) + 10, y },
+      ctxOf(started.state, hit),
+    )!;
+
+    expect(caretX(moved.state)).toBe(
+      caretX(state) + layout.columns[1].width + layout.columns[2].width,
+    );
+  });
+
+  it("cancels on Escape, putting the picture back with nothing to undo", () => {
+    const state = busState(THREE);
+    const layout = layoutOf(state);
+    const region = moveRegion(state);
+    const y = layout.gridTop / 2;
+    const hit = region.hitTest({ x: middleOf(layout, 0), y }, "mouse")!;
+    const started = region.drag!.onStart(
+      hit,
+      { x: middleOf(layout, 0), y },
+      ctxOf(state, hit),
+    )!;
+    const moved = region.drag!.onMove(
+      { x: middleOf(layout, 2) + 10, y },
+      ctxOf(started.state, hit),
+    )!;
+
+    const session = createInteractionSession(createChromeRegionRegistry());
+    session.captured = { region: region as never, hit };
+    // Keys reach the editor only while it is focused, as a real drag's do.
+    const focused = {
+      ...moved.state,
+      view: { ...moved.state.view, isFocused: true },
+    };
+    const escaped = handleKeyDown(
+      focused,
+      viewport,
+      {
+        key: "Escape",
+        code: "Escape",
+        preventDefault() {},
+        stopPropagation() {},
+      } as unknown as Event,
+      undefined,
+      undefined,
+      session,
+    );
+
+    expect(escaped.ops).toEqual([]);
+    expect(session.captured).toBeNull();
+    expect(header(escaped.state)).toEqual(["A", "B", "C"]);
+    expect(
+      escaped.state.ui.nodeViewState[state.document.page.blocks[0].id],
+    ).not.toHaveProperty("columnDrag");
+    expect(paintLines(escaped.state).find((line) => line.text === "A")!.x).toBe(
+      paintLines(state).find((line) => line.text === "A")!.x,
+    );
+  });
+
+  it("has no grip on a single-column grid", () => {
+    const single = busState(["| A |", "| --- |", "| one |"].join("\n"));
+    const regions = node.regions?.(regionCtx(single) as never) ?? [];
+    expect(regions.find((r) => r.id === "table-column-move")).toBeUndefined();
   });
 });

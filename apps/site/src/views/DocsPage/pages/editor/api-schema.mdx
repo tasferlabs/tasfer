@@ -375,11 +375,14 @@ import {
   TABLE_DELETE_ROW,
   TABLE_INSERT_COLUMN,
   TABLE_DELETE_COLUMN,
+  TABLE_MOVE_COLUMN,
   TABLE_SET_COLUMN_ALIGN,
 } from "@tasfer/table";
 
 editor.dispatch(TABLE_INSERT_ROW, { side: "after" });
 editor.dispatch(TABLE_SET_COLUMN_ALIGN, { align: "right" });
+// `to` is where the column ends up, counted in the grid as it is now.
+editor.dispatch(TABLE_MOVE_COLUMN, { to: 0 });
 ```
 
 Each emits ordinary `content_edit` operations against the attachment, so a
@@ -397,10 +400,24 @@ lands the caret in the cell it just made. Like the resize bands these are a
 is the one a click would take.
 
 Only those two edges carry a strip. The left gutter is the block-reorder grab
-band, which spans every block's full height, and there is nothing to put above
+band, which spans every block's full height, and there is no row to add above
 the grid — GFM writes the first row as the column titles, so a row before them
 is the position `insertRow` refuses. The strips are mouse-only: hover is what
 reveals them, and both sit where a thumb rests while scrolling past a table.
+
+The top margin carries the column-move grips instead. A mouse resting there,
+above a column, lights that column and takes the `grab` cursor; dragging
+sideways carries it along the grid, which redraws in the order the drop would
+produce. That preview is painted from the same layout with the columns
+re-ordered (`previewColumnMove`) — the document is not touched, so there is
+nothing to undo if the drag is cancelled, and a remote edit landing mid-drag
+folds into the real document rather than a copy. The release dispatches
+`TABLE_MOVE_COLUMN` — one `node_move` of the column node, since every cell
+names its column by id and comes along by construction. A column dropped back
+beside itself is a no-op, and Escape cancels the drag (as it does any region
+drag holding the pointer). The grip is mouse-only for the same reason the
+strips are; a phone reaches the move through the two commands in its keyboard
+toolbar's table menu.
 
 To label and enable that control, read the grid at the caret with
 `tableShapeAt(document, point)`, which returns `{ rows, columns, rowIndex,

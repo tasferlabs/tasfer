@@ -1520,6 +1520,8 @@
   "editor.table.addColumnBefore": "إضافة عمود قبله",
   "editor.table.addColumnAfter": "إضافة عمود بعده",
   "editor.table.removeColumn": "إزالة العمود",
+  "editor.table.moveColumnLeft": "تحريك العمود يسارًا",
+  "editor.table.moveColumnRight": "تحريك العمود يمينًا",
   "editor.table.alignDefault": "محاذاة افتراضية",
   "editor.table.alignLeft": "محاذاة لليسار",
   "editor.table.alignCenter": "توسيط",

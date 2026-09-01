@@ -466,3 +466,62 @@ export function layoutTable(
     marks: ctx.marks,
   };
 }
+
+/**
+ * The same layout with column `from` shown at index `to` — the picture a
+ * column-move drag paints while it is held.
+ *
+ * A preview and nothing more: the document is not touched, so nothing has to
+ * be undone if the drag is cancelled, and a remote edit landing mid-drag folds
+ * into the real document rather than a copy. Every column keeps its own width
+ * and every cell its own wrapped lines; only the x of each column, and of the
+ * cells and lines in it, shifts by the distance its column moved. That is
+ * exactly the layout the real move produces, since the fitter sizes columns
+ * by identity and not by position.
+ */
+export function previewColumnMove(
+  layout: TableLayout,
+  from: number,
+  to: number,
+): TableLayout {
+  const count = layout.columns.length;
+  if (from === to || from < 0 || from >= count || to < 0 || to >= count) {
+    return layout;
+  }
+  // The new order, then each column's x in it.
+  const order = layout.columns.map((_column, at) => at);
+  order.splice(to, 0, ...order.splice(from, 1));
+  const shift = new Array<number>(count).fill(0);
+  let x = layout.columns[0].x;
+  for (const at of order) {
+    shift[at] = x - layout.columns[at].x;
+    x += layout.columns[at].width;
+  }
+
+  const columns = order.map((at) => ({
+    ...layout.columns[at],
+    x: layout.columns[at].x + shift[at],
+  }));
+  const moveCell = (cell: TableCellLayout): TableCellLayout => {
+    const delta = shift[cell.columnIndex] ?? 0;
+    if (delta === 0) return cell;
+    return {
+      ...cell,
+      x: cell.x + delta,
+      textX: cell.textX + delta,
+      lines: cell.lines.map((line) => ({ ...line, x: line.x + delta })),
+    };
+  };
+  const rows = layout.rows.map((row) => ({
+    ...row,
+    cells: row.cells.map(moveCell),
+  }));
+  const cells = rows.flatMap((row) => row.cells);
+  return {
+    ...layout,
+    columns,
+    rows,
+    cells,
+    lines: cells.flatMap((cell) => cell.lines),
+  };
+}

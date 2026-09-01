@@ -18,9 +18,12 @@
  *   - The LEFT gutter is the block-reorder grab band (see
  *     `BLOCK_DRAG_HANDLE_HIT_WIDTH`), which spans every block's full height. A
  *     strip there would fight the grip for the same pixels on every table.
- *   - There is no strip ABOVE the grid because there is nothing to put there:
- *     GFM writes the first row as the column titles and has no syntax for a row
- *     before them, so `insertRow` refuses that position outright.
+ *   - There is no ADD strip above the grid because there is nothing for it to
+ *     add: GFM writes the first row as the column titles and has no syntax for
+ *     a row before them, so `insertRow` refuses that position outright. The top
+ *     margin carries the column-move grips instead (`TableNode`'s
+ *     `columnMoveRegion`), which is the one thing a band over a column can
+ *     usefully mean.
  *
  * Both remaining sides live in space the table already owns — the page's right
  * gutter and the block's own bottom margin — so a strip never displaces text

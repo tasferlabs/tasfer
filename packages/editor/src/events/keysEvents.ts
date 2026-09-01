@@ -84,6 +84,7 @@ import { redoState, undoState } from "../sync/crdt-undo";
 import type { Operation } from "../sync/sync";
 import { ensureCursorVisible } from "./eventUtils";
 import type { InteractionSession } from "./interaction-session";
+import { routeCapturedCancel } from "./regions";
 
 // After an arrow-key caret move, dispatch CURSOR_MOVED so marks can react to the
 // caret crossing an inline boundary — @tasfer/math's MathMark opens its editor when
@@ -210,6 +211,21 @@ export function handleKeyDown(
   // host dispatches CLOSE_CONTEXT_MENU when it dismisses, which clears this.
   if (session?.hostMenuCapturing) {
     return { state, ops };
+  }
+
+  // A region drag holding the pointer (a column being carried, an image being
+  // resized) is what Escape cancels, ahead of everything else the key means:
+  // the drag puts its picture back and the pointer falls free. The selection
+  // underneath is kept — the key was aimed at the gesture, not at it — and no
+  // caret is needed for it, so this sits before the caret-dependent paths.
+  if (key === "Escape" && session?.captured?.region.drag) {
+    const cancelled = routeCapturedCancel({
+      state,
+      viewport,
+      documentHeight: viewport.documentHeight,
+      session,
+    });
+    return { state: cancelled ?? state, ops };
   }
 
   if (inputSource === "hardware-keyboard" && !state.ui.hasHardwareKeyboard) {
