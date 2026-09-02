@@ -21,6 +21,7 @@ import { PageSettingsProvider } from "../contexts/PageSettingsContext";
 import { PeerVersionProvider } from "../contexts/PeerVersionContext";
 import { SidebarPanelProvider } from "../contexts/SidebarPanelContext";
 import { OwnPrefsProvider } from "../contexts/OwnPrefsContext";
+import { SpellProvider } from "@/spell/SpellProvider";
 import { useGetArchivedSpaces } from "../api/spaces.api";
 import { SpaceProvider, useSpaces } from "../contexts/SpaceContext";
 import { SyncActivityProvider } from "../contexts/SyncActivityContext";
@@ -63,27 +64,29 @@ export default function Layout() {
       <SpaceProvider>
         <SyncActivityProvider>
           <OwnPrefsProvider>
-            <TreeExpandProvider>
-              <PageSelectionProvider>
-                <SidebarPanelProvider>
-                  <PageSettingsProvider>
-                    <ActiveEditorProvider>
-                      <ConfirmationDialogProvider>
-                        <UnsavedChangesDialogProvider>
-                          <ImportDialogProvider>
-                            <PeerVersionProvider>
-                              <ActionCenterProvider>
-                                <LayoutInner />
-                              </ActionCenterProvider>
-                            </PeerVersionProvider>
-                          </ImportDialogProvider>
-                        </UnsavedChangesDialogProvider>
-                      </ConfirmationDialogProvider>
-                    </ActiveEditorProvider>
-                  </PageSettingsProvider>
-                </SidebarPanelProvider>
-              </PageSelectionProvider>
-            </TreeExpandProvider>
+            <SpellProvider>
+              <TreeExpandProvider>
+                <PageSelectionProvider>
+                  <SidebarPanelProvider>
+                    <PageSettingsProvider>
+                      <ActiveEditorProvider>
+                        <ConfirmationDialogProvider>
+                          <UnsavedChangesDialogProvider>
+                            <ImportDialogProvider>
+                              <PeerVersionProvider>
+                                <ActionCenterProvider>
+                                  <LayoutInner />
+                                </ActionCenterProvider>
+                              </PeerVersionProvider>
+                            </ImportDialogProvider>
+                          </UnsavedChangesDialogProvider>
+                        </ConfirmationDialogProvider>
+                      </ActiveEditorProvider>
+                    </PageSettingsProvider>
+                  </SidebarPanelProvider>
+                </PageSelectionProvider>
+              </TreeExpandProvider>
+            </SpellProvider>
           </OwnPrefsProvider>
         </SyncActivityProvider>
       </SpaceProvider>
@@ -151,19 +154,14 @@ function LayoutInner() {
     if (spacesLoading || loadError) return;
     if (hasNoSpaces && archivedLoading) return;
     setHasWorkspace(!needsOnboarding);
-  }, [
-    spacesLoading,
-    loadError,
-    hasNoSpaces,
-    archivedLoading,
-    needsOnboarding,
-  ]);
+  }, [spacesLoading, loadError, hasNoSpaces, archivedLoading, needsOnboarding]);
 
-  // ⌘. / Ctrl+. toggles the sidebar, from anywhere — mid-sentence included.
-  // The period is the one non-letter key that sits unshifted on every layout
-  // (backslash, Notion's pick, is AltGr+plus on a Swedish keyboard), and no
-  // browser or the editor claims the chord. Matched on `code` so it survives
-  // a non-Latin layout, and silent during onboarding, where the shell is a
+  // ⌘; / Ctrl+; toggles the sidebar, from anywhere — mid-sentence included.
+  // The semicolon sits unshifted on every layout (backslash, Notion's pick, is
+  // AltGr+plus on a Swedish keyboard), and neither the browser nor the editor
+  // claims the chord; ⌘. went to spelling (fix-or-next), which wants the key
+  // VS Code users already reach for. Matched on `code` so it survives a
+  // non-Latin layout, and silent during onboarding, where the shell is a
   // drawn mock with nothing to toggle.
   //
   // The chord is a keyboard gesture, so the keyboard follows it: opening puts
@@ -179,7 +177,7 @@ function LayoutInner() {
     if (needsOnboarding) return;
     const onKeyDown = (e: KeyboardEvent) => {
       const isCmd = isApplePlatform() ? e.metaKey : e.ctrlKey;
-      if (!isCmd || e.shiftKey || e.altKey || e.code !== "Period") return;
+      if (!isCmd || e.shiftKey || e.altKey || e.code !== "Semicolon") return;
       e.preventDefault();
       const setOpen = isMobile ? setFloatingOpen : setResizableOpen;
       if (sidebarOpen) {

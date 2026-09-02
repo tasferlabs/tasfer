@@ -50,7 +50,7 @@ net.presence.on("change", (peers) => {
 });
 ```
 
-The editor engine itself has no concept of "peers" — it paints generic [decorations](/docs/editor/api-editor#facets) you feed it. To turn presence into remote carets and selections, bind the two together with the helper from `@tasfer/provider-core/cursors`:
+The editor engine itself has no concept of "peers" — it paints generic [decorations](/docs/editor/api-editor#decorations) you feed it: a peer's caret is a **caret** decoration, their selection a **range** decoration in the default fill style. To turn presence into remote carets and selections, bind the two together with the helper from `@tasfer/provider-core/cursors`:
 
 ```ts
 import { bindPresenceCursors } from "@tasfer/provider-core/cursors";

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "dev:host": "vite --host",
-    "postinstall": "node scripts/install-linked-packages.mjs && npm run gen:ios-version",
+    "postinstall": "node scripts/install-linked-packages.mjs && node scripts/copy-spell-wasm.mjs && npm run gen:ios-version",
     "gen:licenses": "node scripts/gen-third-party-licenses.mjs",
     "gen:toolbar-icons": "node scripts/gen-mobile-toolbar-icons.mjs",
     "gen:math-icons": "npm --prefix ../../packages/tex run gen:math-icons",
@@ -19,7 +19,7 @@
     "bench:oplog": "node scripts/bench-oplog.mjs",
     "extract:i18n": "node scripts/extract-i18n-keys.mjs",
     "generate:large-test-document": "node scripts/generate-large-test-document.mjs",
-    "prebuild": "node scripts/gen-third-party-licenses.mjs && node scripts/gen-manifest.mjs",
+    "prebuild": "node scripts/gen-third-party-licenses.mjs && node scripts/gen-manifest.mjs && node scripts/copy-spell-wasm.mjs",
     "build": "tsc && vite build",
     "test": "vitest run",
     "preview": "vite preview",

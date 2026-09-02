@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import { isSafeLinkUrl, normalizeLinkUrl, safeLinkHref } from "./url-safety";
+import { describe, expect, it } from "vitest";
 
 describe("normalizeLinkUrl", () => {
   it("accepts the allowed schemes", () => {

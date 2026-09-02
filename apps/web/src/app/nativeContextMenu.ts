@@ -17,10 +17,12 @@
 
 import {
   Bold,
+  BookPlus,
   Clipboard,
   Code,
   Copy,
   Download,
+  EyeOff,
   Grid3x3,
   ImageIcon,
   Italic,
@@ -28,6 +30,7 @@ import {
   type LucideIcon,
   Scissors,
   Sigma,
+  SpellCheck,
   Strikethrough,
   Type,
 } from "lucide-react";
@@ -54,6 +57,16 @@ const ICON_BY_ID: Record<string, string> = {
   "format-strikethrough": "strikethrough",
   "format-math": "function",
   "format-link": "link",
+  // Spelling group (see spell/spellContextMenuItems.tsx).
+  "spell-suggest-0": "textformat.abc",
+  "spell-suggest-1": "textformat.abc",
+  "spell-suggest-2": "textformat.abc",
+  "spell-suggest-3": "textformat.abc",
+  "spell-suggest-4": "textformat.abc",
+  "spell-none": "textformat.abc",
+  "spell-add": "text.book.closed",
+  "spell-ignore": "eye.slash",
+  "spell-ignore-page": "eye.slash",
 };
 
 /**
@@ -76,6 +89,15 @@ const MENU_ICON_COMPONENTS: Record<string, LucideIcon> = {
   "format-strikethrough": Strikethrough,
   "format-math": Sigma,
   "format-link": Link,
+  "spell-suggest-0": SpellCheck,
+  "spell-suggest-1": SpellCheck,
+  "spell-suggest-2": SpellCheck,
+  "spell-suggest-3": SpellCheck,
+  "spell-suggest-4": SpellCheck,
+  "spell-none": SpellCheck,
+  "spell-add": BookPlus,
+  "spell-ignore": EyeOff,
+  "spell-ignore-page": EyeOff,
 };
 
 function iconNameFor(id: string): string | undefined {

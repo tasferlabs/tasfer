@@ -30,6 +30,27 @@ export const OWN_PREF_KEYS = {
   spacesCollapsed: "sidebar.spacesCollapsed",
   /** `true` once the person has read the P2P sharing walkthrough. */
   p2pTutorialSeen: "tutorial.p2pSeen",
+  /** `boolean` — spellcheck on or off; absent means on. */
+  spellEnabled: "spell.enabled",
+  /** `string[]` — dictionary ids to check against; absent means `["en", "ar"]`. */
+  spellLanguages: "spell.languages",
+  /** `boolean` — accept common Arabic orthographic variants (hamza, ة/ه, ى/ي). */
+  spellLenientArabic: "spell.lenientArabic",
+  /** `boolean` — flag ALL-CAPS Latin words instead of treating them as acronyms. */
+  spellFlagAllCaps: "spell.flagAllCaps",
+  /** `boolean` — stronger squiggle colours. */
+  spellHighContrast: "spell.highContrast",
+  /**
+   * Key PREFIX, not a key: `spell.word.<word>` → `{ added: ms }` for every word
+   * in the personal dictionary. One key per word because the register is
+   * last-writer-wins per key and cannot delete: a single list would let two
+   * devices overwrite each other's additions and could never shrink. Removal
+   * writes `null`, which `get` reads as absent. Mirrored as `SPELL_PREF_KEYS`
+   * in `src/spell/personalDictionary.ts`.
+   */
+  spellWordPrefix: "spell.word.",
+  /** Key PREFIX: `spell.forbid.<word>` → `{ added: ms }` — words to always flag. */
+  spellForbidPrefix: "spell.forbid.",
 } as const;
 
 /**

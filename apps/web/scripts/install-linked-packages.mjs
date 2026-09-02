@@ -18,6 +18,7 @@ const linkedPackages = [
   "tex",
   "react",
   "provider-core",
+  "spell",
 ];
 
 for (const name of linkedPackages) {

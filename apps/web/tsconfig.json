@@ -31,6 +31,8 @@
       "@tasfer/code/*": ["../../packages/code/src/*"],
       "@tasfer/table": ["../../packages/table/src/index.ts"],
       "@tasfer/table/*": ["../../packages/table/src/*"],
+      "@tasfer/spell": ["../../packages/spell/src/index.ts"],
+      "@tasfer/spell/*": ["../../packages/spell/src/*"],
       "@tasfer/tex": ["../../packages/tex/src/index.ts"],
       "@tasfer/tex/*": ["../../packages/tex/src/*"],
       "@tasfer/react": ["../../packages/react/src/index.ts"],

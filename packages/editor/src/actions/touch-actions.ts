@@ -28,6 +28,7 @@ import {
   OPEN_CONTEXT_MENU,
   stateAction,
 } from "../action-bus";
+import { docSelectionFocus } from "../positions";
 import {
   clearSelection,
   moveCursorToPosition,
@@ -280,6 +281,8 @@ export const OPEN_CONTEXT_MENU_AT = stateAction<{
       !!getSelectionRange(state) ||
       (!!state.document.contentSelection &&
         !isContentSelectionCollapsed(state.document.contentSelection)),
+    // The caret the long-press landed, or a held range's focus.
+    point: docSelectionFocus(state) ?? undefined,
   });
   return { state, ops: [] };
 });

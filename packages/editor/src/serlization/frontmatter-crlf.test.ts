@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import { parseFrontmatter } from "./loadPage";
+import { describe, expect, it } from "vitest";
 
 const BODY = "# Hello\n\nStart typing.";
 

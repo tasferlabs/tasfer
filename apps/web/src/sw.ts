@@ -102,6 +102,19 @@ registerRoute(
   }),
 );
 
+// Spelling dictionaries (`/app/spell/<lang>/…`) and the Hunspell binary are
+// likewise excluded from the precache: a language is fetched the first time
+// it is needed and kept so checking keeps working offline.
+registerRoute(
+  ({ url }) =>
+    url.origin === self.location.origin &&
+    url.pathname.includes("/app/spell/"),
+  new CacheFirst({
+    cacheName: "spell-dictionaries",
+    plugins: [new ExpirationPlugin({ maxEntries: 12, purgeOnQuotaError: true })],
+  }),
+);
+
 // Helper to fetch with credentials (for basic auth support)
 function authFetch(
   input: RequestInfo | URL,

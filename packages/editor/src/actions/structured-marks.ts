@@ -173,7 +173,9 @@ export function structuredMarkClonesComplete(
         mark: span.format,
         attachments,
       })
-      .every((contentId) => !attachments[contentId] || clonedContentIds[contentId]),
+      .every(
+        (contentId) => !attachments[contentId] || clonedContentIds[contentId],
+      ),
   );
 }
 
