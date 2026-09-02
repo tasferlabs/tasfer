@@ -42,12 +42,7 @@ export interface TextSpan {
  * are vertical motion *within* the content (e.g. between a fraction's rows).
  */
 export type CaretMotion =
-  | "charLeft"
-  | "charRight"
-  | "wordLeft"
-  | "wordRight"
-  | "up"
-  | "down";
+  "charLeft" | "charRight" | "wordLeft" | "wordRight" | "up" | "down";
 
 export interface CaretModel<B extends CaretBlock = Block> {
   /**

@@ -9,6 +9,8 @@
  */
 
 import { OPEN_CONTEXT_MENU } from "../action-bus";
+import { OPEN_CONTEXT_MENU_AT } from "../actions/touch-actions";
+import type { DocPoint } from "../positions";
 import { baseSchema } from "../schema";
 import type { Block, Page } from "../serlization/loadPage";
 import type { EditorState, ViewportState } from "../state-types";
@@ -86,8 +88,32 @@ function press(
   );
 }
 
+function withRange(
+  state: EditorState,
+  anchor: number,
+  focus: number,
+): EditorState {
+  return {
+    ...state,
+    document: {
+      ...state.document,
+      selection: {
+        anchor: { blockIndex: 0, textIndex: anchor },
+        focus: { blockIndex: 0, textIndex: focus },
+        isForward: anchor <= focus,
+        isCollapsed: false,
+      },
+    },
+  };
+}
+
 function watchOpens(state: EditorState) {
-  const opens: { x: number; y: number; hasSelection: boolean }[] = [];
+  const opens: {
+    x: number;
+    y: number;
+    hasSelection: boolean;
+    point?: DocPoint;
+  }[] = [];
   state.actionBus.register(OPEN_CONTEXT_MENU, (payload) => {
     opens.push(payload);
     return true;
@@ -115,6 +141,8 @@ describe("contextual menu from the keyboard", () => {
 
     expect(opens).toHaveLength(1);
     expect(opens[0].hasSelection).toBe(false);
+    // The host gets the caret as a public DocPoint, never a block index.
+    expect(opens[0].point).toEqual({ block: "p-1", offset: 5 });
     expect(textOf(result.state)).toBe("hello world");
     expect(
       result.state.document.page.blocks.filter((b) => !b.deleted),
@@ -140,6 +168,37 @@ describe("contextual menu from the keyboard", () => {
     press(state, "ContextMenu");
 
     expect(opens).toHaveLength(2);
+  });
+
+  it("a held range anchors the point on its focus", () => {
+    usePlatform("MacIntel");
+    const state = withRange(stateAt(2), 2, 8);
+    const opens = watchOpens(state);
+
+    press(state, "Enter", { metaKey: true });
+
+    expect(opens).toHaveLength(1);
+    expect(opens[0].hasSelection).toBe(true);
+    expect(opens[0].point).toEqual({ block: "p-1", offset: 8 });
+  });
+
+  it("a touch open carries the same point", () => {
+    const state = stateAt(3);
+    const opens = watchOpens(state);
+
+    state.actionBus.dispatchState(OPEN_CONTEXT_MENU_AT, state, {
+      point: { x: 10, y: 20 },
+    });
+    const held = withRange(state, 1, 4);
+    state.actionBus.dispatchState(OPEN_CONTEXT_MENU_AT, held, {
+      point: { x: 10, y: 20 },
+    });
+
+    expect(opens.map((o) => o.point)).toEqual([
+      { block: "p-1", offset: 3 },
+      { block: "p-1", offset: 4 },
+    ]);
+    expect(opens[1].hasSelection).toBe(true);
   });
 
   it("a plain Enter still splits the block", () => {

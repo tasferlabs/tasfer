@@ -133,7 +133,16 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         // HEIC decoding is rare and already loaded on demand. Do not make every
         // PWA installation download the decoder up front.
-        globIgnores: ["**/heic-to-*.js"],
+        // Spelling dictionaries and the Hunspell binary are megabytes and only
+        // needed once someone types in that language; they are cached on
+        // first use by a runtime route in sw.ts instead.
+        globIgnores: [
+          "**/heic-to-*.js",
+          "**/app/spell/**",
+          // The Hunspell glue references its wasm by URL, so Vite also emits a
+          // hashed copy; the runtime loads public/app/spell/hunspell.wasm.
+          "**/hunspell-*.wasm",
+        ],
       },
       devOptions: {
         enabled: false,
@@ -169,6 +178,7 @@ export default defineConfig({
       "@tasfer/math": resolve(__dirname, "../../packages/math/src"),
       "@tasfer/code": resolve(__dirname, "../../packages/code/src"),
       "@tasfer/table": resolve(__dirname, "../../packages/table/src"),
+      "@tasfer/spell": resolve(__dirname, "../../packages/spell/src"),
       "@tasfer/tex": resolve(__dirname, "../../packages/tex/src"),
       "@tasfer/react": resolve(__dirname, "../../packages/react/src"),
       "@tasfer/provider-core": resolve(

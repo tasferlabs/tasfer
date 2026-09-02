@@ -1,4 +1,4 @@
-import { DomMirror } from "../a11y/dom-mirror";
+import { decorationBlockIds, DomMirror } from "../a11y/dom-mirror";
 import {
   type Action,
   type ActionHandler,
@@ -768,16 +768,23 @@ export interface QueryApi<S extends SchemaDefinition = BaseSchemaDefinition> {
   /**
    * The mark runs present at `at` (default: caret) — the data-carrying read for
    * "what link/math/custom-mark is under the caret". Each {@link MarkInfo}
-   * carries the mark's `attrs` (a link's `{ url }`), the contiguous `range` of
-   * that run, and its `text` (a link's text, a math chip's LaTeX). A run covers
-   * the point when `from <= offset < to`; narrow on `range` for strictly-inside.
+   * carries the mark's `attrs` (a link's `{ url }`), the contiguous `from`/`to`
+   * span of that run, and its `text` (a link's text, a math chip's LaTeX). A run
+   * covers a point when `from <= offset < to`; narrow on the span for
+   * strictly-inside.
+   *
+   * Pass a {@link DocRange} (`{ from, to }` or `"selection"`) to read every run
+   * whose `[from, to)` intersects the range, in document order — a range that
+   * spans several blocks yields each block's runs in turn, so "the links inside
+   * the selection" is one call. A collapsed range reads like the point form.
+   * `[]` when the target can't be resolved.
    *
    * For "is bold active here?" toolbar highlighting use the name-only
    * {@link EditorStateSnapshot.activeMarks} set instead — it is selection-aware
    * (intersection across a span) and includes pending caret toggles, which this
-   * point read deliberately does not.
+   * read deliberately does not.
    */
-  marks(at?: DocPoint): MarkInfo<S>[];
+  marks(at?: DocPoint | DocRange): MarkInfo<S>[];
   /**
    * Detached snapshot of one structured attachment, addressed without knowing
    * its node class. Returns `null` for a missing block/content id.
@@ -1288,6 +1295,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       this.a11yMirror = new DomMirror({
         container: config.a11yContainer,
         getBlocks: () => this._state.document.page.blocks,
+        getDecorations: () => this._state.ui.decorations,
       });
     }
     this.rebuildBlockHeightIndex();
@@ -6051,6 +6059,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     layer: string,
     decorations: readonly Decoration[],
   ): void => {
+    const previous = this._state.ui.decorations[layer];
     this._state = {
       ...this._state,
       ui: {
@@ -6062,11 +6071,17 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         ),
       },
     };
+    // The a11y mirror re-renders the blocks the old and new layer contents
+    // touch, so `aria-invalid` spans appear and disappear with the decoration.
+    this.a11yMirror?.applyDecorations(
+      decorationBlockIds(previous, decorations),
+    );
     this.scheduleRender();
   };
 
   clearDecorations = (layer: string): void => {
-    if (!(layer in this._state.ui.decorations)) return;
+    const previous = this._state.ui.decorations[layer];
+    if (!previous) return;
     this._state = {
       ...this._state,
       ui: {
@@ -6074,6 +6089,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         decorations: removeDecorationLayer(this._state.ui.decorations, layer),
       },
     };
+    this.a11yMirror?.applyDecorations(decorationBlockIds(previous));
     this.scheduleRender();
   };
 
@@ -6130,7 +6146,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   query: QueryApi<AnySchemaDefinition> = {
     block: this.queryBlock,
     blocks: this.queryBlocks,
-    marks: (at?: DocPoint) => queryMarkInfos(this._state, at),
+    marks: (at?: DocPoint | DocRange) => queryMarkInfos(this._state, at),
     content: this.queryContent,
   };
 

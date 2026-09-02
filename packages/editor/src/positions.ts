@@ -18,15 +18,15 @@ import {
   updateSelection,
 } from "./selection";
 import type { Block, MarkSpan } from "./serlization/loadPage";
-import type { EditorState } from "./state-types";
+import type { EditorState, Position } from "./state-types";
 import {
   isSameContentTextField,
   resolveContentTextPointOffset,
 } from "./structured-selection";
 import { findBlock, findBlockIndex } from "./sync/block-lookup";
-import { getStructuredMarks } from "./sync/structured-content";
 import { isTextualBlock } from "./sync/block-registry";
 import { allCharsHaveFormat } from "./sync/crdt-utils";
+import { getStructuredMarks } from "./sync/structured-content";
 
 /**
  * A single addressable point in the document — the optional target every
@@ -304,6 +304,36 @@ export function toBlockData(block: Block): BlockData {
   };
 }
 
+// An internal index-based Position as a public absolute DocPoint, or null when
+// the block it names is missing/tombstoned. The one place the index → id
+// projection lives, so host-facing payloads never leak a block index.
+export function toDocPoint(
+  s: EditorState,
+  position: Position,
+): { block: string; offset: number } | null {
+  const b = s.document.page.blocks[position.blockIndex];
+  if (!b || b.deleted) return null;
+  return { block: b.id, offset: position.textIndex };
+}
+
+// The DocPoint a selection-anchored UI (the context menu) acts at: the focus of
+// a held flat range, else the caret, else the block of a structured focus (a
+// nested caret has no flat offset, so only the block is named). null when
+// nothing is held — e.g. a non-textual block with no caret.
+export function docSelectionFocus(s: EditorState): DocPoint | null {
+  const sel = s.document.selection;
+  if (sel && !sel.isCollapsed) return toDocPoint(s, sel.focus);
+  const caret = s.document.cursor?.position;
+  if (caret) return toDocPoint(s, caret);
+  const content = s.document.contentSelection;
+  const focusBlock = content
+    ? findBlock(s.document.page, content.focus.blockId)
+    : undefined;
+  if (content && focusBlock && !focusBlock.deleted)
+    return { block: content.focus.blockId };
+  return null;
+}
+
 // The current selection as a DocRange (a bare point for a caret), or null.
 export function docSelection(s: EditorState): DocRange | null {
   const sel = getSelectionRange(s);
@@ -425,32 +455,84 @@ export function docMarks(
 }
 
 /**
- * The mark runs present at a point (default: caret) — backs the read API's
- * `marks(at)`. A run covers offset `O` when `from <= O < to` (left-inclusive,
- * matching where a mark visually applies); a consumer wanting strictly-inside
- * (e.g. an inline-math chip) narrows on the returned `range`. Returns the actual
- * runs only — pending caret toggles (Ctrl+B with no text yet) live in the
- * name-only active-marks set, not here.
+ * The mark runs present at a point or across a range (default: caret) — backs
+ * the read API's `marks(at)`. A run covers a point `O` when `from <= O < to`
+ * (left-inclusive, matching where a mark visually applies); a consumer wanting
+ * strictly-inside (e.g. an inline-math chip) narrows on the returned span. For
+ * an explicit range (`{ from, to }` or `"selection"`) every run whose `[from,
+ * to)` intersects the range is returned, in document order, block by block; a
+ * collapsed range reads like the point form. Returns the actual runs only —
+ * pending caret toggles (Ctrl+B with no text yet) live in the name-only
+ * active-marks set, not here. `[]` when the target can't be resolved.
  */
 export function queryMarkInfos(
   s: EditorState,
-  at: DocPoint = "caret",
+  at: DocPoint | DocRange = "caret",
 ): MarkInfo[] {
-  const p = resolvePoint(s, at);
-  if (!p) return [];
-  const block = s.document.page.blocks[p.blockIndex];
-  if (!block || block.deleted) return [];
+  const span = resolveMarkSpan(s, at);
+  if (!span) return [];
+  const { start, end } = span;
+  const blocks = s.document.page.blocks;
+  const collapsed =
+    start.blockIndex === end.blockIndex && start.offset === end.offset;
   const result: MarkInfo[] = [];
-  for (const run of resolveMarkRuns(block)) {
-    if (p.offset < run.startIndex || p.offset >= run.endIndex) continue;
-    result.push({
-      name: run.name,
-      attrs: run.attrs,
-      block: p.blockId,
-      from: run.startIndex,
-      to: run.endIndex,
-      text: run.text,
-    });
+  for (let i = start.blockIndex; i <= end.blockIndex; i++) {
+    const block = blocks[i];
+    if (!block || block.deleted) continue;
+    const lo = i === start.blockIndex ? start.offset : 0;
+    const hi = i === end.blockIndex ? end.offset : Infinity;
+    for (const run of resolveMarkRuns(block)) {
+      const hit = collapsed
+        ? lo >= run.startIndex && lo < run.endIndex
+        : run.startIndex < hi && run.endIndex > lo;
+      if (!hit) continue;
+      result.push({
+        name: run.name,
+        attrs: run.attrs,
+        block: block.id,
+        from: run.startIndex,
+        to: run.endIndex,
+        text: run.text,
+      });
+    }
   }
   return result;
+}
+
+// Resolve a marks target to ordered start/end coordinates: a point (or a
+// collapsed range) yields start === end; "selection" is the live range, or
+// the caret when none is held. null when either endpoint can't be located.
+function resolveMarkSpan(
+  s: EditorState,
+  at: DocPoint | DocRange,
+): { start: ResolvedPoint; end: ResolvedPoint } | null {
+  if (at === "selection") {
+    const sel = getSelectionRange(s);
+    if (sel) {
+      const start = resolvePosition(s, sel.start);
+      const end = resolvePosition(s, sel.end);
+      return start && end ? { start, end } : null;
+    }
+    const caret = resolvePoint(s, "caret");
+    return caret ? { start: caret, end: caret } : null;
+  }
+  if (typeof at === "object" && "from" in at) {
+    const a = resolvePoint(s, at.from);
+    const b = resolvePoint(s, at.to);
+    if (!a || !b) return null;
+    const forward =
+      a.blockIndex < b.blockIndex ||
+      (a.blockIndex === b.blockIndex && a.offset <= b.offset);
+    return forward ? { start: a, end: b } : { start: b, end: a };
+  }
+  const p = resolvePoint(s, at);
+  return p ? { start: p, end: p } : null;
+}
+
+function resolvePosition(
+  s: EditorState,
+  position: Position,
+): ResolvedPoint | null {
+  const point = toDocPoint(s, position);
+  return point ? resolvePoint(s, point) : null;
 }

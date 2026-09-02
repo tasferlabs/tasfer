@@ -47,6 +47,7 @@
     "packages/math/src",
     "packages/code/src",
     "packages/table/src",
+    "packages/spell/src",
     "shared"
   ]
 }

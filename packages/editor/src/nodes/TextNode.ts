@@ -53,7 +53,8 @@ import {
   shouldUseKeyboardPlaceholder,
 } from "../node-shared";
 import {
-  allDecorations,
+  decorationsForBlock,
+  paintDecorationRects,
   rangeDecorationToContentSelection,
   rangeDecorationToSelection,
 } from "../rendering/decorations";
@@ -1166,6 +1167,8 @@ interface Rect {
   y: number;
   width: number;
   height: number;
+  /** Absolute y of the text baseline this rect's glyphs sit on. */
+  baseline?: number;
 }
 
 /**
@@ -1244,11 +1247,16 @@ function computeSelectionRects(
     const top = continuous && enteredFromAbove ? blockTopEdge : blockTopY;
     const bottom =
       continuous && exitsBelow ? blockBottomEdge : blockTopY + emptyBlockHeight;
+    const emptyLine = layout.lines[0];
     rects.push({
       x: baseX,
       y: top,
       width: minSelectionWidth,
       height: bottom - top,
+      baseline:
+        blockTopY +
+        emptyLine.y +
+        (emptyLine.baselineOffset ?? layout.fontMetrics.ascent),
     });
     return rects;
   }
@@ -1314,6 +1322,7 @@ function computeSelectionRects(
             y: baselineY + rr.top,
             width: rr.width,
             height: rr.bottom - rr.top,
+            baseline: baselineY,
           });
         }
       }
@@ -1358,6 +1367,7 @@ function computeSelectionRects(
 
   layout.lines.forEach((line, lineIndex) => {
     const lineY = blockTopY + line.y;
+    const baseline = lineY + (line.baselineOffset ?? layout.fontMetrics.ascent);
     const lead = line.leadOffset ?? 0;
 
     // The logical block-index range of THIS line that the selection covers.
@@ -1387,6 +1397,7 @@ function computeSelectionRects(
           y: lineY,
           width: lead,
           height: line.height,
+          baseline,
         });
       }
       return;
@@ -1429,6 +1440,7 @@ function computeSelectionRects(
         y: lineY,
         width: selectionEndX - selectionStartX,
         height: line.height,
+        baseline,
       });
       return;
     }
@@ -1483,6 +1495,7 @@ function computeSelectionRects(
         y: lineY,
         width: xRight - xLeft,
         height: line.height,
+        baseline,
       });
     }
   });
@@ -2763,6 +2776,7 @@ export class TextNode<
             y: baselineY + rect.top,
             width: rect.width,
             height: rect.bottom - rect.top,
+            baseline: baselineY,
           });
         }
       }
@@ -2772,8 +2786,13 @@ export class TextNode<
     // Range decorations (find highlights, etc. — behind the local selection).
     // Generic, host-supplied overlays; the engine paints them with the same
     // selection-rect machinery it uses for the local selection, and knows
-    // nothing about what produced them.
-    for (const deco of allDecorations(state.ui.decorations)) {
+    // nothing about what produced them. Only this block's share of the store
+    // is walked (plus ranges spanning blocks, which `selectionRects` clips).
+    const blockDecorations = decorationsForBlock(
+      state.ui.decorations,
+      c.block.id,
+    );
+    for (const deco of blockDecorations) {
       if (deco.kind !== "block" || deco.block !== c.block.id) continue;
       const rects = this.selectionRects(
         layout,
@@ -2796,36 +2815,24 @@ export class TextNode<
       );
     }
 
-    for (const deco of allDecorations(state.ui.decorations)) {
+    for (const deco of blockDecorations) {
       if (deco.kind !== "range") continue;
       const sel = rangeDecorationToSelection(deco.range, state.document.page);
       if (!sel || sel.isCollapsed) continue;
       const rects = this.selectionRects(layout, sel, blockIndex, x, y);
       if (rects.length === 0) continue;
-      this.fillRects(
-        ctx,
-        rects,
-        deco.color,
-        deco.opacity ?? styles.selection.remoteOpacity,
-        styles.selection.cornerRadius,
-      );
+      paintDecorationRects(ctx, rects, deco, styles);
     }
 
     // Structured range decorations use the replacement's own geometry. This is
     // the remote-selection counterpart to the local nested selection below.
-    for (const deco of allDecorations(state.ui.decorations)) {
+    for (const deco of blockDecorations) {
       if (deco.kind !== "range") continue;
       const selection = rangeDecorationToContentSelection(deco.range);
       if (!selection) continue;
       const rects = nestedSelectionRects(selection);
       if (rects.length === 0) continue;
-      this.fillRects(
-        ctx,
-        rects,
-        deco.color,
-        deco.opacity ?? styles.selection.remoteOpacity,
-        styles.selection.cornerRadius,
-      );
+      paintDecorationRects(ctx, rects, deco, styles);
     }
 
     // (Remote selections are now range decorations, painted above with all

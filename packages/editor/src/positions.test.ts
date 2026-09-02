@@ -12,6 +12,7 @@ import {
   activeCaretMarks,
   docMarks,
   docSelection,
+  queryMarkInfos,
   resolveBlockIndex,
   resolveInlineRange,
   resolvePoint,
@@ -281,6 +282,128 @@ describe("docMarks / activeCaretMarks", () => {
         to: { block: "a", offset: 3 },
       }).has("strong"),
     ).toBe(true);
+  });
+});
+
+describe("queryMarkInfos", () => {
+  // "hello world" with strong on [0,5) and em on [6,11); "foo bar" with a link
+  // on [0,3). Runs resolve in document order within each block.
+  function marked(): EditorState {
+    const base = stateWith(para("a", "hello world"), para("b", "foo bar"));
+    let page = base.document.page;
+    const apply = (
+      block: string,
+      start: number,
+      end: number,
+      type: string,
+      attrs: Record<string, unknown> = {},
+    ) => {
+      page = markCharsInRange(
+        page,
+        block,
+        start,
+        end,
+        { type, attrs },
+        true,
+        base.CRDTbinding,
+      ).newPage;
+    };
+    apply("a", 0, 5, "strong");
+    apply("a", 6, 11, "em");
+    apply("b", 0, 3, "link", { url: "https://x.test" });
+    return { ...base, document: { ...base.document, page } };
+  }
+  const names = (infos: { name: string; block: string }[]) =>
+    infos.map((m) => `${m.block}:${m.name}`);
+
+  it("a point (default: caret) reads the runs covering it, left-inclusive", () => {
+    const s = withCursor(marked(), 0, 2);
+    expect(queryMarkInfos(s)).toEqual([
+      { name: "strong", attrs: {}, block: "a", from: 0, to: 5, text: "hello" },
+    ]);
+    expect(names(queryMarkInfos(s, { block: "a", offset: 5 }))).toEqual([]);
+    expect(names(queryMarkInfos(s, { block: "a", offset: 6 }))).toEqual([
+      "a:em",
+    ]);
+    expect(queryMarkInfos(s, { block: "b", offset: 1 })[0].attrs).toEqual({
+      url: "https://x.test",
+    });
+  });
+
+  it("a single-block range returns every run it partially overlaps", () => {
+    const s = marked();
+    expect(
+      names(
+        queryMarkInfos(s, {
+          from: { block: "a", offset: 4 },
+          to: { block: "a", offset: 8 },
+        }),
+      ),
+    ).toEqual(["a:strong", "a:em"]);
+    // Touching a run's edge without entering it is not an overlap.
+    expect(
+      names(
+        queryMarkInfos(s, {
+          from: { block: "a", offset: 5 },
+          to: { block: "a", offset: 6 },
+        }),
+      ),
+    ).toEqual([]);
+    // A collapsed range reads like the point form.
+    expect(
+      names(
+        queryMarkInfos(s, {
+          from: { block: "a", offset: 2 },
+          to: { block: "a", offset: 2 },
+        }),
+      ),
+    ).toEqual(["a:strong"]);
+  });
+
+  it("a cross-block range yields each block's runs in document order", () => {
+    const s = marked();
+    const range = {
+      from: { block: "a", offset: 8 },
+      to: { block: "b", offset: 2 },
+    };
+    expect(names(queryMarkInfos(s, range))).toEqual(["a:em", "b:link"]);
+    // Endpoint order does not matter.
+    expect(
+      names(queryMarkInfos(s, { from: range.to, to: range.from })),
+    ).toEqual(["a:em", "b:link"]);
+    expect(names(queryMarkInfos(s, { from: "start", to: "end" }))).toEqual([
+      "a:strong",
+      "a:em",
+      "b:link",
+    ]);
+  });
+
+  it('"selection" reads the held range, or the caret when none is held', () => {
+    const held = withSelection(
+      marked(),
+      { blockIndex: 0, textIndex: 7 },
+      { blockIndex: 1, textIndex: 1 },
+    );
+    expect(names(queryMarkInfos(held, "selection"))).toEqual([
+      "a:em",
+      "b:link",
+    ]);
+    expect(
+      names(queryMarkInfos(withCursor(marked(), 1, 0), "selection")),
+    ).toEqual(["b:link"]);
+  });
+
+  it("an unresolvable target yields []", () => {
+    const s = marked();
+    expect(
+      queryMarkInfos(s, {
+        from: { block: "missing", offset: 0 },
+        to: { block: "a", offset: 3 },
+      }),
+    ).toEqual([]);
+    expect(queryMarkInfos(s, { block: "missing" })).toEqual([]);
+    // No caret at all.
+    expect(queryMarkInfos(s)).toEqual([]);
   });
 });
 

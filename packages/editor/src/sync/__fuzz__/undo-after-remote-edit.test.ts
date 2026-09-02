@@ -125,8 +125,7 @@ describe("undo after remote edit", () => {
     // 5. Verify: no bold span covers any of the originally bolded chars.
     const finalA = peerA.getState();
     const finalBlock = finalA.blocks.find((b) => b.id === blockId) as
-      | Paragraph
-      | undefined;
+      Paragraph | undefined;
     expect(finalBlock && isTextualBlock(finalBlock)).toBe(true);
     if (!finalBlock || !isTextualBlock(finalBlock)) return;
 

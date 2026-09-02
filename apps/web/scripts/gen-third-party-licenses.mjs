@@ -158,18 +158,68 @@ function licenseText(pkg) {
   return chunks.length ? chunks.join("\n\n") : null;
 }
 
+// Multi-licensed packages: the option Tasfer distributes them under. Printed
+// under the package heading so the choice is on record next to the notices.
+const LICENSE_CHOICES = {
+  "hunspell-wasm":
+    "Tri-licensed (LGPL-2.0 OR GPL-2.0 OR MPL-1.1); Tasfer distributes it under" +
+    " the GNU Lesser General Public License, version 2.0 or later.",
+};
+
+// Spelling dictionaries ship as public assets under public/app/spell/<lang>/,
+// not as npm packages, so the dependency walk never sees them. Each entry reads
+// its notice files from that directory.
+const SPELL_DICTIONARIES = [
+  {
+    heading: "SCOWL en_US Hunspell dictionary (public/app/spell/en)  (MIT AND BSD)",
+    dir: "en",
+    files: ["LICENSE.txt"],
+    note: null,
+  },
+  {
+    heading:
+      "Ayaspell 3.5 Arabic Hunspell dictionary (public/app/spell/ar)  (LGPL-2.1)",
+    dir: "ar",
+    files: ["LICENSE.txt", "AUTHORS.txt", "README.txt"],
+    note:
+      "Tri-licensed (GPL-2.0 OR LGPL-2.1 OR MPL-1.1); Tasfer distributes it" +
+      " under the GNU Lesser General Public License, version 2.1 or later.",
+  },
+];
+
+function readNotice(path) {
+  return readFileSync(path, "utf8")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t]+$/gm, "")
+    .trim();
+}
+
 function vendoredNotices() {
+  const notices = [];
   // KaTeX ships as vendored source inside @tasfer/tex (a devDependency there,
   // so it is invisible to a production dependency walk) but is bundled into the
   // app — pull its NOTICE in verbatim.
   const texNotice = join(repoRoot, "packages", "tex", "NOTICE");
-  if (!existsSync(texNotice)) return [];
-  return [
-    {
+  if (existsSync(texNotice)) {
+    notices.push({
       heading: "@tasfer/tex — bundled KaTeX material",
-      body: readFileSync(texNotice, "utf8").trim(),
-    },
-  ];
+      body: readNotice(texNotice),
+    });
+  }
+  for (const dict of SPELL_DICTIONARIES) {
+    const dir = join(webRoot, "public", "app", "spell", dict.dir);
+    const chunks = dict.files
+      .map((f) => join(dir, f))
+      .filter((path) => existsSync(path))
+      .map(readNotice)
+      .filter(Boolean);
+    if (chunks.length === 0) {
+      throw new Error(`missing dictionary notices under ${dir}`);
+    }
+    if (dict.note) chunks.unshift(dict.note);
+    notices.push({ heading: dict.heading, body: chunks.join("\n\n") });
+  }
+  return notices;
 }
 
 function build() {
@@ -209,6 +259,10 @@ function build() {
     lines.push(`${pkg.name}@${pkg.version}  (${pkg.license})`);
     lines.push(sep);
     lines.push("");
+    if (LICENSE_CHOICES[pkg.name]) {
+      lines.push(LICENSE_CHOICES[pkg.name]);
+      lines.push("");
+    }
     const text = licenseText(pkg);
     if (text) {
       withText++;

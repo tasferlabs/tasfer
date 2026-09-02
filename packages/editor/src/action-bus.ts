@@ -23,6 +23,7 @@
  */
 
 import type { ChangeApi } from "./entries/editor";
+import type { DocPoint } from "./positions";
 import type { EditorState, Operation } from "./state-types";
 
 /**
@@ -547,18 +548,29 @@ export const SCROLL = action<{
  * The editor wants a context menu shown — emitted on desktop right-click and on
  * touch long-press / cursor-hold. `x`/`y` are canvas coordinates (the host adds
  * its container rect to position the menu); `hasSelection` lets the host build
- * the item set without re-deriving it. The engine itself is headless about the
- * menu: a host observes this, renders its own menu, and returns `true` to claim
- * it. The engine itself tracks that a host menu is capturing the pointer (off
- * this action and {@link CLOSE_CONTEXT_MENU}) so the touch FSM routes the
- * subsequent drag/release to the menu (see {@link CONTEXT_MENU_POINTER_MOVE} /
- * {@link CONTEXT_MENU_RELEASE}) instead of scrolling/selecting — the host never
- * writes that flag, it just dispatches {@link CLOSE_CONTEXT_MENU} to dismiss.
+ * the item set without re-deriving it; `point` is the document point the menu
+ * is about — under the pointer for a right-click, the caret (or a held range's
+ * focus) for the keyboard chord and touch — when one resolved, so a host can
+ * read `query.block(point)` / `query.marks(point)` without a second hit test.
+ * Inside a structured attachment only the block is named (no flat offset); it
+ * is absent over a non-textual block with no caret. The engine itself is
+ * headless about the menu: a host observes this, renders its own menu, and
+ * returns `true` to claim it. The engine tracks that a host menu is capturing
+ * the pointer (off this action and {@link CLOSE_CONTEXT_MENU}) so the touch FSM
+ * routes the subsequent drag/release to the menu (see
+ * {@link CONTEXT_MENU_POINTER_MOVE} / {@link CONTEXT_MENU_RELEASE}) instead of
+ * scrolling/selecting — the host never writes that flag, it just dispatches
+ * {@link CLOSE_CONTEXT_MENU} to dismiss.
  */
 export const OPEN_CONTEXT_MENU = action<{
   x: number;
   y: number;
   hasSelection: boolean;
+  /**
+   * Document point under the pointer (or the caret for keyboard/touch opens),
+   * when one resolved.
+   */
+  point?: DocPoint;
 }>("open-context-menu");
 
 /**

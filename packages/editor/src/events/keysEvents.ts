@@ -47,6 +47,7 @@ import {
 import { CURSOR_MOVED } from "../actions/pointer-actions";
 import { isTextInputKey } from "../code-points";
 import { isApplePlatform } from "../platform";
+import { docSelectionFocus, toDocPoint } from "../positions";
 import {
   TOGGLE_CODE,
   TOGGLE_EMPHASIS,
@@ -1327,11 +1328,13 @@ export function handleContextMenu(
     // Headless: the engine doesn't own the menu — it signals the host, which
     // renders its own context menu. `x`/`y` are canvas coords; the host adds its
     // container rect. A ranged selection counts whichever model holds it: the
-    // flat block range or a nested structured range.
+    // flat block range or a nested structured range. `point` is what sits under
+    // the pointer — not the caret, which a held selection keeps where it was.
     state.actionBus.dispatch(OPEN_CONTEXT_MENU, {
       x: canvasX,
       y: canvasY,
       hasSelection: hasRangedSelection(state),
+      point: toDocPoint(state, position) ?? undefined,
     });
   }
 
@@ -1405,10 +1408,12 @@ export function openContextMenuAtCaret(
   };
 
   // Canvas coords, like the pointer path: document y minus the scroll offset.
+  // `point` is where the menu is anchored: the caret, or a held range's focus.
   state.actionBus.dispatch(OPEN_CONTEXT_MENU, {
     x: coords.x,
     y: coords.y - viewport.scrollY,
     hasSelection: hasRangedSelection(state),
+    point: docSelectionFocus(state) ?? undefined,
   });
 
   return state;

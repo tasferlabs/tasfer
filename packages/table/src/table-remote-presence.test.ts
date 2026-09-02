@@ -234,6 +234,15 @@ describe("a peer's caret in a cell", () => {
   });
 });
 
+/**
+ * A band is filled through the shared decoration painter, which rounds the
+ * corners only when the theme asks for a radius — `roundRect` then, a plain
+ * `fillRect` otherwise. Both take `(x, y, width, height, …)`.
+ */
+function isBandFill(call: { name: string }): boolean {
+  return call.name === "roundRect" || call.name === "fillRect";
+}
+
 describe("a peer's selection in a table", () => {
   it("bands the characters a peer covers inside one cell", () => {
     const state = stateOf();
@@ -248,7 +257,7 @@ describe("a peer's selection in a table", () => {
     );
 
     const cell = layoutOf(state).cells[2];
-    const band = painted.find((call) => call.name === "roundRect");
+    const band = painted.find(isBandFill);
     expect(band).toBeDefined();
     // Part of the cell, not the whole of it: three characters of "Apples".
     expect(band!.args[2]).toBeGreaterThan(0);
@@ -268,7 +277,7 @@ describe("a peer's selection in a table", () => {
     );
 
     const layout = layoutOf(state);
-    const bands = painted.filter((call) => call.name === "roundRect");
+    const bands = painted.filter(isBandFill);
     // Cells 2..4 of the grid, each filled edge to edge.
     expect(bands).toHaveLength(3);
     for (const [index, band] of bands.entries()) {

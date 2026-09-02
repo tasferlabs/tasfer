@@ -114,4 +114,3 @@ export { currentFontFamily, getFontMetrics, onFontsReady } from "./fonts";
 // own canvas chrome that must match the editor (e.g. reading `styles.cursor.color`
 // for a cursor it paints itself, the same color the on-canvas caret uses).
 export { getEditorStyles } from "./styles";
-
