@@ -8,8 +8,13 @@ import type {
   SpellTransport,
 } from "@tasfer/spell";
 import type { OwnPrefsStore } from "@/app/contexts/OwnPrefsContext";
-import { type DictionaryDescriptor, dictionaryUrls } from "./dictionaries";
+import {
+  type DictionaryDescriptor,
+  dictionaryUrls,
+  importedDescriptor,
+} from "./dictionaries";
 import { PersonalDictionary, SPELL_PREF_KEYS } from "./personalDictionary";
+import type { UserDictionaryStore } from "./userDictionaries";
 
 export type { DictionaryDescriptor } from "./dictionaries";
 
@@ -31,12 +36,21 @@ export interface SpellServiceDeps {
   prefs: OwnPrefsStore;
   wasmUrl: string;
   dictionaries: DictionaryDescriptor[];
+  /** Dictionaries imported on this device; omitted where there is no filesystem. */
+  imported?: UserDictionaryStore;
   /** Test hook; defaults to the Vite module worker `./spell.worker.ts`. */
   createWorker?: () => Worker;
   /** Test hook; defaults to `fetch` — always on the main thread, never in the worker. */
   fetchBytes?: (url: string) => Promise<ArrayBuffer>;
   /** Test hook; idle time before the worker is stopped (default 10 minutes). */
   idleMs?: number;
+  /**
+   * Languages checked before anyone opens Settings. The host passes the ones
+   * this person actually reads (see `preferredLanguages`); the fallback is
+   * English alone, never a fixed pair — someone who writes only Portuguese
+   * should not find another language's dictionary switched on for them.
+   */
+  defaultLanguages?: readonly string[];
 }
 
 type CheckRequest = Omit<
@@ -58,7 +72,7 @@ type Pending =
       reject: (e: Error) => void;
     };
 
-const DEFAULT_LANGUAGES = ["en", "ar"];
+const FALLBACK_LANGUAGES = ["en"];
 const DEFAULT_IDLE_MS = 10 * 60 * 1000;
 const SUGGEST_CACHE_SIZE = 500;
 
@@ -98,6 +112,16 @@ function defaultFetchBytes(url: string): Promise<ArrayBuffer> {
   });
 }
 
+/**
+ * A transferable copy of `bytes`. Views handed out by a filesystem driver may
+ * sit inside a larger buffer; transferring that would take the neighbours too.
+ */
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
+    ? (bytes.buffer as ArrayBuffer)
+    : (bytes.slice().buffer as ArrayBuffer);
+}
+
 function defaultCreateWorker(): Worker {
   return new Worker(new URL("./spell.worker.ts", import.meta.url), {
     type: "module",
@@ -120,10 +144,12 @@ function defaultCreateWorker(): Worker {
 export class SpellService {
   private readonly prefs: OwnPrefsStore;
   private readonly wasmUrl: string;
-  private readonly dictionaries: DictionaryDescriptor[];
+  private readonly bundled: DictionaryDescriptor[];
+  private readonly importedStore: UserDictionaryStore | null;
   private readonly createWorker: () => Worker;
   private readonly fetchBytes: (url: string) => Promise<ArrayBuffer>;
   private readonly idleMs: number;
+  private readonly defaultLanguages: readonly string[];
   readonly personal: PersonalDictionary;
 
   private worker: Worker | null = null;
@@ -147,15 +173,24 @@ export class SpellService {
   private active = false;
   private unsubPrefs: (() => void) | null = null;
   private unsubPersonal: (() => void) | null = null;
+  private unsubImported: (() => void) | null = null;
   private lastSettings = "";
+  /** `!word` entries from imported word lists: flagged even when a dictionary knows them. */
+  private importedForbidden = new Map<string, readonly string[]>();
 
   constructor(deps: SpellServiceDeps) {
     this.prefs = deps.prefs;
     this.wasmUrl = deps.wasmUrl;
-    this.dictionaries = deps.dictionaries;
+    this.bundled = deps.dictionaries;
+    this.importedStore = deps.imported ?? null;
     this.createWorker = deps.createWorker ?? defaultCreateWorker;
     this.fetchBytes = deps.fetchBytes ?? defaultFetchBytes;
     this.idleMs = deps.idleMs ?? DEFAULT_IDLE_MS;
+    const defaults = (deps.defaultLanguages ?? FALLBACK_LANGUAGES).filter((l) =>
+      deps.dictionaries.some((d) => d.id === l),
+    );
+    this.defaultLanguages =
+      defaults.length > 0 ? defaults : [...FALLBACK_LANGUAGES];
     this.personal = new PersonalDictionary(deps.prefs);
   }
 
@@ -173,14 +208,18 @@ export class SpellService {
       this.invalidateAll([...diff.added, ...diff.removed]);
       this.emit();
     });
+    this.unsubImported =
+      this.importedStore?.subscribe(() => this.onImportedChange()) ?? null;
   }
 
   /** Stop the worker and detach from the stores. Reversible: the next call re-activates. */
   dispose(): void {
     this.unsubPrefs?.();
     this.unsubPersonal?.();
+    this.unsubImported?.();
     this.unsubPrefs = null;
     this.unsubPersonal = null;
+    this.unsubImported = null;
     this.active = false;
     this.stopWorker();
   }
@@ -195,11 +234,11 @@ export class SpellService {
   languages(): string[] {
     const raw = this.prefs.get<unknown>(
       SPELL_PREF_KEYS.languages,
-      DEFAULT_LANGUAGES,
+      this.defaultLanguages,
     );
     return Array.isArray(raw)
       ? raw.filter((l): l is string => typeof l === "string")
-      : [...DEFAULT_LANGUAGES];
+      : [...this.defaultLanguages];
   }
 
   lenientArabic(): boolean {
@@ -223,8 +262,24 @@ export class SpellService {
     this.prefs.set(SPELL_PREF_KEYS.enabled, on);
   }
 
+  /** Bundled dictionaries plus every one imported on this device. */
   availableDictionaries(): readonly DictionaryDescriptor[] {
-    return this.dictionaries;
+    return [...this.bundled, ...this.importedDictionaries()];
+  }
+
+  /** Bundled dictionaries only — the language checkboxes in Settings. */
+  bundledDictionaries(): readonly DictionaryDescriptor[] {
+    return this.bundled;
+  }
+
+  /** Dictionaries added on this device, in import order. */
+  importedDictionaries(): DictionaryDescriptor[] {
+    return (this.importedStore?.list() ?? []).map(importedDescriptor);
+  }
+
+  /** The store behind {@link importedDictionaries}, or null on a device without one. */
+  get imported(): UserDictionaryStore | null {
+    return this.importedStore;
   }
 
   async enableLanguage(lang: string): Promise<void> {
@@ -261,7 +316,7 @@ export class SpellService {
     const existing = this.dictLoads.get(lang);
     if (existing) return existing;
     if (this.status(lang) === "ready") return Promise.resolve();
-    const descriptor = this.dictionaries.find((d) => d.id === lang);
+    const descriptor = this.descriptor(lang);
     if (!descriptor) {
       return Promise.reject(new Error(`spell: unknown dictionary ${lang}`));
     }
@@ -275,15 +330,14 @@ export class SpellService {
     load = (async () => {
       this.setStatus(lang, "downloading");
       try {
-        const urls = dictionaryUrls(descriptor);
-        const [, aff, dic] = await Promise.all([
+        const [, bytes] = await Promise.all([
           readyPromise,
-          this.fetchBytes(urls.aff),
-          this.fetchBytes(urls.dic),
+          this.dictionaryBytes(descriptor),
         ]);
         if (this.generation !== generation) {
           throw new Error("spell: worker restarted");
         }
+        const { aff, dic } = bytes;
         const source: DictionarySource = { kind: "bytes", aff, dic };
         await this.request(
           { type: "loadDictionary", lang, script: descriptor.script, source },
@@ -332,15 +386,96 @@ export class SpellService {
     this.emit();
   }
 
-  /** The first enabled dictionary of `script` that is not loaded (nor failed), if any. */
+  /**
+   * The first dictionary of `script` that is wanted but not loaded (nor
+   * failed), if any. A bundled one is wanted when its language is ticked; an
+   * imported one always is — adding it on this device is the opt-in, and the
+   * `spell.languages` pref is synced to devices that do not have the files.
+   */
   private loadableFor(script: Script): DictionaryDescriptor | undefined {
     const enabled = this.languages();
-    return this.dictionaries.find(
+    return this.availableDictionaries().find(
       (d) =>
         d.script === script &&
-        enabled.includes(d.id) &&
+        (d.source.kind === "imported" || enabled.includes(d.id)) &&
         this.status(d.id) === "missing",
     );
+  }
+
+  private descriptor(id: string): DictionaryDescriptor | undefined {
+    return this.availableDictionaries().find((d) => d.id === id);
+  }
+
+  /**
+   * Read a dictionary's bytes on the main thread: bundled ones over `fetch`
+   * (the service worker's CacheFirst route answers after the first time),
+   * imported ones off the device's filesystem. Both are transferred to the
+   * worker, so nothing here is kept.
+   */
+  private async dictionaryBytes(
+    d: DictionaryDescriptor,
+  ): Promise<{ aff: ArrayBuffer; dic: ArrayBuffer }> {
+    if (d.source.kind === "bundled") {
+      const urls = dictionaryUrls(d);
+      const [aff, dic] = await Promise.all([
+        this.fetchBytes(urls.aff),
+        this.fetchBytes(urls.dic),
+      ]);
+      return { aff, dic };
+    }
+    const files = await this.importedStore?.read(d.id);
+    if (!files) throw new Error(`spell: ${d.id} has no files on this device`);
+    const before = this.importedForbidden.get(d.id);
+    if (files.forbidden.length > 0 || before) {
+      this.importedForbidden.set(d.id, files.forbidden);
+      if (this.worker) this.pushUserWords();
+    }
+    return { aff: toArrayBuffer(files.aff), dic: toArrayBuffer(files.dic) };
+  }
+
+  /**
+   * A dictionary was imported or removed here. Removals unload at once;
+   * additions load on the next check (or now, if a worker is already up).
+   */
+  private onImportedChange(): void {
+    const live = new Set(this.importedDictionaries().map((d) => d.id));
+    for (const id of [...this.dictStatus.keys()]) {
+      if (!this.bundled.some((d) => d.id === id) && !live.has(id)) {
+        this.unload(id);
+        this.importedForbidden.delete(id);
+        if (this.worker) this.pushUserWords();
+      }
+    }
+    if (this.worker) {
+      for (const d of this.importedDictionaries()) {
+        if (this.status(d.id) === "missing" && !this.dictLoads.has(d.id)) {
+          void this.ensureLoaded(d.id);
+        }
+      }
+    }
+    this.suggestCache.clear();
+    this.invalidateAll();
+    this.emit();
+  }
+
+  /**
+   * Drop a bundled dictionary's cached bytes so the space goes back to the
+   * device. It stays available: ticking the language again re-downloads it.
+   */
+  async removeFromDevice(lang: string): Promise<void> {
+    this.activate();
+    await this.disableLanguage(lang);
+    const descriptor = this.bundled.find((d) => d.id === lang);
+    if (!descriptor || descriptor.source.kind !== "bundled") return;
+    if (typeof caches === "undefined") return;
+    const urls = dictionaryUrls(descriptor);
+    const wanted = [urls.aff, urls.dic, ...urls.extras];
+    for (const name of await caches.keys()) {
+      if (!name.includes("spell-dictionaries")) continue;
+      const cache = await caches.open(name);
+      for (const url of wanted) await cache.delete(url, { ignoreSearch: true });
+    }
+    this.emit();
   }
 
   // --------------------------------------------------------------- transports
@@ -498,6 +633,12 @@ export class SpellService {
         throw new Error("spell: worker restarted");
       }
       this.pushUserWords();
+      // Imported dictionaries load up front, unlike the bundled ones: a check
+      // only reports a script as deferred while NO dictionary of that script
+      // is loaded, so an extra Latin dictionary would never be asked for once
+      // English is up — and its words would be flagged until it was. The bytes
+      // are already on the device, so there is nothing to wait for.
+      for (const d of this.importedDictionaries()) void this.ensureLoaded(d.id);
     })();
     init.catch((err) => {
       if (this.generation === generation) {
@@ -530,11 +671,14 @@ export class SpellService {
   }
 
   private pushUserWords(): void {
+    const forbidden = new Set(this.personal.forbidden());
+    for (const words of this.importedForbidden.values())
+      for (const w of words) forbidden.add(w);
     this.post({
       type: "setUserWords",
       id: this.nextId++,
       words: this.personal.words(),
-      forbidden: this.personal.forbidden(),
+      forbidden: [...forbidden],
     });
   }
 

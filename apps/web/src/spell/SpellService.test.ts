@@ -8,6 +8,10 @@ import {
   flush,
 } from "./testUtils";
 import type { DictionaryDescriptor } from "./dictionaries";
+import type {
+  ImportedDictionary,
+  UserDictionaryStore,
+} from "./userDictionaries";
 
 vi.mock("@tasfer/spell", async () => (await import("./testUtils")).spellMock);
 
@@ -19,7 +23,6 @@ const DICTS: DictionaryDescriptor[] = [
     id: "en",
     lang: "en",
     script: "latn",
-    labelKey: "spelling.dictionary.en",
     sizeBytes: 10,
     wireSizeBytes: 5,
     license: "MIT AND BSD",
@@ -33,7 +36,6 @@ const DICTS: DictionaryDescriptor[] = [
     id: "ar",
     lang: "ar",
     script: "arab",
-    labelKey: "spelling.dictionary.ar",
     sizeBytes: 10,
     wireSizeBytes: 5,
     license: "LGPL-2.1",
@@ -53,7 +55,57 @@ const OPTIONS: CheckOptions = {
 const editorA = { id: "A" } as unknown as Editor;
 const editorB = { id: "B" } as unknown as Editor;
 
-function setup(workerOpts: FakeWorkerOptions = {}, idleMs?: number) {
+/**
+ * Stand-in for the imported-dictionary store: descriptors in memory and one
+ * set of bytes for every id, so the service's file path is exercised without a
+ * filesystem.
+ */
+function fakeImported(
+  entries: ImportedDictionary[] = [],
+  forbidden: string[] = [],
+) {
+  const listeners = new Set<() => void>();
+  let list = [...entries];
+  return {
+    list: () => list,
+    read: async (id: string) =>
+      list.some((d) => d.id === id)
+        ? {
+            aff: new Uint8Array([1, 2, 3]),
+            dic: new Uint8Array([4, 5]),
+            forbidden,
+          }
+        : null,
+    subscribe: (cb: () => void) => {
+      listeners.add(cb);
+      return () => listeners.delete(cb);
+    },
+    /** Test-only: drop a dictionary the way `remove()` would. */
+    drop(id: string) {
+      list = list.filter((d) => d.id !== id);
+      for (const l of listeners) l();
+    },
+  };
+}
+
+const importedEntry = (
+  over: Partial<ImportedDictionary> = {},
+): ImportedDictionary => ({
+  id: "u_1",
+  label: "Work terms",
+  lang: "en",
+  script: "latn",
+  kind: "pair",
+  bytes: 5,
+  importedAt: 0,
+  ...over,
+});
+
+function setup(
+  workerOpts: FakeWorkerOptions = {},
+  idleMs?: number,
+  imported?: ReturnType<typeof fakeImported>,
+) {
   const store = new FakeOwnPrefsStore();
   const workers: FakeWorker[] = [];
   const fetched: string[] = [];
@@ -61,6 +113,10 @@ function setup(workerOpts: FakeWorkerOptions = {}, idleMs?: number) {
     prefs: store.asStore(),
     wasmUrl: "/app/spell/hunspell.wasm",
     dictionaries: DICTS,
+    // Spelled out rather than left to the service: the defaults now follow
+    // the device's own locales, so a fixture must say which it starts with.
+    defaultLanguages: ["en", "ar"],
+    imported: imported as unknown as UserDictionaryStore | undefined,
     idleMs,
     createWorker: () => {
       const w = new FakeWorker(workerOpts);
@@ -72,7 +128,14 @@ function setup(workerOpts: FakeWorkerOptions = {}, idleMs?: number) {
       return new ArrayBuffer(url.length);
     },
   });
-  return { store, service, workers, fetched, worker: () => workers.at(-1)! };
+  return {
+    store,
+    service,
+    workers,
+    fetched,
+    imported,
+    worker: () => workers.at(-1)!,
+  };
 }
 
 const block = (id: string, version: number, text = "hello") => ({
@@ -388,6 +451,108 @@ describe("SpellService", () => {
     service.reportFlagCount("doc1", 0);
     expect(service.flagCount("doc1")).toBe(0);
     expect(notified).toBe(2);
+  });
+
+  it("loads a dictionary imported here from its own bytes, with no language ticked", async () => {
+    const deferLatin: FakeWorkerOptions = {
+      onCheck: (req) =>
+        req.blocks.map((b) => ({
+          blockId: b.blockId,
+          version: b.version,
+          flags: [],
+          deferredScripts: ["latn" as const],
+        })),
+    };
+    const imported = fakeImported([importedEntry()]);
+    const { store, service, worker, fetched } = setup(
+      deferLatin,
+      undefined,
+      imported,
+    );
+    // Nothing is ticked: an imported dictionary is opted into by existing.
+    store.set(SPELL_PREF_KEYS.languages, []);
+
+    const transport = service.transportFor(editorA, "doc1");
+    await transport.check({
+      docId: "doc1",
+      blocks: [block("b1", 1)],
+      options: OPTIONS,
+      priority: "initial",
+    });
+    await flush(20);
+
+    expect(fetched).toEqual(["/app/spell/hunspell.wasm"]);
+    expect(worker().of("loadDictionary")).toMatchObject([
+      { lang: "u_1", script: "latn", source: { kind: "bytes" } },
+    ]);
+    expect(service.status("u_1")).toBe("ready");
+    expect(service.importedDictionaries()).toMatchObject([
+      { id: "u_1", label: "Work terms", source: { kind: "imported" } },
+    ]);
+  });
+
+  it("unloads an imported dictionary as soon as it is removed here", async () => {
+    const imported = fakeImported([importedEntry()]);
+    const { service, worker } = setup(
+      {
+        onCheck: (req) =>
+          req.blocks.map((b) => ({
+            blockId: b.blockId,
+            version: b.version,
+            flags: [],
+            deferredScripts: ["latn" as const],
+          })),
+      },
+      undefined,
+      imported,
+    );
+    const transport = service.transportFor(editorA, "doc1");
+    await transport.check({
+      docId: "doc1",
+      blocks: [block("b1", 1)],
+      options: OPTIONS,
+      priority: "initial",
+    });
+    await flush(20);
+    expect(service.status("u_1")).toBe("ready");
+
+    imported.drop("u_1");
+    await flush();
+    expect(worker().of("unloadDictionary")).toMatchObject([{ lang: "u_1" }]);
+    expect(service.status("u_1")).toBe("missing");
+    expect(service.importedDictionaries()).toEqual([]);
+  });
+
+  it("keeps flagging the words an imported list forbids", async () => {
+    const imported = fakeImported(
+      [importedEntry({ id: "u_2", kind: "list" })],
+      ["definately"],
+    );
+    const { service, worker } = setup(
+      {
+        onCheck: (req) =>
+          req.blocks.map((b) => ({
+            blockId: b.blockId,
+            version: b.version,
+            flags: [],
+            deferredScripts: ["latn" as const],
+          })),
+      },
+      undefined,
+      imported,
+    );
+    const transport = service.transportFor(editorA, "doc1");
+    await transport.check({
+      docId: "doc1",
+      blocks: [block("b1", 1)],
+      options: OPTIONS,
+      priority: "initial",
+    });
+    await flush(20);
+
+    expect(worker().of("setUserWords").at(-1)).toMatchObject({
+      forbidden: ["definately"],
+    });
   });
 
   it("dispose stops the worker and is reversible", async () => {

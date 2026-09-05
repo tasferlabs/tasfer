@@ -14,11 +14,14 @@
  * reads them.
  */
 
+import { AFF_SET_LINE_RE, charsetLabel, decoderFor } from "../charset";
 import type {
   CreateEngineOptions,
   SpellEngine,
   SpellEngineFactory,
 } from "../engine";
+
+export { charsetLabel } from "../charset";
 import { Hunspell } from "hunspell-wasm";
 import createModuleUntyped from "hunspell-wasm/wasm/hunspell.js";
 
@@ -141,36 +144,7 @@ export function createHunspellFactory(
 // Transcoding
 // ---------------------------------------------------------------------------
 
-const SET_LINE_RE = /^[ \t]*SET[ \t]+(\S+)[^\r\n]*/m;
-
-/**
- * Hunspell's `SET` value → a `TextDecoder` label. Hunspell names follow the
- * `ISO8859-N`, `microsoft-cp125N` conventions; WHATWG wants `iso-8859-N`,
- * `windows-125N`.
- */
-export function charsetLabel(hunspellCharset: string): string {
-  const cs = hunspellCharset.trim().toLowerCase();
-  if (cs === "utf-8" || cs === "utf8") return "utf-8";
-  if (cs === "iso8859-1" || cs === "iso-8859-1" || cs === "latin1")
-    return "latin1";
-  const iso = /^iso-?8859-(\d{1,2})$/.exec(cs);
-  if (iso) return `iso-8859-${iso[1]}`;
-  const cp = /^(?:microsoft-)?cp(\d{3,4})$/.exec(cs);
-  if (cp) return `windows-${cp[1]}`;
-  const win = /^windows-?(\d{3,4})$/.exec(cs);
-  if (win) return `windows-${win[1]}`;
-  if (cs === "tis620-2533" || cs === "tis-620") return "windows-874";
-  return cs; // koi8-r, koi8-u, … are already valid labels
-}
-
-function decoderFor(label: string): TextDecoder {
-  try {
-    return new TextDecoder(label);
-  } catch {
-    // Unknown encoding (e.g. ISCII-DEVANAGARI): best effort as UTF-8.
-    return new TextDecoder("utf-8");
-  }
-}
+const SET_LINE_RE = AFF_SET_LINE_RE;
 
 /**
  * Hunspell treats the first line of a `.dic` as the entry count and skips it,
@@ -205,8 +179,7 @@ export function transcodeDictionary(
   const head = new TextDecoder("latin1").decode(
     affBytes.subarray(0, Math.min(affBytes.length, 65536)),
   );
-  const declared = SET_LINE_RE.exec(head)?.[1] ?? "UTF-8";
-  const label = charsetLabel(declared);
+  const label = charsetLabel(SET_LINE_RE.exec(head)?.[1] ?? "UTF-8");
   const decoder = decoderFor(label);
   let aff = stripBom(decoder.decode(affBytes));
   const dic = stripBom(decoder.decode(dicBytes));

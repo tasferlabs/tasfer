@@ -128,6 +128,11 @@ class IpcCryptoDriver implements CryptoDriver {
 // Create Electron Driver
 // =============================================================================
 
+/** The renderer's filesystem alone, for callers that need files but no engine. */
+export function createElectronFsDriver(): FsDriver {
+  return new IpcFsDriver(getBridge());
+}
+
 export function createElectronDriver(signalUrl: string): Driver {
   const bridge = getBridge();
   return {

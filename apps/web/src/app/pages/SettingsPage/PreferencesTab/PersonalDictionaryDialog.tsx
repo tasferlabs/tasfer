@@ -14,20 +14,31 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { downloadFile } from "@/downloadFile";
 import type { SpellService } from "@/spell/SpellService";
+import {
+  type ImportBytes,
+  PERSONAL_LIST_CAP,
+  wordListSize,
+} from "@/spell/userDictionaries";
 import { useSpellServiceTick } from "./SpellingSettings";
 
 /**
  * The person's own word list: search, add (Enter), remove per row, and a
  * plain-text import/export (one word per line, `#` comments, `!word` forbids).
+ *
+ * This list is one own-prefs key per word and syncs to every device, so a big
+ * import belongs elsewhere: a file over {@link PERSONAL_LIST_CAP} words is
+ * handed to `onTooManyWords`, which offers it as a device-local dictionary.
  */
 export function PersonalDictionaryDialog({
   service,
   open,
   onOpenChange,
+  onTooManyWords,
 }: {
   service: SpellService;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onTooManyWords?: (list: ImportBytes) => void;
 }) {
   const { t, i18n } = useTranslation();
   useSpellServiceTick(service);
@@ -57,7 +68,20 @@ export function PersonalDictionaryDialog({
   };
 
   const importFile = async (file: File) => {
-    const text = await file.text();
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const text = new TextDecoder("utf-8").decode(bytes);
+    const size = wordListSize(text);
+    if (size > PERSONAL_LIST_CAP && onTooManyWords) {
+      setNotice(
+        t(
+          "settings.spelling.dictionaryDialog.tooManyWords",
+          "That list has {{words}} words — more than the {{max}} this synced list holds. Adding it as a dictionary on this device instead.",
+          { words: size, max: PERSONAL_LIST_CAP },
+        ),
+      );
+      onTooManyWords({ name: file.name, bytes });
+      return;
+    }
     const result: unknown = await Promise.resolve(service.importWords(text));
     const added =
       result && typeof result === "object" && "added" in result

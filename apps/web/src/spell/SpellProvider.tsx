@@ -1,7 +1,28 @@
 import { createContext, useContext, useEffect, useMemo } from "react";
 import { useOwnPref, useOwnPrefsStore } from "@/app/contexts/OwnPrefsContext";
-import { BUNDLED_DICTIONARIES, SPELL_WASM_URL } from "./dictionaries";
+import { localFs } from "@/platform/localFs";
+import type { FsDriver } from "@/platform/driver";
+import {
+  BUNDLED_DICTIONARIES,
+  preferredLanguages,
+  SPELL_WASM_URL,
+} from "./dictionaries";
 import { SpellService } from "./SpellService";
+import { UserDictionaryStore } from "./userDictionaries";
+
+/**
+ * The imported-dictionary store reads files lazily, so it can be built around
+ * a driver that is still resolving: every call awaits the same promise.
+ */
+function lazyFs(): FsDriver {
+  return {
+    read: (path) => localFs().then((fs) => fs.read(path)),
+    write: (path, data) => localFs().then((fs) => fs.write(path, data)),
+    delete: (path) => localFs().then((fs) => fs.delete(path)),
+    list: (dir) => localFs().then((fs) => fs.list(dir)),
+    exists: (path) => localFs().then((fs) => fs.exists(path)),
+  };
+}
 
 const SpellContext = createContext<SpellService | null>(null);
 
@@ -19,6 +40,11 @@ export function SpellProvider({ children }: { children: React.ReactNode }) {
             prefs,
             wasmUrl: SPELL_WASM_URL,
             dictionaries: BUNDLED_DICTIONARIES,
+            defaultLanguages: preferredLanguages(
+              typeof navigator === "undefined" ? [] : navigator.languages,
+              BUNDLED_DICTIONARIES,
+            ),
+            imported: new UserDictionaryStore(lazyFs()),
           })
         : null,
     [prefs],

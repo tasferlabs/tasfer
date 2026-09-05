@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   BUNDLED_DICTIONARIES,
+  dictionaryEndonym,
   dictionaryUrls,
+  makeDictionaryNamer,
+  preferredLanguages,
   SPELL_WASM_URL,
 } from "./dictionaries";
 
@@ -32,8 +35,57 @@ describe("bundled dictionaries", () => {
     for (const d of BUNDLED_DICTIONARIES) {
       expect(d.lang).toBe(d.id);
       expect(d.sizeBytes).toBeGreaterThan(0);
-      expect(d.labelKey).toMatch(/^spelling\./);
       expect(d.source.kind).toBe("bundled");
     }
+  });
+});
+
+describe("preferredLanguages", () => {
+  const catalog = BUNDLED_DICTIONARIES;
+
+  it("picks the languages the device says it reads, in that order", () => {
+    expect(preferredLanguages(["ar-EG", "en-GB"], catalog)).toEqual([
+      "ar",
+      "en",
+    ]);
+  });
+
+  it("falls back from a region to the base language and never repeats one", () => {
+    expect(preferredLanguages(["en-US", "en-AU", "en"], catalog)).toEqual([
+      "en",
+    ]);
+  });
+
+  it("ignores locales the catalog has no dictionary for", () => {
+    expect(preferredLanguages(["pt-BR", "ja", "  "], catalog)).toEqual([]);
+  });
+});
+
+describe("dictionary names", () => {
+  it("names a bundled dictionary in the interface language", () => {
+    const nameOf = makeDictionaryNamer("en");
+    const ar = BUNDLED_DICTIONARIES.find((d) => d.id === "ar")!;
+    expect(nameOf(ar)).toBe("Arabic");
+  });
+
+  it("shows a language's own name only when it differs from the interface one", () => {
+    const ar = BUNDLED_DICTIONARIES.find((d) => d.id === "ar")!;
+    expect(dictionaryEndonym(ar, "en")).toBe("العربية");
+    expect(dictionaryEndonym(ar, "ar")).toBeNull();
+  });
+
+  it("shows an imported dictionary under the name that was typed for it", () => {
+    const nameOf = makeDictionaryNamer("en");
+    const imported = {
+      id: "team-terms",
+      lang: "en",
+      script: "latn" as const,
+      label: "Team terms",
+      sizeBytes: 120,
+      wireSizeBytes: 0,
+      source: { kind: "imported" as const, format: "list" as const },
+    };
+    expect(nameOf(imported)).toBe("Team terms");
+    expect(dictionaryEndonym(imported, "en")).toBeNull();
   });
 });

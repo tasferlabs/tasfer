@@ -2,7 +2,7 @@
 
 Spellcheck ships as an opt-in, React-free package (`packages/spell`, `@tasfer/spell`) that talks to the editor only through the public `@tasfer/editor` root, plus host code in `apps/web/src/spell/`. Real Hunspell 1.7 compiled to WebAssembly checks every language (English and Arabic now) inside one dedicated module Worker per app. The core gains three small generic additions: an underline `style` on `RangeDecoration` painted per line and per bidi run through an exported `paintDecorationRects`, an internal per-block decoration index so `TextNode.paint` stops walking every decoration for every visible block, and a `DocRange` form of `query.marks`. Squiggles are anchored as CRDT char-id points, so they ride along concurrent edits and vanish the instant their word is edited; the word under the caret is hidden while typing and shown after a boundary keystroke or 500 ms idle. Fixing is one gesture everywhere: right-click or long-press adds suggestions to the existing host context menu, Cmd/Ctrl+. is fix-or-next on desktop, and on phones tapping a red word docks a suggestion strip above the keyboard. The personal dictionary is one synced `own_prefs` key per word, dictionaries are lazy-loaded and cached, and imported Hunspell pairs live per device through the existing `FsDriver`. There is no local LLM and no next-word prediction in this design.
 
-**Status (2026-09-02):** phases P0a, P0b, P1, P2 and P3 are implemented in the working tree (uncommitted, pending review); measurements so far are in [spellcheck-measurements.md](./spellcheck-measurements.md). P4 to P7 are later work. The sidebar shortcut moved from Cmd/Ctrl+. to Cmd/Ctrl+; to free the period chord for spelling.
+**Status (2026-09-03):** phases P0a, P0b, P1, P2 and P3 are implemented and committed (`aff39d0e`); measurements are in [spellcheck-measurements.md](./spellcheck-measurements.md). P4 is under way: dictionary import (Hunspell pairs and `.txt` lists through the platform `FsDriver`), the import cap routing, "Remove from this device" and the Settings surface for both are in the working tree. Still open in P4: the `ar/supplement.dic.txt` accept-list, the per-page ignored-words UI in PageSettings, touch idle disposal of the Arabic engine, and long-token suggest-skip tuning. P5 to P7 are later work. The sidebar shortcut moved from Cmd/Ctrl+. to Cmd/Ctrl+; to free the period chord for spelling.
 
 **Line numbers:** every `file:line` reference in this document was verified against the working tree at commit `ab72b7cc` unless a different commit is named next to it. Files are being edited concurrently, so treat line numbers as "where to look", not as exact addresses.
 
@@ -768,7 +768,7 @@ export class PersonalDictionary {
 }
 ```
 
-#### `documentIgnores.ts` and `userDictionaries.ts` (the latter is P4)
+#### `documentIgnores.ts` and `userDictionaries.ts` (the latter landed in P4)
 
 Per-device state: the per-page ignore list in localStorage (`tasfer.spell.ignored.<pageId>`, cap 200) via the existing `useLocalStorage` hook; imported dictionary files through `FsDriver` under `spell/dicts/<id>/` with descriptors in `localStorage["tasfer.spell.dicts"]`. Validation: `.dic` first line is an integer count, `.aff` has `SET`; language and script inferred from `LANG` or the first 200 words, editable.
 
@@ -780,12 +780,18 @@ export function useDocumentIgnores(pageId: string): {
   clear(): void;
 };
 
-export class UserDictionaryStore { // P4
-  constructor(fs: FsDriver);
-  list(): DictionaryDescriptor[];
-  importPair(aff: File, dic: File, meta: { label: string; lang: string; script: Script }): Promise<DictionaryDescriptor>;
-  importList(txt: File, meta: { label: string; script: Script }): Promise<DictionaryDescriptor>;
-  read(id: string): Promise<{ aff: Uint8Array; dic: Uint8Array }>;
+// As built in P4. Files arrive as `{ name, bytes }` rather than `File` so the
+// store is testable off the DOM; the caller reads the File. `read` converts a
+// word list to a `.dic` on every read and reports its `!word` entries, which
+// the service folds into `setUserWords.forbidden`.
+export class UserDictionaryStore {
+  constructor(fs: FsDriver, storage?: KeyValueStorage | null);
+  list(): ImportedDictionary[];
+  get(id: string): ImportedDictionary | undefined;
+  importPair(aff: ImportBytes, dic: ImportBytes, meta?: Partial<Pick<ImportedDictionary, "label" | "lang" | "script">>): Promise<ImportedDictionary>;
+  importList(list: ImportBytes, meta?: Partial<Pick<ImportedDictionary, "label" | "lang" | "script">>): Promise<ImportedDictionary>;
+  read(id: string): Promise<{ aff: Uint8Array; dic: Uint8Array; forbidden: readonly string[] } | null>;
+  update(id: string, patch: Partial<Pick<ImportedDictionary, "label" | "lang" | "script">>): void;
   remove(id: string): Promise<void>;
   subscribe(cb: () => void): () => void;
 }

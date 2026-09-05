@@ -26,7 +26,7 @@ npm install @tasfer/spell @tasfer/editor
 
 | Import                   | Runs on     | What it gives you                                                                                                                                                               |
 | ------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@tasfer/spell`          | main thread | `SpellChecker`, the main↔worker protocol types, tokenizer (`tokenize`, `wordAt`), script helpers (`scriptOf`, `normalizeForLookup`), `wordListToDic`, the `REPLACE_WORD` action |
+| `@tasfer/spell`          | main thread | `SpellChecker`, the main↔worker protocol types, tokenizer (`tokenize`, `wordAt`), script helpers (`scriptOf`, `normalizeForLookup`), `wordListToDic`, charset helpers (`charsetLabel`, `declaredCharset`), the `REPLACE_WORD` action |
 | `@tasfer/spell/worker`   | worker      | `createWorkerHost(post, factory, fetchBytes?)` — engines, personal dictionary, the sliced check queue and suggestions behind a message handler                                  |
 | `@tasfer/spell/hunspell` | worker      | `createHunspellFactory({ wasm, fetchBytes? })` — a `SpellEngineFactory` over Hunspell-in-WASM                                                                                   |
 

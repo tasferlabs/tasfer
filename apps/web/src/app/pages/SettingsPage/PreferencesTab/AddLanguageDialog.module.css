@@ -1,0 +1,100 @@
+.searchWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.searchIcon {
+  position: absolute;
+  inset-inline-start: 0.625rem;
+  width: 1rem;
+  height: 1rem;
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+
+.search {
+  padding-inline-start: 2rem;
+}
+
+/* A fixed viewport so the dialog is the same height whatever the search
+   matches — a box that resizes under the cursor as you type is hard to aim at. */
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  height: 18rem;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.row {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: none;
+  border: 0;
+  text-align: start;
+  cursor: pointer;
+  color: var(--foreground);
+}
+
+.row:hover,
+.row:focus-visible {
+  background: var(--accent);
+}
+
+.rowText {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.125rem 0.5rem;
+}
+
+.name {
+  font-size: 0.875rem;
+}
+
+.endonym {
+  font-size: 0.875rem;
+  color: var(--muted-foreground);
+}
+
+/* What adding it will cost, next to the name: the catalog runs from a few
+   tens of KB to tens of MB, which is worth knowing before you tick it. */
+.size {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.check {
+  flex-shrink: 0;
+  width: 1rem;
+  height: 1rem;
+  color: var(--primary);
+  align-self: center;
+}
+
+.empty {
+  height: 18rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+  margin: 0;
+  padding: 0 1.5rem;
+}
+
+.footer {
+  justify-content: space-between;
+}
