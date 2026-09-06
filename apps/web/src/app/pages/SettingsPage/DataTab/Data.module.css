@@ -23,3 +23,13 @@
     width: 100%;
   }
 }
+
+/* Once the pane is within a hair of the page container's own width the gutters
+   are gone and its 1rem of padding is all that is left, so holding the tab at a
+   reading width would strand it against the start edge with the rest of the row
+   empty. See `.scrollHost` in SettingsPage.module.css. */
+@container settings (max-width: 1232px) {
+  .container {
+    max-width: none;
+  }
+}
