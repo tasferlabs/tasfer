@@ -63,6 +63,22 @@ export const OWN_PREF_KEYS = {
    * megabyte of base64 here would cross the wire on every reconnection.
    */
   spellDictPrefix: "spell.dict.",
+  /**
+   * The Date & Time settings, one key each — how a clock and a date read, and
+   * which day starts the week. A person's reading of "14:30" does not change
+   * with the machine they are on, so these follow them; where they physically
+   * are can, which is why `dateTime.timezone` holds "system" (resolve against
+   * this device) until they pin a zone on purpose.
+   *
+   * `"12h" | "24h" | "system"`.
+   */
+  dateTimeTimeFormat: "dateTime.timeFormat",
+  /** `"MM/DD/YYYY" | "DD/MM/YYYY" | "YYYY-MM-DD" | "system"`. */
+  dateTimeDateFormat: "dateTime.dateFormat",
+  /** `0 | 1 | 6` — Sunday, Monday, or Saturday. */
+  dateTimeWeekStart: "dateTime.weekStart",
+  /** An IANA zone id, or "system" to follow whichever device is reading. */
+  dateTimeTimezone: "dateTime.timezone",
 } as const;
 
 /**
@@ -96,6 +112,38 @@ const LEGACY: Array<{
     storageKey: "tasfer:p2p-tutorial-seen",
     read: (raw) =>
       raw === "1" ? [[OWN_PREF_KEYS.p2pTutorialSeen, true]] : [],
+  },
+  // The Date & Time tab wrote each of these as its own browser key. A value
+  // equal to the default is not adopted: "system" and Monday are what an unset
+  // key already means, and seeding them would turn this browser's silence into
+  // an answer that a real choice made on another device has to outrank.
+  {
+    storageKey: "timeFormat",
+    read: (raw) =>
+      raw === "12h" || raw === "24h"
+        ? [[OWN_PREF_KEYS.dateTimeTimeFormat, raw]]
+        : [],
+  },
+  {
+    storageKey: "dateFormat",
+    read: (raw) =>
+      raw === "MM/DD/YYYY" || raw === "DD/MM/YYYY" || raw === "YYYY-MM-DD"
+        ? [[OWN_PREF_KEYS.dateTimeDateFormat, raw]]
+        : [],
+  },
+  {
+    storageKey: "weekStart",
+    read: (raw) =>
+      raw === "0" || raw === "6"
+        ? [[OWN_PREF_KEYS.dateTimeWeekStart, Number(raw)]]
+        : [],
+  },
+  {
+    storageKey: "timezone",
+    // Only ever written when the person pinned a zone; "system" was stored by
+    // removing the key.
+    read: (raw) =>
+      raw && raw !== "system" ? [[OWN_PREF_KEYS.dateTimeTimezone, raw]] : [],
   },
 ];
 

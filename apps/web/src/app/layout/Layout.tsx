@@ -21,6 +21,7 @@ import { PageSettingsProvider } from "../contexts/PageSettingsContext";
 import { PeerVersionProvider } from "../contexts/PeerVersionContext";
 import { SidebarPanelProvider } from "../contexts/SidebarPanelContext";
 import { OwnPrefsProvider } from "../contexts/OwnPrefsContext";
+import { DateTimePrefsProvider } from "../contexts/DateTimePrefsContext";
 import { SpellProvider } from "@/spell/SpellProvider";
 import { useGetArchivedSpaces } from "../api/spaces.api";
 import { SpaceProvider, useSpaces } from "../contexts/SpaceContext";
@@ -64,29 +65,31 @@ export default function Layout() {
       <SpaceProvider>
         <SyncActivityProvider>
           <OwnPrefsProvider>
-            <SpellProvider>
-              <TreeExpandProvider>
-                <PageSelectionProvider>
-                  <SidebarPanelProvider>
-                    <PageSettingsProvider>
-                      <ActiveEditorProvider>
-                        <ConfirmationDialogProvider>
-                          <UnsavedChangesDialogProvider>
-                            <ImportDialogProvider>
-                              <PeerVersionProvider>
-                                <ActionCenterProvider>
-                                  <LayoutInner />
-                                </ActionCenterProvider>
-                              </PeerVersionProvider>
-                            </ImportDialogProvider>
-                          </UnsavedChangesDialogProvider>
-                        </ConfirmationDialogProvider>
-                      </ActiveEditorProvider>
-                    </PageSettingsProvider>
-                  </SidebarPanelProvider>
-                </PageSelectionProvider>
-              </TreeExpandProvider>
-            </SpellProvider>
+            <DateTimePrefsProvider>
+              <SpellProvider>
+                <TreeExpandProvider>
+                  <PageSelectionProvider>
+                    <SidebarPanelProvider>
+                      <PageSettingsProvider>
+                        <ActiveEditorProvider>
+                          <ConfirmationDialogProvider>
+                            <UnsavedChangesDialogProvider>
+                              <ImportDialogProvider>
+                                <PeerVersionProvider>
+                                  <ActionCenterProvider>
+                                    <LayoutInner />
+                                  </ActionCenterProvider>
+                                </PeerVersionProvider>
+                              </ImportDialogProvider>
+                            </UnsavedChangesDialogProvider>
+                          </ConfirmationDialogProvider>
+                        </ActiveEditorProvider>
+                      </PageSettingsProvider>
+                    </SidebarPanelProvider>
+                  </PageSelectionProvider>
+                </TreeExpandProvider>
+              </SpellProvider>
+            </DateTimePrefsProvider>
           </OwnPrefsProvider>
         </SyncActivityProvider>
       </SpaceProvider>

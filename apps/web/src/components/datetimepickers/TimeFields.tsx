@@ -2,6 +2,7 @@ import { cn } from '@/lib/utils';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getResolved12h, padValue, toNumberOrNull } from './utils';
+import { useDateTimePrefs } from '@/app/contexts/DateTimePrefsContext';
 
 export type TimeField = 'hour' | 'minute';
 
@@ -37,7 +38,9 @@ export const TimeFields = ({
   onFieldSelect,
 }: TimeFieldsProps) => {
   const { t, i18n } = useTranslation();
-  const is12h = useMemo(() => getResolved12h(), []);
+  // Recomputed when the clock format moves, here or on another device.
+  const dateTimePrefs = useDateTimePrefs();
+  const is12h = useMemo(() => getResolved12h(), [dateTimePrefs]);
   const hourNum = toNumberOrNull(selectedHour);
   const minuteNum = toNumberOrNull(selectedMinute);
   const isPM = (hourNum ?? 0) >= 12;

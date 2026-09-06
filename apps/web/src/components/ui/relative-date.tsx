@@ -9,6 +9,7 @@ import {
 } from "./tooltip";
 import { cn } from "@/lib/utils";
 import { formatAbsoluteDateTime } from "@/lib/dateTimePreferences";
+import { useDateTimePrefs } from "@/app/contexts/DateTimePrefsContext";
 import { useTranslation } from "react-i18next";
 
 // Initialize dayjs plugin
@@ -21,6 +22,8 @@ interface RelativeDateProps {
 
 export function RelativeDate({ date, className }: RelativeDateProps) {
   const { i18n } = useTranslation();
+  // Re-render when this person changes a date or time setting on any device.
+  useDateTimePrefs();
   const locale = i18n.language?.startsWith("ar") ? "ar" : "en";
   const dateObj = typeof date === "string" ? new Date(date) : date;
   const relativeText = dayjs(dateObj).locale(locale).fromNow();

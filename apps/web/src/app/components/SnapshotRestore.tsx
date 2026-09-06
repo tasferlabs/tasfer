@@ -33,6 +33,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { formatDatePreferred } from "@/lib/dateTimePreferences";
+import { useDateTimePrefs } from "@/app/contexts/DateTimePrefsContext";
 import { cn } from "@/lib/utils";
 import useMobileLayout from "../hooks/useMobileLayout";
 import { useConfirmation } from "./ConfirmationDialog";
@@ -166,6 +167,8 @@ function VersionList({
   onSelect,
 }: VersionListProps) {
   const { t } = useTranslation();
+  // Re-render when this person changes a date or time setting on any device.
+  useDateTimePrefs();
   const { selfKey, nameFor } = useVersionAuthors(spaceId);
 
   // A date heading only where the day actually turns over — the list is short

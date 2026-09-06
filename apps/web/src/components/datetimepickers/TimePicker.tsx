@@ -3,6 +3,7 @@ import { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { TimeFields, type TimeField } from './TimeFields';
 import { getResolved12h, padValue, toNumberOrNull } from './utils';
+import { useDateTimePrefs } from '@/app/contexts/DateTimePrefsContext';
 
 interface TimePickerProps {
   /** 24-hour value, '00'–'23'. */
@@ -170,7 +171,9 @@ function ClockDial({
  */
 export const TimePicker = ({ selectedHour, setSelectedHour, selectedMinute, setSelectedMinute }: TimePickerProps) => {
   const { t } = useTranslation();
-  const is12h = useMemo(() => getResolved12h(), []);
+  // Recomputed when the clock format moves, here or on another device.
+  const dateTimePrefs = useDateTimePrefs();
+  const is12h = useMemo(() => getResolved12h(), [dateTimePrefs]);
   const [mode, setMode] = useState<TimeField>('hour');
   const hour = toNumberOrNull(selectedHour) ?? 0;
   const minute = toNumberOrNull(selectedMinute) ?? 0;

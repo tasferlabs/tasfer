@@ -21,6 +21,7 @@ import {
   getEventLaneInsets,
   type CalendarEventLayout,
 } from "./utils";
+import { useDateTimePrefs } from "@/app/contexts/DateTimePrefsContext";
 import style from "./CalendarPage.module.css";
 
 // Below this the card can't fit a legible line of text, so it collapses to a
@@ -53,6 +54,8 @@ export function EventCard({
   hourHeight?: number;
 }) {
   const { t } = useTranslation();
+  // Re-render when this person changes a date or time setting on any device.
+  useDateTimePrefs();
   const startMin = pageToStartMin(page);
   const duration = page.duration || 60;
   const top = (startMin / 60) * hourHeight;

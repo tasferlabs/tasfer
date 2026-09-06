@@ -22,6 +22,7 @@ import {
 } from "@tasfer/editor/internal";
 import { deriveTitles } from "@/lib/pageTitle";
 import { getResolvedTimezone } from "@/lib/dateTimePreferences";
+import { useDateTimePrefs } from "@/app/contexts/DateTimePrefsContext";
 import { REMEMBER_KEYS } from "@/lib/rememberedChoice";
 import {
   getLastParent,
@@ -232,6 +233,8 @@ export function EventPreview({
   calendarInteractionActive?: boolean;
 }) {
   const { t } = useTranslation();
+  // Re-render when this person changes a date or time setting on any device.
+  useDateTimePrefs();
   const isRtl = i18next.dir() === "rtl";
   const { isMobile } = useMobileLayout();
   // const isFinePointer = useResponsive("(pointer: fine)");

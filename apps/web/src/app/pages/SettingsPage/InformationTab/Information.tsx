@@ -12,6 +12,7 @@ import {
 import { getClientPlatform } from "@/platform";
 import { publicAssetUrl } from "@/lib/publicAssetUrl";
 import { formatAbsoluteDateTime } from "@/lib/dateTimePreferences";
+import { useDateTimePrefs } from "@/app/contexts/DateTimePrefsContext";
 import { APP_VERSION, BUILD_TIMESTAMP, getBuildDate } from "@/version";
 
 // Taps on the version line needed to reveal the hidden Tasfer Inspector toggle
@@ -28,6 +29,8 @@ const SHOW_IN_APP_DEV_TOGGLE =
 
 export function Information() {
   const { t } = useTranslation();
+  // Re-render when this person changes a date or time setting on any device.
+  useDateTimePrefs();
   const devToolsEnabled = useDevToolsEnabled();
   const devToolsUnlocked = useDevToolsUnlocked();
   const tapsRef = useRef(0);

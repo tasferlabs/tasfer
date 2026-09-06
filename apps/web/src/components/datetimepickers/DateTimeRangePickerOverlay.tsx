@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { getLuxon, padValue, plusDatetime } from './utils';
 import { TimeFields } from './TimeFields';
 import { getWeekStart, formatDatePreferred } from '@/lib/dateTimePreferences';
+import { useDateTimePrefs } from '@/app/contexts/DateTimePrefsContext';
 
 type RangePickerOverlayProps = {
   open: boolean;
@@ -127,6 +128,8 @@ export function DateTimeRangePickerOverlay({
     disabledByChoice: boolean;
     disabled: boolean;
   };
+  // Re-render when this person changes a date or time setting on any device.
+  useDateTimePrefs();
   const weekStart = getWeekStart();
 
   const generateWeeks = (displayedDate: string, tz: string, allWeeksInView: DateTime[]): WeekDay[][] => {

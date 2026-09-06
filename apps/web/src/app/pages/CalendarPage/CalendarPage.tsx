@@ -20,6 +20,7 @@ import useMobileLayout from "../../hooks/useMobileLayout";
 import type { Block } from "@tasfer/editor";
 import { deriveTitles, findTitleBlock } from "@/lib/pageTitle";
 import { getResolvedTimezone } from "@/lib/dateTimePreferences";
+import { useDateTimePrefs } from "@/app/contexts/DateTimePrefsContext";
 import { getPlatform } from "@/platform";
 import {
   useGetCalendarPages,
@@ -122,6 +123,8 @@ interface ResizeState {
 
 export default function CalendarPage() {
   const { t } = useTranslation();
+  // Re-render when this person changes a date or time setting on any device.
+  useDateTimePrefs();
   const isRtl = i18next.dir() === "rtl";
   const navigate = useNavigate();
   const { getConfirmation } = useConfirmation();
