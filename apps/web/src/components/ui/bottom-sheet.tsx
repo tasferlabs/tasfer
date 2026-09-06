@@ -1,6 +1,7 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useMotionValue, animate } from "framer-motion";
+import { FocusScope } from "radix-ui/internal";
 
 import { cn } from "@/lib/utils";
 import useKeyboardInset from "@/app/hooks/useKeyboardInset";
@@ -115,11 +116,39 @@ function scrollableConsumes(
 const PEEK_SNAPS = [0.46, 0.92];
 const SHEET_SNAPS = [0.85];
 
+/**
+ * Wraps the sheet in a Radix focus scope only when the caller asked for one.
+ * Mounting a trapped scope pauses the scope of the modal layer underneath, so
+ * fields inside the sheet can hold focus; see `trapFocus`.
+ */
+function FocusGate({
+  trapped,
+  children,
+}: {
+  trapped: boolean;
+  children: React.ReactElement;
+}) {
+  if (!trapped) return children;
+  return (
+    <FocusScope.FocusScope
+      asChild
+      trapped
+      loop
+      // The sheet decides what takes focus, if anything: auto-focusing the
+      // first field would raise the soft keyboard over the content.
+      onMountAutoFocus={(event) => event.preventDefault()}
+    >
+      {children}
+    </FocusScope.FocusScope>
+  );
+}
+
 export function BottomSheet({
   open,
   onOpenChange,
   variant = "sheet",
   dismissible = true,
+  trapFocus = false,
   className,
   children,
 }: {
@@ -127,6 +156,17 @@ export function BottomSheet({
   onOpenChange: (open: boolean) => void;
   variant?: "sheet" | "peek";
   dismissible?: boolean;
+  /**
+   * Hold focus inside the sheet while it is open. Needed when the sheet opens
+   * from inside a modal Radix/vaul layer (a settings drawer, a dialog): that
+   * layer's own focus scope traps focus in itself, and since this sheet
+   * portals to <body> it sits outside — every focus it takes is yanked
+   * straight back, so its text fields cannot be typed into. A trapped scope
+   * registers on Radix's scope stack, which pauses the one below. Off by
+   * default: for a sheet opened over ordinary page content there is nothing to
+   * pause, and a `peek` sheet deliberately leaves the page behind it usable.
+   */
+  trapFocus?: boolean;
   className?: string;
   children: React.ReactNode;
 }) {
@@ -363,7 +403,18 @@ export function BottomSheet({
   React.useEffect(() => {
     const el = sheetRef.current;
     if (!open || !el) return;
+    // A modal layer underneath the sheet — a vaul drawer, a Radix dialog —
+    // locks page scrolling with react-remove-scroll, whose listeners sit on
+    // `document` and cancel every touchmove/wheel that did not land inside
+    // that layer's own overlay or content. This sheet portals to <body>, so by
+    // that test it is "outside" and every scroll inside it is cancelled — the
+    // settings drawer's time-zone list could not be scrolled at all. Stopping
+    // propagation here keeps those touches from ever reaching the lock (an
+    // element listener runs before a bubble-phase one on `document`), leaving
+    // the arbitration below as the only thing that decides what they do.
+    const stopScrollLock = (ev: Event) => ev.stopPropagation();
     const onTouchMove = (ev: TouchEvent) => {
+      ev.stopPropagation();
       if (dragRef.current) {
         ev.preventDefault();
         return;
@@ -382,7 +433,11 @@ export function BottomSheet({
       }
     };
     el.addEventListener("touchmove", onTouchMove, { passive: false });
-    return () => el.removeEventListener("touchmove", onTouchMove);
+    el.addEventListener("wheel", stopScrollLock);
+    return () => {
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("wheel", stopScrollLock);
+    };
   }, [open, sheetAtMax]);
 
   const onDragMove = (e: React.PointerEvent) => {
@@ -447,7 +502,12 @@ export function BottomSheet({
         <>
           {isFull && (
             <motion.div
-              className="fixed inset-0 z-50 bg-black/10 supports-backdrop-filter:backdrop-blur-xs"
+              // `pointer-events-auto`: a sheet can be opened from inside a
+              // modal Radix/vaul layer, which parks `pointer-events: none` on
+              // <body> and re-enables it only inside itself. The sheet portals
+              // to <body>, so without this it renders on top and takes no
+              // touches at all.
+              className="pointer-events-auto fixed inset-0 z-50 bg-black/10 supports-backdrop-filter:backdrop-blur-xs"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -455,53 +515,55 @@ export function BottomSheet({
               onPointerDown={requestClose}
             />
           )}
-          <motion.div
-            role="dialog"
-            aria-modal={isFull}
-            className={cn(
-              "bg-background fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-xl border-t text-sm",
-              className,
-            )}
-            ref={sheetRef}
-            style={{
-              height,
-              paddingTop: `calc(max(0px, ${safeTop} - ${topOverlap}px))`,
-              // Landscape puts the notch on a side edge; the sheet is edge to
-              // edge, so it has to clear it. Physical sides — the insets
-              // describe the device, not the writing direction.
-              paddingLeft:
-                "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))",
-              paddingRight:
-                "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))",
-              // Keep the footer above the soft keyboard and the editor's global
-              // fixed formatting toolbar (--keyboard-toolbar-height). A fixed
-              // element doesn't follow the iOS visual viewport, hence reserving
-              // the keyboard height here.
-              paddingBottom: keyboardOpen
-                ? `calc(${keyboardInset}px + var(--keyboard-toolbar-height, 0px))`
-                : "calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + var(--keyboard-toolbar-height, 0px))",
-            }}
-            initial={{ y: "100%" }}
-            animate={{ y: 0 }}
-            exit={{ y: "100%" }}
-            transition={{ type: "spring", damping: 34, stiffness: 340 }}
-            onFocus={handleFocus}
-            onBlur={handleBlur}
-            onPointerDown={onSheetDown}
-            onPointerMove={onSheetMove}
-            onPointerUp={onSheetEnd}
-            onPointerCancel={onSheetEnd}
-          >
-            {/* Grabber — drags without any slop threshold, unlike the sheet
-                body. Its captured events bubble to the root handlers above. */}
-            <div
-              className="shrink-0 cursor-grab touch-none pt-2 pb-1 active:cursor-grabbing"
-              onPointerDown={onGrabDown}
+          <FocusGate trapped={trapFocus}>
+            <motion.div
+              role="dialog"
+              aria-modal={isFull}
+              className={cn(
+                "bg-background pointer-events-auto fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-xl border-t text-sm",
+                className,
+              )}
+              ref={sheetRef}
+              style={{
+                height,
+                paddingTop: `calc(max(0px, ${safeTop} - ${topOverlap}px))`,
+                // Landscape puts the notch on a side edge; the sheet is edge to
+                // edge, so it has to clear it. Physical sides — the insets
+                // describe the device, not the writing direction.
+                paddingLeft:
+                  "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))",
+                paddingRight:
+                  "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))",
+                // Keep the footer above the soft keyboard and the editor's global
+                // fixed formatting toolbar (--keyboard-toolbar-height). A fixed
+                // element doesn't follow the iOS visual viewport, hence reserving
+                // the keyboard height here.
+                paddingBottom: keyboardOpen
+                  ? `calc(${keyboardInset}px + var(--keyboard-toolbar-height, 0px))`
+                  : "calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + var(--keyboard-toolbar-height, 0px))",
+              }}
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 34, stiffness: 340 }}
+              onFocus={handleFocus}
+              onBlur={handleBlur}
+              onPointerDown={onSheetDown}
+              onPointerMove={onSheetMove}
+              onPointerUp={onSheetEnd}
+              onPointerCancel={onSheetEnd}
             >
-              <div className="bg-muted mx-auto h-1.5 w-[100px] rounded-full" />
-            </div>
-            {children}
-          </motion.div>
+              {/* Grabber — drags without any slop threshold, unlike the sheet
+                body. Its captured events bubble to the root handlers above. */}
+              <div
+                className="shrink-0 cursor-grab touch-none pt-2 pb-1 active:cursor-grabbing"
+                onPointerDown={onGrabDown}
+              >
+                <div className="bg-muted mx-auto h-1.5 w-[100px] rounded-full" />
+              </div>
+              {children}
+            </motion.div>
+          </FocusGate>
         </>
       )}
     </AnimatePresence>,
