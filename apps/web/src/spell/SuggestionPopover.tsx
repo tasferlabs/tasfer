@@ -24,8 +24,8 @@ export interface SuggestionPopoverProps {
   onAdd(): void;
   onIgnore(): void;
   onClose(): void;
-  /** Reports the highlighted suggestion (for the live region). */
-  onActiveChange?(suggestion: string | null): void;
+  /** Reports the highlighted row's label (for the live region). */
+  onActiveChange?(label: string | null): void;
   container?: HTMLElement | null;
   /** Words ignored on this page; shows the footer with Clear when > 0. */
   ignoredCount?: number;
@@ -33,6 +33,16 @@ export interface SuggestionPopoverProps {
 }
 
 const MAX_SUGGESTIONS = 5;
+/** No row highlighted — Enter dismisses instead of activating something. */
+const NO_ACTIVE = -1;
+
+/** A row the arrows can land on: a suggestion, or one of the actions. */
+interface PopoverItem {
+  key: string;
+  label: string;
+  run(): void;
+}
+
 /** Keys that only change modifier state; they neither act nor dismiss. */
 const MODIFIER_KEYS = new Set([
   "Shift",
@@ -61,25 +71,42 @@ export function SuggestionPopover({
   const { t } = useTranslation();
   const listId = useId();
   const rows = suggestions?.slice(0, MAX_SUGGESTIONS) ?? [];
-  const [activeIndex, setActiveIndex] = useState(0);
+
+  // One walkable list: the suggestions, then the actions. The arrows treat the
+  // menu as a whole, so "Add to dictionary" is reachable past the last word.
+  const items: PopoverItem[] = [
+    ...rows.map((s) => ({ key: `s:${s}`, label: s, run: () => onApply(s) })),
+    {
+      key: "add",
+      label: t("spell.popover.add", "Add to dictionary"),
+      run: onAdd,
+    },
+    { key: "ignore", label: t("spell.popover.ignore", "Ignore"), run: onIgnore },
+  ];
+  // Without a suggestion to take, nothing starts highlighted: Enter should
+  // dismiss rather than commit the word to the dictionary by surprise.
+  const initialIndex = rows.length > 0 ? 0 : NO_ACTIVE;
+  const [activeIndex, setActiveIndex] = useState(initialIndex);
 
   // Reset the highlight when the word (or its list) changes.
   const movedRef = useRef(false);
   useEffect(() => {
-    setActiveIndex(0);
+    setActiveIndex(initialIndex);
     movedRef.current = false;
-  }, [flag, suggestions]);
+  }, [flag, suggestions, initialIndex]);
 
   // Announce the highlighted row only once the person moves it — the opening
   // announcement ("word: misspelled, n suggestions") must not be overwritten.
   useEffect(() => {
     if (!movedRef.current) return;
-    onActiveChange?.(rows[activeIndex] ?? null);
+    onActiveChange?.(items[activeIndex]?.label ?? null);
     // Only the highlighted row matters here, not the callback identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeIndex, rows[activeIndex]]);
+  }, [activeIndex, items[activeIndex]?.label]);
 
   // Refs so the once-registered listener reads the latest values.
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
   const activeRef = useRef(activeIndex);
@@ -91,7 +118,7 @@ export function SuggestionPopover({
     const onKeyDown = (e: KeyboardEvent) => {
       if (MODIFIER_KEYS.has(e.key)) return;
       const h = handlersRef.current;
-      const list = rowsRef.current;
+      const list = itemsRef.current;
       const swallow = () => {
         e.preventDefault();
         e.stopPropagation();
@@ -105,17 +132,23 @@ export function SuggestionPopover({
             if (list.length === 0) return;
             swallow();
             movedRef.current = true;
-            const delta = e.key === "ArrowDown" ? 1 : -1;
-            setActiveIndex((i) => (i + delta + list.length) % list.length);
+            const down = e.key === "ArrowDown";
+            setActiveIndex((i) =>
+              i === NO_ACTIVE
+                ? down
+                  ? 0
+                  : list.length - 1
+                : (i + (down ? 1 : -1) + list.length) % list.length,
+            );
             return;
           }
           case "Enter":
           case "Tab": {
-            // With nothing to apply, Enter/Tab just dismiss: letting them
+            // With nothing highlighted, Enter/Tab just dismiss: letting them
             // through would split or indent the selected word.
             swallow();
             const pick = list[activeRef.current];
-            if (pick !== undefined) h.onApply(pick);
+            if (pick) pick.run();
             else h.onClose();
             return;
           }
@@ -137,7 +170,7 @@ export function SuggestionPopover({
         }
         const digit = /^Digit([1-5])$/.exec(e.code);
         if (digit && !e.shiftKey) {
-          const pick = list[Number(digit[1]) - 1];
+          const pick = rowsRef.current[Number(digit[1]) - 1];
           if (pick !== undefined) {
             swallow();
             h.onApply(pick);
@@ -175,9 +208,6 @@ export function SuggestionPopover({
           onCloseAutoFocus={(e) => e.preventDefault()}
           onMouseDown={(e) => e.preventDefault()}
         >
-          <div className="px-2.5 pt-1 pb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
-            {t("spell.popover.title", "Suggestions")}
-          </div>
           <div
             role="listbox"
             id={listId}
@@ -185,9 +215,15 @@ export function SuggestionPopover({
               word: flag.word,
             })}
             aria-activedescendant={
-              rows.length > 0 ? optionId(activeIndex) : undefined
+              activeIndex === NO_ACTIVE ? undefined : optionId(activeIndex)
             }
           >
+            <div
+              role="presentation"
+              className="px-2.5 pt-1 pb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70"
+            >
+              {t("spell.popover.title", "Suggestions")}
+            </div>
             {suggestions === null ? (
               <div
                 className="px-2.5 py-[7px] text-[13px] text-muted-foreground"
@@ -229,20 +265,24 @@ export function SuggestionPopover({
                 );
               })
             )}
+            <div role="presentation" className="my-1 h-px bg-border/60" />
+            {ACTIONS.map(({ icon, hint }, n) => {
+              const i = rows.length + n;
+              const item = items[i];
+              return (
+                <ActionRow
+                  key={item.key}
+                  id={optionId(i)}
+                  icon={icon}
+                  label={item.label}
+                  hint={hint}
+                  active={i === activeIndex}
+                  onHover={() => setActiveIndex(i)}
+                  onPress={item.run}
+                />
+              );
+            })}
           </div>
-          <div className="my-1 h-px bg-border/60" />
-          <ActionRow
-            icon={<BookPlus size={14} />}
-            label={t("spell.popover.add", "Add to dictionary")}
-            hint="A"
-            onPress={onAdd}
-          />
-          <ActionRow
-            icon={<EyeOff size={14} />}
-            label={t("spell.popover.ignore", "Ignore")}
-            hint="I"
-            onPress={onIgnore}
-          />
           {ignoredCount > 0 && onClearIgnored && (
             <div className="mt-1 flex items-center justify-between gap-2 border-t border-border/60 px-2.5 pt-1.5 pb-0.5 text-[11px] text-muted-foreground">
               <span>
@@ -268,32 +308,67 @@ export function SuggestionPopover({
   );
 }
 
+/**
+ * Icon and mnemonic per action row; the label and handler come from `items`.
+ * The mnemonics print lowercase because they are bare keypresses — an
+ * uppercase cap would read as Shift, which the handler in fact rejects.
+ */
+const ACTIONS = [
+  { icon: <BookPlus size={14} />, hint: "a" },
+  { icon: <EyeOff size={14} />, hint: "i" },
+] as const;
+
 function ActionRow({
+  id,
   icon,
   label,
   hint,
+  active,
+  onHover,
   onPress,
 }: {
+  id: string;
   icon: React.ReactNode;
   label: string;
   hint: string;
+  active: boolean;
+  onHover: () => void;
   onPress: () => void;
 }) {
   return (
     <button
       type="button"
-      className="w-full px-2.5 py-[7px] flex items-center gap-2.5 rounded-[9px] text-[13px] font-medium text-popover-foreground transition-colors duration-75 hover:bg-accent hover:text-accent-foreground"
+      role="option"
+      id={id}
+      aria-selected={active}
+      className={cn(
+        "w-full px-2.5 py-[7px] flex items-center gap-2.5 rounded-[9px] text-[13px] font-medium transition-colors duration-75",
+        active
+          ? "bg-accent text-accent-foreground"
+          : "text-popover-foreground hover:bg-accent hover:text-accent-foreground",
+      )}
+      onMouseEnter={onHover}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onPress}
     >
-      <span className="w-4 h-4 flex items-center justify-center shrink-0 text-muted-foreground">
+      <span
+        className={cn(
+          "w-4 h-4 flex items-center justify-center shrink-0",
+          active ? "text-accent-foreground" : "text-muted-foreground",
+        )}
+      >
         {icon}
       </span>
       <span className="flex-1 text-start">{label}</span>
       {/* Keyboard mnemonic — a key name, drawn LTR in every UI language. */}
       <kbd
         dir="ltr"
-        className="rounded border border-border bg-muted px-1 text-[10px] leading-none text-muted-foreground"
+        className={cn(
+          "rounded border border-border px-1 text-[10px] leading-none",
+          active
+            ? "bg-accent-foreground/10 text-accent-foreground"
+            : "bg-muted text-muted-foreground",
+        )}
       >
         {hint}
       </kbd>
