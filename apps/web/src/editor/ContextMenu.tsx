@@ -52,6 +52,24 @@ const isRtl = () =>
 /** How long a type-select prefix stays live between keystrokes. */
 const TYPE_AHEAD_RESET_MS = 1000;
 
+/**
+ * Keep the highlighted row visible. A menu taller than the viewport scrolls
+ * (`--radix-popover-content-available-height`), so arrow keys and type-select
+ * can land on a row that is out of view; hovering already implies visible, so
+ * `block: "nearest"` makes that case a no-op.
+ */
+const useScrollActiveIntoView = (
+  panel: React.RefObject<HTMLDivElement | null>,
+  activeId: string | null,
+) => {
+  useEffect(() => {
+    if (!activeId) return;
+    panel.current
+      ?.querySelector(`[data-context-menu-item-id="${CSS.escape(activeId)}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [panel, activeId]);
+};
+
 const Submenu: React.FC<SubmenuProps> = ({
   item,
   isOpen,
@@ -65,6 +83,8 @@ const Submenu: React.FC<SubmenuProps> = ({
   container,
 }) => {
   const children = visibleItems(item.children ?? []);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useScrollActiveIntoView(panelRef, activeChildId);
 
   if (children.length === 0) {
     return null;
@@ -97,7 +117,8 @@ const Submenu: React.FC<SubmenuProps> = ({
       </Popover.Trigger>
       <Popover.Portal container={container}>
         <Popover.Content
-          className="bg-popover/95 backdrop-blur-xl rounded-xl border border-border/60 p-1.5 min-w-[170px] z-[51] select-none pointer-events-auto animate-in fade-in zoom-in-95 duration-100"
+          ref={panelRef}
+          className="bg-popover/95 backdrop-blur-xl rounded-xl border border-border/60 p-1.5 min-w-[170px] max-h-(--radix-popover-content-available-height) overflow-y-auto overscroll-contain z-[51] select-none pointer-events-auto animate-in fade-in zoom-in-95 duration-100"
           style={{ boxShadow: "0 0 0 0.5px rgba(0,0,0,0.03), 0 2px 4px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.1), 0 24px 48px rgba(0,0,0,0.06)" }}
           side={isRtl() ? "left" : "right"}
           align="start"
@@ -182,6 +203,9 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   useEffect(() => resetTypeAhead, [resetTypeAhead]);
 
   const rows = useMemo(() => visibleItems(items), [items]);
+
+  const panelRef = useRef<HTMLDivElement>(null);
+  useScrollActiveIntoView(panelRef, activeId);
 
   useEffect(() => {
     triggerHaptic("medium");
@@ -355,7 +379,8 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
       />
       <Popover.Portal container={container}>
         <Popover.Content
-          className="bg-popover/95 backdrop-blur-xl rounded-xl border border-border/60 p-1.5 min-w-[170px] z-50 select-none pointer-events-auto animate-in fade-in zoom-in-95 duration-100"
+          ref={panelRef}
+          className="bg-popover/95 backdrop-blur-xl rounded-xl border border-border/60 p-1.5 min-w-[170px] max-h-(--radix-popover-content-available-height) overflow-y-auto overscroll-contain z-50 select-none pointer-events-auto animate-in fade-in zoom-in-95 duration-100"
           style={{ boxShadow: "0 0 0 0.5px rgba(0,0,0,0.03), 0 2px 4px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.1), 0 24px 48px rgba(0,0,0,0.06)" }}
           side="top"
           align="start"
