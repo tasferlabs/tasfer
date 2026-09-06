@@ -357,6 +357,8 @@ export function createWorkerHost(
     );
     const flags: Flag[] = [];
     const deferredScripts = new Set<Script>();
+    // Doubles as the set of scripts seen in this block, which is what the
+    // host loads dictionaries from (see `CheckedBlock.scripts`).
     const enginesByScript = new Map<Script, LoadedEngine[]>();
     for (const token of tokens) {
       let scriptEngines = enginesByScript.get(token.script);
@@ -385,6 +387,7 @@ export function createWorkerHost(
       blockId: block.blockId,
       version: block.version,
       flags,
+      scripts: [...enginesByScript.keys()],
     };
     if (deferredScripts.size === 0) {
       deferred.delete(item.key);

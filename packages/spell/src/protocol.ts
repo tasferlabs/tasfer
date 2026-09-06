@@ -126,6 +126,17 @@ export interface CheckedBlock {
   readonly version: number;
   readonly flags: readonly Flag[];
   /**
+   * Every script the block's words are written in.
+   *
+   * The host loads dictionaries lazily, and this is what it loads them from:
+   * only the host knows which dictionaries a person enabled, so the worker
+   * reports the scripts it saw and lets the host decide what is missing. It
+   * cannot be {@link deferredScripts} instead — a second Latin dictionary is
+   * still unloaded while English answers for Latin, so nothing about the
+   * block is deferred and the language would never be asked for.
+   */
+  readonly scripts?: readonly Script[];
+  /**
    * Scripts present in the block whose dictionaries were not loaded yet:
    * those tokens were NOT flagged (never a squiggle the engine cannot
    * justify) and the block should be re-checked once a dictionary lands.

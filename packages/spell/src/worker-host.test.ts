@@ -220,6 +220,7 @@ describe("createWorkerHost", () => {
       blockId: "b",
       version: 5,
       flags: [{ from: 11, to: 14, word: "قلن", script: "arab" }],
+      scripts: ["latn", "arab"],
     });
   });
 
