@@ -280,6 +280,7 @@ export const PLATFORM_SCHEMA: Record<string, Record<string, MethodDesc>> = {
     // dead in the tab DOM. The client overrides it to fetch `getBytes` and mint
     // a tab-local blob URL. getBytes is the context-free byte fetch it calls.
     getBytes: { kind: "request" },
+    has: { kind: "request" },
     delete: { kind: "request" },
   },
   sync: {
