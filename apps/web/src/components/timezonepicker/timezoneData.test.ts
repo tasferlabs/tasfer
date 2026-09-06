@@ -4,6 +4,9 @@ import {
   buildZoneEntries,
   cityLabel,
   filterZones,
+  groupZonesByRegion,
+  regionLabelKey,
+  zoneRegion,
   formatGmtOffset,
   parseOffsetQuery,
   timeOfDayColor,
@@ -91,6 +94,51 @@ describe("zone entries and filtering", () => {
       city: "Olympus Mons",
     });
     expect(withZone(entries, "Europe/Stockholm")).toBe(entries);
+  });
+});
+
+describe("region grouping", () => {
+  const entries = buildZoneEntries("en");
+  const label = (region: string) => `<${region}>`;
+
+  it("reads the IANA area prefix, and groups a bare id under UTC", () => {
+    expect(zoneRegion("Europe/Stockholm")).toBe("Europe");
+    expect(zoneRegion("America/Argentina/Buenos_Aires")).toBe("America");
+    expect(zoneRegion("UTC")).toBe("UTC");
+  });
+
+  it("maps known regions to label keys and leaves legacy prefixes unlabelled", () => {
+    expect(regionLabelKey("America")).toBe("timezone.region.americas");
+    expect(regionLabelKey("Europe")).toBe("timezone.region.europe");
+    expect(regionLabelKey("US")).toBeNull();
+  });
+
+  it("puts every zone in exactly one group", () => {
+    const groups = groupZonesByRegion(entries, label, "en");
+    const grouped = groups.flatMap((group) => group.entries.map((e) => e.id));
+    expect(new Set(grouped).size).toBe(grouped.length);
+    expect(grouped.sort()).toEqual(entries.map((e) => e.id).sort());
+  });
+
+  it("orders groups by label and cities within a group by collation", () => {
+    const groups = groupZonesByRegion(entries, label, "en");
+    expect(groups.map((group) => group.label)).toEqual(
+      [...groups.map((group) => group.label)].sort(),
+    );
+    const europe = groups.find((group) => group.region === "Europe");
+    const cities = europe?.entries.map((entry) => entry.city) ?? [];
+    expect(cities.length).toBeGreaterThan(1);
+    expect(cities).toEqual([...cities].sort(new Intl.Collator("en").compare));
+  });
+
+  it("keeps an injected legacy zone in a group of its own prefix", () => {
+    const groups = groupZonesByRegion(
+      withZone(entries, "US/Eastern"),
+      label,
+      "en",
+    );
+    const legacy = groups.find((group) => group.region === "US");
+    expect(legacy?.entries.map((entry) => entry.id)).toEqual(["US/Eastern"]);
   });
 });
 
