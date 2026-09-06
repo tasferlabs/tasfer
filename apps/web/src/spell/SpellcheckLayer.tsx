@@ -124,14 +124,6 @@ export const SpellcheckLayer = forwardRef<
   const service = useSpellService();
   const slot = useSuggestionBarSlot();
   const enabled = useSpellSetting<boolean>(SPELL_PREF_KEYS.enabled, true).value;
-  const highContrast = useSpellSetting<boolean>(
-    SPELL_PREF_KEYS.highContrast,
-    false,
-  ).value;
-  const flagAllCaps = useSpellSetting<boolean>(
-    SPELL_PREF_KEYS.flagAllCaps,
-    false,
-  ).value;
   const lenientArabic = useSpellSetting<boolean>(
     SPELL_PREF_KEYS.lenientArabic,
     false,
@@ -141,13 +133,8 @@ export const SpellcheckLayer = forwardRef<
   const active = enabled && !readonly && service !== null;
 
   // Settings the checker reads through closures, so a flip never rebuilds it.
-  const settingsRef = useRef({
-    enabled,
-    highContrast,
-    flagAllCaps,
-    lenientArabic,
-  });
-  settingsRef.current = { enabled, highContrast, flagAllCaps, lenientArabic };
+  const settingsRef = useRef({ enabled, lenientArabic });
+  settingsRef.current = { enabled, lenientArabic };
 
   const checkerRef = useRef<SpellChecker | null>(null);
   const [popover, setPopover] = useState<PopoverState | null>(null);
@@ -182,14 +169,13 @@ export const SpellcheckLayer = forwardRef<
       transport,
       layer: "spell",
       color: () => readRootCssVar(UNDERLINE_VAR, UNDERLINE_FALLBACK),
-      style: () => ({
-        type: "underline",
-        line: "wavy",
-        thickness: settingsRef.current.highContrast ? 2 : 1,
-      }),
+      style: () => ({ type: "underline", line: "wavy", thickness: 1 }),
       isEnabled: () => settingsRef.current.enabled,
       ignoredInDocument: () => readDocumentIgnores(pageId),
-      flagAllCaps: () => settingsRef.current.flagAllCaps,
+      // ALL-CAPS words are acronyms and codes far more often than typos, so
+      // the app never flags them; the option stays on the checker for hosts
+      // that want it.
+      flagAllCaps: () => false,
       lenientArabic: () => settingsRef.current.lenientArabic,
     });
     checkerRef.current = checker;
@@ -225,7 +211,7 @@ export const SpellcheckLayer = forwardRef<
       return;
     }
     checkerRef.current?.invalidateAll();
-  }, [highContrast, flagAllCaps, lenientArabic, ignores.ignored]);
+  }, [lenientArabic, ignores.ignored]);
 
   // ── geometry ─────────────────────────────────────────────────────────────
   const anchorFor = useCallback(

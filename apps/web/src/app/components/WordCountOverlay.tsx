@@ -1,35 +1,16 @@
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { useCallback, useState, useSyncExternalStore } from "react";
+import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useActiveEditor } from "../contexts/ActiveEditorContext";
 import { usePageSettings } from "../contexts/PageSettingsContext";
-import { requestSpellFixOrNext } from "@/spell/SpellcheckLayer";
-import { useSpellService } from "@/spell/SpellProvider";
 import { WordCountDetails } from "./WordCountDetails";
 
-/** The page's live misspelling count, as reported by its SpellcheckLayer. */
-function useSpellFlagCount(pageId: string | null): number {
-  const service = useSpellService();
-  const subscribe = useCallback(
-    (onChange: () => void) =>
-      service ? service.subscribe(onChange) : () => {},
-    [service],
-  );
-  return useSyncExternalStore(
-    subscribe,
-    () => (service && pageId ? service.flagCount(pageId) : 0),
-    () => 0,
-  );
-}
-
 export function WordCountOverlay() {
-  const { showWordCount, wordCount, selectionStats, pageId } =
-    usePageSettings();
+  const { showWordCount, wordCount, selectionStats } = usePageSettings();
   const { editor } = useActiveEditor();
   const { t } = useTranslation();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const reduceMotion = useReducedMotion();
-  const spellCount = useSpellFlagCount(pageId);
 
   const openDetails = useCallback(() => {
     // Drop the editor's focus so the soft keyboard retracts: these are read-only
@@ -39,12 +20,6 @@ export function WordCountOverlay() {
     editor?.blur();
     setDetailsOpen(true);
   }, [editor]);
-
-  // Fix-or-next on the page's spelling layer: the layer focuses the editor and
-  // either offers suggestions for the caret word or jumps to the next one.
-  const fixSpelling = useCallback(() => {
-    if (pageId) requestSpellFixOrNext(pageId);
-  }, [pageId]);
 
   // With text selected the pill counts that text, not the document.
   const label = selectionStats
@@ -73,27 +48,6 @@ export function WordCountOverlay() {
   return (
     <>
       <AnimatePresence initial={false}>
-        {spellCount > 0 && (
-          <motion.button
-            key="spelling-count"
-            type="button"
-            {...motionProps}
-            onClick={fixSpelling}
-            className={pillClass}
-            aria-label={t(
-              "spell.footer.fixNext",
-              "Fix spelling or go to the next misspelled word",
-            )}
-          >
-            <span className="text-xs font-medium text-muted-foreground">
-              {t("spell.footer.count", {
-                count: spellCount,
-                defaultValue_one: "{{count, number}} spelling issue",
-                defaultValue_other: "{{count, number}} spelling issues",
-              })}
-            </span>
-          </motion.button>
-        )}
         {showWordCount && (
           <motion.button
             key="word-count"

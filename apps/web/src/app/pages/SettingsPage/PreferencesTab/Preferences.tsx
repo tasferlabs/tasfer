@@ -5,8 +5,8 @@ import {
   DisplayDensity,
   LanguageSelect,
   ThemeSelect,
-  Section,
 } from "./AppearanceSettings";
+import { Section } from "../shared/Section";
 import { cn } from "@/lib/utils";
 import {
   Select,
@@ -30,7 +30,6 @@ import {
   type TimezonePreference,
 } from "@/lib/dateTimePreferences";
 import { TimezonePicker } from "@/components/timezonepicker/TimezonePicker";
-import { SpellingSettings } from "./SpellingSettings";
 
 export function Preferences() {
   const { t, i18n } = useTranslation();
@@ -66,7 +65,6 @@ export function Preferences() {
       <LanguageSelect />
       <DisplayDensity />
       <ThemeSelect />
-      <SpellingSettings />
 
       <Section
         title={t("settings.dateTime.title", "Date & Time")}

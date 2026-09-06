@@ -9,18 +9,19 @@ import type { OwnPrefsStore } from "@/app/contexts/OwnPrefsContext";
 export const SPELL_PREF_KEYS = {
   /** `boolean` — default true. */
   enabled: "spell.enabled",
-  /** `string[]` of dictionary ids — default `["en", "ar"]`. */
+  /**
+   * `string[]` of dictionary ids. Defaults to the bundled dictionaries this
+   * device's languages match (`en`, `ar`, or both); see `preferredLanguages`.
+   */
   languages: "spell.languages",
   /** `boolean` — accept common Arabic orthographic variants (default false). */
   lenientArabic: "spell.lenientArabic",
-  /** `boolean` — flag ALL-CAPS Latin tokens (default false). */
-  flagAllCaps: "spell.flagAllCaps",
-  /** `boolean` — stronger squiggle colours (default false). */
-  highContrast: "spell.highContrast",
   /** `spell.word.<word>` → `{ added: ms }`; one key per accepted word. */
   wordPrefix: "spell.word.",
   /** `spell.forbid.<word>` → `{ added: ms }`; one key per forbidden word. */
   forbidPrefix: "spell.forbid.",
+  /** `spell.dict.<id>` → `SyncedDictionary`; one key per dictionary added from a file. */
+  dictPrefix: "spell.dict.",
 } as const;
 
 /** Value stored under a word key. Removal writes `null` (a tombstone). */

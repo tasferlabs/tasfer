@@ -219,7 +219,45 @@ function vendoredNotices() {
     if (dict.note) chunks.unshift(dict.note);
     notices.push({ heading: dict.heading, body: chunks.join("\n\n") });
   }
+  notices.push(...catalogueNotices());
   return notices;
+}
+
+/**
+ * The catalogue dictionaries (github.com/wooorm/dictionaries), which Tasfer
+ * offers but does not host: their `.dic` and `.aff` are fetched from npm over
+ * a CDN, pinned to the version recorded in src/spell/catalog.json.
+ *
+ * Nothing is on disk to read, so the notices are committed alongside the
+ * catalogue by scripts/gen-spell-catalog.mjs — deduplicated, because most of
+ * these packages carry the same GPL or MPL text. Every language the app can
+ * install is listed here whatever platform is being built, since the app
+ * offers all of them everywhere.
+ */
+function catalogueNotices() {
+  const catalogue = JSON.parse(
+    readFileSync(join(webRoot, "src", "spell", "catalog.json"), "utf8"),
+  );
+  const { texts, byId } = JSON.parse(
+    readFileSync(join(webRoot, "scripts", "spell-catalog-notices.json"), "utf8"),
+  );
+  const out = [];
+  for (const entry of catalogue.dictionaries) {
+    if (entry.kind !== "catalog") continue;
+    const chunks = (byId[entry.id] ?? []).map((at) => texts[at]);
+    if (chunks.length === 0) {
+      throw new Error(
+        `no notices for ${entry.id} — re-run scripts/gen-spell-catalog.mjs`,
+      );
+    }
+    out.push({
+      heading:
+        `Hunspell dictionary ${entry.id} (npm: ${entry.pkg}@${entry.version},` +
+        ` fetched on demand)  (${entry.license})`,
+      body: chunks.join("\n\n"),
+    });
+  }
+  return out;
 }
 
 function build() {

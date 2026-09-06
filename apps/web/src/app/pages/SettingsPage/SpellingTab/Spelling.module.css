@@ -1,3 +1,7 @@
+.container {
+  max-width: 800px;
+}
+
 /* Spelling settings: a header row, the list of languages you have added, and
    the options that apply to every language. Language-specific options live in
    each row's menu, never at this level — most people never write Arabic and
@@ -151,4 +155,14 @@
   line-height: 1.4;
   color: var(--muted-foreground);
   white-space: normal;
+}
+
+/* Once the pane is within a hair of the page container's own width the gutters
+   are gone and its 1rem of padding is all that is left, so holding the tab at a
+   reading width would strand it against the start edge with the rest of the row
+   empty. See `.scrollHost` in SettingsPage.module.css. */
+@container settings (max-width: 1232px) {
+  .container {
+    max-width: none;
+  }
 }

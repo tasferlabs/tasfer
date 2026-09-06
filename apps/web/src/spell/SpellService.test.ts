@@ -33,6 +33,19 @@ const DICTS: DictionaryDescriptor[] = [
     },
   },
   {
+    id: "sv",
+    lang: "sv",
+    script: "latn",
+    sizeBytes: 10,
+    wireSizeBytes: 5,
+    license: "LGPL-3.0",
+    source: {
+      kind: "upstream",
+      aff: "dictionary-sv/index.aff",
+      dic: "dictionary-sv/index.dic",
+    },
+  },
+  {
     id: "ar",
     lang: "ar",
     script: "arab",
@@ -150,6 +163,31 @@ describe("SpellService", () => {
     vi.useRealTimers();
   });
 
+  it("writes the languages it guessed so the other devices check the same ones", async () => {
+    const { store, service } = setup();
+    await service.seedDefaultLanguages();
+    // Seeded, not set: a choice made on another device outranks a guess.
+    expect(store.seeds).toEqual([[SPELL_PREF_KEYS.languages, ["en", "ar"]]]);
+    expect(store.writes).toEqual([]);
+    expect(service.languages()).toEqual(["en", "ar"]);
+  });
+
+  it("leaves a language choice already in the register alone", async () => {
+    const { store, service } = setup();
+    store.receive({ [SPELL_PREF_KEYS.languages]: ["ar"] });
+    await service.seedDefaultLanguages();
+    expect(store.seeds).toEqual([]);
+    expect(service.languages()).toEqual(["ar"]);
+  });
+
+  it("does not resurrect languages someone deliberately turned all off", async () => {
+    const { store, service } = setup();
+    store.receive({ [SPELL_PREF_KEYS.languages]: [] });
+    await service.seedDefaultLanguages();
+    expect(store.seeds).toEqual([]);
+    expect(service.languages()).toEqual([]);
+  });
+
   it("starts the worker lazily, sends init with transferred wasm bytes, then user words", async () => {
     const { store, service, workers, worker, fetched } = setup();
     store.set(`${SPELL_PREF_KEYS.wordPrefix}tasfer`, { added: 1 });
@@ -201,14 +239,14 @@ describe("SpellService", () => {
     expect(service.enabled()).toBe(false);
   });
 
-  it("loads an enabled dictionary when a check defers its script, then invalidates", async () => {
+  it("loads an enabled dictionary when a check meets its script, then invalidates", async () => {
     const { service, worker, fetched } = setup({
       onCheck: (req) =>
         req.blocks.map((b) => ({
           blockId: b.blockId,
           version: b.version,
           flags: [],
-          deferredScripts: ["latn"],
+          scripts: ["latn"],
         })),
     });
     const transport = service.transportFor(editorA, "doc1");
@@ -250,6 +288,41 @@ describe("SpellService", () => {
     expect(service.status("ar")).toBe("missing");
   });
 
+  it("loads every enabled dictionary of a script, not just the first", async () => {
+    const { store, service, worker, fetched } = setup({
+      onCheck: (req) =>
+        req.blocks.map((b) => ({
+          blockId: b.blockId,
+          version: b.version,
+          flags: [],
+          scripts: ["latn"],
+        })),
+    });
+    store.set(SPELL_PREF_KEYS.languages, ["en", "sv"]);
+    const transport = service.transportFor(editorA, "doc1");
+    await transport.check({
+      docId: "doc1",
+      blocks: [block("b1", 1)],
+      options: OPTIONS,
+      priority: "initial",
+    });
+    await flush(20);
+
+    // English answering for Latin must not stand in for Swedish: the two are
+    // checked as a union, so a Swedish word is a mistake until both are up.
+    expect(worker().of("loadDictionary")).toMatchObject([
+      { lang: "en", script: "latn" },
+      { lang: "sv", script: "latn" },
+    ]);
+    expect(service.status("en")).toBe("ready");
+    expect(service.status("sv")).toBe("ready");
+    expect(fetched).toContain(
+      "https://cdn.jsdelivr.net/npm/dictionary-sv/index.dic",
+    );
+    // Arabic never turned up in the text, so it was never downloaded.
+    expect(service.status("ar")).toBe("missing");
+  });
+
   it("does not load a dictionary whose language is not enabled", async () => {
     const { store, service, worker } = setup({
       onCheck: (req) =>
@@ -257,7 +330,7 @@ describe("SpellService", () => {
           blockId: b.blockId,
           version: b.version,
           flags: [],
-          deferredScripts: ["arab"],
+          scripts: ["arab"],
         })),
     });
     store.set(SPELL_PREF_KEYS.languages, ["en"]);
@@ -281,7 +354,7 @@ describe("SpellService", () => {
           blockId: b.blockId,
           version: b.version,
           flags: [],
-          deferredScripts: ["latn"],
+          scripts: ["latn"],
         })),
     });
     const transport = service.transportFor(editorA, "doc1");
@@ -454,18 +527,18 @@ describe("SpellService", () => {
   });
 
   it("loads a dictionary imported here from its own bytes, with no language ticked", async () => {
-    const deferLatin: FakeWorkerOptions = {
+    const latinText: FakeWorkerOptions = {
       onCheck: (req) =>
         req.blocks.map((b) => ({
           blockId: b.blockId,
           version: b.version,
           flags: [],
-          deferredScripts: ["latn" as const],
+          scripts: ["latn" as const],
         })),
     };
     const imported = fakeImported([importedEntry()]);
     const { store, service, worker, fetched } = setup(
-      deferLatin,
+      latinText,
       undefined,
       imported,
     );
@@ -500,7 +573,7 @@ describe("SpellService", () => {
             blockId: b.blockId,
             version: b.version,
             flags: [],
-            deferredScripts: ["latn" as const],
+            scripts: ["latn" as const],
           })),
       },
       undefined,
@@ -535,7 +608,7 @@ describe("SpellService", () => {
             blockId: b.blockId,
             version: b.version,
             flags: [],
-            deferredScripts: ["latn" as const],
+            scripts: ["latn" as const],
           })),
       },
       undefined,

@@ -5,27 +5,35 @@ import {
   scriptOf,
   wordListToDic,
 } from "@tasfer/spell";
+import type { OwnPrefsStore } from "@/app/contexts/OwnPrefsContext";
 import type { FsDriver } from "@/platform/driver";
+import type { Platform } from "@/platform/types";
+import { SPELL_PREF_KEYS } from "./personalDictionary";
 
 /**
  * Dictionaries the person added themselves: a Hunspell `.aff`/`.dic` pair or a
  * plain word list.
  *
- * They are device-local, not synced: the bytes go through the platform
- * `FsDriver` under `spell/dicts/<id>/` and the descriptors into localStorage,
- * because own-prefs is a small last-writer-wins register and a phone must not
- * inherit a dictionary whose files it does not have. The personal word list
- * (`PersonalDictionary`) is the synced surface; this one is "on this device".
+ * These follow the person, not the machine. The split is what makes that
+ * affordable: the descriptor goes into own-prefs, one key per dictionary, and
+ * the files go into the content-addressed asset store, which already knows how
+ * to pull bytes by hash from whichever of this person's devices has them. A
+ * pref is re-sent on every handshake, so the megabytes have to travel by the
+ * channel built for megabytes.
+ *
+ * A device that has the descriptor but not the files is a normal state, not an
+ * error: it says "on your other devices" and fetches them the first time
+ * something needs checking (see {@link UserDictionaryStore.read}).
  *
  * A word list is kept in its original form and converted with `wordListToDic`
  * on every read, so re-importing the same file is idempotent and the cspell
  * markers (`!word`, `~word`) keep their meaning after an upgrade.
  */
 
-/** localStorage key holding the descriptor array. */
+/** localStorage key a pre-sync build kept its descriptor array under. */
 export const IMPORTED_DICTS_KEY = "tasfer.spell.dicts";
 
-/** Directory (relative to the driver's root) holding the imported files. */
+/** Directory a pre-sync build wrote imported files to, read once by `adopt`. */
 const DICT_DIR = "spell/dicts";
 
 /** Largest file we accept, per file. Ayaspell's own `.dic` is about 7 MB. */
@@ -37,18 +45,10 @@ export const MAX_DICTIONARY_BYTES = 32 * 1024 * 1024;
  */
 export const PERSONAL_LIST_CAP = 5000;
 
-export interface ImportedDictionary {
+/** A stored dictionary and the id it is filed under. */
+export interface ImportedDictionary extends SyncedDictionary {
   /** Also the `lang` the worker keys the engine on; never `"en"`/`"ar"`. */
   readonly id: string;
-  /** What the person called it. Shown as typed — not an i18n key. */
-  readonly label: string;
-  /** BCP-47-ish language tag, from the `.aff`'s `LANG` or inferred. May be "". */
-  readonly lang: string;
-  readonly script: Script;
-  readonly kind: "pair" | "list";
-  /** Bytes on disk, for the settings row. */
-  readonly bytes: number;
-  readonly importedAt: number;
 }
 
 /** Bytes plus the name they arrived under (a `File` satisfies neither half alone). */
@@ -229,10 +229,62 @@ export function wordListSize(text: string): number {
 
 // -------------------------------------------------------------------- store
 
+/**
+ * What own-prefs holds for one imported dictionary: everything about it except
+ * the bytes, which live in the asset store under the hashes named here.
+ *
+ * Remote input — a device running a newer build writes this key too — so
+ * {@link parseDescriptor} validates every field rather than trusting the shape.
+ */
+export interface SyncedDictionary {
+  /** What the person called it. Shown as typed — not an i18n key. */
+  readonly label: string;
+  /** BCP-47-ish language tag, from the `.aff`'s `LANG` or inferred. May be "". */
+  readonly lang: string;
+  readonly script: Script;
+  readonly kind: "pair" | "list";
+  /** Bytes of the original files, for the settings row. */
+  readonly bytes: number;
+  readonly importedAt: number;
+  /** Content hash of the `.aff` (pair only). */
+  readonly aff?: string;
+  /** Content hash of the `.dic` (pair only). */
+  readonly dic?: string;
+  /** Content hash of the word list, kept in its original form (list only). */
+  readonly words?: string;
+}
+
+/** Whether this device can open a dictionary without asking anyone. */
+export type DictionaryPresence = "here" | "elsewhere" | "unknown";
+
+/**
+ * The asset-store operations a dictionary needs, narrowed so tests need no
+ * platform. `get` is the one that crosses the network: it answers from disk
+ * when it can and otherwise pulls the bytes from whichever of this person's
+ * devices has them.
+ */
+export interface DictionaryAssets {
+  /** Store bytes under their content hash and return it. Idempotent. */
+  put(bytes: Uint8Array, ext: string): Promise<string>;
+  /** Bytes for a hash, pulling from a peer if this device lacks them. Null when nobody has them. */
+  get(hash: string): Promise<Uint8Array | null>;
+  /** Is it on THIS device? Never asks a peer. */
+  has(hash: string): Promise<boolean>;
+  /** Forget this device's copy. Local only — it does not replicate. */
+  drop(hash: string): Promise<void>;
+}
+
 /** The slice of `Storage` we use, so tests need no DOM. */
 export interface KeyValueStorage {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
+/** Where a pre-sync build kept its imports, for {@link UserDictionaryStore.adopt}. */
+export interface LegacyImports {
+  fs: FsDriver;
+  storage: KeyValueStorage | null;
 }
 
 function isScript(value: unknown): value is Script {
@@ -244,36 +296,43 @@ function isScript(value: unknown): value is Script {
   );
 }
 
-function parseDescriptors(raw: string | null): ImportedDictionary[] {
-  if (!raw) return [];
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(parsed)) return [];
-  const out: ImportedDictionary[] = [];
-  for (const entry of parsed) {
-    if (!entry || typeof entry !== "object") continue;
-    const d = entry as Record<string, unknown>;
-    if (typeof d.id !== "string" || !d.id) continue;
-    if (d.kind !== "pair" && d.kind !== "list") continue;
-    if (!isScript(d.script)) continue;
-    out.push({
-      id: d.id,
-      label: typeof d.label === "string" ? d.label : d.id,
-      lang: typeof d.lang === "string" ? d.lang : "",
-      script: d.script,
-      kind: d.kind,
-      bytes: typeof d.bytes === "number" ? d.bytes : 0,
-      importedAt: typeof d.importedAt === "number" ? d.importedAt : 0,
-    });
-  }
-  return out;
+/** A hash we would put in a filesystem path: reject anything that is not one. */
+function isHash(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
 }
 
-/** Ids are path segments and worker engine keys: keep them opaque and safe. */
+/**
+ * Read one `spell.dict.<id>` value, or null when it is a tombstone or is not a
+ * descriptor this build can use. A dictionary missing the hashes for its own
+ * kind is unusable, so it is dropped rather than shown as a row that can never
+ * load.
+ */
+export function parseDescriptor(value: unknown): SyncedDictionary | null {
+  if (!value || typeof value !== "object") return null;
+  const d = value as Record<string, unknown>;
+  if (d.kind !== "pair" && d.kind !== "list") return null;
+  if (!isScript(d.script)) return null;
+  const base = {
+    label: typeof d.label === "string" ? d.label : "",
+    lang: typeof d.lang === "string" ? d.lang : "",
+    script: d.script,
+    bytes: typeof d.bytes === "number" ? d.bytes : 0,
+    importedAt: typeof d.importedAt === "number" ? d.importedAt : 0,
+  };
+  if (d.kind === "list") {
+    if (!isHash(d.words)) return null;
+    return { ...base, kind: "list", words: d.words };
+  }
+  if (!isHash(d.aff) || !isHash(d.dic)) return null;
+  return { ...base, kind: "pair", aff: d.aff, dic: d.dic };
+}
+
+/** The asset hashes a descriptor names, in no particular order. */
+function hashesOf(d: SyncedDictionary): string[] {
+  return d.kind === "list" ? [d.words!] : [d.aff!, d.dic!];
+}
+
+/** Ids are pref-key suffixes and worker engine keys: keep them opaque and safe. */
 function newId(): string {
   const random =
     typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -282,37 +341,79 @@ function newId(): string {
   return `u_${Date.now().toString(36)}_${random}`;
 }
 
-export class UserDictionaryStore {
-  private readonly fs: FsDriver;
-  private readonly storage: KeyValueStorage | null;
-  private cache: ImportedDictionary[] | null = null;
-  private listeners = new Set<() => void>();
+/** Ids arrive from another device: they end up in a pref key, so bound them. */
+function isId(id: string): boolean {
+  return /^[A-Za-z0-9_-]{1,64}$/.test(id);
+}
 
-  /**
-   * `storage` defaults to `localStorage` where there is one; without it the
-   * store still works for the current session and forgets on reload, which is
-   * the right behaviour in a private window that denies storage.
-   */
-  constructor(
-    fs: FsDriver,
-    storage: KeyValueStorage | null = defaultStorage(),
-  ) {
-    this.fs = fs;
-    this.storage = storage;
+export class UserDictionaryStore {
+  private readonly prefs: OwnPrefsStore;
+  private readonly assets: DictionaryAssets;
+  private readonly legacy: LegacyImports | null;
+  private listeners = new Set<() => void>();
+  private unsubscribe: (() => void) | null = null;
+
+  /** `list()`'s answer, kept until the prefs snapshot it was derived from is replaced. */
+  private cache: { from: unknown; value: ImportedDictionary[] } | null = null;
+  private presenceById = new Map<string, DictionaryPresence>();
+  /** Guards against two overlapping presence sweeps reporting out of order. */
+  private presenceRun = 0;
+
+  constructor(deps: {
+    prefs: OwnPrefsStore;
+    assets: DictionaryAssets;
+    /** Only for adopting pre-sync imports; omit where there is no filesystem. */
+    legacy?: LegacyImports;
+  }) {
+    this.prefs = deps.prefs;
+    this.assets = deps.assets;
+    this.legacy = deps.legacy ?? null;
+    this.unsubscribe = this.prefs.subscribe(() => this.onPrefsChange());
+    // The register may already have been read before this store existed, in
+    // which case no change is coming to trigger the first sweep.
+    this.refreshPresence();
   }
 
-  /** Descriptors, newest last. Cheap: parsed once and kept until a write. */
+  /** Stop tracking own-prefs. The store is inert afterwards. */
+  dispose(): void {
+    this.unsubscribe?.();
+    this.unsubscribe = null;
+    this.listeners.clear();
+  }
+
+  /**
+   * Descriptors, oldest first. Derived from the prefs snapshot, so a
+   * dictionary added on another device is simply here on the next read.
+   */
   list(): ImportedDictionary[] {
-    if (!this.cache) {
-      this.cache = parseDescriptors(
-        this.storage?.getItem(IMPORTED_DICTS_KEY) ?? null,
-      );
+    const snapshot = this.prefs.getSnapshot();
+    if (this.cache?.from === snapshot) return this.cache.value;
+    const prefix = SPELL_PREF_KEYS.dictPrefix;
+    const out: ImportedDictionary[] = [];
+    for (const key in snapshot.values) {
+      if (!key.startsWith(prefix)) continue;
+      const id = key.slice(prefix.length);
+      if (!isId(id)) continue;
+      const descriptor = parseDescriptor(snapshot.values[key]);
+      if (!descriptor) continue;
+      out.push({ id, ...descriptor, label: descriptor.label || id });
     }
-    return this.cache;
+    out.sort((a, b) => a.importedAt - b.importedAt || (a.id < b.id ? -1 : 1));
+    this.cache = { from: snapshot, value: out };
+    return out;
   }
 
   get(id: string): ImportedDictionary | undefined {
     return this.list().find((d) => d.id === id);
+  }
+
+  /**
+   * Whether this device holds the files. "unknown" until the first sweep
+   * lands, which is why the settings row treats it as "still working it out"
+   * rather than as bad news.
+   */
+  presence(id: string): DictionaryPresence {
+    return this.presenceById.get(id) ?? "unknown";
   }
 
   /** Store a Hunspell pair. `meta` overrides what {@link inspectPair} inferred. */
@@ -322,17 +423,19 @@ export class UserDictionaryStore {
     meta: Partial<Pick<ImportedDictionary, "label" | "lang" | "script">> = {},
   ): Promise<ImportedDictionary> {
     const inferred = inspectPair(aff, dic);
-    const id = newId();
-    await this.fs.write(`${DICT_DIR}/${id}/index.aff`, aff.bytes);
-    await this.fs.write(`${DICT_DIR}/${id}/index.dic`, dic.bytes);
+    const [affHash, dicHash] = await Promise.all([
+      this.assets.put(aff.bytes, "aff"),
+      this.assets.put(dic.bytes, "dic"),
+    ]);
     return this.add({
-      id,
       label: meta.label?.trim() || inferred.label,
       lang: meta.lang ?? inferred.lang,
       script: meta.script ?? inferred.script,
       kind: "pair",
       bytes: aff.bytes.length + dic.bytes.length,
       importedAt: Date.now(),
+      aff: affHash,
+      dic: dicHash,
     });
   }
 
@@ -342,23 +445,25 @@ export class UserDictionaryStore {
     meta: Partial<Pick<ImportedDictionary, "label" | "lang" | "script">> = {},
   ): Promise<ImportedDictionary> {
     const inferred = inspectList(list);
-    const id = newId();
-    await this.fs.write(`${DICT_DIR}/${id}/words.txt`, list.bytes);
+    const hash = await this.assets.put(list.bytes, "txt");
     return this.add({
-      id,
       label: meta.label?.trim() || inferred.label,
       lang: meta.lang ?? inferred.lang,
       script: meta.script ?? inferred.script,
       kind: "list",
       bytes: list.bytes.length,
       importedAt: Date.now(),
+      words: hash,
     });
   }
 
   /**
-   * The bytes to hand the worker, or null when the files are gone (another
-   * device's descriptor synced in, or storage was cleared under us). Word
-   * lists also report their `!word` entries, which stay flagged everywhere.
+   * The bytes to hand the worker, or null when no device that has them is
+   * reachable. This is also how a dictionary added elsewhere arrives: `get`
+   * pulls it from the sibling that holds it, so loading a dictionary and
+   * fetching one are the same call.
+   *
+   * Word lists also report their `!word` entries, which stay flagged everywhere.
    */
   async read(id: string): Promise<{
     aff: Uint8Array;
@@ -367,76 +472,284 @@ export class UserDictionaryStore {
   } | null> {
     const descriptor = this.get(id);
     if (!descriptor) return null;
+
     if (descriptor.kind === "list") {
-      const bytes = await this.fs.read(`${DICT_DIR}/${id}/words.txt`);
-      if (!bytes) return null;
+      const bytes = await this.assets.get(descriptor.words!);
+      if (!bytes) return this.notePresence(id, "elsewhere");
       const text = new TextDecoder("utf-8").decode(bytes);
       const { aff, dic, forbidden } = wordListToDic(text.split(/\r?\n|\r/));
+      this.notePresence(id, "here");
       return { aff, dic, forbidden };
     }
+
     const [aff, dic] = await Promise.all([
-      this.fs.read(`${DICT_DIR}/${id}/index.aff`),
-      this.fs.read(`${DICT_DIR}/${id}/index.dic`),
+      this.assets.get(descriptor.aff!),
+      this.assets.get(descriptor.dic!),
     ]);
-    if (!aff || !dic) return null;
+    if (!aff || !dic) return this.notePresence(id, "elsewhere");
+    this.notePresence(id, "here");
     return { aff, dic, forbidden: [] };
   }
 
-  /** Forget a dictionary and delete its files. Unknown ids are a no-op. */
+  /**
+   * Forget a dictionary everywhere. The tombstone is what travels; each device
+   * drops its own copy of the bytes when it sees the descriptor go.
+   */
   async remove(id: string): Promise<void> {
     const descriptor = this.get(id);
     if (!descriptor) return;
-    this.write(this.list().filter((d) => d.id !== id));
-    // The driver has no recursive delete; the three names are all we write.
-    for (const name of ["index.aff", "index.dic", "words.txt"]) {
-      await this.fs.delete(`${DICT_DIR}/${id}/${name}`);
-    }
+    this.prefs.set(SPELL_PREF_KEYS.dictPrefix + id, null);
+    await this.dropBytes(descriptor, id);
   }
 
-  /** Rename or relabel an existing dictionary. */
+  /** Rename or relabel an existing dictionary, on every device. */
   update(
     id: string,
     patch: Partial<Pick<ImportedDictionary, "label" | "lang" | "script">>,
   ): void {
-    const next = this.list().map((d) =>
-      d.id === id
-        ? {
-            ...d,
-            label: patch.label?.trim() || d.label,
-            lang: patch.lang ?? d.lang,
-            script: patch.script ?? d.script,
-          }
-        : d,
-    );
-    this.write(next);
+    const current = this.get(id);
+    if (!current) return;
+    const { id: _id, ...descriptor } = current;
+    this.prefs.set(SPELL_PREF_KEYS.dictPrefix + id, {
+      ...descriptor,
+      label: patch.label?.trim() || current.label,
+      lang: patch.lang ?? current.lang,
+      script: patch.script ?? current.script,
+    } satisfies SyncedDictionary);
   }
 
-  /** Fires after any add, update or remove on this device. */
+  /** Fires after any add, update or removal — from this device or another one. */
   subscribe(cb: () => void): () => void {
     this.listeners.add(cb);
     return () => this.listeners.delete(cb);
   }
 
-  private add(descriptor: ImportedDictionary): ImportedDictionary {
-    this.write([...this.list(), descriptor]);
-    return descriptor;
+  /**
+   * Move imports made before dictionaries synced into the register.
+   *
+   * The bytes go into the asset store (which is what lets a sibling pull them)
+   * and the descriptor is *seeded*, not set, so a device that adopts an old
+   * copy of a dictionary cannot outrank the same dictionary's later removal
+   * somewhere else. Call once, after the first prefs read has landed.
+   */
+  async adopt(): Promise<void> {
+    const legacy = this.legacy;
+    if (!legacy?.storage) return;
+    let raw: string | null = null;
+    try {
+      raw = legacy.storage.getItem(IMPORTED_DICTS_KEY);
+    } catch {
+      return; // Storage unavailable (private mode) — nothing to adopt.
+    }
+    if (raw === null) return;
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = null;
+    }
+    if (!Array.isArray(parsed)) {
+      this.forgetLegacy(legacy);
+      return;
+    }
+
+    for (const entry of parsed) {
+      if (!entry || typeof entry !== "object") continue;
+      const d = entry as Record<string, unknown>;
+      const id = typeof d.id === "string" ? d.id : "";
+      if (!id || !isId(id)) continue;
+      if (d.kind !== "pair" && d.kind !== "list") continue;
+      if (!isScript(d.script)) continue;
+      try {
+        const descriptor = await this.adoptOne(legacy, id, d, d.kind, d.script);
+        if (!descriptor) continue;
+        await this.prefs.seed(SPELL_PREF_KEYS.dictPrefix + id, descriptor);
+      } catch (err) {
+        // Left in place for the next launch: a half-adopted dictionary whose
+        // files we deleted would be a row nobody can ever load.
+        console.warn(`[spell] could not adopt dictionary ${id}:`, err);
+        return;
+      }
+    }
+    this.forgetLegacy(legacy);
+    this.refreshPresence();
+    this.emit();
   }
 
-  private write(next: ImportedDictionary[]): void {
-    this.cache = next;
-    try {
-      this.storage?.setItem(IMPORTED_DICTS_KEY, JSON.stringify(next));
-    } catch {
-      // Quota or a storage-denying window: the session still has `cache`.
+  // ------------------------------------------------------------------ private
+
+  /** Read one legacy dictionary's files off disk and into the asset store. */
+  private async adoptOne(
+    legacy: LegacyImports,
+    id: string,
+    d: Record<string, unknown>,
+    kind: "pair" | "list",
+    script: Script,
+  ): Promise<SyncedDictionary | null> {
+    const base = {
+      label: typeof d.label === "string" && d.label ? d.label : id,
+      lang: typeof d.lang === "string" ? d.lang : "",
+      script,
+      bytes: typeof d.bytes === "number" ? d.bytes : 0,
+      importedAt: typeof d.importedAt === "number" ? d.importedAt : 0,
+    };
+    if (kind === "list") {
+      const bytes = await legacy.fs.read(`${DICT_DIR}/${id}/words.txt`);
+      if (!bytes) return null;
+      return { ...base, kind, words: await this.assets.put(bytes, "txt") };
     }
+    const [aff, dic] = await Promise.all([
+      legacy.fs.read(`${DICT_DIR}/${id}/index.aff`),
+      legacy.fs.read(`${DICT_DIR}/${id}/index.dic`),
+    ]);
+    if (!aff || !dic) return null;
+    const [affHash, dicHash] = await Promise.all([
+      this.assets.put(aff, "aff"),
+      this.assets.put(dic, "dic"),
+    ]);
+    return { ...base, kind, aff: affHash, dic: dicHash };
+  }
+
+  /**
+   * Drop the browser-stored list once every entry has been dealt with. The
+   * files under `spell/dicts/` are left alone: their bytes are in the asset
+   * store now, and deleting a tree the driver has no recursive delete for is
+   * not worth a half-finished sweep on a device that closes mid-way.
+   */
+  private forgetLegacy(legacy: LegacyImports): void {
+    try {
+      legacy.storage?.removeItem(IMPORTED_DICTS_KEY);
+    } catch {
+      // Next launch re-runs the adoption, which seeds nothing the second time.
+    }
+  }
+
+  private async add(descriptor: SyncedDictionary): Promise<ImportedDictionary> {
+    const id = newId();
+    this.prefs.set(SPELL_PREF_KEYS.dictPrefix + id, descriptor);
+    this.notePresence(id, "here");
+    return { id, ...descriptor };
+  }
+
+  /**
+   * Delete this device's copy of a removed dictionary's bytes, unless some
+   * dictionary still standing names the same hash — identical files share one
+   * asset, so the last reference is the one that may delete it.
+   */
+  private async dropBytes(
+    descriptor: SyncedDictionary,
+    removedId: string,
+  ): Promise<void> {
+    const stillUsed = new Set<string>();
+    for (const other of this.list()) {
+      if (other.id === removedId) continue;
+      for (const hash of hashesOf(other)) stillUsed.add(hash);
+    }
+    this.presenceById.delete(removedId);
+    for (const hash of hashesOf(descriptor)) {
+      if (stillUsed.has(hash)) continue;
+      try {
+        await this.assets.drop(hash);
+      } catch (err) {
+        // Wasted disk, nothing worse: the descriptor is already gone.
+        console.warn(`[spell] could not delete dictionary bytes:`, err);
+      }
+    }
+  }
+
+  /**
+   * A `spell.dict.*` key changed — here, or on a device that just reached us.
+   * Additions and removals both land through this one path, so a dictionary
+   * arriving from a sibling is indistinguishable from one added locally.
+   */
+  private onPrefsChange(): void {
+    const before = this.cache?.value;
+    const after = this.list();
+    if (before && sameDictionaries(before, after)) return;
+
+    if (before) {
+      const live = new Set(after.map((d) => d.id));
+      for (const gone of before) {
+        if (live.has(gone.id)) continue;
+        void this.dropBytes(gone, gone.id);
+      }
+    }
+    this.refreshPresence();
+    this.emit();
+  }
+
+  /**
+   * Ask the asset store which dictionaries this device can already open.
+   * Local-only, so it costs a directory listing and never a round trip; the
+   * answer is what separates "on this device" from "on your other devices".
+   */
+  private refreshPresence(): void {
+    const run = ++this.presenceRun;
+    void (async () => {
+      for (const d of this.list()) {
+        const here = await Promise.all(
+          hashesOf(d).map((hash) => this.assets.has(hash)),
+        );
+        if (run !== this.presenceRun) return;
+        this.notePresence(d.id, here.every(Boolean) ? "here" : "elsewhere");
+      }
+    })();
+  }
+
+  /** Record a presence answer, emitting only when it actually changed. */
+  private notePresence(id: string, presence: DictionaryPresence): null {
+    if (this.presenceById.get(id) === presence) return null;
+    this.presenceById.set(id, presence);
+    this.emit();
+    return null;
+  }
+
+  private emit(): void {
     for (const l of this.listeners) l();
   }
 }
 
-function defaultStorage(): KeyValueStorage | null {
-  try {
-    return typeof localStorage === "undefined" ? null : localStorage;
-  } catch {
-    return null;
-  }
+/** Do two descriptor lists say the same thing? Cheaper than re-rendering on every unrelated pref. */
+function sameDictionaries(
+  a: readonly ImportedDictionary[],
+  b: readonly ImportedDictionary[],
+): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((d, i) => {
+    const other = b[i];
+    return (
+      d.id === other.id &&
+      d.label === other.label &&
+      d.lang === other.lang &&
+      d.script === other.script &&
+      d.aff === other.aff &&
+      d.dic === other.dic &&
+      d.words === other.words
+    );
+  });
+}
+
+/**
+ * The asset store, in the shape a dictionary wants: bytes in and bytes out
+ * rather than `File`s and blob URLs.
+ */
+export function platformDictionaryAssets(
+  // Resolved per call, not once: the store is built while the app is still
+  // coming up, and the platform may not be there to ask yet.
+  platform: () => Pick<Platform, "assets">,
+): DictionaryAssets {
+  return {
+    put: async (bytes, ext) => {
+      // `assets.store` reads the extension off the name; the rest is unused.
+      const file = new File([bytes as BlobPart], `dictionary.${ext}`, {
+        type: "application/octet-stream",
+      });
+      const asset = await platform().assets.store(file);
+      return asset.hash;
+    },
+    get: async (hash) => (await platform().assets.getBytes(hash))?.data ?? null,
+    has: (hash) => platform().assets.has(hash),
+    drop: (hash) => platform().assets.delete(hash),
+  };
 }

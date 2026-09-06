@@ -11,7 +11,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
+import useMobileLayout from "@/app/hooks/useMobileLayout";
 import {
   Select,
   SelectContent,
@@ -53,6 +62,7 @@ export function AddDictionaryDialog({
   initialList?: ImportBytes;
 }) {
   const { t } = useTranslation();
+  const { isMobile } = useMobileLayout();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [label, setLabel] = useState("");
@@ -175,130 +185,154 @@ export function AddDictionaryDialog({
     }
   };
 
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (!next) reset();
-        onOpenChange(next);
-      }}
+  const close = (next: boolean) => {
+    if (!next) reset();
+    onOpenChange(next);
+  };
+
+  const title = t("settings.spelling.addDialog.title", "Add a dictionary");
+  const description = t(
+    "settings.spelling.addDialog.description",
+    "A Hunspell .dic and .aff pair, or a .txt word list with one word per line.",
+  );
+
+  const body = (
+    <>
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept=".aff,.dic,.txt,text/plain"
+        className="hidden"
+        onChange={(e) => {
+          const files = e.target.files;
+          e.target.value = "";
+          if (files?.length) void onFiles(files);
+        }}
+      />
+      <Button
+        type="button"
+        variant="outline"
+        className="self-start"
+        onClick={() => fileInputRef.current?.click()}
+      >
+        <Upload className="size-4" aria-hidden />
+        {t("settings.spelling.addDialog.choose", "Choose files")}
+      </Button>
+
+      {candidate && (
+        <>
+          <p className="text-sm text-muted-foreground">
+            {candidate.kind === "pair"
+              ? t(
+                  "settings.spelling.addDialog.pairChosen",
+                  "Hunspell dictionary: {{dic}} + {{aff}}",
+                  { dic: candidate.dic.name, aff: candidate.aff.name },
+                )
+              : t("settings.spelling.addDialog.listChosen", {
+                  count: candidate.words,
+                  file: candidate.list.name,
+                  defaultValue_one: "Word list {{file}}: {{count}} word",
+                  defaultValue_other: "Word list {{file}}: {{count}} words",
+                })}
+          </p>
+          <div className="flex flex-col gap-1">
+            <label className="text-sm" htmlFor="spell-dict-label">
+              {t("settings.spelling.addDialog.label", "Name")}
+            </label>
+            <Input
+              id="spell-dict-label"
+              dir="auto"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-sm" htmlFor="spell-dict-script">
+              {t("settings.spelling.addDialog.script", "Writing system")}
+            </label>
+            <Select
+              value={script}
+              onValueChange={(v) => setScript(v as Script)}
+            >
+              <SelectTrigger id="spell-dict-script">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="latn">
+                  {t("settings.spelling.script.latn", "Latin")}
+                </SelectItem>
+                <SelectItem value="arab">
+                  {t("settings.spelling.script.arab", "Arabic")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {t(
+                "settings.spelling.addDialog.scriptHint",
+                "Words are only ever checked against dictionaries of their own writing system.",
+              )}
+            </p>
+          </div>
+        </>
+      )}
+
+      {problem && (
+        <p className="text-sm text-destructive" role="alert">
+          {problemText(problem)}
+        </p>
+      )}
+    </>
+  );
+
+  const cancelButton = (
+    <Button type="button" variant="ghost" onClick={() => close(false)}>
+      {t("common.cancel", "Cancel")}
+    </Button>
+  );
+  const addButton = (
+    <Button
+      type="button"
+      disabled={!candidate || busy}
+      onClick={() => void add()}
     >
+      {t("settings.spelling.addDialog.add", "Add dictionary")}
+    </Button>
+  );
+
+  if (isMobile) {
+    return (
+      <Drawer open={open} onOpenChange={close}>
+        <DrawerContent>
+          <div className="flex min-h-0 flex-1 flex-col">
+            <DrawerHeader>
+              <DrawerTitle>{title}</DrawerTitle>
+              <DrawerDescription>{description}</DrawerDescription>
+            </DrawerHeader>
+            <div className="flex flex-col gap-4 px-4">{body}</div>
+            <DrawerFooter>
+              {addButton}
+              {cancelButton}
+            </DrawerFooter>
+          </div>
+        </DrawerContent>
+      </Drawer>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={close}>
       <DialogContent className="flex flex-col gap-4">
         <DialogHeader>
-          <DialogTitle>
-            {t("settings.spelling.addDialog.title", "Add a dictionary")}
-          </DialogTitle>
-          <DialogDescription>
-            {t(
-              "settings.spelling.addDialog.description",
-              "A Hunspell .dic and .aff pair, or a .txt word list with one word per line. It stays on this device.",
-            )}
-          </DialogDescription>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept=".aff,.dic,.txt,text/plain"
-          className="hidden"
-          onChange={(e) => {
-            const files = e.target.files;
-            e.target.value = "";
-            if (files?.length) void onFiles(files);
-          }}
-        />
-        <Button
-          type="button"
-          variant="outline"
-          className="self-start"
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <Upload className="size-4" aria-hidden />
-          {t("settings.spelling.addDialog.choose", "Choose files")}
-        </Button>
-
-        {candidate && (
-          <>
-            <p className="text-sm text-muted-foreground">
-              {candidate.kind === "pair"
-                ? t(
-                    "settings.spelling.addDialog.pairChosen",
-                    "Hunspell dictionary: {{dic}} + {{aff}}",
-                    { dic: candidate.dic.name, aff: candidate.aff.name },
-                  )
-                : t("settings.spelling.addDialog.listChosen", {
-                    count: candidate.words,
-                    file: candidate.list.name,
-                    defaultValue_one: "Word list {{file}}: {{count}} word",
-                    defaultValue_other: "Word list {{file}}: {{count}} words",
-                  })}
-            </p>
-            <div className="flex flex-col gap-1">
-              <label className="text-sm" htmlFor="spell-dict-label">
-                {t("settings.spelling.addDialog.label", "Name")}
-              </label>
-              <Input
-                id="spell-dict-label"
-                dir="auto"
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-sm" htmlFor="spell-dict-script">
-                {t("settings.spelling.addDialog.script", "Writing system")}
-              </label>
-              <Select
-                value={script}
-                onValueChange={(v) => setScript(v as Script)}
-              >
-                <SelectTrigger id="spell-dict-script">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="latn">
-                    {t("settings.spelling.script.latn", "Latin")}
-                  </SelectItem>
-                  <SelectItem value="arab">
-                    {t("settings.spelling.script.arab", "Arabic")}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                {t(
-                  "settings.spelling.addDialog.scriptHint",
-                  "Words are only ever checked against dictionaries of their own writing system.",
-                )}
-              </p>
-            </div>
-          </>
-        )}
-
-        {problem && (
-          <p className="text-sm text-destructive" role="alert">
-            {problemText(problem)}
-          </p>
-        )}
+        {body}
 
         <DialogFooter>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => {
-              reset();
-              onOpenChange(false);
-            }}
-          >
-            {t("common.cancel", "Cancel")}
-          </Button>
-          <Button
-            type="button"
-            disabled={!candidate || busy}
-            onClick={() => void add()}
-          >
-            {t("settings.spelling.addDialog.add", "Add dictionary")}
-          </Button>
+          {cancelButton}
+          {addButton}
         </DialogFooter>
       </DialogContent>
     </Dialog>

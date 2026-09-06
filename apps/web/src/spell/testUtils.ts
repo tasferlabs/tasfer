@@ -34,6 +34,21 @@ export class FakeOwnPrefsStore {
     this.commit({ ...this.snapshot.values, ...changed });
   }
 
+  /** Only writes when the key has no answer at all — mirrors `platform.prefs.seed`. */
+  async seed(key: string, value: unknown): Promise<boolean> {
+    if (this.snapshot.values[key] != null) return false;
+    this.seeds.push([key, value]);
+    this.commit({ ...this.snapshot.values, [key]: value });
+    return true;
+  }
+
+  /** Every `seed` call that actually wrote, in order. */
+  readonly seeds: Array<[string, unknown]> = [];
+
+  whenLoaded(): Promise<void> {
+    return Promise.resolve();
+  }
+
   /** Raw stored value (including `null` tombstones). */
   raw(key: string): unknown {
     return this.snapshot.values[key];
@@ -47,6 +62,66 @@ export class FakeOwnPrefsStore {
   asStore(): OwnPrefsStore {
     return this as unknown as OwnPrefsStore;
   }
+}
+
+/**
+ * In-memory content-addressed asset store, standing in for the platform one.
+ *
+ * `get` is the call that would cross the network, so `remote` is the second
+ * device: bytes in there are pulled into `local` on demand, and clearing it
+ * models a sibling that is not reachable right now.
+ */
+export class FakeDictionaryAssets {
+  /** Bytes on this device. */
+  readonly local = new Map<string, Uint8Array>();
+  /** Bytes only a sibling has, pulled in by `get`. */
+  readonly remote = new Map<string, Uint8Array>();
+  /** Hashes `get` had to fetch from the sibling, in order. */
+  readonly pulled: string[] = [];
+
+  async put(bytes: Uint8Array, _ext: string): Promise<string> {
+    const hash = fakeHash(bytes);
+    this.local.set(hash, bytes);
+    return hash;
+  }
+
+  async get(hash: string): Promise<Uint8Array | null> {
+    const here = this.local.get(hash);
+    if (here) return here;
+    const there = this.remote.get(hash);
+    if (!there) return null;
+    this.pulled.push(hash);
+    this.local.set(hash, there);
+    return there;
+  }
+
+  async has(hash: string): Promise<boolean> {
+    return this.local.has(hash);
+  }
+
+  async drop(hash: string): Promise<void> {
+    this.local.delete(hash);
+  }
+
+  /** Move everything this device holds to the sibling — "a fresh device". */
+  moveToSibling(): void {
+    for (const [hash, bytes] of this.local) this.remote.set(hash, bytes);
+    this.local.clear();
+  }
+}
+
+/** 64 hex chars derived from the bytes: content-addressed, and passes the hash check. */
+function fakeHash(bytes: Uint8Array): string {
+  let a = 0x811c9dc5;
+  let b = 0x01000193;
+  for (const byte of bytes) {
+    a = Math.imul(a ^ byte, 0x01000193) >>> 0;
+    b = Math.imul(b + byte + 1, 0x85ebca6b) >>> 0;
+  }
+  const word = (n: number) => n.toString(16).padStart(8, "0");
+  return (word(a) + word(b) + word((a ^ b) >>> 0) + word(bytes.length)).repeat(
+    2,
+  );
 }
 
 // --- @tasfer/spell stand-ins -------------------------------------------------

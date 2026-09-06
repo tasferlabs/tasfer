@@ -14,7 +14,10 @@ import {
   importedDescriptor,
 } from "./dictionaries";
 import { PersonalDictionary, SPELL_PREF_KEYS } from "./personalDictionary";
-import type { UserDictionaryStore } from "./userDictionaries";
+import type {
+  DictionaryPresence,
+  UserDictionaryStore,
+} from "./userDictionaries";
 
 export type { DictionaryDescriptor } from "./dictionaries";
 
@@ -177,6 +180,8 @@ export class SpellService {
   private lastSettings = "";
   /** `!word` entries from imported word lists: flagged even when a dictionary knows them. */
   private importedForbidden = new Map<string, readonly string[]>();
+  /** Serialises `drainImported`, so a dictionary arriving mid-drain still gets a pass. */
+  private importedDrain: Promise<void> = Promise.resolve();
 
   constructor(deps: SpellServiceDeps) {
     this.prefs = deps.prefs;
@@ -222,6 +227,7 @@ export class SpellService {
     this.unsubImported = null;
     this.active = false;
     this.stopWorker();
+    this.importedStore?.dispose();
   }
 
   // ----------------------------------------------------------------- settings
@@ -244,16 +250,6 @@ export class SpellService {
   lenientArabic(): boolean {
     return (
       this.prefs.get<boolean>(SPELL_PREF_KEYS.lenientArabic, false) === true
-    );
-  }
-
-  flagAllCaps(): boolean {
-    return this.prefs.get<boolean>(SPELL_PREF_KEYS.flagAllCaps, false) === true;
-  }
-
-  highContrast(): boolean {
-    return (
-      this.prefs.get<boolean>(SPELL_PREF_KEYS.highContrast, false) === true
     );
   }
 
@@ -280,6 +276,42 @@ export class SpellService {
   /** The store behind {@link importedDictionaries}, or null on a device without one. */
   get imported(): UserDictionaryStore | null {
     return this.importedStore;
+  }
+
+  /**
+   * Whether an imported dictionary's files are on this device. "elsewhere"
+   * means the descriptor arrived from a sibling and the bytes have not
+   * followed yet — a normal state, and the one the settings row explains.
+   */
+  presence(id: string): DictionaryPresence {
+    return this.importedStore?.presence(id) ?? "unknown";
+  }
+
+  /**
+   * Write down the languages this device guessed, so the person's other
+   * devices check the same ones.
+   *
+   * Without this, "which languages do I check" has no answer in the register
+   * until someone opens Settings, and every device answers it for itself from
+   * its own `navigator.languages` — a laptop quietly checking English and
+   * German while the phone checks English and Arabic. Seeded rather than set,
+   * so a real choice made anywhere (including one still in flight to us) wins.
+   */
+  async seedDefaultLanguages(): Promise<void> {
+    await this.prefs.whenLoaded();
+    if (this.prefs.getSnapshot().values[SPELL_PREF_KEYS.languages] != null) {
+      return;
+    }
+    await this.prefs.seed(SPELL_PREF_KEYS.languages, [
+      ...this.defaultLanguages,
+    ]);
+  }
+
+  /** Move dictionaries imported before they synced into the register. Runs once. */
+  async adoptOnce(): Promise<void> {
+    if (!this.importedStore) return;
+    await this.prefs.whenLoaded();
+    await this.importedStore.adopt();
   }
 
   async enableLanguage(lang: string): Promise<void> {
@@ -387,18 +419,22 @@ export class SpellService {
   }
 
   /**
-   * The first dictionary of `script` that is wanted but not loaded (nor
-   * failed), if any. A bundled one is wanted when its language is ticked; an
-   * imported one always is — adding it on this device is the opt-in, and the
-   * `spell.languages` pref is synced to devices that do not have the files.
+   * EVERY ticked dictionary of `script` that is not loaded yet (nor failed).
+   *
+   * All of them, not the first: dictionaries of one script are checked as a
+   * union, so someone who ticked English and Swedish needs both up before a
+   * Swedish word stops being a mistake. Imported ones are left out — they
+   * load through {@link drainImported}, which pulls them one at a time so a
+   * sibling's multi-megabyte file cannot starve op replication.
    */
-  private loadableFor(script: Script): DictionaryDescriptor | undefined {
+  private loadablesFor(script: Script): DictionaryDescriptor[] {
     const enabled = this.languages();
-    return this.availableDictionaries().find(
+    return this.bundled.filter(
       (d) =>
         d.script === script &&
-        (d.source.kind === "imported" || enabled.includes(d.id)) &&
-        this.status(d.id) === "missing",
+        enabled.includes(d.id) &&
+        this.status(d.id) === "missing" &&
+        !this.dictLoads.has(d.id),
     );
   }
 
@@ -407,30 +443,79 @@ export class SpellService {
   }
 
   /**
-   * Read a dictionary's bytes on the main thread: bundled ones over `fetch`
-   * (the service worker's CacheFirst route answers after the first time),
-   * imported ones off the device's filesystem. Both are transferred to the
-   * worker, so nothing here is kept.
+   * Read a dictionary's bytes on the main thread: vendored and catalogue ones
+   * over `fetch` (the service worker's CacheFirst route answers after the
+   * first time, for both the app's own assets and the catalogue CDN), imported
+   * ones off the device's filesystem. Both are transferred to the worker, so
+   * nothing here is kept.
    */
   private async dictionaryBytes(
     d: DictionaryDescriptor,
   ): Promise<{ aff: ArrayBuffer; dic: ArrayBuffer }> {
-    if (d.source.kind === "bundled") {
+    if (d.source.kind !== "imported") {
       const urls = dictionaryUrls(d);
       const [aff, dic] = await Promise.all([
-        this.fetchBytes(urls.aff),
-        this.fetchBytes(urls.dic),
+        this.fetchFirst(urls.aff),
+        this.fetchFirst(urls.dic),
       ]);
       return { aff, dic };
     }
+    // `read` pulls the bytes from whichever of this person's devices has them
+    // when this one does not, so a null here means nobody reachable holds it.
     const files = await this.importedStore?.read(d.id);
-    if (!files) throw new Error(`spell: ${d.id} has no files on this device`);
+    if (!files) throw new Error(`spell: ${d.id} is not on a reachable device`);
     const before = this.importedForbidden.get(d.id);
     if (files.forbidden.length > 0 || before) {
       this.importedForbidden.set(d.id, files.forbidden);
       if (this.worker) this.pushUserWords();
     }
     return { aff: toArrayBuffer(files.aff), dic: toArrayBuffer(files.dic) };
+  }
+
+  /**
+   * Read the first candidate URL that answers.
+   *
+   * A catalogue language is offered by more than one CDN (see
+   * {@link dictionaryUrls}), so one being down or blocked is not the language
+   * being unavailable. Only the last failure is reported, because that is the
+   * one that says nowhere could serve it.
+   */
+  private async fetchFirst(urls: readonly string[]): Promise<ArrayBuffer> {
+    let last: unknown;
+    for (const url of urls) {
+      try {
+        return await this.fetchBytes(url);
+      } catch (err) {
+        last = err;
+      }
+    }
+    throw last instanceof Error ? last : new Error("spell: no dictionary URL");
+  }
+
+  /**
+   * Load every imported dictionary that is not up yet, ONE AT A TIME.
+   *
+   * A dictionary whose bytes are on another device is fetched over the same
+   * data channel that carries op replication and awareness, and several
+   * multi-megabyte pulls at once would starve them — the asset prefetcher
+   * drains sequentially for exactly this reason. Nothing here waits on the
+   * result: a dictionary nobody can supply leaves its row saying so.
+   */
+  private drainImported(): Promise<void> {
+    // Chained rather than guarded by a flag: a dictionary that lands just as a
+    // drain is finishing would lose a "someone is already doing this" race and
+    // then have nobody left to load it.
+    this.importedDrain = this.importedDrain.then(async () => {
+      // Re-read each time round: a sibling's dictionary can land mid-drain.
+      for (;;) {
+        const next = this.importedDictionaries().find(
+          (d) => this.status(d.id) === "missing" && !this.dictLoads.has(d.id),
+        );
+        if (!next || !this.worker) return;
+        await this.ensureLoaded(next.id).catch(() => {});
+      }
+    });
+    return this.importedDrain;
   }
 
   /**
@@ -446,35 +531,9 @@ export class SpellService {
         if (this.worker) this.pushUserWords();
       }
     }
-    if (this.worker) {
-      for (const d of this.importedDictionaries()) {
-        if (this.status(d.id) === "missing" && !this.dictLoads.has(d.id)) {
-          void this.ensureLoaded(d.id);
-        }
-      }
-    }
+    if (this.worker) void this.drainImported();
     this.suggestCache.clear();
     this.invalidateAll();
-    this.emit();
-  }
-
-  /**
-   * Drop a bundled dictionary's cached bytes so the space goes back to the
-   * device. It stays available: ticking the language again re-downloads it.
-   */
-  async removeFromDevice(lang: string): Promise<void> {
-    this.activate();
-    await this.disableLanguage(lang);
-    const descriptor = this.bundled.find((d) => d.id === lang);
-    if (!descriptor || descriptor.source.kind !== "bundled") return;
-    if (typeof caches === "undefined") return;
-    const urls = dictionaryUrls(descriptor);
-    const wanted = [urls.aff, urls.dic, ...urls.extras];
-    for (const name of await caches.keys()) {
-      if (!name.includes("spell-dictionaries")) continue;
-      const cache = await caches.open(name);
-      for (const url of wanted) await cache.delete(url, { ignoreSearch: true });
-    }
     this.emit();
   }
 
@@ -510,13 +569,14 @@ export class SpellService {
     }
     await this.ready();
     const results = await this.request({ type: "check", ...req }, "check");
-    for (const block of results) {
-      if (!block.deferredScripts) continue;
-      for (const script of block.deferredScripts) {
-        const d = this.loadableFor(script);
-        if (d && !this.dictLoads.has(d.id)) void this.ensureLoaded(d.id);
-      }
-    }
+    // Dictionaries download when a script they cover turns up in the text,
+    // never on the chance that it will: someone whose browser lists four
+    // languages downloads the one they actually write in.
+    const seen = new Set<Script>();
+    for (const block of results)
+      for (const script of block.scripts ?? []) seen.add(script);
+    for (const script of seen)
+      for (const d of this.loadablesFor(script)) void this.ensureLoaded(d.id);
     return results;
   }
 
@@ -633,12 +693,10 @@ export class SpellService {
         throw new Error("spell: worker restarted");
       }
       this.pushUserWords();
-      // Imported dictionaries load up front, unlike the bundled ones: a check
-      // only reports a script as deferred while NO dictionary of that script
-      // is loaded, so an extra Latin dictionary would never be asked for once
-      // English is up — and its words would be flagged until it was. The bytes
-      // are already on the device, so there is nothing to wait for.
-      for (const d of this.importedDictionaries()) void this.ensureLoaded(d.id);
+      // Imported dictionaries load up front, unlike the ticked ones: their
+      // bytes can only come off this device or a sibling, so there is no
+      // download to hold back, and the drain keeps those pulls sequential.
+      void this.drainImported();
     })();
     init.catch((err) => {
       if (this.generation === generation) {
@@ -766,8 +824,6 @@ export class SpellService {
       this.enabled(),
       this.languages(),
       this.lenientArabic(),
-      this.flagAllCaps(),
-      this.highContrast(),
     ]);
   }
 
@@ -788,8 +844,8 @@ export class SpellService {
         if (!langs.includes(lang)) this.unload(lang);
     }
     // Checkers rescan: a turned-off service returns no flags, new options
-    // change what counts as a mistake, and a newly enabled language shows up
-    // as `deferredScripts` on the next pass, which triggers its load.
+    // change what counts as a mistake, and a language ticked on another
+    // device is loaded by the next pass over text in its script.
     this.invalidateAll();
     this.emit();
   }
