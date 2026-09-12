@@ -242,13 +242,17 @@ async function _initPlatformInner(): Promise<Platform> {
     });
 
   // Make sync lifecycle-aware: pause/flush on app background, reconnect on
-  // foreground. Native (iOS/Android) drives this via window.__tasferLifecycle;
-  // the controller also self-wires a visibilitychange/pagehide fallback that is
-  // harmless on electron. HMR-safe: dispose any prior instance before wiring.
+  // foreground. Native (iOS/Android) drives this via window.__tasferLifecycle
+  // plus visibility events, because the OS really does suspend the WebView.
+  // Electron opts out of the visibility half — a hidden or unfocused desktop
+  // window is still a running process, so pausing there only churned every
+  // socket and peer on each app switch. HMR-safe: dispose any prior instance.
   {
     const { SyncLifecycleController } = await import("./sync-lifecycle");
     _g.__tasfer_syncLifecycle?.dispose?.();
-    const dispose = new SyncLifecycleController(replicator).install();
+    const dispose = new SyncLifecycleController(replicator, {
+      suspendsWhenBackgrounded: env === "capacitor",
+    }).install();
     _g.__tasfer_syncLifecycle = { dispose };
   }
 

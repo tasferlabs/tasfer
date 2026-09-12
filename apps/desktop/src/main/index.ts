@@ -314,6 +314,13 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false, // needed for better-sqlite3 native module
+      // Sync keeps running while the window is hidden, minimized, occluded, or
+      // closed to the tray — so the renderer's timers have to keep running too.
+      // Chromium clamps a backgrounded page's timers to one tick a minute, and
+      // the signaling keepalive has to fire every 25s to stay under the 60s NAT
+      // idle cull (see WS_PING_INTERVAL_MS). Throttled, every socket would be
+      // culled while hidden and rebuilt on the way back.
+      backgroundThrottling: false,
     },
   });
 
