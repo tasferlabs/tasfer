@@ -99,7 +99,7 @@ export function Spelling() {
           isFine ? (
             <Trans
               i18nKey="settings.spelling.description"
-              defaults="Misspelled words get a red underline as you type. Use the right-click menu or <shortcut /> to fix one."
+              defaults="Misspelled words get a red underline as you type. Use the right-click menu on an underlined word or <shortcut /> to fix it."
               components={{
                 shortcut: (
                   <ShortcutKeys keys={spellShortcutKeys(isApplePlatform())} />

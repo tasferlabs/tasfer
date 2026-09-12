@@ -1477,7 +1477,7 @@
   "spell.announce.ignored": "{{word}} ignored on this page",
   "spell.announce.ignoredOnce": "{{word}} ignored",
   "settings.spelling.title": "Spelling",
-  "settings.spelling.description": "Misspelled words get a red underline as you type. Use the right-click menu or <shortcut /> to fix one.",
+  "settings.spelling.description": "Misspelled words get a red underline as you type. Use the right-click menu on an underlined word or <shortcut /> to fix it.",
   "settings.spelling.descriptionTouch": "Misspelled words get a red underline as you type. Tap an underlined word to see suggestions in the toolbar above the keyboard.",
   "settings.spelling.enabled": "Check spelling as you type",
   "settings.spelling.enabledHint": "Underline misspelled words while you write.",
