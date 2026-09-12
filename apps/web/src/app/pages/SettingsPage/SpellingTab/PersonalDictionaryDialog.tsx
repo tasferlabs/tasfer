@@ -1,4 +1,4 @@
-import { BookPlus, Download, MoreHorizontal, Upload, X } from "lucide-react";
+import { BookPlus, Download, MoreVertical, Upload, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -250,7 +250,7 @@ export function PersonalDictionaryDialog({
               "Import or export",
             )}
           >
-            <MoreHorizontal className="size-4" aria-hidden />
+            <MoreVertical className="size-4" aria-hidden />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start">

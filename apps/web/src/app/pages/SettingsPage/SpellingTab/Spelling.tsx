@@ -1,4 +1,4 @@
-import { MoreHorizontal, Plus } from "lucide-react";
+import { MoreVertical, Plus } from "lucide-react";
 import { useEffect, useId, useMemo, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { isApplePlatform } from "@tasfer/editor";
@@ -328,7 +328,7 @@ function LanguageRow({
               name,
             })}
           >
-            <MoreHorizontal className="size-4" aria-hidden />
+            <MoreVertical className="size-4" aria-hidden />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className={styles.menu}>
