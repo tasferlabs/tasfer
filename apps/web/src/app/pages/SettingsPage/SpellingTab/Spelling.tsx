@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
+import { useConfirmation } from "@/app/components/ConfirmationDialog";
 import { ShortcutKeys } from "@/app/components/ShortcutKeys";
 import useResponsive from "@/app/hooks/useResponsive";
 import { cn } from "@/lib/utils";
@@ -249,6 +250,7 @@ function LanguageRow({
   disabled: boolean;
 }) {
   const { t, i18n } = useTranslation();
+  const { getConfirmation } = useConfirmation();
   const imported = dictionary.source.kind === "imported";
   const status = service.status(dictionary.id);
   const options = languageOptions(dictionary.id);
@@ -280,6 +282,33 @@ function LanguageRow({
             : // A dictionary nobody has fetched yet says nothing: it downloads
               // on first use, and the size already tells you what that costs.
               null;
+
+  /**
+   * Both removals reach every device — the language list and the imported
+   * register are both synced — so both ask first. Only the imported one
+   * actually loses something: its bytes came from a file we cannot re-fetch.
+   */
+  async function confirmRemove() {
+    const confirmed = await getConfirmation({
+      title: t("settings.spelling.remove.confirmTitle", "Remove {{name}}?", {
+        name,
+      }),
+      description: imported
+        ? t(
+            "settings.spelling.remove.confirmDictionary",
+            "This dictionary is deleted from all your devices. To use it again you’ll need the file you imported it from.",
+          )
+        : t(
+            "settings.spelling.remove.confirmLanguage",
+            "Tasfer stops checking {{name}} on all your devices. You can add it back whenever you like.",
+            { name },
+          ),
+      confirmText: t("settings.spelling.remove.confirmAction", "Remove"),
+    });
+    if (!confirmed) return;
+    if (imported) await service.imported?.remove(dictionary.id);
+    else await service.disableLanguage(dictionary.id);
+  }
 
   return (
     <li className={styles.item}>
@@ -340,22 +369,14 @@ function LanguageRow({
               <DropdownMenuSeparator />
             </>
           )}
-          {imported ? (
-            <DropdownMenuItem
-              onClick={() => void service.imported?.remove(dictionary.id)}
-            >
-              {t(
-                "settings.spelling.removeDictionary",
-                "Remove from all your devices",
-              )}
-            </DropdownMenuItem>
-          ) : (
-            <DropdownMenuItem
-              onClick={() => void service.disableLanguage(dictionary.id)}
-            >
-              {t("settings.spelling.removeLanguage", "Remove")}
-            </DropdownMenuItem>
-          )}
+          <DropdownMenuItem onClick={() => void confirmRemove()}>
+            {imported
+              ? t(
+                  "settings.spelling.removeDictionary",
+                  "Remove from all your devices",
+                )
+              : t("settings.spelling.removeLanguage", "Remove")}
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </li>
