@@ -30,6 +30,55 @@ export const OWN_PREF_KEYS = {
   spacesCollapsed: "sidebar.spacesCollapsed",
   /** `true` once the person has read the P2P sharing walkthrough. */
   p2pTutorialSeen: "tutorial.p2pSeen",
+  /** `boolean` — spellcheck on or off; absent means on. */
+  spellEnabled: "spell.enabled",
+  /**
+   * `string[]` — dictionary ids to check against. Absent until the first run
+   * seeds it with the bundled dictionaries this device's languages match
+   * (`en`, `ar`, or both); see `preferredLanguages`.
+   */
+  spellLanguages: "spell.languages",
+  /** `boolean` — accept common Arabic orthographic variants (hamza, ة/ه, ى/ي). */
+  spellLenientArabic: "spell.lenientArabic",
+  /**
+   * Key PREFIX, not a key: `spell.word.<word>` → `{ added: ms }` for every word
+   * in the personal dictionary. One key per word because the register is
+   * last-writer-wins per key and cannot delete: a single list would let two
+   * devices overwrite each other's additions and could never shrink. Removal
+   * writes `null`, which `get` reads as absent. Mirrored as `SPELL_PREF_KEYS`
+   * in `src/spell/personalDictionary.ts`.
+   */
+  spellWordPrefix: "spell.word.",
+  /** Key PREFIX: `spell.forbid.<word>` → `{ added: ms }` — words to always flag. */
+  spellForbidPrefix: "spell.forbid.",
+  /**
+   * Key PREFIX: `spell.dict.<id>` → the descriptor of a dictionary the person
+   * added from a file (see `SyncedDictionary` in `src/spell/userDictionaries.ts`).
+   * One key per dictionary, and removal writes `null`, for the same reason the
+   * word list does it: the register cannot delete and cannot merge a list.
+   *
+   * The descriptor holds content hashes, never bytes — the files themselves go
+   * into the shared asset store and are pulled by hash from whichever of this
+   * person's devices has them. A pref is re-sent on every handshake, so a
+   * megabyte of base64 here would cross the wire on every reconnection.
+   */
+  spellDictPrefix: "spell.dict.",
+  /**
+   * The Date & Time settings, one key each — how a clock and a date read, and
+   * which day starts the week. A person's reading of "14:30" does not change
+   * with the machine they are on, so these follow them; where they physically
+   * are can, which is why `dateTime.timezone` holds "system" (resolve against
+   * this device) until they pin a zone on purpose.
+   *
+   * `"12h" | "24h" | "system"`.
+   */
+  dateTimeTimeFormat: "dateTime.timeFormat",
+  /** `"MM/DD/YYYY" | "DD/MM/YYYY" | "YYYY-MM-DD" | "system"`. */
+  dateTimeDateFormat: "dateTime.dateFormat",
+  /** `0 | 1 | 6` — Sunday, Monday, or Saturday. */
+  dateTimeWeekStart: "dateTime.weekStart",
+  /** An IANA zone id, or "system" to follow whichever device is reading. */
+  dateTimeTimezone: "dateTime.timezone",
 } as const;
 
 /**
@@ -64,6 +113,38 @@ const LEGACY: Array<{
     read: (raw) =>
       raw === "1" ? [[OWN_PREF_KEYS.p2pTutorialSeen, true]] : [],
   },
+  // The Date & Time tab wrote each of these as its own browser key. A value
+  // equal to the default is not adopted: "system" and Monday are what an unset
+  // key already means, and seeding them would turn this browser's silence into
+  // an answer that a real choice made on another device has to outrank.
+  {
+    storageKey: "timeFormat",
+    read: (raw) =>
+      raw === "12h" || raw === "24h"
+        ? [[OWN_PREF_KEYS.dateTimeTimeFormat, raw]]
+        : [],
+  },
+  {
+    storageKey: "dateFormat",
+    read: (raw) =>
+      raw === "MM/DD/YYYY" || raw === "DD/MM/YYYY" || raw === "YYYY-MM-DD"
+        ? [[OWN_PREF_KEYS.dateTimeDateFormat, raw]]
+        : [],
+  },
+  {
+    storageKey: "weekStart",
+    read: (raw) =>
+      raw === "0" || raw === "6"
+        ? [[OWN_PREF_KEYS.dateTimeWeekStart, Number(raw)]]
+        : [],
+  },
+  {
+    storageKey: "timezone",
+    // Only ever written when the person pinned a zone; "system" was stored by
+    // removing the key.
+    read: (raw) =>
+      raw && raw !== "system" ? [[OWN_PREF_KEYS.dateTimeTimezone, raw]] : [],
+  },
 ];
 
 interface Snapshot {
@@ -87,6 +168,24 @@ export class OwnPrefsStore {
   getSnapshot = () => this.snapshot;
 
   /**
+   * Resolves once the first read from the database has landed.
+   *
+   * Anything that decides what to write by noticing a key is *absent* has to
+   * wait for this: before it, every key looks absent, and "nobody has chosen
+   * yet" is indistinguishable from "the answer has not arrived".
+   */
+  whenLoaded(): Promise<void> {
+    if (this.snapshot.loaded) return Promise.resolve();
+    return new Promise((resolve) => {
+      const stop = this.subscribe(() => {
+        if (!this.snapshot.loaded) return;
+        stop();
+        resolve();
+      });
+    });
+  }
+
+  /**
    * Read the register, adopting any leftover browser-stored values first.
    *
    * The change subscription opens before the read, and anything it delivers
@@ -96,7 +195,10 @@ export class OwnPrefsStore {
   async hydrate(): Promise<void> {
     const platform = getPlatform();
     this.unsubscribe = platform.prefs.onChange((changed) => {
-      this.commit({ ...this.snapshot.values, ...changed }, this.snapshot.loaded);
+      this.commit(
+        { ...this.snapshot.values, ...changed },
+        this.snapshot.loaded,
+      );
     });
 
     let values: Record<string, unknown> = {};
@@ -117,6 +219,32 @@ export class OwnPrefsStore {
   get<T>(key: string, fallback: T): T {
     const value = this.snapshot.values[key];
     return value === undefined || value === null ? fallback : (value as T);
+  }
+
+  /**
+   * Record a value the person never actually chose — a default this device
+   * worked out for itself — so their other devices inherit it instead of each
+   * working out its own.
+   *
+   * Stamped to lose to any real decision, including one already made elsewhere
+   * and still in flight (see `platform.prefs.seed`), and a no-op once the key
+   * has any answer at all. Resolves to whether this device's guess is the one
+   * that stuck.
+   */
+  async seed(key: string, value: unknown): Promise<boolean> {
+    try {
+      const took = await getPlatform().prefs.seed(key, value);
+      if (took) {
+        this.commit(
+          { ...this.snapshot.values, [key]: value },
+          this.snapshot.loaded,
+        );
+      }
+      return took;
+    } catch (err) {
+      console.warn(`[OwnPrefs] could not seed ${key}:`, err);
+      return false;
+    }
   }
 
   /** Record a decision and let it propagate to this person's other devices. */

@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { useTheme, type Theme } from "@/app/hooks/useTheme";
@@ -9,26 +8,8 @@ import {
   DENSITY_STOPS,
   DEFAULT_DENSITY,
 } from "@/app/contexts/PageSettingsContext";
+import { Section } from "../shared/Section";
 import styles from "./AppearanceSettings.module.css";
-
-// ── shared section shell ────────────────────────────────────────────────────
-export function Section({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description?: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className={styles.section}>
-      <h3 className={styles.heading}>{title}</h3>
-      {description && <p className={styles.description}>{description}</p>}
-      {children}
-    </section>
-  );
-}
 
 // ── Display density ─────────────────────────────────────────────────────────
 const formatScale = (value: number) => `${value.toFixed(1)}×`;
@@ -195,9 +176,7 @@ const LANGUAGES: Array<{
   code: string;
   native: string;
   dir: "ltr" | "rtl";
-}> = [
-  { id: "en", code: "EN", native: "English", dir: "ltr" },
-];
+}> = [{ id: "en", code: "EN", native: "English", dir: "ltr" }];
 
 export function LanguageSelect() {
   const { t, i18n } = useTranslation();

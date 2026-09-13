@@ -20,6 +20,7 @@ import {
   formatTimePreferred,
   getResolvedTimezone,
 } from "@/lib/dateTimePreferences";
+import { useDateTimePrefs } from "@/app/contexts/DateTimePrefsContext";
 import {
   countWordsFromBlocks,
   selectionSpanFromRange,
@@ -827,6 +828,8 @@ function ScheduleContent({
     },
   });
 
+  // Re-render when this person changes a date or time setting on any device.
+  useDateTimePrefs();
   const tz = getResolvedTimezone();
 
   const { control } = useForm<ScheduleFormValues>({
@@ -992,6 +995,8 @@ function ScheduleTag({
   readonly: boolean;
 }) {
   const { t } = useTranslation();
+  // Re-render when this person changes a date or time setting on any device.
+  useDateTimePrefs();
   const { data: page } = useGetPage(pageId);
   const [open, setOpen] = useState(false);
   const { isMobile } = useMobileLayout();

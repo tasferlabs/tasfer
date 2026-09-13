@@ -155,6 +155,19 @@ import {
 import { MatrixEditor } from "../editor/MatrixEditor";
 import { SlashActionMenu } from "../editor/SlashActionMenu";
 import {
+  SpellcheckLayer,
+  type SpellcheckLayerHandle,
+} from "../spell/SpellcheckLayer";
+import {
+  buildSpellMenuItems,
+  spellMenuItems,
+  type SpellMenuT,
+} from "../spell/spellContextMenuItems";
+import {
+  SuggestionBarSlot,
+  SuggestionBarSlotProvider,
+} from "../spell/SuggestionBar";
+import {
   appSchema,
   openCodeLanguageMenu,
   openImageUploadMenu,
@@ -1515,6 +1528,16 @@ function PageEditor({
     hoveredItemId?: string | null;
   } | null>(null);
 
+  // Spelling: the layer's handle (context-menu builder + footer), and the
+  // spelling group at the top of the open web menu. The group starts with a
+  // "Looking up…" row and is swapped when suggestions land; the token drops a
+  // late result for a menu that has since closed or reopened elsewhere.
+  const spellLayerRef = useRef<SpellcheckLayerHandle | null>(null);
+  const [spellMenuGroup, setSpellMenuGroup] = useState<
+    ContextMenuItem[] | null
+  >(null);
+  const spellMenuTokenRef = useRef(0);
+
   // The matrix editor surface (dialog on desktop, drawer on touch): null while
   // closed, else the live dimensions of the grid the caret sits in. Both the
   // context menu's "Edit matrix" and the mobile toolbar's matrix button open it;
@@ -2205,6 +2228,11 @@ function PageEditor({
     doc,
     schema: appSchema,
     editable: !readonly,
+    // Desktop squiggles come from our own checker (SpellcheckLayer); the
+    // browser's spellcheck/autocorrect on the hidden input would waste CPU on
+    // marks nobody sees and could rewrite words we flag. Phones keep it: the
+    // OS keyboard's suggestion strip depends on it.
+    nativeAutocomplete: isTouchDevice(),
     pageId,
     padding,
     blockStyleOverrides,
@@ -2585,11 +2613,21 @@ function PageEditor({
       }),
       mounted.editor.registerAction(
         OPEN_CONTEXT_MENU,
-        ({ x, y, hasSelection }) => {
+        ({ x, y, hasSelection, point }) => {
           const rect = wrapperRef.current?.getBoundingClientRect();
           if (!rect) return false;
           const vx = rect.left + x;
           const vy = rect.top + y;
+
+          // Spelling group for the misspelled word the menu is about: the
+          // point under the pointer when the engine resolved one (a held
+          // selection keeps the caret put), else the caret word.
+          const spell = spellLayerRef.current;
+          const spellFlag = spell
+            ? (point ? spell.flagAt(point) : null) ?? spell.flagAtCaret()
+            : null;
+          const spellT: SpellMenuT = (key, defaultValue, options) =>
+            String(i18next.t(key, { defaultValue, ...options }));
 
           // Native path: present a platform menu instead of the Radix popover.
           // iOS/Android go through the unified bridge; desktop (Electron) routes
@@ -2600,24 +2638,54 @@ function PageEditor({
           // item was picked.
           const presentNativeMenu = getNativeContextMenuPresenter();
           if (presentNativeMenu) {
-            const { model, actions } = toNativeMenu(
-              getContextMenuItemsRef.current(hasSelection),
-            );
-            void presentNativeMenu({
-              model,
-              anchor: { x: vx, y: vy, width: 1, height: 1 },
-            })
-              .then((chosenId) => {
-                if (chosenId) actions.get(chosenId)?.();
+            const present = (spellItems: ContextMenuItem[]) => {
+              const { model, actions } = toNativeMenu(
+                getContextMenuItemsRef.current(hasSelection, spellItems),
+              );
+              return presentNativeMenu({
+                model,
+                anchor: { x: vx, y: vy, width: 1, height: 1 },
               })
-              .catch(() => {
-                // A presenter failure must not strand the engine in capture
-                // mode; the finally below still dispatches CLOSE_CONTEXT_MENU.
-              })
-              .finally(() => {
-                mounted.editor.dispatch(CLOSE_CONTEXT_MENU);
-              });
+                .then((chosenId) => {
+                  if (chosenId) actions.get(chosenId)?.();
+                })
+                .catch(() => {
+                  // A presenter failure must not strand the engine in capture
+                  // mode; the finally below still dispatches CLOSE_CONTEXT_MENU.
+                })
+                .finally(() => {
+                  mounted.editor.dispatch(CLOSE_CONTEXT_MENU);
+                });
+            };
+            // A native menu cannot change once shown, so wait (briefly) for
+            // the suggestions — usually already prefetched — before presenting.
+            if (spell && spellFlag) {
+              void spellMenuItems(spell, spellT, {
+                awaitSuggestionsMs: 150,
+                flag: spellFlag,
+              }).then(present, () => present([]));
+            } else {
+              void present([]);
+            }
             return true;
+          }
+
+          // Web: open at once with a pending row; swap in the suggestions when
+          // they arrive, if this same menu is still up.
+          const token = ++spellMenuTokenRef.current;
+          if (spell && spellFlag) {
+            setSpellMenuGroup(buildSpellMenuItems(spell, spellFlag, null, spellT));
+            void spellMenuItems(spell, spellT, {
+              awaitSuggestionsMs: null,
+              flag: spellFlag,
+              onResolve: (items) => {
+                if (token === spellMenuTokenRef.current) setSpellMenuGroup(items);
+              },
+            }).then((items) => {
+              if (token === spellMenuTokenRef.current) setSpellMenuGroup(items);
+            });
+          } else {
+            setSpellMenuGroup(null);
           }
 
           setMenu({
@@ -2654,6 +2722,8 @@ function PageEditor({
         },
       ),
       mounted.editor.registerAction(CLOSE_CONTEXT_MENU, () => {
+        spellMenuTokenRef.current++;
+        setSpellMenuGroup(null);
         setMenu(null);
       }),
     );
@@ -3482,9 +3552,13 @@ function PageEditor({
 
   const getContextMenuItems = (
     hasSelectionOverride?: boolean,
+    spellGroupOverride?: ContextMenuItem[],
   ): ContextMenuItem[] => {
     const hasSelection =
       hasSelectionOverride ?? contextMenuState?.hasSelection ?? false;
+    // The spelling group leads: the web menu reads it from state (it updates
+    // in place when suggestions land); native presenters pass it in built.
+    const spellGroup = spellGroupOverride ?? spellMenuGroup ?? [];
 
     // When the cursor sits on an image block we can copy the image bytes
     // themselves. The async clipboard write API is unavailable in some WebViews
@@ -3505,6 +3579,7 @@ function PageEditor({
       typeof navigator.clipboard?.write === "function";
 
     const items: ContextMenuItem[] = [
+      ...spellGroup,
       {
         id: "selectAll",
         label: t("contextMenu.selectAll", "Select All"),
@@ -3837,6 +3912,7 @@ function PageEditor({
 
   return (
     <TableToolsContext.Provider value={tableTools}>
+      <SuggestionBarSlotProvider>
       <div
         // The hook owns `containerRef` (it mounts the canvas here); we keep
         // `wrapperRef` for the existing layout/positioning reads. One element,
@@ -3898,6 +3974,26 @@ function PageEditor({
             <MathCommandMenu
               editor={mountedRef.current.editor}
               getContainerRect={getSlashContainerRect}
+            />,
+            mountedRef.current.portalContainer,
+          )}
+
+        {/* Spellcheck — squiggles, ⌘./Ctrl+. fix-or-next, the suggestion
+          popover and the touch suggestion bar. Editable mounts only: a
+          readonly preview never flags anything. */}
+        {!readonly &&
+          mountedRef.current?.portalContainer &&
+          mountedRef.current.editor &&
+          mountedRef.current.doc &&
+          createPortal(
+            <SpellcheckLayer
+              ref={spellLayerRef}
+              editor={mountedRef.current.editor}
+              doc={mountedRef.current.doc}
+              pageId={pageId}
+              readonly={readonly}
+              getContainerRect={getSlashContainerRect}
+              portalContainer={mountedRef.current.portalContainer}
             />,
             mountedRef.current.portalContainer,
           )}
@@ -4012,6 +4108,7 @@ function PageEditor({
           <MobileKeyboardToolbar
             model={mobileToolbarModel}
             onAction={handleMobileToolbarAction}
+            slot={<SuggestionBarSlot />}
           />
         )}
 
@@ -4041,6 +4138,7 @@ function PageEditor({
             document.body,
           )}
       </div>
+      </SuggestionBarSlotProvider>
     </TableToolsContext.Provider>
   );
 }

@@ -561,9 +561,19 @@ export type {
   DecorationLayers,
   DecorationPoint,
   DecorationRange,
+  DecorationRect,
   FlatDecorationPoint,
   LabelIconShape,
   RangeDecoration,
+  RangeDecorationPaint,
+  RangeDecorationStyle,
+} from "./rendering/decorations";
+// Painting helpers for custom nodes: paint a range decoration in whatever
+// style it carries, over the rects the node's own selection geometry yields.
+export {
+  boxDecorationRect,
+  decorationsForBlock,
+  paintDecorationRects,
 } from "./rendering/decorations";
 
 // Host-convenience helpers (block/format/selection readers), the low-level

@@ -1,6 +1,11 @@
+/* Tabs cap their own content for readability, but only while this pane is wide
+   enough to still show gutters around `.container`. They ask the pane, not the
+   viewport, because the resizable sidebar takes 300-500px the viewport does not
+   know about. Query bound: the 1200px container plus its 2rem of padding. */
 .scrollHost {
   height: 100%;
   overflow-y: auto;
+  container: settings / inline-size;
 }
 
 .container {

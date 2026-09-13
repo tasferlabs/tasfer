@@ -28,10 +28,22 @@
  */
 
 import { getBaseDataSchema } from "../baseDataSchema";
+import {
+  type Decoration,
+  type DecorationLayers,
+  decorationPointBlockId,
+  decorationsForBlock,
+  isContentDecorationPoint,
+  type RangeDecoration,
+  resolveDecorationPoint,
+} from "../rendering/decorations";
 import type { OutputCtx } from "../serlization/codecs";
 import { inlineToHtml } from "../serlization/codecs/inline";
-import type { Block } from "../serlization/loadPage";
+import type { Block, Page } from "../serlization/loadPage";
 import type { Operation } from "../state-types";
+import { findBlockIndex } from "../sync/block-lookup";
+import { isTextualBlock } from "../sync/block-registry";
+import { getVisibleLengthFromRuns } from "../sync/char-runs";
 import type { DataSchema } from "../sync/schema";
 
 /** The block ids touched by a change transaction — the set to re-serialize. */
@@ -131,11 +143,221 @@ function indentOf(block: Block): number {
   return "indent" in block ? (block as { indent?: number }).indent || 0 : 0;
 }
 
+const NO_LAYERS: DecorationLayers = {};
+
+// -----------------------------------------------------------------------------
+// Range decorations → ARIA
+//
+// A range decoration may carry `a11y.invalid`; the mirror projects it onto the
+// covered text as `<span aria-invalid="…">`. Everything below is pure and
+// DOM-free until `wrapInvalidRanges`, which is the only piece that touches
+// nodes — and it walks `childNodes` recursively (no TreeWalker) so a fake
+// tree can exercise it in tests.
+// -----------------------------------------------------------------------------
+
+/** An `aria-invalid` token a range decoration may declare. */
+export type AriaInvalidToken = NonNullable<RangeDecoration["a11y"]>["invalid"];
+
+/** A flat `[from, to)` span of one block's visible text carrying a token. */
+export interface InvalidRange {
+  readonly from: number;
+  readonly to: number;
+  readonly invalid: AriaInvalidToken;
+}
+
+/**
+ * One slice of a mirrored text node after splitting: `[start, end)` within the
+ * node's own text, and the token wrapping it (`null` for untouched text).
+ */
+export interface InvalidSegment {
+  readonly start: number;
+  readonly end: number;
+  readonly invalid: AriaInvalidToken | null;
+}
+
+/**
+ * The block ids any of the given decoration lists touch — the set to re-render
+ * when a layer is replaced (old contents ∪ new contents). A range that spans
+ * blocks contributes its two endpoints; the blocks in between are picked up on
+ * their next render, which reads the same store.
+ */
+export function decorationBlockIds(
+  ...groups: readonly (readonly Decoration[] | undefined)[]
+): Set<string> {
+  const ids = new Set<string>();
+  for (const group of groups) {
+    if (!group) continue;
+    for (const deco of group) {
+      if (deco.kind === "block") ids.add(deco.block);
+      else if (deco.kind === "caret")
+        ids.add(decorationPointBlockId(deco.point));
+      else {
+        ids.add(decorationPointBlockId(deco.range.from));
+        ids.add(decorationPointBlockId(deco.range.to));
+      }
+    }
+  }
+  return ids;
+}
+
+/**
+ * The `a11y`-carrying range decorations that cover `block`, as flat visible
+ * offsets clipped to the block, in all-layers insertion order. Structured
+ * (`ContentPoint`) ranges have no flat text to wrap and are skipped, as are
+ * ranges whose endpoints no longer resolve. `visibleLength` clips a span that
+ * runs past the block.
+ */
+export function invalidRangesForBlock(
+  layers: DecorationLayers,
+  page: Page,
+  block: Block,
+  visibleLength: number,
+): InvalidRange[] {
+  const ranges: InvalidRange[] = [];
+  const decos = decorationsForBlock(layers, block.id);
+  if (decos.length === 0) return ranges;
+  const blockIndex = findBlockIndex(page, block.id);
+  if (blockIndex === -1) return ranges;
+
+  for (const deco of decos) {
+    if (deco.kind !== "range" || !deco.a11y) continue;
+    const { from, to } = deco.range;
+    if (isContentDecorationPoint(from) || isContentDecorationPoint(to)) {
+      continue;
+    }
+    const anchor = resolveDecorationPoint(from, page);
+    const focus = resolveDecorationPoint(to, page);
+    if (!anchor || !focus) continue;
+    if (anchor.blockIndex > blockIndex || focus.blockIndex < blockIndex) {
+      continue;
+    }
+    const start = anchor.blockIndex < blockIndex ? 0 : anchor.textIndex;
+    const end =
+      focus.blockIndex > blockIndex
+        ? visibleLength
+        : Math.min(focus.textIndex, visibleLength);
+    if (start < end)
+      ranges.push({ from: start, to: end, invalid: deco.a11y.invalid });
+  }
+  return ranges;
+}
+
+/**
+ * Plan how each text node splits so every range boundary lands on a node edge.
+ * `lengths` are the text nodes' lengths in document order (their concatenation
+ * is the block's visible text); `ranges` are flat spans over that text. Returns
+ * one ordered segment list per node covering `[0, length)`. Where ranges
+ * overlap, the later one (higher layer insertion order) wins, mirroring paint
+ * order. Pure and deterministic.
+ */
+export function planInvalidSegments(
+  lengths: readonly number[],
+  ranges: readonly InvalidRange[],
+): InvalidSegment[][] {
+  const plan: InvalidSegment[][] = [];
+  let base = 0;
+  for (const length of lengths) {
+    const nodeEnd = base + length;
+    const cuts = new Set<number>([0, length]);
+    const hits: InvalidRange[] = [];
+    for (const range of ranges) {
+      if (range.from >= range.to) continue;
+      if (range.to <= base || range.from >= nodeEnd) continue;
+      hits.push(range);
+      cuts.add(Math.max(0, range.from - base));
+      cuts.add(Math.min(length, range.to - base));
+    }
+    const sorted = [...cuts].sort((a, b) => a - b);
+    const segments: InvalidSegment[] = [];
+    for (let i = 0; i + 1 < sorted.length; i++) {
+      const start = sorted[i];
+      const end = sorted[i + 1];
+      let invalid: AriaInvalidToken | null = null;
+      for (const range of hits) {
+        if (range.from <= base + start && range.to >= base + end) {
+          invalid = range.invalid;
+        }
+      }
+      segments.push({ start, end, invalid });
+    }
+    if (segments.length === 0)
+      segments.push({ start: 0, end: 0, invalid: null });
+    plan.push(segments);
+    base = nodeEnd;
+  }
+  return plan;
+}
+
+/** Depth-first text nodes under `root`, in document order (no TreeWalker). */
+export function collectTextNodes(root: Node): Text[] {
+  const out: Text[] = [];
+  const visit = (node: Node): void => {
+    for (const child of [...node.childNodes]) {
+      if (child.nodeType === 3) out.push(child as Text);
+      else visit(child);
+    }
+  };
+  visit(root);
+  return out;
+}
+
+/**
+ * Wrap the parts of `root`'s text covered by `ranges` in `<span aria-invalid>`.
+ * Offsets are visible UTF-16 offsets into the block's text, so they only mean
+ * something if the mirror's text nodes concatenate to exactly that text: when
+ * their total length differs from `expectedLength` (a `<br>` for a soft break,
+ * a replacement run, an entity the serializer expanded) alignment is lost and
+ * the pass is skipped rather than risk wrapping the wrong letters. Returns
+ * whether it ran.
+ */
+export function wrapInvalidRanges(
+  root: Node,
+  ranges: readonly InvalidRange[],
+  expectedLength: number,
+  doc: Document,
+): boolean {
+  if (ranges.length === 0) return true;
+  const textNodes = collectTextNodes(root);
+  const lengths = textNodes.map((node) => node.data.length);
+  let total = 0;
+  for (const length of lengths) total += length;
+  if (total !== expectedLength) return false;
+
+  const plan = planInvalidSegments(lengths, ranges);
+  for (let i = 0; i < textNodes.length; i++) {
+    const segments = plan[i];
+    if (segments.length === 1 && segments[0].invalid === null) continue;
+    const node = textNodes[i];
+    const parent = node.parentNode;
+    if (!parent) continue;
+    const text = node.data;
+    for (const segment of segments) {
+      if (segment.start === segment.end) continue;
+      const piece = doc.createTextNode(text.slice(segment.start, segment.end));
+      if (segment.invalid === null) {
+        parent.insertBefore(piece, node);
+      } else {
+        const span = doc.createElement("span");
+        span.setAttribute("aria-invalid", segment.invalid);
+        span.appendChild(piece);
+        parent.insertBefore(span, node);
+      }
+    }
+    parent.removeChild(node);
+  }
+  return true;
+}
+
 export interface DomMirrorOptions {
   /** Host-owned container; the mirror owns only its children, never the node. */
   readonly container: HTMLElement;
   /** Reads the document's current blocks in order (may include tombstones). */
   readonly getBlocks: () => readonly Block[];
+  /**
+   * Reads the current decoration store; range decorations carrying `a11y` are
+   * projected as `aria-invalid` on the mirrored text. Defaults to none.
+   */
+  readonly getDecorations?: () => DecorationLayers;
   /** Serialization schema (codecs + list grouping). Defaults to the base set. */
   readonly schema?: DataSchema;
   /** Injectable for tests; defaults to the ambient `document`. */
@@ -145,6 +367,7 @@ export interface DomMirrorOptions {
 export class DomMirror {
   private readonly container: HTMLElement;
   private readonly getBlocks: () => readonly Block[];
+  private readonly getDecorations: () => DecorationLayers;
   private readonly schema: DataSchema;
   private readonly doc: Document;
   private readonly win: Window | null;
@@ -167,6 +390,7 @@ export class DomMirror {
   constructor(options: DomMirrorOptions) {
     this.container = options.container;
     this.getBlocks = options.getBlocks;
+    this.getDecorations = options.getDecorations ?? (() => NO_LAYERS);
     this.schema = options.schema ?? getBaseDataSchema();
     this.doc = options.doc ?? globalThis.document;
     this.win = this.doc.defaultView ?? null;
@@ -183,6 +407,17 @@ export class DomMirror {
   applyChange(ops: readonly Operation[]): void {
     if (this.destroyed) return;
     for (const op of ops) this.pendingDirty.add(op.blockId);
+    this.scheduleFlush();
+  }
+
+  /**
+   * Note that the decorations touching `blockIds` changed and schedule the same
+   * coalesced flush as {@link applyChange}. The blocks are re-rendered from
+   * scratch, so a decoration whose `a11y` was removed simply stops appearing.
+   */
+  applyDecorations(blockIds: Iterable<string>): void {
+    if (this.destroyed) return;
+    for (const id of blockIds) this.pendingDirty.add(id);
     this.scheduleFlush();
   }
 
@@ -274,7 +509,24 @@ export class DomMirror {
     if (indent > 0 && el.tagName === "LI") {
       el.setAttribute("aria-level", String(indent + 1));
     }
+    this.projectInvalidRanges(el, block);
     return el;
+  }
+
+  /**
+   * Post-pass over a freshly rendered block: wrap the text its `a11y` range
+   * decorations cover in `<span aria-invalid>`. Only textual blocks have flat
+   * offsets to map; a misaligned block (see `wrapInvalidRanges`) is left as is.
+   */
+  private projectInvalidRanges(el: HTMLElement, block: Block): void {
+    if (!isTextualBlock(block) || !block.charRuns) return;
+    const layers = this.getDecorations();
+    const blocks = this.getBlocks();
+    const page: Page = { id: "", title: "", blocks: blocks as Block[] };
+    const visibleLength = getVisibleLengthFromRuns(block.charRuns);
+    const ranges = invalidRangesForBlock(layers, page, block, visibleLength);
+    if (ranges.length === 0) return;
+    wrapInvalidRanges(el, ranges, visibleLength, this.doc);
   }
 
   /**

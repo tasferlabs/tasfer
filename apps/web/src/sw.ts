@@ -102,6 +102,28 @@ registerRoute(
   }),
 );
 
+// Spelling dictionaries and the Hunspell binary are likewise excluded from
+// the precache: a language is fetched the first time it is needed and kept so
+// checking keeps working offline. Two sources, one cache — English and Arabic
+// ship as this app's own assets under `/app/spell/`, and the other ninety
+// languages come from the npm CDNs in `SPELL_CATALOG_BASES`, pinned to an
+// exact version so a cached response is never stale. The cap counts .aff and
+// .dic separately, so it bounds how many languages survive offline, not how
+// many can be installed.
+const SPELL_CDN_HOSTS = ["cdn.jsdelivr.net", "unpkg.com"];
+registerRoute(
+  ({ url }) =>
+    (url.origin === self.location.origin &&
+      url.pathname.includes("/app/spell/")) ||
+    (SPELL_CDN_HOSTS.includes(url.hostname) &&
+      // jsDelivr serves /npm/<pkg>, unpkg serves /<pkg>.
+      /^\/(npm\/)?dictionary-/.test(url.pathname)),
+  new CacheFirst({
+    cacheName: "spell-dictionaries",
+    plugins: [new ExpirationPlugin({ maxEntries: 40, purgeOnQuotaError: true })],
+  }),
+);
+
 // Helper to fetch with credentials (for basic auth support)
 function authFetch(
   input: RequestInfo | URL,

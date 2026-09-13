@@ -2,6 +2,7 @@ import { DateTime } from 'luxon';
 import React, { useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { DateTimeInput } from './DateTimeInput';
 import { toNumberOrNull, getGranularityMaxValue, padValue, getDateFieldOrder } from './utils';
+import { useDateTimePrefs } from '@/app/contexts/DateTimePrefsContext';
 
 export const DateTimeInputGroup = React.forwardRef(
   (
@@ -52,7 +53,12 @@ export const DateTimeInputGroup = React.forwardRef(
     const hourRef = useRef<HTMLInputElement>(null);
     const minuteRef = useRef<HTMLInputElement>(null);
 
-    const { fields, separator } = useMemo(() => getDateFieldOrder(), []);
+    // Recomputed when the date order moves, here or on another device.
+    const dateTimePrefs = useDateTimePrefs();
+    const { fields, separator } = useMemo(
+      () => getDateFieldOrder(),
+      [dateTimePrefs],
+    );
 
     const fieldMap = useMemo(
       () => ({

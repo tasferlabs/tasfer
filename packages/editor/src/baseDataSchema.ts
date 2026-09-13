@@ -48,9 +48,10 @@ function buildBaseBlockSpecs(): BlockSpecCore[] {
  * no separate name list or codec table to keep in sync.
  */
 function buildBaseMarkSpecs(): MarkSpec[] {
-  return defaultMarks().map(
-    (mark): MarkSpec => ({ type: mark.type, codec: mark.codec }),
-  );
+  return defaultMarks().map((mark): MarkSpec => ({
+    type: mark.type,
+    codec: mark.codec,
+  }));
 }
 
 // The default schema is built lazily on first use rather than at module-eval.

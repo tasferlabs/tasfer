@@ -17,8 +17,13 @@
  *      via evaluateJavaScript, wrapped in a `beginBackgroundTask` window. When
  *      teardown finishes we call `bridge.lifecycle.endFlush()` to release that
  *      task early.
- *   2. Web/electron fallback — visibility, page, and connectivity events, so
- *      behavior is correct off-iOS and as a belt-and-suspenders on iOS.
+ *   2. Visibility events, for hosts where losing the foreground means losing
+ *      the JS loop. See {@link SyncLifecycleOptions.suspendsWhenBackgrounded} —
+ *      electron opts out, because on desktop a backgrounded window is still a
+ *      running process and tearing sync down there is pure churn.
+ *
+ * Connectivity events (`offline`/`online`) drive it on every host: a network
+ * that went away really did take the sockets with it.
  *
  * It owns no sync state; it is a thin coordinator over the Replicator.
  */
@@ -35,14 +40,34 @@ declare global {
   }
 }
 
+export interface SyncLifecycleOptions {
+  /**
+   * Whether the host suspends our JS loop when the app leaves the foreground.
+   *
+   * True on Capacitor (iOS/Android), where the OS freezes the WebView and the
+   * sockets die with no clean teardown — so we pause first and reconnect on
+   * the way back in.
+   *
+   * False on electron. A desktop window that is hidden, minimized, occluded by
+   * another app, or closed to the tray keeps running: `BrowserWindow.hide()`
+   * and macOS occlusion both flip `document.hidden`, but nothing about the
+   * connections has changed. Pausing on that signal tore down every peer and
+   * every per-topic signaling socket on each app switch, then rebuilt them all
+   * — with fresh ICE — the moment the window came back.
+   */
+  suspendsWhenBackgrounded: boolean;
+}
+
 export class SyncLifecycleController {
   private replicator: Replicator;
+  private suspendsWhenBackgrounded: boolean;
   /** Serializes pause/resume so a resume can't race an unfinished pause. */
   private inFlight: Promise<void> = Promise.resolve();
   private disposed = false;
 
-  constructor(replicator: Replicator) {
+  constructor(replicator: Replicator, options: SyncLifecycleOptions) {
     this.replicator = replicator;
+    this.suspendsWhenBackgrounded = options.suspendsWhenBackgrounded;
   }
 
   /**
@@ -58,23 +83,30 @@ export class SyncLifecycleController {
       };
     }
 
-    // Web/electron-safe fallback. On iOS this also fires and is deduped by the
-    // idempotent, serialized pause/resume below. On Android it is the sole
-    // driver: the WebView reports visibility in both directions (verified on
-    // device) and Capacitor keeps JS running in the background long enough for
-    // the flush to drain, so no native bridge is needed there.
+    // On iOS this also fires and is deduped by the idempotent, serialized
+    // pause/resume below. On Android it is the sole driver: the WebView reports
+    // visibility in both directions (verified on device) and Capacitor keeps JS
+    // running in the background long enough for the flush to drain, so no
+    // native bridge is needed there.
     const onVisibility = () => {
       if (document.hidden) this.handlePause();
       else this.handleResume();
     };
+    // A teardown on the way out is still right on electron: the page is going
+    // away for real, so flushing beats letting the sockets drop mid-round.
     const onPageHide = () => this.handlePause();
     const onOffline = () => this.handlePause();
     const onOnline = () => {
-      if (!document.hidden) this.handleResume();
+      // Where visibility does not gate sync, a hidden window coming back onto
+      // a live network still wants its peers back.
+      if (!this.suspendsWhenBackgrounded || !document.hidden)
+        this.handleResume();
     };
 
     if (typeof document !== "undefined") {
-      document.addEventListener("visibilitychange", onVisibility);
+      if (this.suspendsWhenBackgrounded) {
+        document.addEventListener("visibilitychange", onVisibility);
+      }
       window.addEventListener("pagehide", onPageHide);
       window.addEventListener("offline", onOffline);
       window.addEventListener("online", onOnline);

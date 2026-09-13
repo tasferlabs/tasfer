@@ -904,6 +904,19 @@ export interface Platform {
     store(file: File): Promise<Asset>;
     /** Get a URL for an asset (may be blob:, file://, or http://) */
     getUrl(hash: string): Promise<string>;
+    /**
+     * Raw bytes for an asset, or null when nobody has them. Falls back to
+     * asking connected peers, exactly like {@link getUrl} — the difference is
+     * that it hands back bytes rather than a URL, which is what a caller
+     * outside the DOM (the spell worker's dictionaries) actually wants.
+     */
+    getBytes(hash: string): Promise<{ data: Uint8Array; mime: string } | null>;
+    /**
+     * Are these bytes on THIS device already? Local-only: it never asks a
+     * peer, so it answers at once and is the question to ask when the point is
+     * to tell "here" from "on another of your devices" rather than to fetch.
+     */
+    has(hash: string): Promise<boolean>;
     /** Delete an asset */
     delete(hash: string): Promise<void>;
   };

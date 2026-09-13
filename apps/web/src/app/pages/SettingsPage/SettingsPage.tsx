@@ -7,10 +7,12 @@ import {
 } from "@/components/ui/drawer";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  CalendarClock,
   ChevronRight,
   Download,
   Info,
   SlidersHorizontal,
+  SpellCheck,
   User,
 } from "lucide-react";
 import { useState } from "react";
@@ -18,18 +20,29 @@ import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { TopActionBarPortal } from "../../layout/TopActionBarSlot";
 import { Data } from "./DataTab/Data";
+import { DateTime } from "./DateTimeTab/DateTime";
 import { Information } from "./InformationTab/Information";
 import { Preferences } from "./PreferencesTab/Preferences";
 import { Profile } from "./ProfileTab/Profile";
+import { Spelling } from "./SpellingTab/Spelling";
 import style from "./SettingsPage.module.css";
 
-const TABS = ["profile", "preferences", "data", "information"] as const;
+const TABS = [
+  "profile",
+  "preferences",
+  "spelling",
+  "dateTime",
+  "data",
+  "information",
+] as const;
 type Tab = (typeof TABS)[number];
 const DEFAULT_TAB = "profile";
 
 const TAB_ICONS: Record<Tab, React.ElementType> = {
   profile: User,
   preferences: SlidersHorizontal,
+  spelling: SpellCheck,
+  dateTime: CalendarClock,
   data: Download,
   information: Info,
 };
@@ -37,6 +50,8 @@ const TAB_ICONS: Record<Tab, React.ElementType> = {
 const CONTENT: Record<Tab, React.FC> = {
   profile: Profile,
   preferences: Preferences,
+  spelling: Spelling,
+  dateTime: DateTime,
   data: Data,
   information: Information,
 };
@@ -61,6 +76,8 @@ export default function SettingsPage() {
   const tabLabels: Record<Tab, string> = {
     profile: t("settings.profile", "Profile"),
     preferences: t("settings.preferences", "Preferences"),
+    spelling: t("settings.spelling.title", "Spelling"),
+    dateTime: t("settings.dateTime.title", "Date & Time"),
     data: t("export.title", "Export"),
     information: t("settings.information.title", "Information"),
   };
@@ -134,6 +151,12 @@ export default function SettingsPage() {
             <TabsTrigger value="preferences">
               {t("settings.preferences", "Preferences")}
             </TabsTrigger>
+            <TabsTrigger value="spelling">
+              {t("settings.spelling.title", "Spelling")}
+            </TabsTrigger>
+            <TabsTrigger value="dateTime">
+              {t("settings.dateTime.title", "Date & Time")}
+            </TabsTrigger>
             <TabsTrigger value="data">
               {t("export.title", "Export")}
             </TabsTrigger>
@@ -146,6 +169,12 @@ export default function SettingsPage() {
           </TabsContent>
           <TabsContent value={"preferences"}>
             <Preferences />
+          </TabsContent>
+          <TabsContent value={"spelling"}>
+            <Spelling />
+          </TabsContent>
+          <TabsContent value={"dateTime"}>
+            <DateTime />
           </TabsContent>
           <TabsContent value={"data"}>
             <Data />

@@ -15,6 +15,7 @@ import { getLuxon, padValue, plusDatetime } from "./utils";
 import { TimePicker } from "./TimePicker";
 import { YearPicker } from "./YearPicker";
 import { getWeekStart, formatDatePreferred } from "@/lib/dateTimePreferences";
+import { useDateTimePrefs } from "@/app/contexts/DateTimePrefsContext";
 import useResponsive from "@/app/hooks/useResponsive";
 import useMobileLayout from "@/app/hooks/useMobileLayout";
 
@@ -110,6 +111,8 @@ export function DateTimePickerOverlay({
     return DateTime.now().setZone(timezone).toISO() || "";
   });
   const [focusedISO, setFocusedISO] = useState<string | null>(null);
+  // Re-render when this person changes a date or time setting on any device.
+  useDateTimePrefs();
   const weekStart = getWeekStart();
 
   const minLuxon = useMemo(

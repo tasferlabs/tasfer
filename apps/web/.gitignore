@@ -28,3 +28,6 @@ dev-dist
 certs/
 .vercel
 .env*
+
+# Copied from packages/spell/node_modules/hunspell-wasm by scripts/copy-spell-wasm.mjs
+public/app/spell/hunspell.wasm

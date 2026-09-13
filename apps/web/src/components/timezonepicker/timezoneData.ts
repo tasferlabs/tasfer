@@ -59,6 +59,73 @@ export function buildZoneEntries(locale: string): ZoneEntry[] {
   });
 }
 
+/** One region group of the zone list: a heading and the zones under it. */
+export interface ZoneGroup {
+  /** IANA area prefix, e.g. "Europe"; the group's stable key. */
+  region: string;
+  /** Localized heading text. */
+  label: string;
+  entries: ZoneEntry[];
+}
+
+/** IANA area prefix of a zone id; ids without one (UTC) group under "UTC". */
+export function zoneRegion(zoneId: string): string {
+  const [head, rest] = zoneId.split("/");
+  return rest === undefined ? "UTC" : head;
+}
+
+// The regions Intl.supportedValuesOf can return, mapped to their i18n key
+// suffix. A zone injected by `withZone` can carry a legacy prefix ("US/
+// Eastern") that is not in here; those fall back to the raw prefix.
+const REGION_LABEL_KEYS: Record<string, string> = {
+  Africa: "africa",
+  America: "americas",
+  Antarctica: "antarctica",
+  Arctic: "arctic",
+  Asia: "asia",
+  Atlantic: "atlantic",
+  Australia: "australia",
+  Europe: "europe",
+  Indian: "indian",
+  Pacific: "pacific",
+  UTC: "utc",
+};
+
+/** Translation key for a region heading, or null when it has no fixed label. */
+export function regionLabelKey(region: string): string | null {
+  const suffix = REGION_LABEL_KEYS[region];
+  return suffix ? `timezone.region.${suffix}` : null;
+}
+
+/**
+ * Groups zones by IANA area for a list that is scrolled by thumb rather than
+ * scanned with a scrollbar: offset order scatters a continent across the whole
+ * list, while a region heading is a landmark you can aim at. Groups and the
+ * cities inside them are ordered by the display locale's collation, so the
+ * headings read alphabetically in the language they are shown in.
+ */
+export function groupZonesByRegion(
+  entries: ZoneEntry[],
+  label: (region: string) => string,
+  locale: string,
+): ZoneGroup[] {
+  const byRegion = new Map<string, ZoneEntry[]>();
+  for (const entry of entries) {
+    const region = zoneRegion(entry.id);
+    const list = byRegion.get(region);
+    if (list) list.push(entry);
+    else byRegion.set(region, [entry]);
+  }
+  const collator = new Intl.Collator(locale);
+  return [...byRegion.entries()]
+    .map(([region, list]) => ({
+      region,
+      label: label(region),
+      entries: [...list].sort((a, b) => collator.compare(a.city, b.city)),
+    }))
+    .sort((a, b) => collator.compare(a.label, b.label));
+}
+
 /** Ensures the current value is selectable even if it is not in the list. */
 export function withZone(entries: ZoneEntry[], zoneId: string): ZoneEntry[] {
   if (entries.some((entry) => entry.id === zoneId)) return entries;

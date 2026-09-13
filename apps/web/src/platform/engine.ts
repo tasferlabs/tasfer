@@ -3898,6 +3898,16 @@ export class Engine implements Platform {
       return { data, mime: this.guessMimeType(match) };
     },
 
+    /**
+     * Local-only presence. Deliberately does NOT fall back to peers: callers
+     * use this to say "on this device" versus "on your other devices", and a
+     * question that fetches on the way to answering cannot tell them apart.
+     */
+    has: async (hash: string): Promise<boolean> => {
+      const files = await this.driver.fs.list(`${this.driver.basePath}/assets`);
+      return files.some((f) => f.startsWith(hash));
+    },
+
     delete: async (hash: string): Promise<void> => {
       const cachedUrl = this.blobUrlCache.get(hash);
       if (cachedUrl) {

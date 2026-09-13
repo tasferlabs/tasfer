@@ -1,0 +1,168 @@
+.container {
+  max-width: 800px;
+}
+
+/* Spelling settings: a header row, the list of languages you have added, and
+   the options that apply to every language. Language-specific options live in
+   each row's menu, never at this level — most people never write Arabic and
+   should never be shown an Arabic switch. */
+
+/* A group sits a clear step above the switch rows inside it: the rows are
+   0.875rem/600, the section heading above is 1.25rem, and this lands between
+   them. The space above is what actually separates one group from the last. */
+.groupHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.5rem;
+  margin: 2rem 0 0.875rem;
+}
+
+.groupTitle {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
+  margin: 0;
+}
+
+.groupHint {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+  max-width: 46ch;
+  margin: 0.25rem 0 0;
+}
+
+/* The added languages read as one object, not a stack of separate controls. */
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.item:first-child {
+  border-top: 0;
+}
+
+.itemText {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.125rem 0.5rem;
+}
+
+.name {
+  font-size: 0.875rem;
+  color: var(--foreground);
+}
+
+/* The language's own name, so someone can find their language even when the
+   interface is in one they do not read well. */
+.endonym {
+  font-size: 0.875rem;
+  color: var(--muted-foreground);
+}
+
+.meta {
+  flex-basis: 100%;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  margin: 0;
+}
+
+.empty {
+  padding: 1.25rem 0.75rem;
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--muted-foreground);
+  margin: 0;
+}
+
+.menuButton {
+  flex-shrink: 0;
+}
+
+/* Downloading: a quiet pulse on the status line only, so a row that is
+   fetching bytes does not jump or reflow. */
+.working {
+  animation: spellPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes spellPulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .working {
+    animation: none;
+  }
+}
+
+.failed {
+  color: var(--destructive);
+}
+
+.retry {
+  font-size: 0.75rem;
+  text-decoration: underline;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  margin-inline-start: 0.5rem;
+}
+
+@media (max-width: 640px) {
+  .groupHeader {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+/* Wide enough that "Stop checking this language" and the option hint below
+   set on one or two lines rather than one word per line. */
+.menu {
+  min-width: 17rem;
+}
+
+/* A language option in the row menu carries its explanation with it: the
+   label alone ("Accept spelling variants") does not say which variants. */
+.optionItem {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.125rem;
+}
+
+.optionHint {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--muted-foreground);
+  white-space: normal;
+}
+
+/* Once the pane is within a hair of the page container's own width the gutters
+   are gone and its 1rem of padding is all that is left, so holding the tab at a
+   reading width would strand it against the start edge with the rest of the row
+   empty. See `.scrollHost` in SettingsPage.module.css. */
+@container settings (max-width: 1232px) {
+  .container {
+    max-width: none;
+  }
+}

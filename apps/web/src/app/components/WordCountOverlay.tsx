@@ -34,6 +34,15 @@ export function WordCountOverlay() {
         defaultValue_other: "{{count, number}} words",
       });
 
+  const pillClass =
+    "flex h-8 cursor-pointer select-none items-center rounded-full border border-border bg-popover/95 px-3 shadow-lg backdrop-blur-xl transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  const motionProps = {
+    initial: { opacity: 0, y: 4, scale: 0.96 },
+    animate: { opacity: 1, y: 0, scale: 1 },
+    exit: { opacity: 0, y: 4, scale: 0.96 },
+    transition: reduceMotion ? { duration: 0 } : { duration: 0.15 },
+  };
+
   // `initial={false}` so the pill is simply present on a page that already has
   // the setting on; only toggling it animates.
   return (
@@ -43,18 +52,18 @@ export function WordCountOverlay() {
           <motion.button
             key="word-count"
             type="button"
-            initial={{ opacity: 0, y: 4, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 4, scale: 0.96 }}
-            transition={reduceMotion ? { duration: 0 } : { duration: 0.15 }}
+            {...motionProps}
             // The dock settles the tap on pointerdown (it rides the keyboard,
             // where a `click` never arrives) and forwards it here as a
             // synthesized click; see BottomToolDock.
             onClick={openDetails}
-            className="flex h-8 cursor-pointer select-none items-center rounded-full border border-border bg-popover/95 px-3 shadow-lg backdrop-blur-xl transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className={pillClass}
             aria-label={
               selectionStats
-                ? t("wordCount.showSelectionDetails", "Show selection statistics")
+                ? t(
+                    "wordCount.showSelectionDetails",
+                    "Show selection statistics",
+                  )
                 : t("wordCount.showDetails", "Show document statistics")
             }
             aria-haspopup="dialog"

@@ -56,7 +56,11 @@ import { currentFontFamily } from "@tasfer/editor/fonts";
 import { memoizeNodeLayout } from "@tasfer/editor/node-shared";
 import { paintTextRun } from "@tasfer/editor/nodes/TextNode";
 import {
-  allDecorations,
+  boxDecorationRect,
+  type DecorationRect,
+  decorationsForBlock,
+  paintDecorationRects,
+  type RangeDecorationPaint,
   rangeDecorationToContentSelection,
   rangeDecorationToSelection,
 } from "@tasfer/editor/rendering/decorations";
@@ -350,19 +354,25 @@ export class TableNode extends Node<TableBlock> {
     y: number,
   ): void {
     const { state, styles } = c;
-    for (const deco of allDecorations(state.ui.decorations)) {
+    for (const deco of decorationsForBlock(state.ui.decorations, c.block.id)) {
       if (deco.kind === "caret") continue;
-      const opacity = deco.opacity ?? styles.selection.remoteOpacity;
 
       if (deco.kind === "block") {
         if (deco.block !== c.block.id) continue;
-        this.fillGrid(layout, c, x, y, deco.color, opacity);
+        this.fillGrid(
+          layout,
+          c,
+          x,
+          y,
+          deco.color,
+          deco.opacity ?? styles.selection.remoteOpacity,
+        );
         continue;
       }
 
       const content = rangeDecorationToContentSelection(deco.range);
       if (content) {
-        this.paintContentBand(layout, c, x, y, content, deco.color, opacity);
+        this.paintContentBand(layout, c, x, y, content, deco);
         continue;
       }
 
@@ -371,8 +381,40 @@ export class TableNode extends Node<TableBlock> {
       const start = Math.min(flat.anchor.blockIndex, flat.focus.blockIndex);
       const end = Math.max(flat.anchor.blockIndex, flat.focus.blockIndex);
       if (c.blockIndex < start || c.blockIndex > end) continue;
-      this.fillGrid(layout, c, x, y, deco.color, opacity);
+      this.paintGridDecoration(layout, c, x, y, deco);
     }
+  }
+
+  /**
+   * A range decoration over the whole grid: a fill is the plain wash
+   * `fillGrid` draws; an underline runs along the grid's bottom edge — a
+   * table swept across has no single baseline to hang from.
+   */
+  private paintGridDecoration(
+    layout: TableLayout,
+    c: NodePaintCtx,
+    x: number,
+    y: number,
+    deco: RangeDecorationPaint,
+  ): void {
+    if (!deco.style || deco.style.type === "fill") {
+      this.fillGrid(
+        layout,
+        c,
+        x,
+        y,
+        deco.color,
+        deco.opacity ?? c.styles.selection.remoteOpacity,
+      );
+      return;
+    }
+    const box = {
+      x,
+      y: y + layout.gridTop,
+      width: layout.gridWidth,
+      height: layout.gridHeight,
+    };
+    paintDecorationRects(c.ctx, [boxDecorationRect(box, deco)], deco, c.styles);
   }
 
   /** A soft wash behind the cell the caret is in, so the active cell reads. */
@@ -411,21 +453,19 @@ export class TableNode extends Node<TableBlock> {
   ): void {
     const selection = c.state.document.contentSelection;
     if (!selection) return;
-    this.paintContentBand(
-      layout,
-      c,
-      x,
-      y,
-      selection,
-      c.styles.selection.backgroundColor,
-      c.styles.selection.opacity,
-    );
+    this.paintContentBand(layout, c, x, y, selection, {
+      color: c.styles.selection.backgroundColor,
+      opacity: c.styles.selection.opacity,
+    });
   }
 
   /**
-   * The band for one range inside this table, in a given color — the local
+   * The band for one range inside this table, in a given paint — the local
    * selection and a remote peer's are the same picture drawn in different
-   * paint, so they share the geometry rather than each deriving it.
+   * paint, so they share the geometry rather than each deriving it. The paint
+   * is a range decoration's channels: a fill, or an underline (which hangs
+   * from each covered line's baseline inside one cell, and along a covered
+   * cell's bottom edge cell-wise).
    */
   private paintContentBand(
     layout: TableLayout,
@@ -433,8 +473,7 @@ export class TableNode extends Node<TableBlock> {
     x: number,
     y: number,
     selection: ContentSelection,
-    color: string,
-    opacity: number,
+    deco: RangeDecorationPaint,
   ): void {
     if (selection.focus.blockId !== c.block.id) return;
     if (selection.anchor.kind !== "text" || selection.focus.kind !== "text") {
@@ -449,24 +488,9 @@ export class TableNode extends Node<TableBlock> {
       return;
     }
 
-    const { ctx } = c;
     // Same fill, opacity and corner rounding prose uses, so a selection that
     // starts in a paragraph and a selection inside a cell look like one thing.
-    ctx.save();
-    ctx.globalAlpha = opacity;
-    ctx.fillStyle = color;
-    const radius = c.styles.selection.cornerRadius;
-    const fill = (
-      rectX: number,
-      rectY: number,
-      width: number,
-      height: number,
-    ): void => {
-      if (width <= 0 || height <= 0) return;
-      ctx.beginPath();
-      ctx.roundRect(rectX, rectY, width, height, radius);
-      ctx.fill();
-    };
+    const rects: DecorationRect[] = [];
 
     if (anchor.cellId === focus.cellId) {
       const cell = layout.cells.find(
@@ -482,15 +506,18 @@ export class TableNode extends Node<TableBlock> {
           if (end <= start) continue;
           const startX = cellOffsetX(layout, cell, at, start);
           const endX = cellOffsetX(layout, cell, at, end);
-          fill(
-            x + Math.min(startX, endX),
-            y + line.y,
-            Math.abs(endX - startX),
-            line.height,
-          );
+          const width = Math.abs(endX - startX);
+          if (width <= 0 || line.height <= 0) continue;
+          rects.push({
+            x: x + Math.min(startX, endX),
+            y: y + line.y,
+            width,
+            height: line.height,
+            baseline: y + line.y + (line.baselineOffset ?? 0),
+          });
         }
       }
-      ctx.restore();
+      paintDecorationRects(c.ctx, rects, deco, c.styles);
       return;
     }
 
@@ -500,10 +527,21 @@ export class TableNode extends Node<TableBlock> {
     if (from >= 0 && to >= 0) {
       for (let at = Math.min(from, to); at <= Math.max(from, to); at++) {
         const cell = order[at];
-        fill(x + cell.x, y + cell.y, cell.width, cell.height);
+        if (cell.width <= 0 || cell.height <= 0) continue;
+        rects.push(
+          boxDecorationRect(
+            {
+              x: x + cell.x,
+              y: y + cell.y,
+              width: cell.width,
+              height: cell.height,
+            },
+            deco,
+          ),
+        );
       }
     }
-    ctx.restore();
+    paintDecorationRects(c.ctx, rects, deco, c.styles);
   }
 
   /** Every cell's text, through the engine's own marked-line renderer. */

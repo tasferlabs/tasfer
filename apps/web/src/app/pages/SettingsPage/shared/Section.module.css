@@ -1,0 +1,27 @@
+/* Shared full-width settings sections, used by every tab that groups controls
+   under a heading. */
+.section {
+  padding: 2rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.section:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.heading {
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.5rem;
+  color: var(--foreground);
+}
+
+.description {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+  max-width: 560px;
+  margin: 0 0 1.75rem;
+}

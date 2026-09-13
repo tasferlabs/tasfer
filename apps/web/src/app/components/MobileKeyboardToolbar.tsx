@@ -117,6 +117,12 @@ const ICONS: Record<MobileToolbarIcon, React.ReactNode> = {
 interface MobileKeyboardToolbarProps {
   model: MobileToolbarModel;
   onAction: (action: MobileToolbarAction) => void;
+  /**
+   * Host-owned strip docked directly above the persistent bar — the spelling
+   * suggestion bar rides here while the caret sits in a misspelled word.
+   * Rendered above the transient panels so a "more" drawer opens over it.
+   */
+  slot?: React.ReactNode;
 }
 
 type MenuItem = Extract<MobileToolbarItem, { kind: "menu" }>;
@@ -128,6 +134,7 @@ type MenuItem = Extract<MobileToolbarItem, { kind: "menu" }>;
 export function MobileKeyboardToolbar({
   model,
   onAction,
+  slot,
 }: MobileKeyboardToolbarProps) {
   const { t } = useTranslation();
   const { isShort } = useMobileLayout();
@@ -259,6 +266,10 @@ export function MobileKeyboardToolbar({
       // scrollable zones survives (see the chip/cell handlers).
       onMouseDown={(e) => e.preventDefault()}
     >
+      {/* Host slot (spelling suggestions) — measured into the toolbar height
+          like the panels, so the bottom dock rides up with it. */}
+      {slot}
+
       {/* Transient panel above the bar — a menu's options, or the more drawer. */}
       {openMenu && (
         <PanelRow>

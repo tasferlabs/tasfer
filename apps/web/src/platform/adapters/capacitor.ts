@@ -261,6 +261,11 @@ class CapacitorFsDriver implements FsDriver {
 // WebViews that expose crypto.subtle but not the Ed25519 curve.
 // =============================================================================
 
+/** The native filesystem alone, for callers that need files but no engine. */
+export function createCapacitorFsDriver(): FsDriver {
+  return new CapacitorFsDriver();
+}
+
 export function createCapacitorDriver(signalUrl: string): Driver {
   return {
     db: new CapacitorDbDriver(),

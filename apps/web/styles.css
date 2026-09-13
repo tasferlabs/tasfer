@@ -169,9 +169,11 @@
      `x: 16, y: 18` (apps/desktop/src/main/index.ts); these are the single
      source of truth for every drag-region bar that sits alongside them (the app
      header, the dev error page, the Vite HMR overlay), so content is vertically
-     centered on the lights and cleared past them horizontally. */
+     centered on the lights and cleared past them horizontally. The lights end
+     at 68px; the inset adds a comfortable gap on top of that so a title never
+     crowds the green button. */
   --mac-chrome-bar-height: 50px;
-  --mac-traffic-light-inset: 80px;
+  --mac-traffic-light-inset: 100px;
 
   /* Time-of-day scale for the timezone picker's day bars and row dots
      (interpolated with color-mix in timezoneData.ts). Muted so the bars sit

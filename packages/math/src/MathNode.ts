@@ -130,7 +130,9 @@ import {
   type TextNodeLayout,
 } from "@tasfer/editor/nodes/TextNode";
 import {
-  allDecorations,
+  type DecorationRect,
+  decorationsForBlock,
+  paintDecorationRects,
   rangeDecorationToContentSelection,
   rangeDecorationToSelection,
 } from "@tasfer/editor/rendering/decorations";
@@ -955,6 +957,28 @@ function nearestEditableMathSelection(
   return nearest?.selection ?? null;
 }
 
+/**
+ * A tex selection row (baseline-relative) as an absolute decoration rect. A
+ * row that straddles the formula's baseline (plain inline content) underlines
+ * from that baseline like prose does; a row entirely above or below it (a
+ * numerator, a subscript) has no baseline of its own, so an underline hangs
+ * from the row's bottom edge instead.
+ */
+function mathDecorationRect(
+  r: { x: number; y: number; width: number; height: number },
+  drawX: number,
+  baselineY: number,
+): DecorationRect {
+  const straddles = r.y <= 0 && r.y + r.height >= 0;
+  return {
+    x: drawX + r.x,
+    y: baselineY + r.y,
+    width: r.width,
+    height: r.height,
+    baseline: straddles ? baselineY : baselineY + r.y + r.height,
+  };
+}
+
 export class MathNode extends TextNode<MathBlock> {
   readonly type = "math" as const;
   readonly types: readonly string[] = ["math"];
@@ -1267,7 +1291,11 @@ export class MathNode extends TextNode<MathBlock> {
 
     // A remote whole-block selection is distinct from a collapsed range: both
     // endpoints occupy the same document stop, but the full card is selected.
-    for (const deco of allDecorations(state.ui.decorations)) {
+    const blockDecorations = decorationsForBlock(
+      state.ui.decorations,
+      c.block.id,
+    );
+    for (const deco of blockDecorations) {
       if (deco.kind !== "block" || deco.block !== c.block.id) continue;
       ctx.save();
       ctx.globalAlpha = deco.opacity ?? styles.selection.remoteOpacity;
@@ -1404,24 +1432,18 @@ export class MathNode extends TextNode<MathBlock> {
       // `selectionRects`, not the raw-LaTeX text band. Without this a peer's
       // selection over an equation is invisible while their caret (drawn centrally
       // in the renderer, node-independently) still shows.
-      for (const deco of allDecorations(state.ui.decorations)) {
+      for (const deco of blockDecorations) {
         if (deco.kind !== "range") continue;
         const sel = rangeDecorationToSelection(deco.range, state.document.page);
         if (!sel || sel.isCollapsed) continue;
         const rects = this.selectionRects(layout, sel, blockIndex, x, y);
         if (rects.length === 0) continue;
-        this.fillRects(
-          ctx,
-          rects,
-          deco.color,
-          deco.opacity ?? styles.selection.remoteOpacity,
-          styles.selection.cornerRadius,
-        );
+        paintDecorationRects(ctx, rects, deco, styles);
       }
 
       const document = getMathStructuredDocument(c.block);
       if (document && layout.mathDocumentLayout) {
-        for (const deco of allDecorations(state.ui.decorations)) {
+        for (const deco of blockDecorations) {
           if (deco.kind !== "range") continue;
           const selection = rangeDecorationToContentSelection(deco.range);
           if (
@@ -1438,20 +1460,9 @@ export class MathNode extends TextNode<MathBlock> {
           );
           if (!range) continue;
           const rects = texSelectionRects(mathLayout, range.from, range.to).map(
-            (rect) => ({
-              x: drawX + rect.x,
-              y: baselineY + rect.y,
-              width: rect.width,
-              height: rect.height,
-            }),
+            (rect) => mathDecorationRect(rect, drawX, baselineY),
           );
-          this.fillRects(
-            ctx,
-            rects,
-            deco.color,
-            deco.opacity ?? styles.selection.remoteOpacity,
-            styles.selection.cornerRadius,
-          );
+          paintDecorationRects(ctx, rects, deco, styles);
         }
       }
 
@@ -1614,7 +1625,7 @@ export class MathNode extends TextNode<MathBlock> {
     blockIndex: number,
     originX: number,
     blockTopY: number,
-  ): { x: number; y: number; width: number; height: number }[] {
+  ): DecorationRect[] {
     const l = layout as MathNodeLayout;
     // A node selection of this whole block paints the full card surface (see
     // `paint`), so report that same rect — a tap anywhere on the lit card
@@ -1641,12 +1652,9 @@ export class MathNode extends TextNode<MathBlock> {
     if (!range) return [];
     const drawX = originX + l.mathOffsetX;
     const baselineY = blockTopY + l.mathTop + l.mathLayout.height;
-    return texSelectionRects(l.mathLayout, range.from, range.to).map((r) => ({
-      x: drawX + r.x,
-      y: baselineY + r.y,
-      width: r.width,
-      height: r.height,
-    }));
+    return texSelectionRects(l.mathLayout, range.from, range.to).map((r) =>
+      mathDecorationRect(r, drawX, baselineY),
+    );
   }
 
   // ── Caret geometry (via the tex bridge, not text lines) ────────────────────

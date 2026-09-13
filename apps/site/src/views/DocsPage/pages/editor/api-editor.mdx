@@ -45,7 +45,8 @@ The editor never hands you a mutable store. `state` is a fresh, immutable snapsh
   { name: "doc", type: "Doc", desc: "The underlying CRDT document. Pass this to a provider to sync, or call doc.encodeState() to persist." },
   { name: "query.block(at?)", type: "(at?: DocPoint) => BlockData | null", desc: "Plain-data view { id, type, text, attrs } of the single block at at (default: caret block). The point counterpart to query.blocks and the read counterpart to setBlock. Address a block by id with query.block({ block: id }) — the common 'find the block this overlay targets' read." },
   { name: "query.blocks(range?)", type: "(range?: DocRange) => BlockData[]", desc: "The visible blocks the range touches, in document order (default: the selection — equivalently blocks(state.selection.range)). Narrow to a span without fetch-then-filter; for the whole document pass { from: 'start', to: 'end' }." },
-  { name: "query.marks(at?)", type: "(at?: DocPoint) => MarkInfo[]", desc: "The mark runs present at at (default: caret) — the data-carrying read for a link, custom mark, or opt-in math mark under the caret. Each MarkInfo carries { name, attrs, block, from, to, text }: a link's attrs.url, a math chip's LaTeX source when installed, and the run's single-block span. For 'is bold active?' toolbar highlighting use state.activeMarks (the name-only, selection-aware set) instead." },
+  { name: "query.marks(at?)", type: "(at?: DocPoint | DocRange) => MarkInfo[]", desc: "The mark runs at a point (default: caret) or across a range — the data-carrying read for a link, custom mark, or opt-in math mark. Each MarkInfo carries { name, attrs, block, from, to, text }: a link's attrs.url, a math chip's LaTeX source when installed, and the run's single-block span. A point returns the runs covering it (from <= offset < to). A DocRange ({ from, to } or 'selection') returns every run whose [from, to) intersects it, in document order, block by block — 'the links inside the selection' is one call. [] when the target can't be resolved. For 'is bold active?' toolbar highlighting use state.activeMarks (the name-only, selection-aware set) instead." },
+  { name: "query.content(blockId, contentId)", type: "(blockId: string, contentId: string) => StructuredDocument | null", desc: "Detached snapshot of one structured attachment (a table's grid, a block equation's tree), addressed by block id and content id without knowing its node class. null for a missing block or content id." },
   { name: "getMarkdown()", type: "() => string", desc: "Serialise the current document to markdown." },
   { name: "portalContainer", type: "HTMLDivElement", desc: "Mount point for host overlays (slash menu, link editor) that float over the canvas." },
 ]} />
@@ -102,14 +103,14 @@ A handful of built-in actions are dispatched by the engine for hosts (and custom
   { name: "OPEN_LINK", type: "{ url }", desc: "A link mark was activated (Cmd/Ctrl-click). Claim it to route the URL yourself; the default opens a new tab." },
   { name: "IMAGE_PASTE", type: "ImagePasteEvent", desc: "An image file was pasted and a block inserted ({ file, blockId }). Observe at priority 0 to upload the file and rewrite the block url; a custom image node can claim it to handle its own upload." },
   { name: "SCROLL", type: "{ scrollY, deltaY, source }", desc: "The viewport is about to scroll (user input) or just did (programmatic). Payload carries source: 'user' | 'programmatic' — observe either to track the offset (e.g. position floating UI). Only a user scroll is claimable: a node under the pointer can return true to override page scrolling. A programmatic scroll (scrollToPosition) notifies observers after the fact and ignores the return value." },
-  { name: "OPEN_CONTEXT_MENU", type: "{ x, y, hasSelection }", desc: "A context menu was requested — right-click, long-press, or the keyboard chord (Cmd/Ctrl+Enter, Shift+F10, the Menu key), which anchors x/y on the caret. Claim it to render your own menu." },
+  { name: "OPEN_CONTEXT_MENU", type: "{ x, y, hasSelection, point? }", desc: "A context menu was requested — right-click, long-press, or the keyboard chord (Cmd/Ctrl+Enter, Shift+F10, the Menu key), which anchors x/y on the caret. point is the DocPoint the menu is about — under the pointer for a right-click, the caret (or a held range's focus) for keyboard and touch — when one resolved, so you can query.block(point) / query.marks(point) without a second hit test; absent over a non-textual block with no caret. Claim it to render your own menu." },
   { name: "CLOSE_CONTEXT_MENU", type: "{}", desc: "Dispatch this to dismiss the menu you opened. While a menu is up the engine stops handling keys, so the host owns arrow navigation, Enter, type-select and Escape; this hands the keyboard back." },
 ]} />
 
 <h2 id="selection">Selection, focus & clipboard</h2>
 
 <PropsTable cols={["Method", "Signature", "Description"]} rows={[
-  { name: "focus", type: "(at?: 'start'|'end') => void", desc: "Focus the editor. With no argument, places a caret only if there isn't one; pass a boundary to force it there." },
+  { name: "focus", type: "() => void", desc: "Focus the editor and its hidden input surface so it can receive keyboard and IME input. Takes no target — place the caret with setCaret / setSelection." },
   { name: "blur", type: "() => void", desc: "Blur the editor and dismiss the soft keyboard." },
   { name: "setCaret", type: "(point?: DocPoint, opts?: { onlyIfUnset }) => void", desc: "Place a collapsed caret at a DocPoint (default 'start'), clearing any selection and returning to edit mode. onlyIfUnset makes it a no-op when a cursor already exists. No-op when the point can't be resolved." },
   { name: "setSelection", type: "(range: DocRange | null) => void", desc: "Place a selection spanning a DocRange (a bare DocPoint drops a caret). Pass null to clear both the selection and the caret, removing all selection visuals. Returns to edit mode; no-op when the range can't be resolved." },
@@ -141,7 +142,7 @@ The everyday content/command/query surface lives flat on the handle. Two further
   { name: "view.updateViewport", type: "(patch: Partial<ViewportState>) => void", desc: "Merge a viewport patch (e.g. width/height on container resize) and re-render." },
   { name: "view.getScrollY", type: "() => number", desc: "Current scroll position." },
   { name: "view.scrollToPosition", type: "(point: DocPoint) => void", desc: "Scroll to make a document point visible. Speaks the same DocPoint vocabulary as coordsAtPos." },
-  { name: "view.setDecorations", type: "(layer: string, decos: readonly Decoration[]) => void", desc: "Replace one decoration layer — the generic ephemeral overlay (find highlights, remote cursors). Layers are opaque keys; empty array clears. Not document content." },
+  { name: "view.setDecorations", type: "(layer: string, decos: readonly Decoration[]) => void", desc: "Replace one decoration layer — the generic ephemeral overlay (find highlights, remote cursors, underlines). Layers are opaque keys; empty array clears. Not document content. See Decorations below." },
   { name: "view.clearDecorations", type: "(layer: string) => void", desc: "Clear one decoration layer." },
   { name: "view.coordsAtContent", type: "(point: ContentPoint) => { x, y, height } | null", desc: "The coordsAtPos counterpart for an identity-bearing point inside structured content (a math chip's tree). Null when the point is stale or the node paints no content caret." },
   { name: "view.getViewport", type: "() => ViewportState", desc: "Canvas width/height in CSS px, scroll offset, and total document height. The engine measures the canvas itself, so this is the only place to learn the width content was wrapped to." },
@@ -157,6 +158,40 @@ The everyday content/command/query surface lives flat on the handle. Two further
   { name: "host.clearLinkHover", type: "() => void", desc: "Dismiss the link hover tooltip. The engine keeps it set once the pointer crosses onto the interactive popover; the host clears it when the pointer leaves the popover." },
   { name: "host.restoreFromSnapshot", type: "(blocks: Block[]) => void", desc: "Replace the document from a block snapshot, generating and broadcasting ops." },
 ]} />
+
+<h3 id="decorations">Decorations</h3>
+
+A decoration is an ephemeral overlay the engine paints on top of the document without it being document content: it never enters the CRDT, the op log, undo/redo or `encodeState()`, and the engine has no idea what produced it — find highlights, a collaborator's selection and a proofreading squiggle are all the same primitive to it. Three kinds:
+
+<PropsTable cols={["Kind", "Shape", "Description"]} rows={[
+  { name: "range", type: "{ kind: 'range', range: { from, to }, color, opacity?, gutter?, style?, a11y? }", desc: "A span between two points, painted through the same geometry as the local selection. gutter also marks the span on the scrollbar track." },
+  { name: "block", type: "{ kind: 'block', block: blockId, color, opacity? }", desc: "A fill over one whole block, addressed by its stable id." },
+  { name: "caret", type: "{ kind: 'caret', point, color, label? }", desc: "A thin caret at a point, optionally with a name/avatar flag — a remote cursor." },
+]} />
+
+A point takes one of three forms. `{ block, offset }` is a flat offset into a block's text (the absolute form of a `DocPoint`); `{ blockId, afterCharId }` names the CRDT gap after a character, so it survives concurrent edits and is resolved to a live offset at paint time; a `ContentPoint` addresses identity-bearing structured content such as a math chip's tree. Both endpoints of a range must use the same currency, and a range may cross blocks.
+
+`style` decides how a range is painted. Leave it out (or pass `{ type: "fill" }`) for the translucent wash, at `opacity` or the theme's `selection.remoteOpacity`. `{ type: "underline", line, thickness? }` strokes one line per fragment of the span just below the text baseline instead — `line` is `"solid"`, `"wavy"`, `"dotted"` or `"dashed"`, `thickness` is in CSS px and defaults to 1, and the stroke is opaque unless `opacity` says otherwise. It sits under a link's own underline so both stay visible.
+
+`a11y: { invalid }` has no visual effect: it is projected into the accessibility tree as `aria-invalid` on the covered text, so a screen reader announces it while reading — `"spelling"` (NVDA says "spelling error", VoiceOver and Narrator "misspelled"), `"grammar"`, or plain `"true"`. The tokens are ARIA's, not the editor's.
+
+```ts
+editor.view.setDecorations("hints", [
+  {
+    kind: "range",
+    range: {
+      from: { blockId, afterCharId: startId },
+      to: { blockId, afterCharId: endId },
+    },
+    color: "#e11d48",
+    style: { type: "underline", line: "wavy" },
+  },
+]);
+```
+
+Layers are opaque keys: `setDecorations(layer, …)` replaces that layer's decorations wholesale and leaves every other layer alone, so unrelated producers (`"search"`, `"presence:<peerId>"`, your own) never clobber each other, and an empty array clears the layer. The core never branches on a layer name. When several layers cover the same text they paint in layer insertion order.
+
+A custom node paints range decorations itself: iterate `decorationsForBlock(state.ui.decorations, block.id)` in `paint` and pass the rects your selection geometry yields to `paintDecorationRects(ctx, rects, deco, styles)`, which renders whichever style the decoration carries. See [Custom nodes](/docs/editor/custom-nodes) for the rect contract.
 
 <h2 id="theming">Theming</h2>
 

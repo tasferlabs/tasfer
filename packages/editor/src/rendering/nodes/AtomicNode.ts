@@ -16,7 +16,12 @@ import { memoizeNodeLayout } from "../../node-shared";
 import type { Image } from "../../nodes/ImageNode";
 import type { Line } from "../../nodes/LineNode";
 import type { BlockBounds, RenderedBlock } from "../../state-types";
-import { allDecorations, rangeDecorationToSelection } from "../decorations";
+import {
+  boxDecorationRect,
+  decorationsForBlock,
+  paintDecorationRects,
+  rangeDecorationToSelection,
+} from "../decorations";
 import {
   Node,
   type NodeBlock,
@@ -128,7 +133,7 @@ export abstract class AtomicNode<
   private paintRangeDecorations(box: BlockBounds, c: NodePaintCtx): void {
     const { state, ctx, styles, blockIndex } = c;
 
-    for (const deco of allDecorations(state.ui.decorations)) {
+    for (const deco of decorationsForBlock(state.ui.decorations, c.block.id)) {
       if (deco.kind === "block") {
         if (deco.block !== c.block.id) continue;
         ctx.save();
@@ -146,14 +151,11 @@ export abstract class AtomicNode<
       if (!selection || selection.isCollapsed) continue;
 
       if (this.coversBlock(selection, blockIndex)) {
-        ctx.save();
-        ctx.fillStyle = deco.color;
-        // Match TextNode: fall back to the themed remote-selection opacity when
-        // the decoration sets none, so overriding `selection.remoteOpacity`
-        // affects atomic blocks (image/divider/math) too.
-        ctx.globalAlpha = deco.opacity ?? styles.selection.remoteOpacity;
-        this.fillSelectionRect(ctx, box, styles.selection.cornerRadius);
-        ctx.restore();
+        // The shared painter matches TextNode: a fill falls back to the themed
+        // remote-selection opacity (so overriding `selection.remoteOpacity`
+        // affects atomic blocks too) and an underline hugs the box's bottom
+        // edge, since an image or divider has no text baseline.
+        paintDecorationRects(ctx, [boxDecorationRect(box, deco)], deco, styles);
       }
     }
   }

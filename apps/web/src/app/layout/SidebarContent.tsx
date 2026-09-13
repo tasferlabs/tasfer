@@ -976,7 +976,7 @@ export function SidebarContent({
               {!isMobile && (
                 <ShortcutTooltip
                   label={t("sidebar.close", "Close sidebar")}
-                  commandKey="."
+                  commandKey=";"
                 >
                   <Button
                     variant="ghost"
@@ -996,7 +996,7 @@ export function SidebarContent({
             <div className={style.appSidebarHeader}>
               <ShortcutTooltip
                 label={t("sidebar.close", "Close sidebar")}
-                commandKey="."
+                commandKey=";"
               >
                 <Button
                   variant="ghost"
@@ -1015,7 +1015,7 @@ export function SidebarContent({
           {shouldOverlaySidebarClose && (
             <ShortcutTooltip
               label={t("sidebar.close", "Close sidebar")}
-              commandKey="."
+              commandKey=";"
             >
               <Button
                 variant="ghost"

@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "strict": true,
+    "erasableSyntaxOnly": true,
+    "skipLibCheck": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    // `node:*` imports in test files; auto-inclusion does not surface them
+    // under bundler resolution (same as packages/tex).
+    "types": ["node"],
+    // Resolves the engine from SOURCE like apps/web and the other opt-in
+    // packages do. This package imports only the public `@tasfer/editor` root
+    // (never a deep subpath) — see the boundary test in src/boundary.test.ts.
+    "paths": {
+      "*": ["./*"],
+
+      "@tasfer/editor": ["../editor/src/index.ts"],
+      "@tasfer/editor/*": ["../editor/src/*"],
+      "@shared/*": ["../../shared/*"]
+    }
+  },
+  "include": ["src"]
+}

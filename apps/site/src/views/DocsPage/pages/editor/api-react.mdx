@@ -39,7 +39,10 @@ function App() {
       onChange={save}
       autofocus
       style={{ height: "100vh" }}
-      onReady={(editor) => editor.focus("end")}
+      onReady={(editor) => {
+        editor.focus();
+        editor.setCaret("end");
+      }}
     />
   );
 }
@@ -64,7 +67,10 @@ function Notes() {
   const { containerRef, editor } = useEditor({ markdown: "# Hello" });
 
   useEffect(() => {
-    if (editor) editor.focus("end");
+    if (editor) {
+      editor.focus();
+      editor.setCaret("end");
+    }
   }, [editor]);
 
   return <div ref={containerRef} style={{ height: "100%" }} />;
