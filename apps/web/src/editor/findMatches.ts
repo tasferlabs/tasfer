@@ -1,8 +1,10 @@
 import type {
   Block,
   ContentSelection,
+  ContentTextPoint,
   DecorationRange,
   StructuredDocument,
+  TextFieldInfo,
 } from "@tasfer/editor";
 import {
   getVisibleTextFromRuns,
@@ -37,7 +39,46 @@ export interface FindMatch {
 interface OrderedFindMatch {
   readonly match: FindMatch;
   readonly blockOffset: number;
+  /** Reading-order index of a structured prose field; -1 elsewhere. */
+  readonly fieldIndex: number;
   readonly sourceOffset: number;
+}
+
+/** A field's char runs, read off the raw block. */
+function fieldRuns(
+  block: Block,
+  field: TextFieldInfo,
+): readonly {
+  peerId: string;
+  startCounter: number;
+  text: string;
+  deletedMask?: readonly number[];
+}[] {
+  return (
+    block.structuredContent?.[field.contentId]?.nodes[field.nodeId]?.textFields[
+      field.field
+    ] ?? []
+  );
+}
+
+/** Id of the visible character before each visible offset (null at 0). */
+function idsBefore(
+  runs: ReturnType<typeof fieldRuns>,
+  offsets: readonly number[],
+): (string | null)[] {
+  const byOffset = new Map<number, string>();
+  let visible = 0;
+  for (const run of runs) {
+    for (let k = 0; k < run.text.length; k++) {
+      const byte = run.deletedMask?.[Math.floor(k / 8)];
+      if (byte !== undefined && (byte & (1 << (k % 8))) !== 0) continue;
+      visible += 1;
+      byOffset.set(visible, `${run.peerId}:${run.startCounter + k}`);
+    }
+  }
+  return offsets.map((offset) =>
+    offset <= 0 ? null : (byOffset.get(offset) ?? null),
+  );
 }
 
 function occurrenceRanges(source: string, query: string) {
@@ -88,10 +129,14 @@ function structuredMatch(
   };
 }
 
-/** Find flat prose and feature-owned math source in document order. */
+/**
+ * Find flat prose, feature-owned math source and structured prose (a table's
+ * cells, read through `textFields`) in document order.
+ */
 export function findDocumentMatches(
   blocks: readonly Block[],
   query: string,
+  textFields: (block: Block) => readonly TextFieldInfo[] = () => [],
 ): FindMatch[] {
   if (!query) return [];
 
@@ -103,6 +148,7 @@ export function findDocumentMatches(
       for (const range of occurrenceRanges(text, query)) {
         ordered.push({
           blockOffset: range.from,
+          fieldIndex: -1,
           sourceOffset: range.from,
           match: {
             blockId: block.id,
@@ -137,6 +183,7 @@ export function findDocumentMatches(
           if (match) {
             ordered.push({
               blockOffset: 0,
+              fieldIndex: -1,
               sourceOffset: range.from,
               match,
             });
@@ -162,6 +209,7 @@ export function findDocumentMatches(
           if (match) {
             ordered.push({
               blockOffset: run.startIndex,
+              fieldIndex: -1,
               sourceOffset: range.from,
               match,
             });
@@ -170,9 +218,45 @@ export function findDocumentMatches(
       }
     }
 
+    textFields(block).forEach((field, fieldIndex) => {
+      const ranges = occurrenceRanges(field.text, query);
+      if (ranges.length === 0) return;
+      const ids = idsBefore(
+        fieldRuns(block, field),
+        ranges.flatMap((range) => [range.from, range.to]),
+      );
+      const point = (afterCharId: string | null): ContentTextPoint => ({
+        kind: "text",
+        blockId: block.id,
+        contentId: field.contentId,
+        nodeId: field.nodeId,
+        field: field.field,
+        afterCharId,
+        affinity: "forward",
+      });
+      ranges.forEach((range, at) => {
+        const selection: ContentSelection = {
+          anchor: point(ids[at * 2]),
+          focus: point(ids[at * 2 + 1]),
+        };
+        ordered.push({
+          blockOffset: 0,
+          fieldIndex,
+          sourceOffset: range.from,
+          match: {
+            blockId: block.id,
+            range: { from: selection.anchor, to: selection.focus },
+            selection: { kind: "content", selection },
+            scrollOffset: 0,
+          },
+        });
+      });
+    });
+
     ordered.sort(
       (left, right) =>
         left.blockOffset - right.blockOffset ||
+        left.fieldIndex - right.fieldIndex ||
         left.sourceOffset - right.sourceOffset,
     );
     matches.push(...ordered.map(({ match }) => match));

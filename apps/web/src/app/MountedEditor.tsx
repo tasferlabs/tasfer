@@ -3439,9 +3439,11 @@ function PageEditor({
       return;
     }
 
+    const { editor } = mountedRef.current;
     const matches = findDocumentMatches(
       mountedRef.current.doc.getRawBlocks(),
       text,
+      (block) => editor.query.textFields(block.id),
     );
 
     setFindMatches(matches);
