@@ -3455,10 +3455,9 @@ function PageEditor({
     );
     // Scroll to first match
     if (matches.length > 0) {
-      mountedRef.current.editor.view.scrollToPosition({
-        block: matches[0].blockId,
-        offset: matches[0].scrollOffset,
-      });
+      mountedRef.current.editor.view.scrollToPosition(
+        matches[0].scrollTarget,
+      );
     }
   }, []);
 
@@ -3497,10 +3496,7 @@ function PageEditor({
             },
           });
         }
-        mountedRef.current.editor.view.scrollToPosition({
-          block: match.blockId,
-          offset: match.scrollOffset,
-        });
+        mountedRef.current.editor.view.scrollToPosition(match.scrollTarget);
       }
     },
     [findMatches],

@@ -1,8 +1,10 @@
 import type {
   Block,
+  ContentPoint,
   ContentSelection,
   ContentTextPoint,
   DecorationRange,
+  DocPoint,
   StructuredDocument,
   TextFieldInfo,
 } from "@tasfer/editor";
@@ -32,8 +34,9 @@ export interface FindMatch {
   readonly blockId: string;
   readonly range: DecorationRange;
   readonly selection: FindMatchSelection;
-  /** Flat block offset used to bring the owning block into view. */
-  readonly scrollOffset: number;
+  /** Where to scroll to bring the match into view: a flat block offset, or
+   * the match's own point inside a table cell. */
+  readonly scrollTarget: DocPoint | ContentPoint;
 }
 
 interface OrderedFindMatch {
@@ -125,7 +128,7 @@ function structuredMatch(
     blockId,
     range: { from: selection.anchor, to: selection.focus },
     selection: { kind: "content", selection },
-    scrollOffset,
+    scrollTarget: { block: blockId, offset: scrollOffset },
   };
 }
 
@@ -161,7 +164,7 @@ export function findDocumentMatches(
               startIndex: range.from,
               endIndex: range.to,
             },
-            scrollOffset: range.from,
+            scrollTarget: { block: block.id, offset: range.from },
           },
         });
       }
@@ -247,7 +250,7 @@ export function findDocumentMatches(
             blockId: block.id,
             range: { from: selection.anchor, to: selection.focus },
             selection: { kind: "content", selection },
-            scrollOffset: 0,
+            scrollTarget: selection.anchor,
           },
         });
       });

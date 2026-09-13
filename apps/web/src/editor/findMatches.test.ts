@@ -110,7 +110,7 @@ describe("findDocumentMatches", () => {
       "content",
       "flat",
     ]);
-    expect(matches[0]?.scrollOffset).toBe(1);
+    expect(matches[0]?.scrollTarget).toEqual({ block: "inline", offset: 1 });
     expect(matches[0]?.range.from).toMatchObject({
       blockId: "inline",
       contentId: "inline/inline",
