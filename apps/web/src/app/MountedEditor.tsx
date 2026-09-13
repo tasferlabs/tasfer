@@ -171,6 +171,7 @@ import {
   appSchema,
   openCodeLanguageMenu,
   openImageUploadMenu,
+  linkFromSelection,
   openLinkEditMenu,
   type LinkEditOverlayData,
   type AppMountedEditor as MountedEditorInstance,
@@ -715,12 +716,10 @@ const LinkTooltipOverlay: ComponentType<NodeOverlayProps> = ({
   portalContainer,
 }) => {
   const { blockId } = overlay;
-  const { url, text, startIndex, endIndex } = overlay.data as {
-    url: string;
-    text: string;
-    startIndex: number;
-    endIndex: number;
-  };
+  const { url, text, startIndex, endIndex, content } = overlay.data as Pick<
+    LinkEditOverlayData,
+    "url" | "text" | "startIndex" | "endIndex" | "content"
+  >;
   const containerRect = portalContainer.getBoundingClientRect();
 
   return (
@@ -755,6 +754,7 @@ const LinkTooltipOverlay: ComponentType<NodeOverlayProps> = ({
                   endIndex,
                   url,
                   text,
+                  content,
                   x: overlay.rect.x,
                   y: overlay.rect.y,
                 });
@@ -779,7 +779,7 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
 }) => {
   const { isMobile } = useMobileLayout();
   const { blockId } = overlay;
-  const { url, text, selectedText, startIndex, endIndex } =
+  const { url, text, selectedText, startIndex, endIndex, content } =
     overlay.data as LinkEditOverlayData;
   const containerRect = portalContainer.getBoundingClientRect();
   const x = containerRect.left + overlay.rect.x;
@@ -798,7 +798,8 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
       if (!block) return;
       c.setMark("link", {
         attrs: { url: newUrl },
-        range: {
+        // A link in a table cell is written through its nested range.
+        range: content ?? {
           from: { block: block.id, offset: startIndex },
           to: { block: block.id, offset: endIndex },
         },
@@ -810,7 +811,7 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
       if (!block) return;
       c.setMark("link", {
         active: false,
-        range: {
+        range: content ?? {
           from: { block: block.id, offset: startIndex },
           to: { block: block.id, offset: endIndex },
         },
@@ -2098,6 +2099,7 @@ function PageEditor({
               endIndex: link.to,
               url: (link.attrs.url as string | undefined) ?? "",
               text: link.text,
+              content: link.content,
               x: 0,
               y: 0,
             });
@@ -2105,33 +2107,15 @@ function PageEditor({
           }
           // Create from a non-empty text selection: the chosen text becomes the
           // link's text and the drawer collects the URL.
-          const range = editor.state.selection.range;
-          const selection =
-            range && typeof range === "object" && "from" in range
-              ? range
-              : null;
-          if (
-            selection &&
-            typeof selection.from === "object" &&
-            typeof selection.to === "object"
-          ) {
-            const { from, to } = selection;
-            const block = editor.query.block(from);
-            if (block && block.type !== "image") {
-              const startIndex = "offset" in from ? (from.offset ?? 0) : 0;
-              const endIndex = "offset" in to ? (to.offset ?? 0) : 0;
-              const selectedText = block.text.substring(startIndex, endIndex);
-              openLinkEditMenu(editor, {
-                blockId: block.id,
-                startIndex,
-                endIndex,
-                url: "",
-                text: "",
-                selectedText,
-                x: 0,
-                y: 0,
-              });
-            }
+          const target = linkFromSelection(editor);
+          if (target) {
+            openLinkEditMenu(editor, {
+              ...target,
+              url: "",
+              text: "",
+              x: 0,
+              y: 0,
+            });
           }
           break;
         }
@@ -3006,6 +2990,7 @@ function PageEditor({
             endIndex: link.to,
             url: (link.attrs.url as string | undefined) ?? "",
             text: link.text,
+            content: link.content,
             x: menuX,
             y: menuY,
           });
@@ -3013,29 +2998,16 @@ function PageEditor({
         }
 
         // Creating a new link from a selection.
-        if (
-          selection &&
-          typeof selection.from === "object" &&
-          typeof selection.to === "object"
-        ) {
-          const { from, to } = selection;
-          const block = editorApi.query.block(from);
-          if (block && block.type !== "image") {
-            const startIndex = "offset" in from ? (from.offset ?? 0) : 0;
-            const endIndex = "offset" in to ? (to.offset ?? 0) : 0;
-            const selectedText = block.text.substring(startIndex, endIndex);
-            openLinkEditMenu(editorApi, {
-              blockId: block.id,
-              startIndex,
-              endIndex,
-              url: "",
-              text: "",
-              selectedText,
-              x: menuX,
-              y: menuY,
-            });
-            return true;
-          }
+        const target = linkFromSelection(editorApi);
+        if (target) {
+          openLinkEditMenu(editorApi, {
+            ...target,
+            url: "",
+            text: "",
+            x: menuX,
+            y: menuY,
+          });
+          return true;
         }
         return false;
       }
@@ -3133,7 +3105,11 @@ function PageEditor({
         } else {
           iconType = "link";
         }
-      } else if (mounted.editor.query.marks().some((m) => m.name === "link")) {
+      } else if (
+        mounted.editor.query.marks().some((m) => m.name === "link") ||
+        // A range inside one table cell can become a link too.
+        (!!snapshot.contentSelection && !!linkFromSelection(mounted.editor))
+      ) {
         iconType = "link";
       } else {
         iconType = "format";
@@ -3233,9 +3209,10 @@ function PageEditor({
       // A non-empty text selection in a textual block can be turned into a link;
       // this enables the drawer's link control even when no link exists yet.
       const canCreateLink =
-        !snapshot.selection.empty &&
-        activeBlock != null &&
-        activeBlock.type !== "image";
+        (!snapshot.selection.empty &&
+          activeBlock != null &&
+          activeBlock.type !== "image") ||
+        (!!snapshot.contentSelection && !!linkFromSelection(mounted.editor));
 
       // The reposition affordance for touch, where the on-canvas one never
       // appears (it is revealed by hover). `canRepositionImageAt` resolves the
@@ -3838,40 +3815,18 @@ function PageEditor({
             icon: <Link size={16} />,
             action: () => {
               const mountedEditor = mountedRef.current?.editor;
-              const range = mountedEditor?.state.selection.range;
-              // A non-collapsed selection resolves to a { from, to } of absolute
-              // { block, offset } points; narrow off the wide DocRange union.
-              if (
-                !mountedEditor ||
-                !range ||
-                typeof range !== "object" ||
-                !("from" in range)
-              )
-                return;
-              const { from, to } = range;
-              if (
-                typeof from !== "object" ||
-                "side" in from ||
-                typeof to !== "object" ||
-                "side" in to
-              )
-                return;
-              const startIndex = from.offset ?? 0;
-              const endIndex = to.offset ?? 0;
-              const block = mountedEditor.query.block(from);
-              if (!block || block.type === "image") return;
-              const selectedText = block.text.substring(startIndex, endIndex);
+              if (!mountedEditor) return;
+              // A text range, or a range inside one table cell.
+              const target = linkFromSelection(mountedEditor);
+              if (!target) return;
               const containerRect = wrapperRef.current?.getBoundingClientRect();
               if (!containerRect) return;
               // Open the link create menu — rendered as a drawer on mobile by
               // the TasferLinkMark "link-edit" overlay.
               openLinkEditMenu(mountedEditor, {
-                blockId: from.block,
-                startIndex,
-                endIndex,
+                ...target,
                 url: "",
                 text: "",
-                selectedText,
                 x: containerRect.width / 2,
                 y: 100,
               });

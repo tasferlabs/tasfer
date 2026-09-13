@@ -26,7 +26,7 @@ import { stateAction } from "../action-bus";
 import type { NodeAtomicHit } from "../rendering/nodes/Node";
 import type { Block } from "../serlization/loadPage";
 import type { ActiveMenu, Position, ViewportState } from "../state-types";
-import type { ContentSelection } from "../structured-selection";
+import type { ContentPoint, ContentSelection } from "../structured-selection";
 
 /** Document-space coordinates of a caret position (the shape
  *  `getCursorDocumentCoords` returns). */
@@ -122,6 +122,8 @@ export const POINTER_MOVE = stateAction<{
   viewport: ViewportState;
   /** Resolve a caret position to document coords (link tooltip anchor, …). */
   resolveCoords: CoordsResolver;
+  /** Resolve a nested caret to document coords (a link in a table cell). */
+  resolveContentCoords?: (point: ContentPoint) => DocCoords | null;
   /**
    * Resolve the pointer to a nested caret inside a structured run — the exact
    * same hit-test a click goes through, so a run's hover highlight can never

@@ -84,7 +84,7 @@ editor.change((c) =>
     {
       name: "setMark",
       type: "(name, opts?) => this",
-      desc: "Apply / remove / toggle an inline mark. With no options it toggles across the selection (the bold/italic case). opts: { active?, attrs?, range? } — active forces apply/remove, attrs carries per-mark data (a link url), range targets an explicit single-block span.",
+      desc: "Apply / remove / toggle an inline mark. With no options it toggles across the selection (the bold/italic case). opts: { active?, attrs?, range? } — active forces apply/remove, attrs carries per-mark data (a link url), range targets an explicit single-block span — or a ContentSelection inside one prose field of a node's structured content (text in a table cell), such as the content a query.marks() run returns.",
     },
     {
       name: "editContent",

@@ -28,6 +28,7 @@ import {
 } from "../rendering/scrollbar";
 import {
   getBlockIndexAtPoint,
+  getContentPointDocumentCoords,
   getContentSelectionFromViewport,
   getCursorDocumentCoords,
   getTextPositionFromViewport,
@@ -864,6 +865,14 @@ export function handleMouseMove(
         blockUnderPoint,
         viewport,
         resolveCoords: (pos) => getCursorDocumentCoords(pos, state, viewport),
+        resolveContentCoords: (point) =>
+          getContentPointDocumentCoords(
+            point,
+            state,
+            viewport,
+            undefined,
+            visibility,
+          ),
         resolveContentSelection: () =>
           getContentSelectionFromViewport(
             canvasX,

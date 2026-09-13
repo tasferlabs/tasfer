@@ -1,6 +1,7 @@
 import {
   canRepositionImage,
   CodeMark,
+  type ContentSelection,
   type Editor,
   EmphasisMark,
   ImageNode,
@@ -191,6 +192,7 @@ class TasferLinkMark extends LinkMark {
             text: linkHover.text,
             startIndex: linkHover.startIndex,
             endIndex: linkHover.endIndex,
+            content: linkHover.content,
           },
         },
       ];
@@ -208,6 +210,67 @@ export interface LinkEditOverlayData {
   url: string;
   text: string;
   selectedText?: string;
+  /**
+   * The link's range when it lives in text inside a block's structured content
+   * (a table cell) — then the target of every write instead of the flat
+   * `startIndex`/`endIndex`, and stable across concurrent edits.
+   */
+  content?: ContentSelection;
+}
+
+/**
+ * The link the popover would create from the live selection, or `null` when
+ * the selection cannot become one: a caret, an image, or a range across
+ * several table cells. Covers a flat text range and a range inside one cell.
+ */
+export function linkFromSelection(
+  editor: AppEditor,
+): Omit<LinkEditOverlayData, "url" | "text"> | null {
+  const content = editor.state.contentSelection;
+  if (content) {
+    const { anchor, focus } = content;
+    if (
+      anchor.kind !== "text" ||
+      focus.kind !== "text" ||
+      anchor.nodeId !== focus.nodeId ||
+      anchor.field !== focus.field ||
+      editor.query.textFields(focus.blockId).length === 0
+    ) {
+      return null;
+    }
+    const selectedText = editor.query.selectedText();
+    if (!selectedText) return null;
+    return {
+      blockId: focus.blockId,
+      startIndex: 0,
+      endIndex: 0,
+      selectedText,
+      content: { anchor, focus },
+    };
+  }
+
+  const range = editor.state.selection.range;
+  if (!range || typeof range !== "object" || !("from" in range)) return null;
+  const { from, to } = range;
+  if (
+    typeof from !== "object" ||
+    "side" in from ||
+    typeof to !== "object" ||
+    "side" in to
+  ) {
+    return null;
+  }
+  const block = editor.query.block(from);
+  if (!block || block.type === "image") return null;
+  const startIndex = from.offset ?? 0;
+  const endIndex = to.offset ?? 0;
+  if (startIndex === endIndex && from.block === to.block) return null;
+  return {
+    blockId: block.id,
+    startIndex,
+    endIndex,
+    selectedText: block.text.substring(startIndex, endIndex),
+  };
 }
 
 /**

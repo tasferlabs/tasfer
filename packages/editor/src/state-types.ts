@@ -234,6 +234,12 @@ export interface LinkHoverState {
   readonly y: number;
   readonly startIndex: number;
   readonly endIndex: number;
+  /**
+   * Set when the link lives in prose a node keeps inside its structured content
+   * (text in a table cell): `startIndex`/`endIndex` are then offsets into that
+   * field and this is the link's extent as a nested range.
+   */
+  readonly content?: ContentSelection;
 }
 
 // Unified menu system - only one menu can be active at a time

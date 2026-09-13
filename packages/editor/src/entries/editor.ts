@@ -36,6 +36,7 @@ import {
 } from "../actions/structured-marks";
 import { isTextInputKey } from "../code-points";
 import { BLUR_SELECTION_CLEAR_DELAY } from "../constants";
+import { contentMarkEdit } from "../content-marks";
 import { IS_DEV } from "../env";
 import { edgeScrollDelta } from "../events/autoScroll";
 import { createChromeRegionRegistry } from "../events/chromeRegions";
@@ -402,15 +403,17 @@ export interface ChangeApi<S extends SchemaDefinition = AnySchemaDefinition> {
    * toggles across the selection (or the pending caret format) — the common
    * bold/italic case. Pass `active` to force apply (`true`) / remove (`false`),
    * `attrs` for the mark's per-mark data (e.g. a link's `url`), and `range` to
-   * target an explicit single-block span (default: selection). A no-op for an
-   * empty range or a missing/non-textual block.
+   * target an explicit single-block span (default: selection). `range` may
+   * also be a {@link ContentSelection} inside one prose field of a node's
+   * structured content (text in a table cell) — such as a {@link MarkInfo}'s
+   * `content`. A no-op for an empty range or a missing/non-textual block.
    */
   setMark<T extends MarkNameOf<S>>(
     name: T,
     opts?: {
       active?: boolean;
       attrs?: MarkAttrs<S, T>;
-      range?: DocRange;
+      range?: DocRange | ContentSelection;
     },
   ): this;
 
@@ -4769,9 +4772,27 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
             (opts.range === undefined || opts.range === "selection"));
         if (isToggle) {
           if (this.canToggleMark(name)) apply(this.toggleMarkAction(name));
+        } else if (
+          opts?.range &&
+          typeof opts.range === "object" &&
+          "anchor" in opts.range
+        ) {
+          const nested = opts.range;
+          const mark: Mark = opts.attrs
+            ? { type: name, attrs: opts.attrs }
+            : { type: name };
+          const target = contentMarkEdit(
+            ctx.state,
+            nested,
+            mark,
+            opts.active ?? true,
+          );
+          if (target)
+            c.editContent(target.blockId, target.contentId, target.edit);
         } else {
+          const range = opts?.range as DocRange | undefined;
           apply((s) => {
-            const r = resolveInlineRange(s, opts?.range);
+            const r = resolveInlineRange(s, range);
             if (!r || r.start === r.end) return { state: s, ops: [] };
             const mark: Mark = opts?.attrs
               ? { type: name, attrs: opts.attrs }
