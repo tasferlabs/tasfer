@@ -204,6 +204,13 @@ export const tableStructuredKind: StructuredKindSpec = {
       ),
     );
   },
+  // Every cell is prose, read row by row — the header row first.
+  textFields: (document) =>
+    readTable(document).rows.flatMap((row) =>
+      row.cells.flatMap((cell) =>
+        cell ? [{ nodeId: cell.id, field: CELL_TEXT_FIELD }] : [],
+      ),
+    ),
 };
 
 /** Build a fresh, instance-safe table data bundle. */

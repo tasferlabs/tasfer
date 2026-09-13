@@ -533,6 +533,29 @@ Two more helpers matter once a structured document gets large enough to walk:
   reference in an attr (a table cell's `columnId`) must supply this, or the copy
   references identities that no longer exist.
 
+If people read text inside your structured document as prose — a table's
+cells, not a formula's LaTeX — say so with a `textFields` adapter on the kind's
+`structuredKinds` entry. It returns the prose character fields of one document
+as `{ nodeId, field }` pairs, in reading order:
+
+```ts
+const tableKind: StructuredKindSpec = {
+  kind: "table",
+  textFields: (document) =>
+    readTable(document).rows.flatMap((row) =>
+      // A row can have holes where a cell is missing.
+      row.cells.flatMap((cell) =>
+        cell ? [{ nodeId: cell.id, field: "text" }] : [],
+      ),
+    ),
+};
+```
+
+Tools that work on prose read those fields through
+`editor.query.textFields(blockId)` without knowing your node, so a spell
+checker underlines misspellings inside your document the way it does in a
+paragraph. A kind without the adapter has no prose fields.
+
 <h2 id="extend">Extending</h2>
 
 `use` installs a reusable feature bundle. Feature objects can contribute nodes,

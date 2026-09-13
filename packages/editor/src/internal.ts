@@ -89,6 +89,9 @@ export {
   inlineToHtml,
 } from "./serlization/codecs/inline";
 export { allCharsHaveFormat } from "./sync/crdt-utils";
+// `query.textFields` over a raw block and a data schema, for host code that
+// holds `doc.getRawBlocks()` rather than an editor (find-in-page, stats).
+export { blockTextFields } from "./text-fields";
 // Strips the transient render cache (`cachedLayout`) and neighbour-type stamps a
 // mounted editor writes onto the doc's canonical block objects. A host MUST run
 // it on `doc.getRawBlocks()` before persisting them or handing them across a

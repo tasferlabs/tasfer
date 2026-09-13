@@ -238,7 +238,9 @@ export type {
   MarkSpec,
   StructuredKindAdapters,
   StructuredKindSpec,
+  StructuredTextFieldRef,
 } from "./sync/schema";
+export type { TextFieldInfo, TextFieldMark } from "./text-fields";
 
 // Action bus — declare imperative actions (`action`) that hosts hook
 // via `editor.registerAction` (override by returning `true`, or observe by

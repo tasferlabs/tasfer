@@ -153,6 +153,21 @@ export interface StructuredKindSpec {
   readonly clone?: StructuredContentClone;
   /** Canonical source text of one of this kind's documents (math's LaTeX). */
   readonly source?: (document: StructuredDocument) => string | undefined;
+  /**
+   * The character fields of one of this kind's documents that people read as
+   * prose (a table's cells), in reading order. Prose-aware tools — spelling,
+   * word counts — read these through `editor.query.textFields`. Omit it for a
+   * kind whose text is source rather than prose (math's LaTeX).
+   */
+  readonly textFields?: (
+    document: StructuredDocument,
+  ) => readonly StructuredTextFieldRef[];
+}
+
+/** One character field inside a structured document. */
+export interface StructuredTextFieldRef {
+  readonly nodeId: string;
+  readonly field: string;
 }
 
 /** The merged per-kind adapters derived by the schema constructor. */
@@ -161,6 +176,9 @@ export interface StructuredKindAdapters {
   resolveSelection?: ContentSelectionResolver;
   clone?: StructuredContentClone;
   source?: (document: StructuredDocument) => string | undefined;
+  textFields?: (
+    document: StructuredDocument,
+  ) => readonly StructuredTextFieldRef[];
 }
 
 /**
@@ -411,6 +429,14 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
           entry.kind,
         );
         merged.source = entry.source;
+      }
+      if (entry.textFields) {
+        invariant(
+          !merged.textFields,
+          'Structured kind "%s" registers two textFields adapters. Each kind has exactly one; entries for a kind may only contribute disjoint adapters.',
+          entry.kind,
+        );
+        merged.textFields = entry.textFields;
       }
       // Frozen: `structuredKind()` hands this record out, and a later entry
       // for the same kind merges via copy — nothing may mutate a shared one.
@@ -672,6 +698,13 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
     ctx: StructuredContentCloneCtx,
   ): StructuredContentCloneResult | undefined {
     return this.kinds.get(ctx.document.kind)?.clone?.(ctx);
+  }
+
+  /** The prose fields of one structured document, via its kind adapter. */
+  structuredTextFields(
+    document: StructuredDocument,
+  ): readonly StructuredTextFieldRef[] {
+    return this.kinds.get(document.kind)?.textFields?.(document) ?? [];
   }
 
   /** Canonical source text of one structured document, via its kind adapter. */

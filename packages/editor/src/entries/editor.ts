@@ -215,6 +215,7 @@ import {
   type StructuredMutation,
 } from "../sync/structured-content";
 import { getVisibleBlocks } from "../sync/sync";
+import { blockTextFields, type TextFieldInfo } from "../text-fields";
 import { normalizeLinkUrl } from "../url-safety";
 import type { CanvasLayers } from "./layers";
 
@@ -790,6 +791,21 @@ export interface QueryApi<S extends SchemaDefinition = BaseSchemaDefinition> {
    * its node class. Returns `null` for a missing block/content id.
    */
   content(blockId: string, contentId: string): StructuredDocument | null;
+  /**
+   * The prose text a block keeps inside its structured content (a table's
+   * cells), in reading order, each with its visible text and mark runs. The
+   * block's own flat text is not included — read that with {@link block}.
+   * Empty for a missing block or one without structured prose. Address a
+   * position in a field with a `ContentTextPoint` built from the same ids.
+   */
+  textFields(blockId: string): TextFieldInfo[];
+  /**
+   * Plain text of the live selection — exactly what a copy would put on the
+   * clipboard as `text/plain`. A selection inside structured content (text in a
+   * table cell) reads through the owning node's serializer, so cells across a
+   * range come back tab- and newline-separated. `""` for a bare caret.
+   */
+  selectedText(): string;
 }
 
 /**
@@ -6155,6 +6171,11 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     blocks: this.queryBlocks,
     marks: (at?: DocPoint | DocRange) => queryMarkInfos(this._state, at),
     content: this.queryContent,
+    textFields: (blockId: string) => {
+      const block = findBlock(this._state.document.page, blockId);
+      return block ? blockTextFields(block, this._state.schema) : [];
+    },
+    selectedText: () => getSelectionPlainText(this._state),
   };
 
   view: EditorViewApi = {
