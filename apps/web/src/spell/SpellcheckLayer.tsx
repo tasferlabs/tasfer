@@ -267,7 +267,7 @@ export const SpellcheckLayer = forwardRef<
           focus: flag.range.to as ContentPoint,
         }),
       );
-      editor.view.scrollToPosition({ block: flag.blockId, offset: 0 });
+      editor.view.scrollToPosition("caret");
       return;
     }
     const span = checkerRef.current?.currentRange(flag) ?? {
