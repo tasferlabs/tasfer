@@ -2060,16 +2060,24 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         }
 
         // Update hidden input position to match cursor for IME composition toolbar
+        const contentFocus = this._state.document.contentSelection?.focus;
         if (
           this.hiddenInput &&
-          this._state.document.cursor &&
+          (this._state.document.cursor || contentFocus) &&
           this._state.view.isFocused &&
           !viewportChangedAfterPaint
         ) {
-          const isComposing = this._state.ui.composition?.isComposing;
-          const cursorCoords = isComposing
-            ? getCursorCoordinatesWithComposition(this._state, this.viewport)
-            : this.coordsAtIndexPosition(this._state.document.cursor.position);
+          const cursor = this._state.document.cursor;
+          // A flat caret's composition coords are document-space; everything
+          // else here is already viewport-space. A content caret (a table cell)
+          // has its composition folded in by its node.
+          const isComposing =
+            !!cursor && !!this._state.ui.composition?.isComposing;
+          const cursorCoords = cursor
+            ? isComposing
+              ? getCursorCoordinatesWithComposition(this._state, this.viewport)
+              : this.coordsAtIndexPosition(cursor.position)
+            : this.coordsAtContentPoint(contentFocus!);
           if (cursorCoords) {
             this.hiddenInput.style.left = `${cursorCoords.x}px`;
             const viewportY = isComposing
@@ -4252,7 +4260,13 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     point: Exclude<DocPoint, "caret"> = "start",
     opts?: { onlyIfUnset?: boolean },
   ): void => {
-    if (opts?.onlyIfUnset && this._state.document.cursor) return;
+    // A caret inside a node's content (a table cell) is a caret too.
+    if (
+      opts?.onlyIfUnset &&
+      (this._state.document.cursor || this._state.document.contentSelection)
+    ) {
+      return;
+    }
     const resolved = resolvePoint(this._state, point);
     if (!resolved) return;
     this._state = updateMode(
@@ -4384,7 +4398,14 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     point: DocPoint,
   ): { x: number; y: number; height: number } | null => {
     const resolved = resolvePoint(this._state, point);
-    if (!resolved) return null;
+    if (!resolved) {
+      // A caret inside content a node owns (a table cell) has no flat offset;
+      // the node places it from the content point itself.
+      const content = this._state.document.contentSelection;
+      return point === "caret" && content
+        ? this.coordsAtContentPoint(content.focus)
+        : null;
+    }
     return this.coordsAtIndexPosition({
       blockIndex: resolved.blockIndex,
       textIndex: resolved.offset,
@@ -6142,13 +6163,26 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     options?: { viewportOffsetY?: number },
   ): void => {
     const resolved = resolvePoint(this._state, point);
-    if (!resolved) return;
+    // A caret inside content a node owns (a table cell) has no flat offset; it
+    // is followed through its content point, anchored to its block.
+    const contentPoint =
+      !resolved && point === "caret"
+        ? this._state.document.contentSelection?.focus
+        : undefined;
+    const blockIndex = resolved
+      ? resolved.blockIndex
+      : contentPoint
+        ? findBlockIndex(this._state.document.page, contentPoint.blockId)
+        : -1;
+    if (blockIndex < 0) return;
     const position: Position = {
-      blockIndex: resolved.blockIndex,
-      textIndex: resolved.offset,
+      blockIndex,
+      textIndex: resolved?.offset ?? 0,
     };
     if (options?.viewportOffsetY !== undefined) {
-      const current = this.coordsAtIndexPosition(position);
+      const current = contentPoint
+        ? this.coordsAtContentPoint(contentPoint)
+        : this.coordsAtIndexPosition(position);
       if (current) {
         const maxScroll = Math.max(
           0,
@@ -6164,6 +6198,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         this.applyProgrammaticScroll(scrollY);
         this.pendingViewportAnchor = {
           position,
+          ...(contentPoint ? { contentPoint } : {}),
           viewportOffsetY: options.viewportOffsetY,
           remainingCorrections: 3,
         };
@@ -6177,7 +6212,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // targets, which put the highlight at the wrong viewport offset. The
     // pending-anchor corrections then converge on the true spot as heights
     // become exact.
-    this.scrollPositionIntoView(position);
+    this.scrollPositionIntoView(position, contentPoint);
   };
 
   // ── Public facets ──────────────────────────────────────────────────────────

@@ -41,6 +41,7 @@ import {
   isApplePlatform,
   mergeRegister,
   type Block,
+  type ContentPoint,
   type CursorDragInfo,
   type Decoration,
   type DocPoint,
@@ -1211,6 +1212,12 @@ interface StoredCursorPosition {
   scrollY: number;
   /** Caret Y within the viewport, used to restore without laying out prior blocks. */
   viewportOffsetY?: number;
+  /**
+   * A caret inside a block's structured content (a table cell),
+   * addressed by stable ids. `block` is then its block and `offset` 0 — the
+   * fallback when the content it names is gone.
+   */
+  content?: { anchor: ContentPoint; focus: ContentPoint };
 }
 
 function saveCursorPosition(pageId: string, position: StoredCursorPosition) {
@@ -2437,6 +2444,18 @@ function PageEditor({
     const persistCursor = () => {
       const editorApi = mountedRef.current?.editor;
       if (!editorApi) return;
+      const content = editorApi.state.contentSelection;
+      if (content) {
+        saveCursorPosition(pageId, {
+          block: content.focus.blockId,
+          offset: 0,
+          scrollY: editorApi.view.getScrollY(),
+          viewportOffsetY: editorApi.view.coordsAtPos("caret")?.y,
+          // Collapsed to its focus, as the flat path keeps only the caret.
+          content: { anchor: content.focus, focus: content.focus },
+        });
+        return;
+      }
       const range = editorApi.state.selection.range;
       const caret =
         range && typeof range === "object" && "offset" in range
@@ -3290,10 +3309,21 @@ function PageEditor({
       // entries fall back to their raw scroll offset.
       const saved = loadCursorPosition(pageId);
       if (saved) {
-        mounted.editor.setCaret({ block: saved.block, offset: saved.offset });
+        const content = saved.content;
+        if (content) {
+          // Content that has since been deleted normalizes to no selection;
+          // its block is the fallback below.
+          mounted.editor.change((change) =>
+            change.selectContent({ ...content, lastUpdate: Date.now() }),
+          );
+        }
+        const inContent = !!mounted.editor.state.contentSelection;
+        if (!inContent) {
+          mounted.editor.setCaret({ block: saved.block, offset: saved.offset });
+        }
         if (saved.viewportOffsetY !== undefined) {
           mounted.editor.view.scrollToPosition(
-            { block: saved.block, offset: saved.offset },
+            inContent ? "caret" : { block: saved.block, offset: saved.offset },
             { viewportOffsetY: saved.viewportOffsetY },
           );
         } else if (saved.scrollY > 0) {
