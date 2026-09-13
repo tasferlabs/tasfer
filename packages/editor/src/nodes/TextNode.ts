@@ -2,27 +2,18 @@
  * TextNode — the on-canvas behavior for every textual block (headings,
  * paragraph, and the bullet/numbered/todo list family).
  *
- * This is the heart of the "geometry on the view" design. Historically the text
- * layout (wrap + indent/marker offsets + RTL base-x + line metrics) was
- * re-derived independently in ~10 places: the render pass, the height pass, the
- * caret-coordinate pass, the click→position hit-test, and the selection-rect
- * pass — each re-calling wrapText/getTextStyle/getFontMetrics with the same
- * inputs. They agreed only because they all happened to read the same styles.
- * The moment a block lays text out differently (a custom style, a custom block)
- * those parallel derivations drift and the caret lands in the wrong place.
+ * The text itself — wrap, caret, click → offset, selection rects — is laid out
+ * and measured by the shared text engine (`../text-layout`), the same one a
+ * table cell uses. This node owns what only a block knows: where the text area
+ * sits (list indent and marker, quote/code padding, a heading's space above),
+ * the empty-block and cross-block selection shapes, markers, placeholders,
+ * nested replacement-run geometry, and painting.
  *
- * The fix is a single canonical `layout()` that every pass consumes:
- *
- *   layout()       — wrap + measure once → TextNodeLayout (height + line boxes
- *                    + the indent/marker/RTL geometry needed downstream)
+ *   layout()       — one canonical TextNodeLayout (engine layout + block insets)
  *   paint()        — draw from a layout (never re-wraps)
  *   caretRect()    — caret screen rect from a layout (used by selection.ts)
  *   positionFromPoint() — click→caret index from a layout (hit-testing)
  *   selectionRects()    — highlight rectangles from a layout
- *
- * All arithmetic here was moved verbatim from renderer.ts / selection.ts so
- * behavior is preserved; the win is that there is now exactly one source of
- * truth for text geometry.
  *
  * Serialization (markdown/HTML/text round-trip) lives as methods on the class,
  * adapted into a BlockCodec by the schema. This is also the parser's fallback:
@@ -31,21 +22,16 @@
  * flowing into the text via `inlineText()`.
  */
 
-import { analyzeLineBidi } from "../bidi";
 import {
   batchChars,
   currentFontFamily,
   type FontFamily,
-  getFontMetrics,
   getFontStack,
-  measureCRDTPositions,
   measureTextUpToIndex,
-  type ReplacementSlice,
   type TextBatch,
   type WrappedLine,
   wrapText,
 } from "../fonts";
-import { resolveMarkRunsFromChars } from "../mark-runs";
 import {
   getBlockTextContent,
   memoizeNodeLayout,
@@ -108,134 +94,28 @@ import {
   isContentSelectionCollapsed,
 } from "../structured-selection";
 import { isTextualBlock } from "../sync/block-registry";
-import {
-  charRunsToChars,
-  getVisibleTextFromChars,
-  getVisibleTextFromRuns,
-  iterateAllChars,
-} from "../sync/char-runs";
+import { charRunsToChars, getVisibleTextFromRuns } from "../sync/char-runs";
 import type { StructuredContentMap } from "../sync/structured-content";
+import {
+  foldComposition,
+  layoutReplacementRuns,
+  layoutText,
+  type LineSlices,
+  measureTextRange,
+  replacementFragmentGeometry,
+  replacementRangeAtPoint,
+  type ReplacementRun,
+  replacementRuns,
+  textCaretRect,
+  type TextLayout,
+  textLength,
+  textOffsetAtPoint,
+  textRangeRects,
+  type TextRect,
+} from "../text-layout";
 import type { CodeBlock } from "./code-block";
 import type { ListBlock } from "./ListNode";
 import type { QuoteBlock } from "./QuoteNode";
-
-/**
- * A replacement-mark run resolved against a resolved `Char[]` view: `[start,
- * end)` are visible-character indices (the caret-edge range — a structured run
- * is one anchor char, so `end === start + 1`), `text` is the canonical source
- * resolved from the run's attachment, and `replacement` is the mark's
- * renderer. Flat indices treat the run as one atomic unit; interior geometry
- * belongs to the replacement's nested-content hooks.
- */
-interface ReplacementRun {
-  readonly start: number;
-  readonly end: number;
-  readonly text: string;
-  readonly mark: Mark;
-  readonly replacement: MarkReplacement;
-}
-
-/**
- * Replacement-mark runs in a resolved char view, as visible-index runs.
- *
- * Resolution is delegated to `resolveMarkRunsFromChars` — the SAME tolerant,
- * ordinal-based resolver the edit/caret path uses (`getInlineMathSpans`/
- * `query.marks`) — so rendering and editing always agree on a chip's extent.
- * (This used to do its own strict `startCharId`/`endCharId` lookup, which
- * dropped a whole chip to plain text the instant an endpoint char was tombstoned
- * — e.g. backspacing the last char of an inline formula — even though the caret
- * still descended into it, so the painted chip and the live caret diverged.)
- */
-function replacementRuns(
-  chars: Char[],
-  formats: readonly MarkRange[],
-  marks: MarkRegistry,
-  attachments?: StructuredContentMap,
-): ReplacementRun[] {
-  if (!formats.some((f) => marks.get(f.format.type)?.replacement)) return [];
-  const runs: ReplacementRun[] = [];
-  for (const run of resolveMarkRunsFromChars(chars, formats)) {
-    const replacement = marks.get(run.name)?.replacement;
-    if (!replacement) continue;
-    const mark: Mark = {
-      type: run.name,
-      ...(Object.keys(run.attrs).length > 0 ? { attrs: run.attrs } : {}),
-    };
-    const text =
-      replacement.source?.(run.text, { mark, attachments }) ?? run.text;
-    runs.push({
-      start: run.startIndex,
-      end: run.endIndex,
-      text,
-      mark,
-      replacement,
-    });
-  }
-  return runs;
-}
-
-interface ReplacementFragment {
-  readonly run: ReplacementRun;
-  readonly start: number;
-  readonly end: number;
-  readonly text: string;
-  /** Range in the run's canonical replacement source represented by `text`. */
-  readonly sourceRange: { readonly start: number; readonly end: number };
-  /** Whether the fragment opens its line rather than riding with the anchor. */
-  readonly lead: boolean;
-}
-
-/** The replacement slices a wrapped line renders (see {@link ReplacementSlice}). */
-interface LineSlices {
-  /** Continuation slice opening the line, from a run that started earlier. */
-  readonly lead?: ReplacementSlice;
-  /** Slices riding with an anchor char on the line, by anchor index. */
-  readonly anchored: ReadonlyMap<number, ReplacementSlice>;
-}
-
-/**
- * Resolve one marked run's piece of a textual line.
- *
- * A structured run is a single anchor char, so a run that reflows across lines
- * cannot be sliced by character index: the wrap records the slices in SOURCE
- * offsets instead (see {@link ReplacementSlice}), and a continuation slice's
- * line holds none of the run's characters at all. Without slices the fragment is
- * the whole run rendering its whole canonical source — the atomic chip.
- */
-function replacementFragment(
-  run: ReplacementRun,
-  lineStart: number,
-  lineEnd: number,
-  slices?: LineSlices,
-): ReplacementFragment | null {
-  const lead = slices?.lead;
-  if (lead && lead.index === run.start) {
-    return {
-      run,
-      start: lineStart,
-      end: lineStart,
-      text: run.text.slice(lead.sourceStart, lead.sourceEnd),
-      sourceRange: { start: lead.sourceStart, end: lead.sourceEnd },
-      lead: true,
-    };
-  }
-  const start = Math.max(run.start, lineStart);
-  const end = Math.min(run.end, lineEnd);
-  if (end <= start) return null;
-  const anchored = slices?.anchored.get(run.start);
-  return {
-    run,
-    start,
-    end,
-    text: anchored
-      ? run.text.slice(anchored.sourceStart, anchored.sourceEnd)
-      : run.text,
-    sourceRange: anchored
-      ? { start: anchored.sourceStart, end: anchored.sourceEnd }
-      : { start: 0, end: run.text.length },
-    lead: false,
-  };
-}
 
 /**
  * The block types handled by TextNode itself: headings + paragraph.
@@ -253,30 +133,20 @@ export const TEXT_BLOCK_TYPES = [
 ] as const;
 
 /**
- * The canonical text layout. Extends NodeLayout (height + line boxes) with the
- * derived geometry every text pass needs, so no pass re-derives it.
+ * The canonical text layout of a textual block: the shared {@link TextLayout}
+ * of its text area (wrap, line boxes, measurement inputs), plus where that area
+ * sits inside the block. Every pass — height, paint, caret, hit-test, selection
+ * — reads this one result instead of re-deriving any of it.
  *
- * `lines` boxes carry x/y RELATIVE to the block's content origin is intentional:
- * absolute positioning differs between the scroll-space render pass and the
- * document-space caret pass, so callers add their own origin. The line boxes do
- * carry absolute-independent fields: width, height, startIndex, endIndex.
+ * Line boxes are relative to the text area, as in {@link TextLayout}: absolute
+ * positioning differs between the scroll-space render pass and the
+ * document-space caret pass, so callers add the block origin, the leading
+ * inset and `insetY` themselves.
  */
-export interface TextNodeLayout extends NodeLayout {
-  readonly isRTL: boolean;
+export interface TextNodeLayout extends NodeLayout, TextLayout {
+  readonly lines: readonly RenderedLine[];
   readonly textStyle: TextStyle;
-  readonly fontFamily: FontFamily;
-  /** Resolved font registry for this instance — used to resolve `fontFamily`
-   *  to a CSS stack during measurement (keeps caret/hit-test in sync). */
-  readonly fonts: FontStyles;
-  /** Resolved mark registry for this instance — lets caret/hit-test/selection
-   *  measurement reserve a replacement run's rendered width (e.g. an inline-math
-   *  chip), keeping them in sync with wrap + paint. */
-  readonly marks?: MarkRegistry;
-  /** Structured attachments available to replacement-run source resolvers. */
-  readonly structuredContent?: StructuredContentMap;
-  readonly codePadding: number;
-  readonly fontMetrics: FontMetrics;
-  readonly lineHeight: number;
+  readonly formats: MarkSpan[];
   readonly indentOffset: number;
   readonly markerWidth: number;
   /**
@@ -289,121 +159,6 @@ export interface TextNodeLayout extends NodeLayout {
   readonly insetY: number;
   /** Content width available to text (maxWidth minus list indent + marker). */
   readonly adjustedMaxWidth: number;
-  /** Resolved characters used for this layout (may include composition text). */
-  readonly chars: Char[];
-  readonly formats: MarkSpan[];
-  readonly compositionRange: { start: number; end: number } | null;
-  /** Raw wrap result, retained for consumers that need consumedSpace. */
-  readonly wrapped: WrappedLine[];
-  /**
-   * Per-visible-index advance override for replacement chips that wrapped across
-   * lines: each line-fragment's first char → its on-this-line rendered width, the
-   * rest → 0. Threaded into every width measurement (caret-x, hit-test, selection)
-   * so they attribute each line's chip slice its own advance, matching the
-   * reflowed paint. Empty when no chip wraps (every chip is one whole fragment).
-   */
-  readonly replCharWidths: Map<number, number>;
-  /**
-   * Replacement slices rendered on each line, parallel to `lines`. A run that
-   * reflows spans lines it owns no character on, so this — not the line's index
-   * range — is what resolves which piece of a formula a line draws.
-   */
-  readonly lineSlices: readonly LineSlices[];
-}
-
-interface ReplacementFragmentGeometry extends ReplacementFragment {
-  /** Visual x bounds relative to the block's text-area origin. */
-  readonly left: number;
-  readonly right: number;
-}
-
-/**
- * Resolve a replacement fragment's visual box on one line.
- *
- * The stored run is logical-order data, while the canvas box may be reordered
- * by bidi. Keeping this calculation shared by nested caret and nested hit-test
- * prevents the two paths from disagreeing about an RTL-embedded replacement.
- */
-function replacementFragmentGeometry(
-  layout: TextNodeLayout,
-  lineIndex: number,
-  line: RenderedLine,
-  run: ReplacementRun,
-): ReplacementFragmentGeometry | null {
-  const fragment = replacementFragment(
-    run,
-    line.startIndex,
-    line.endIndex,
-    layout.lineSlices[lineIndex],
-  );
-  if (!fragment) return null;
-  // A continuation row opens the line, so its box is simply the lead itself:
-  // from the line's start edge (the right edge in RTL) across its own width.
-  if (fragment.lead) {
-    const width = line.leadOffset ?? 0;
-    const left = layout.isRTL ? layout.adjustedMaxWidth - width : 0;
-    return { ...fragment, left, right: left + width };
-  }
-  const lead = line.leadOffset ?? 0;
-  const widths = measureCRDTPositions(
-    layout.chars,
-    layout.formats,
-    line.startIndex,
-    line.endIndex,
-    layout.textStyle.fontSize,
-    layout.textStyle.fontWeight,
-    layout.fontFamily,
-    layout.fonts,
-    layout.marks,
-    layout.replCharWidths,
-  );
-  const startLocal = fragment.start - line.startIndex;
-  if (startLocal + 1 >= widths.length) return null;
-  const { runs, visual } = analyzeLineBidi(
-    line.text,
-    layout.isRTL ? "rtl" : "ltr",
-  );
-  const baseLevel = layout.isRTL ? 1 : 0;
-  const pureLine =
-    runs.length === 0 || (runs.length === 1 && runs[0].level === baseLevel);
-  let edgeA: number;
-  let edgeB: number;
-  if (pureLine) {
-    if (layout.isRTL) {
-      edgeA = layout.adjustedMaxWidth - lead - widths[startLocal];
-      edgeB = layout.adjustedMaxWidth - lead - widths[startLocal + 1];
-    } else {
-      edgeA = lead + widths[startLocal];
-      edgeB = lead + widths[startLocal + 1];
-    }
-  } else {
-    const lineWidth = widths[widths.length - 1];
-    const origin = layout.isRTL
-      ? layout.adjustedMaxWidth - lead - lineWidth
-      : lead;
-    const runLeft = new Map<(typeof runs)[number], number>();
-    let cursor = origin;
-    for (const bidiRun of visual) {
-      runLeft.set(bidiRun, cursor);
-      cursor += widths[bidiRun.end] - widths[bidiRun.start];
-    }
-    const owner = runs.find(
-      (bidiRun) => startLocal >= bidiRun.start && startLocal < bidiRun.end,
-    );
-    if (!owner) return null;
-    const ownerLeft = runLeft.get(owner) ?? origin;
-    const visualX = (index: number): number =>
-      owner.level % 2 === 0
-        ? ownerLeft + (widths[index] - widths[owner.start])
-        : ownerLeft + (widths[owner.end] - widths[index]);
-    edgeA = visualX(startLocal);
-    edgeB = visualX(startLocal + 1);
-  }
-  return {
-    ...fragment,
-    left: Math.min(edgeA, edgeB),
-    right: Math.max(edgeA, edgeB),
-  };
 }
 
 /**
@@ -581,84 +336,23 @@ export function getContentWithComposition(
     };
   }
 
-  // Create temporary composition chars (without IDs since they're not persisted)
-  const compositionChars: Char[] = Array.from(previewText).map((char, i) => ({
-    id: `composition-${i}`,
-    char,
-    deleted: false,
-  }));
-
-  // Insert the preview chars at `insertAt` (a VISIBLE index) while keeping
-  // tombstoned chars in document order. `resolveMarkRunsFromChars` (the
-  // replacement/chip resolver used by the layout below) anchors each mark span
-  // to its exact endpoint char IDs and DROPS the span outright when an endpoint
-  // isn't present in the char array. So the array must include deleted chars —
-  // exactly what the canonical `charRunsToChars` path does. Iterating only
-  // VISIBLE chars here silently hid any chip whose boundary char had been
-  // tombstoned (common after editing a chip), flashing the whole formula to raw
-  // LaTeX for the duration of the composition even when the preview lands
-  // outside the chip. Injecting before the visible char at `insertAt` keeps the
-  // preview where the commit will land; interleaved tombstones stay put.
-  const modifiedChars: Char[] = [];
-  let visibleIndex = 0;
-  let insertionDone = false;
-
-  for (const { id, char, deleted } of iterateAllChars(block.charRuns)) {
-    if (!deleted && visibleIndex === insertAt && !insertionDone) {
-      modifiedChars.push(...compositionChars);
-      insertionDone = true;
-    }
-    modifiedChars.push({ id, char, ...(deleted ? { deleted: true } : {}) });
-    if (!deleted) visibleIndex++;
-  }
-
-  // If the insert point is at the end (past the last visible char), append it.
-  if (!insertionDone) {
-    modifiedChars.push(...compositionChars);
-  }
-
+  // Fold the preview in at `insertAt` (a VISIBLE index), keeping tombstoned
+  // chars in document order — see `foldComposition`.
+  const folded = foldComposition(
+    charRunsToChars(block.charRuns),
+    insertAt,
+    previewText,
+  );
   return {
-    chars: modifiedChars,
+    chars: folded.chars,
     formats: block.formats, // Keep formats as-is
-    compositionRange: {
-      start: insertAt,
-      end: insertAt + previewText.length,
-    },
+    compositionRange: folded.compositionRange,
   };
 }
 
 // ---------------------------------------------------------------------------
 // Measurement / drawing helpers (moved verbatim from renderer.ts)
 // ---------------------------------------------------------------------------
-
-// Measure the width of a portion of CRDT text using batched (ligature-safe)
-// measurement so cursor x stays aligned with wrap + render.
-function measureLineWidth(
-  chars: Char[],
-  formats: MarkSpan[],
-  lineStartIndex: number,
-  lineEndIndex: number,
-  textStyle: TextStyle,
-  fontFamily: FontFamily,
-  fonts: FontStyles,
-  codePadding: number,
-  marks?: MarkRegistry,
-  replCharWidths?: Map<number, number>,
-): number {
-  return measureTextUpToIndex(
-    chars,
-    formats,
-    lineStartIndex,
-    lineEndIndex,
-    textStyle.fontSize,
-    textStyle.fontWeight,
-    fontFamily,
-    fonts,
-    codePadding,
-    marks,
-    replCharWidths,
-  );
-}
 
 // Draw already-resolved placeholder text. The text itself is resolved by the
 // view's `placeholderText` hook (paragraph/heading in the base class, list/todo
@@ -806,7 +500,7 @@ function renderCompositionUnderline(
     }
   }
 
-  const offsetToStart = measureLineWidth(
+  const offsetToStart = measureTextRange(
     chars,
     formats,
     lineStartIndex,
@@ -818,7 +512,7 @@ function renderCompositionUnderline(
     marks,
   );
 
-  const underlineWidth = measureLineWidth(
+  const underlineWidth = measureTextRange(
     chars,
     formats,
     underlineStart,
@@ -1162,25 +856,21 @@ function renderLine(
 // Selection rectangles (moved verbatim from renderer.renderSelectionCore)
 // ---------------------------------------------------------------------------
 
-interface Rect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  /** Absolute y of the text baseline this rect's glyphs sit on. */
-  baseline?: number;
-}
+type Rect = TextRect;
 
 /**
- * Compute the highlight rectangles for a selection within one text block.
- * Ported verbatim from renderSelectionCore — returns rects instead of drawing,
- * so both the painter and the hit-test (isPointWithinSelectionRects) share it.
+ * Highlight rectangles for a selection within one text block.
+ *
+ * The engine measures this block's share of the selection
+ * ({@link textRangeRects}); this places those rects at the block's text origin
+ * and adds what only a block knows about: an empty block's sliver, and the
+ * continuous ribbon a selection crossing blocks forms. Both the painter and the
+ * hit-test (isPointWithinSelectionRects) read it.
  */
 function computeSelectionRects(
   layout: TextNodeLayout,
   baseX: number,
   blockTopY: number,
-  maxWidth: number,
   selection: { anchor: Position; focus: Position; isForward: boolean },
   blockIndex: number,
   // When true, close the vertical gaps in the selection so it reads as one
@@ -1192,29 +882,12 @@ function computeSelectionRects(
   // carets) leave it false so they hug the matched glyphs. See `selectionRects`.
   continuous = false,
   // When true, the rects feed the point-in-selection hit-test
-  // (`isPointWithinSelectionRects`), not the painter. A selection covering a whole
-  // inline-math chip then reports the chip's full atomic box as touchable, so a tap
-  // anywhere on the selected chip — including its inflated padding, which the
-  // glyph-hugging rows don't cover — counts as touching the selection (and opens
-  // the context menu instead of collapsing). Painting leaves this false so a
-  // selected sub-part of a formula still lights up just that part.
+  // (`isPointWithinSelectionRects`), not the painter. See `textRangeRects`.
   hitTest = false,
 ): Rect[] {
   const start = selection.isForward ? selection.anchor : selection.focus;
   const end = selection.isForward ? selection.focus : selection.anchor;
-
-  const {
-    isRTL,
-    textStyle,
-    fontFamily,
-    fonts,
-    marks,
-    codePadding,
-    chars,
-    formats,
-    insetY,
-    height: blockHeight,
-  } = layout;
+  const { textStyle, insetY, height: blockHeight } = layout;
 
   // Whether the selection arrives from / departs into a neighbouring block.
   // Used to fill this block's top/bottom box so consecutive blocks form one
@@ -1227,278 +900,45 @@ function computeSelectionRects(
   const blockTopEdge = blockTopY - insetY;
   const blockBottomEdge = blockTopEdge + blockHeight;
 
-  const rects: Rect[] = [];
-
-  if (!(
-    (start.blockIndex === blockIndex && end.blockIndex === blockIndex) ||
-    (start.blockIndex <= blockIndex && end.blockIndex >= blockIndex)
-  )) {
-    return rects;
-  }
-
-  const contentLength = getVisibleTextFromChars(chars).length;
+  if (start.blockIndex > blockIndex || end.blockIndex < blockIndex) return [];
 
   // Empty block: a small caret-width sliver. In a continuous selection it keeps
   // that narrow width (an empty line shows no full-width fill) but extends to
   // this block's box edges so it connects to the selected blocks above/below.
-  if (contentLength === 0 && layout.lines.length === 1) {
+  if (textLength(layout) === 0 && layout.lines.length === 1) {
     const emptyBlockHeight = textStyle.fontSize * textStyle.lineHeight;
     const minSelectionWidth = textStyle.fontSize * 0.5;
     const top = continuous && enteredFromAbove ? blockTopEdge : blockTopY;
     const bottom =
       continuous && exitsBelow ? blockBottomEdge : blockTopY + emptyBlockHeight;
     const emptyLine = layout.lines[0];
-    rects.push({
-      x: baseX,
-      y: top,
-      width: minSelectionWidth,
-      height: bottom - top,
-      baseline:
-        blockTopY +
-        emptyLine.y +
-        (emptyLine.baselineOffset ?? layout.fontMetrics.ascent),
-    });
-    return rects;
-  }
-
-  // Selection confined ENTIRELY within one replacement chip that paints its own
-  // per-row selection rects (inline math): highlight the selected glyphs' own
-  // rows instead of filling the chip's full (inflated) line box — so selecting a
-  // fraction's denominator lights up just the denominator, not the whole formula.
-  // A selection that also covers surrounding text falls through to the normal
-  // line-box fill below. LTR only; RTL chips fall through, matching the caret.
-  if (
-    !isRTL &&
-    marks &&
-    start.blockIndex === blockIndex &&
-    end.blockIndex === blockIndex &&
-    end.textIndex > start.textIndex
-  ) {
-    const confiningRun = replacementRuns(
-      chars,
-      formats,
-      marks,
-      layout.structuredContent,
-    ).find(
-      (r) =>
-        r.replacement.selectionRects &&
-        start.textIndex >= r.start &&
-        end.textIndex <= r.end,
-    );
-    // A structured run is one atomic anchor char, so a confined selection is
-    // always the whole run and the rows span the whole canonical source. When
-    // hit-testing, skip the tight per-glyph rows so the point-in-selection
-    // test falls through to the line-box fill below, which spans the chip's
-    // full advance at full line height — a tap anywhere on the selected chip
-    // (including its inflated padding, which the glyph rows don't cover) then
-    // registers as touching the selection.
-    if (confiningRun && !hitTest) {
-      // One pass per line the run appears on: a reflowing formula contributes a
-      // slice per line, each highlighting its own rows at its own left edge.
-      const chipRects: Rect[] = [];
-      for (const [lineIndex, line] of layout.lines.entries()) {
-        const fragment = replacementFragmentGeometry(
-          layout,
-          lineIndex,
-          line,
-          confiningRun,
-        );
-        if (!fragment) continue;
-        const rowRects = confiningRun.replacement.selectionRects?.(
-          fragment.text,
-          textStyle.fontSize,
-          0,
-          fragment.text.length,
-          { caretOffset: 0, editing: false },
-        );
-        if (!rowRects || rowRects.length === 0) continue;
-        const baselineY =
+    return [
+      {
+        x: baseX,
+        y: top,
+        width: minSelectionWidth,
+        height: bottom - top,
+        baseline:
           blockTopY +
-          line.y +
-          (line.baselineOffset ?? layout.fontMetrics.ascent);
-        for (const rr of rowRects) {
-          chipRects.push({
-            x: baseX + fragment.left + rr.x,
-            y: baselineY + rr.top,
-            width: rr.width,
-            height: rr.bottom - rr.top,
-            baseline: baselineY,
-          });
-        }
-      }
-      if (chipRects.length > 0) return chipRects;
-    }
+          emptyLine.y +
+          (emptyLine.baselineOffset ?? layout.fontMetrics.ascent),
+      },
+    ];
   }
 
-  // LTR distance from a line's start to a selection boundary `index`. A
-  // replacement run is one atomic anchor char, so a boundary can only sit on
-  // its edges — the plain measure is always glyph-accurate.
-  const boundaryWidth = (
-    line: (typeof layout.lines)[number],
-    index: number,
-  ): number =>
-    measureLineWidth(
-      chars,
-      formats,
-      line.startIndex,
-      index,
-      textStyle,
-      fontFamily,
-      fonts,
-      codePadding,
-      marks,
-      layout.replCharWidths,
-    );
-
-  // Plain line-start-to-index width (no inline-chip descent), block indices.
-  const plainWidth = (fromIndex: number, toIndex: number): number =>
-    measureLineWidth(
-      chars,
-      formats,
-      fromIndex,
-      toIndex,
-      textStyle,
-      fontFamily,
-      fonts,
-      codePadding,
-      marks,
-      layout.replCharWidths,
-    );
-
-  layout.lines.forEach((line, lineIndex) => {
-    const lineY = blockTopY + line.y;
-    const baseline = lineY + (line.baselineOffset ?? layout.fontMetrics.ascent);
-    const lead = line.leadOffset ?? 0;
-
-    // The logical block-index range of THIS line that the selection covers.
-    // A selection that starts/ends outside this block contributes the whole
-    // line edge on that side (multi-block ribbon).
-    const startsHere = start.blockIndex === blockIndex;
-    const endsHere = end.blockIndex === blockIndex;
-    const lineSelStart = startsHere
-      ? Math.max(line.startIndex, start.textIndex)
-      : line.startIndex;
-    const lineSelEnd = endsHere
-      ? Math.min(line.endIndex, end.textIndex)
-      : line.endIndex;
-    if (lineSelStart >= lineSelEnd) {
-      // A continuation row of a reflowing run holds none of the run's
-      // characters, so the index test above can never see it. Fill it directly
-      // when the selection covers the run its slice belongs to — otherwise a
-      // selected formula would highlight only the row its anchor sits on.
-      const leadSlice = layout.lineSlices[lineIndex]?.lead;
-      const covered =
-        leadSlice &&
-        (!startsHere || start.textIndex <= leadSlice.index) &&
-        (!endsHere || end.textIndex >= leadSlice.index + 1);
-      if (covered) {
-        rects.push({
-          x: isRTL ? baseX + maxWidth - lead : baseX,
-          y: lineY,
-          width: lead,
-          height: line.height,
-          baseline,
-        });
-      }
-      return;
-    }
-
-    // Resolve the line's bidi structure. A line whose only run is at the base
-    // level needs no reordering — take the fast monotonic path, which also
-    // keeps the inline-math chip glyph-descent (`boundaryWidth`) behaviour.
-    const { runs, visual } = analyzeLineBidi(line.text, isRTL ? "rtl" : "ltr");
-    const baseLevel = isRTL ? 1 : 0;
-    const isPureLine =
-      runs.length === 0 || (runs.length === 1 && runs[0].level === baseLevel);
-
-    if (isPureLine) {
-      // The line opens with a continuation row whose run the selection also
-      // covers (it starts at or before the run's anchor): the fill starts at the
-      // line edge, taking the row in. Otherwise it starts past it.
-      const leadCovered =
-        lead > 0 &&
-        (!startsHere ||
-          start.textIndex <= (layout.lineSlices[lineIndex]?.lead?.index ?? -1));
-      let selectionStartX = leadCovered ? baseX : baseX + lead;
-      let selectionEndX = baseX + line.width;
-      if (isRTL) {
-        selectionEndX = leadCovered
-          ? baseX + maxWidth
-          : baseX + maxWidth - lead - plainWidth(line.startIndex, lineSelStart);
-        selectionStartX =
-          baseX + maxWidth - lead - plainWidth(line.startIndex, lineSelEnd);
-      } else {
-        if (lineSelStart > line.startIndex) {
-          selectionStartX = baseX + lead + boundaryWidth(line, lineSelStart);
-        }
-        if (lineSelEnd < line.endIndex) {
-          selectionEndX = baseX + lead + boundaryWidth(line, lineSelEnd);
-        }
-      }
-      rects.push({
-        x: selectionStartX,
-        y: lineY,
-        width: selectionEndX - selectionStartX,
-        height: line.height,
-        baseline,
-      });
-      return;
-    }
-
-    // Mixed-direction (bidi) line: lay runs out in visual order, then emit one
-    // rect per selected run — a logical range that spans an embedded run of the
-    // opposite direction is not visually contiguous, so a single span would
-    // land on the wrong glyphs.
-    let totalWidth = 0;
-    for (const r of runs) {
-      totalWidth += plainWidth(
-        line.startIndex + r.start,
-        line.startIndex + r.end,
-      );
-    }
-    // LTR lines are left-aligned (origin 0); RTL lines are right-aligned so the
-    // last visual run ends flush at maxWidth. Both start past any continuation
-    // row opening the line.
-    const origin = isRTL ? maxWidth - lead - totalWidth : lead;
-    const runLeft = new Map<(typeof runs)[number], number>();
-    let cursorX = origin;
-    for (const r of visual) {
-      runLeft.set(r, cursorX);
-      cursorX += plainWidth(line.startIndex + r.start, line.startIndex + r.end);
-    }
-
-    const lineLen = line.text.length;
-    const lo = Math.max(0, Math.min(lineLen, lineSelStart - line.startIndex));
-    const hi = Math.max(0, Math.min(lineLen, lineSelEnd - line.startIndex));
-    for (const r of runs) {
-      const a = Math.max(r.start, lo);
-      const b = Math.min(r.end, hi);
-      if (a >= b) continue;
-      const runStartIdx = line.startIndex + r.start;
-      const runEndIdx = line.startIndex + r.end;
-      const selA = line.startIndex + a;
-      const selB = line.startIndex + b;
-      const rx = runLeft.get(r) ?? origin;
-      let xLeft: number;
-      let xRight: number;
-      if (r.level % 2 === 0) {
-        // LTR run: logical order matches visual order.
-        xLeft = rx + plainWidth(runStartIdx, selA);
-        xRight = rx + plainWidth(runStartIdx, selB);
-      } else {
-        // RTL run: reversed — the visually-left edge is the logically-later end.
-        xLeft = rx + plainWidth(selB, runEndIdx);
-        xRight = rx + plainWidth(selA, runEndIdx);
-      }
-      rects.push({
-        x: baseX + xLeft,
-        y: lineY,
-        width: xRight - xLeft,
-        height: line.height,
-        baseline,
-      });
-    }
-  });
+  const rects: Rect[] = textRangeRects(
+    layout,
+    start.blockIndex === blockIndex ? start.textIndex : null,
+    end.blockIndex === blockIndex ? end.textIndex : null,
+    { hitTest },
+  ).map((rect) => ({
+    ...rect,
+    x: baseX + rect.x,
+    y: blockTopY + rect.y,
+    ...(rect.baseline === undefined
+      ? {}
+      : { baseline: blockTopY + rect.baseline }),
+  }));
 
   // Vertical box fill: extend the top/bottom rect into this block's own
   // inter-block spacing where the selection crosses a block boundary, so
@@ -1680,153 +1120,46 @@ export class TextNode<
     const formats = content?.formats ?? block.formats;
     const compositionRange = content?.compositionRange ?? null;
 
-    const wrapped = this.wrapLines(
+    const text = layoutText({
       chars,
       formats,
-      adjustedMaxWidth,
+      width: adjustedMaxWidth,
       textStyle,
       fontFamily,
       fonts,
+      direction: isRTL ? "rtl" : "ltr",
       codePadding,
-      compositionRange,
-      marks,
-      block.structuredContent,
-      !isRTL,
-    );
-
-    const fontMetrics = getFontMetrics(
-      textStyle.fontSize,
-      textStyle.fontWeight,
-      fontFamily,
-      fonts,
-    );
-    const lineHeight = fontMetrics.fontSize * textStyle.lineHeight;
-    const textAscent = Number.isFinite(fontMetrics.ascent)
-      ? fontMetrics.ascent
-      : textStyle.fontSize * 0.8;
-    const textDescent = Number.isFinite(fontMetrics.descent)
-      ? fontMetrics.descent
-      : textStyle.fontSize * 0.2;
-    const replacements = marks
-      ? replacementRuns(chars, formats, marks, block.structuredContent)
-      : [];
-
-    // Build line boxes with the exact startIndex/endIndex accounting (including
-    // consumed wrap spaces) used by every downstream pass. x/y are relative.
-    // Line boxes carry x/y relative to the block content origin; absolute
-    // positioning is added by each consumer (it differs between the scroll-space
-    // paint pass and the document-space caret pass), so x stays 0 here.
-    const lines: RenderedLine[] = [];
-    // Per-line replacement-chip fragment advances (see TextNodeLayout). Filled as
-    // each line resolves its chip fragments, then threaded into every width
-    // measurement so a chip that wrapped across lines is measured per slice.
-    const replCharWidths = new Map<number, number>();
-    const lineSlices: LineSlices[] = [];
-    let textIndex = 0;
-    let lineY = 0;
-    for (let i = 0; i < wrapped.length; i++) {
-      const wl = wrapped[i];
-      const lineStartIndex = textIndex;
-      const lineEndIndex = textIndex + wl.text.length;
-      let ascent = textAscent;
-      let descent = textDescent;
-      const anchored = new Map<number, ReplacementSlice>(
-        (wl.slices ?? []).map((slice) => [slice.index, slice]),
-      );
-      lineSlices.push({ lead: wl.leadSlice, anchored });
-      // A continuation row of a reflowing run opens the line: it owns no
-      // character, so its advance can't live in `replCharWidths` — it offsets
-      // every x measured from the line start instead, and grows the line box.
-      let leadOffset = 0;
-      if (wl.leadSlice) {
-        const run = replacements.find((r) => r.start === wl.leadSlice?.index);
-        const dims = run?.replacement.measure(
-          run.text.slice(wl.leadSlice.sourceStart, wl.leadSlice.sourceEnd),
-          textStyle.fontSize,
-        );
-        if (dims) {
-          leadOffset = dims.width;
-          ascent = Math.max(ascent, dims.height - dims.depthBelowBaseline);
-          descent = Math.max(descent, dims.depthBelowBaseline);
-        }
-      }
-      // Replacement fragments on THIS line — a chip clipped to the line. Record
-      // each fragment's first-char advance (rest → 0) so measurement attributes
-      // the slice its own width, and grow the line box around the chip. A chip
-      // that reflowed contributes one slice per line it spans; an atomic chip is
-      // its whole self on one line (fragment == run, identical to before).
-      for (const run of replacements) {
-        const fragStart = Math.max(run.start, lineStartIndex);
-        const fragEnd = Math.min(run.end, lineEndIndex);
-        if (fragEnd <= fragStart) continue;
-        const slice = anchored.get(run.start);
-        const dims = run.replacement.measure(
-          slice ? run.text.slice(slice.sourceStart, slice.sourceEnd) : run.text,
-          textStyle.fontSize,
-        );
-        if (!dims) continue;
-        replCharWidths.set(fragStart, dims.width);
-        for (let v = fragStart + 1; v < fragEnd; v++) replCharWidths.set(v, 0);
-        ascent = Math.max(ascent, dims.height - dims.depthBelowBaseline);
-        descent = Math.max(descent, dims.depthBelowBaseline);
-      }
-      const width =
-        leadOffset +
-        measureLineWidth(
-          chars,
-          formats,
-          lineStartIndex,
-          lineEndIndex,
-          textStyle,
-          fontFamily,
-          fonts,
-          codePadding,
-          marks,
-          replCharWidths,
-        );
-      const actualLineHeight = Math.max(lineHeight, ascent + descent);
-      lines.push({
-        text: wl.text,
-        x: 0,
-        y: lineY,
-        width,
-        height: actualLineHeight,
-        baselineOffset: ascent,
-        startIndex: lineStartIndex,
-        endIndex: lineEndIndex,
-        ...(leadOffset > 0 ? { leadOffset } : {}),
-      });
-      lineY += actualLineHeight;
-      textIndex += wl.text.length;
-      if (wl.consumedSpace) textIndex += 1;
-    }
-
-    const height =
-      insetY + lineY + this.contentPaddingBottom(block, styles, textStyle);
-
-    return {
-      height,
-      lines,
-      maxWidth,
-      isRTL,
-      textStyle,
-      fontFamily,
-      fonts,
       marks,
       structuredContent: block.structuredContent,
-      codePadding,
-      fontMetrics,
-      lineHeight,
+      compositionRange,
+      wrapped: this.wrapLines(
+        chars,
+        formats,
+        adjustedMaxWidth,
+        textStyle,
+        fontFamily,
+        fonts,
+        codePadding,
+        compositionRange,
+        marks,
+        block.structuredContent,
+        !isRTL,
+      ),
+    });
+
+    return {
+      ...text,
+      textStyle,
+      formats,
+      height:
+        insetY +
+        text.contentHeight +
+        this.contentPaddingBottom(block, styles, textStyle),
+      maxWidth,
       indentOffset,
       markerWidth,
       insetY,
       adjustedMaxWidth,
-      chars,
-      formats,
-      compositionRange,
-      wrapped,
-      replCharWidths,
-      lineSlices,
     };
   }
 
@@ -1865,31 +1198,12 @@ export class TextNode<
     // exists for the shared signature and math's override consumes it.
     _edge?: "start" | "end",
   ): { x: number; y: number; height: number; exact?: boolean } {
-    const {
-      isRTL,
-      textStyle,
-      fontFamily,
-      fonts,
-      codePadding,
-      lineHeight,
-      chars,
-      formats,
-      adjustedMaxWidth,
-      insetY,
-    } = layout;
+    const { textStyle, insetY } = layout;
     const baseX = this.baseX(layout, originX);
-    const textAscent = Number.isFinite(layout.fontMetrics.ascent)
-      ? layout.fontMetrics.ascent
-      : textStyle.fontSize * 0.8;
 
     const nestedPoint = state?.document.contentSelection?.focus;
-    if (blockId && nestedPoint?.blockId === blockId && layout.marks) {
-      const run = replacementRuns(
-        chars,
-        formats,
-        layout.marks,
-        layout.structuredContent,
-      ).find(
+    if (blockId && nestedPoint?.blockId === blockId) {
+      const run = layoutReplacementRuns(layout).find(
         (candidate) =>
           candidate.mark.attrs?.contentId === nestedPoint.contentId &&
           candidate.replacement.contentCaretRect,
@@ -1930,112 +1244,11 @@ export class TextNode<
       }
     }
 
-    for (const [lineIndex, line] of layout.lines.entries()) {
-      if (textIndex >= line.startIndex && textIndex <= line.endIndex) {
-        // The trailing edge of a run that reflows past this line belongs after
-        // its LAST continuation row, not here: every row of it shares the same
-        // end index, and only the last one is followed by the run's own text.
-        if (
-          textIndex === line.endIndex &&
-          layout.lineSlices[lineIndex + 1]?.lead
-        ) {
-          continue;
-        }
-        const lead = line.leadOffset ?? 0;
-        const currentY = blockTopY + insetY + line.y;
-        // A replacement run is one atomic anchor char, so a flat caret only
-        // ever rests on its edges — the boundary measure below covers it.
-        // Interior carets are nested-content carets (contentCaretRect above).
-        const caretY =
-          currentY + (line.baselineOffset ?? textAscent) - textAscent;
-
-        // Mixed-direction (bidi) line: place the caret through the visual run
-        // order so it sits at the right glyph boundary in an embedded run.
-        const width = (from: number, to: number): number =>
-          measureTextUpToIndex(
-            chars,
-            formats,
-            from,
-            to,
-            textStyle.fontSize,
-            textStyle.fontWeight,
-            fontFamily,
-            fonts,
-            codePadding,
-            layout.marks,
-            layout.replCharWidths,
-          );
-        const { runs: cRuns, visual: cVisual } = analyzeLineBidi(
-          line.text,
-          isRTL ? "rtl" : "ltr",
-        );
-        const cBaseLevel = isRTL ? 1 : 0;
-        const pureCaretLine =
-          cRuns.length === 0 ||
-          (cRuns.length === 1 && cRuns[0].level === cBaseLevel);
-        if (!pureCaretLine) {
-          const lineLen = line.text.length;
-          const i0 = Math.max(
-            0,
-            Math.min(lineLen, textIndex - line.startIndex),
-          );
-          let totalW = 0;
-          for (const r of cRuns) {
-            totalW += width(line.startIndex + r.start, line.startIndex + r.end);
-          }
-          const origin = isRTL ? adjustedMaxWidth - lead - totalW : lead;
-          const runLeftX = new Map<(typeof cRuns)[number], number>();
-          let cx = origin;
-          for (const r of cVisual) {
-            runLeftX.set(r, cx);
-            cx += width(line.startIndex + r.start, line.startIndex + r.end);
-          }
-          // The run owning this boundary: the one that contains i0 as an
-          // interior/left edge, or the last run when the caret is at line end.
-          let owner = cRuns[cRuns.length - 1];
-          for (const r of cRuns) {
-            if (i0 >= r.start && i0 < r.end) {
-              owner = r;
-              break;
-            }
-          }
-          const l = runLeftX.get(owner) ?? origin;
-          const ownerStart = line.startIndex + owner.start;
-          const ownerEnd = line.startIndex + owner.end;
-          const caretIdx = line.startIndex + i0;
-          const localX =
-            owner.level % 2 === 0
-              ? width(ownerStart, caretIdx)
-              : width(caretIdx, ownerEnd);
-          return {
-            x: baseX + l + localX,
-            y: caretY,
-            height: line.height,
-          };
-        }
-
-        const widthFromStart = width(line.startIndex, textIndex);
-        return {
-          x: isRTL
-            ? baseX + adjustedMaxWidth - lead - widthFromStart
-            : baseX + lead + widthFromStart,
-          y: caretY,
-          height: line.height,
-        };
-      }
-    }
-
-    // Empty block or caret at the very end.
-    const lastLine = layout.lines[layout.lines.length - 1];
-    const currentY = lastLine
-      ? blockTopY + insetY + lastLine.y
-      : blockTopY + insetY;
+    const caret = textCaretRect(layout, textIndex);
     return {
-      x: isRTL ? baseX + adjustedMaxWidth : baseX,
-      y: lastLine
-        ? currentY + (lastLine.baselineOffset ?? textAscent) - textAscent
-        : currentY,
-      height: lastLine?.height ?? lineHeight,
+      x: baseX + caret.x,
+      y: blockTopY + insetY + caret.y,
+      height: caret.height,
     };
   }
 
@@ -2124,13 +1337,6 @@ export class TextNode<
   }
 
   /**
-   * Click → caret text index within the block. `x`/`y` are absolute in the
-   * caller's coordinate space; `blockTopY` the block's top; `originX` the left
-   * edge (canvas paddingLeft). A click can descend into a replacement run (e.g.
-   * an inline-math chip) via its `hitTest`, using the layout's mark registry.
-   * Ported from getPositionWithinBlock + Line.
-   */
-  /**
    * The word/token RANGE a double-tap at a point selects, resolved from the
    * POINT rather than a caret offset. Plain prose has no point-specific word
    * model — its offset-based word selection is fine — but a replacement run
@@ -2147,89 +1353,20 @@ export class TextNode<
     originX: number,
     blockTopY: number,
   ): { start: number; end: number } | null {
-    if (!layout.marks) return null;
-    const runs = replacementRuns(
-      layout.chars,
-      layout.formats,
-      layout.marks,
-      layout.structuredContent,
+    return replacementRangeAtPoint(
+      layout,
+      x - this.baseX(layout, originX),
+      y - blockTopY - layout.insetY,
     );
-    if (runs.length === 0) return null;
-
-    const {
-      isRTL,
-      textStyle,
-      fontFamily,
-      fonts,
-      chars,
-      formats,
-      adjustedMaxWidth,
-    } = layout;
-    const baseX = this.baseX(layout, originX);
-    const relativeX = x - baseX;
-
-    for (const line of layout.lines) {
-      const lineTopY = blockTopY + layout.insetY + line.y;
-      if (y < lineTopY || y >= lineTopY + line.height) continue;
-
-      // Point resolution is handled only for a pure (non-bidi) line — a chip
-      // reordered inside a mixed-direction line falls back to the offset path.
-      const { runs: bidiRuns } = analyzeLineBidi(
-        line.text,
-        isRTL ? "rtl" : "ltr",
-      );
-      const baseLvl = isRTL ? 1 : 0;
-      const pureLine =
-        bidiRuns.length === 0 ||
-        (bidiRuns.length === 1 && bidiRuns[0].level === baseLvl);
-      if (!pureLine) return null;
-
-      const lineStartIndex = line.startIndex;
-      const lineEndIndex = line.endIndex;
-      const positionWidths = measureCRDTPositions(
-        chars,
-        formats,
-        lineStartIndex,
-        lineEndIndex,
-        textStyle.fontSize,
-        textStyle.fontWeight,
-        fontFamily,
-        fonts,
-        layout.marks,
-        layout.replCharWidths,
-      );
-      const lineWidth = positionWidths[positionWidths.length - 1];
-      const lead = line.leadOffset ?? 0;
-      const origin = isRTL ? adjustedMaxWidth - lead - lineWidth : lead;
-
-      for (const run of runs) {
-        // Only a whole, unwrapped chip on this line: the replacement resolves the
-        // point against its ENTIRE LaTeX, so a fragment clipped by a wrap would
-        // mis-map the coordinates.
-        if (run.start < lineStartIndex || run.end > lineEndIndex) continue;
-        const startLocal = run.start - lineStartIndex;
-        if (startLocal + 1 >= positionWidths.length) continue;
-        // The chip is one advance; its two boundary widths give its visual edges
-        // (RTL grows the visual x from the right).
-        const eA = isRTL
-          ? origin + (lineWidth - positionWidths[startLocal])
-          : origin + positionWidths[startLocal];
-        const eB = isRTL
-          ? origin + (lineWidth - positionWidths[startLocal + 1])
-          : origin + positionWidths[startLocal + 1];
-        const chipLeftX = Math.min(eA, eB);
-        const chipRightX = Math.max(eA, eB);
-        if (relativeX < chipLeftX || relativeX > chipRightX) continue;
-        // The run is one atomic anchor char: the flat word range is the whole
-        // chip. Construct-level double-click selection lives in the nested
-        // selection model, not in flat indices.
-        return { start: run.start, end: run.end };
-      }
-      return null;
-    }
-    return null;
   }
 
+  /**
+   * Click → caret text index within the block. `x`/`y` are absolute in the
+   * caller's coordinate space; `blockTopY` the block's top; `originX` the left
+   * edge (canvas paddingLeft). A replacement run (an inline-math chip) is one
+   * atomic anchor char: clicks snap to its near edge, and interior resolution
+   * belongs to the nested-selection hit-test.
+   */
   positionFromPoint(
     _block: B,
     layout: TextNodeLayout,
@@ -2237,289 +1374,18 @@ export class TextNode<
     y: number,
     originX: number,
     blockTopY: number,
-    // Finger-drag (magnifier) resolution — inside an inline-math chip, follow the
-    // finger to its nearest caret stop through the chip's stacked rows (a
-    // fraction's numerator/denominator) with row hysteresis, rather than the tap
-    // path's exact per-row descent. A precise tap leaves this off.
-    drag = false,
-    // The caret's CURRENT block-text index, the hysteresis anchor for drag mode
-    // (null when there is no current caret in this block).
-    prevIndex: number | null = null,
-  ): number {
-    const baseX = this.baseX(layout, originX);
-
-    for (const line of layout.lines) {
-      const currentLineY = blockTopY + layout.insetY + line.y;
-      const lineBottom = currentLineY + line.height;
-      if (y >= currentLineY && y < lineBottom) {
-        return this.positionWithinLine(
-          layout,
-          x,
-          y,
-          currentLineY,
-          line,
-          baseX,
-          drag,
-          prevIndex,
-        );
-      }
-    }
-
-    // Below the last line (padding area): use the last line.
-    if (layout.lines.length > 0) {
-      const last = layout.lines[layout.lines.length - 1];
-      return this.positionWithinLine(
-        layout,
-        x,
-        y,
-        blockTopY + layout.insetY + last.y,
-        last,
-        baseX,
-        drag,
-        prevIndex,
-      );
-    }
-
-    return 0;
-  }
-
-  // Ported from getPositionWithinLine. A replacement run (e.g. an inline-math
-  // chip) is one atomic anchor char: clicks snap to its near edge, and interior
-  // resolution belongs to the nested-selection hit-test.
-  private positionWithinLine(
-    layout: TextNodeLayout,
-    x: number,
-    _clickY: number,
-    _lineTopY: number,
-    line: RenderedLine,
-    baseX: number,
+    // Finger-drag (magnifier) resolution and its hysteresis anchor (the caret's
+    // current index in this block). Plain text resolves a point the same way
+    // either way; the params exist for the shared signature and math's override
+    // consumes them.
     _drag = false,
     _prevIndex: number | null = null,
   ): number {
-    const {
-      isRTL,
-      textStyle,
-      fontFamily,
-      fonts,
-      chars,
-      formats,
-      adjustedMaxWidth,
-    } = layout;
-    const lineStartIndex = line.startIndex;
-    const lineEndIndex = line.endIndex;
-    const lineText = line.text;
-    const relativeX = x - baseX;
-    // A continuation row of a reflowing chip opens the line, so the line's own
-    // characters begin past it (before it, measuring right-to-left, in RTL).
-    const lead = line.leadOffset ?? 0;
-
-    const positionWidths = measureCRDTPositions(
-      chars,
-      formats,
-      lineStartIndex,
-      lineEndIndex,
-      textStyle.fontSize,
-      textStyle.fontWeight,
-      fontFamily,
-      fonts,
-      layout.marks,
-      layout.replCharWidths,
+    return textOffsetAtPoint(
+      layout,
+      x - this.baseX(layout, originX),
+      y - blockTopY - layout.insetY,
     );
-
-    const lineWidth = positionWidths[positionWidths.length - 1];
-
-    // Bidi (mixed-direction) line: map the click through the visual run order.
-    // `positionWidths[i]` is the cumulative logical width to line-relative index
-    // i, so run/segment widths come straight from it (no extra measurement).
-    const { runs: bidiRunsList, visual: bidiVisual } = analyzeLineBidi(
-      lineText,
-      isRTL ? "rtl" : "ltr",
-    );
-    const baseLvl = isRTL ? 1 : 0;
-    const pureHitLine =
-      bidiRunsList.length === 0 ||
-      (bidiRunsList.length === 1 && bidiRunsList[0].level === baseLvl);
-    if (!pureHitLine) {
-      const origin = isRTL ? adjustedMaxWidth - lead - lineWidth : lead;
-      const runLeftX = new Map<(typeof bidiRunsList)[number], number>();
-      let cx = origin;
-      for (const r of bidiVisual) {
-        runLeftX.set(r, cx);
-        cx += positionWidths[r.end] - positionWidths[r.start];
-      }
-      // Pick the visual run under the click (nearest one if the click is in a
-      // gap or past the ends).
-      let chosen = bidiRunsList[0];
-      let chosenDist = Infinity;
-      for (const r of bidiRunsList) {
-        const l = runLeftX.get(r) ?? origin;
-        const rRight = l + (positionWidths[r.end] - positionWidths[r.start]);
-        if (relativeX >= l && relativeX <= rRight) {
-          chosen = r;
-          chosenDist = 0;
-          break;
-        }
-        const d = relativeX < l ? l - relativeX : relativeX - rRight;
-        if (d < chosenDist) {
-          chosenDist = d;
-          chosen = r;
-        }
-      }
-      const l = runLeftX.get(chosen) ?? origin;
-      let best = chosen.start;
-      let bestDist = Infinity;
-      for (let i = chosen.start; i <= chosen.end; i++) {
-        // Visual x of logical boundary i within the run: LTR grows from the
-        // run's left; RTL grows from its right (reversed).
-        const vx =
-          chosen.level % 2 === 0
-            ? l + (positionWidths[i] - positionWidths[chosen.start])
-            : l + (positionWidths[chosen.end] - positionWidths[i]);
-        const d = Math.abs(relativeX - vx);
-        if (d < bestDist) {
-          bestDist = d;
-          best = i;
-        }
-      }
-
-      // Inline-math chips on a bidi line: descend into the chip's rendered
-      // formula exactly as the monotonic path below does, but locate the chip by
-      // its VISUAL x — its run is reordered away from its logical position. All
-      // of a chip's chars share one embedding level, so the chip is a sub-range
-      // of a single bidi run; take that run's geometry. Without this a click on a
-      // math chip embedded in an RTL line never enters the formula (it snaps to a
-      // run boundary), so the chip cannot be selected or edited.
-      for (const run of layout.marks
-        ? replacementRuns(
-            chars,
-            formats,
-            layout.marks,
-            layout.structuredContent,
-          )
-        : []) {
-        if (!run.replacement.hitTest) continue;
-        const fragStart = Math.max(run.start, lineStartIndex);
-        const fragEnd = Math.min(run.end, lineEndIndex);
-        if (fragEnd <= fragStart) continue;
-        const startLocal = fragStart - lineStartIndex;
-        if (startLocal + 1 >= positionWidths.length) continue;
-        const owner = bidiRunsList.find(
-          (r) => startLocal >= r.start && startLocal < r.end,
-        );
-        if (!owner) continue;
-        const ox = runLeftX.get(owner) ?? origin;
-        // Visual x of the two logical boundaries bounding the chip's single
-        // advance (interior chip indices are zero-width, so they collapse onto
-        // one of these). The chip glyph box is between them, whatever the run's
-        // direction — take min/max for its visual left/right edges.
-        const vxOf = (i: number): number =>
-          owner.level % 2 === 0
-            ? ox + (positionWidths[i] - positionWidths[owner.start])
-            : ox + (positionWidths[owner.end] - positionWidths[i]);
-        const eA = vxOf(startLocal);
-        const eB = vxOf(startLocal + 1);
-        const chipLeftX = Math.min(eA, eB);
-        const chipRightX = Math.max(eA, eB);
-        // Logical index at the chip's visually-left / -right edge (reversed in an
-        // RTL run), so a click snaps to the near boundary. The chip is atomic to
-        // the flat model — interior positions are nested-selection concerns
-        // (contentSelectionFromPoint), never flat indices.
-        const leftEdge = owner.level % 2 === 0 ? fragStart : fragEnd;
-        const rightEdge = owner.level % 2 === 0 ? fragEnd : fragStart;
-        if (relativeX <= chipLeftX || relativeX >= chipRightX) {
-          const bestIdx = lineStartIndex + best;
-          if (bestIdx > fragStart && bestIdx < fragEnd) {
-            best =
-              (relativeX <= chipLeftX ? leftEdge : rightEdge) - lineStartIndex;
-          }
-          continue;
-        }
-        return relativeX - chipLeftX < (chipRightX - chipLeftX) / 2
-          ? leftEdge
-          : rightEdge;
-      }
-
-      return lineStartIndex + best;
-    }
-
-    if (isRTL) {
-      const maxWidth = adjustedMaxWidth;
-      const lineVisualStart = maxWidth - lead - lineWidth;
-      const lineVisualEnd = maxWidth - lead;
-
-      if (relativeX < lineVisualStart) {
-        return lineEndIndex;
-      }
-      if (relativeX > lineVisualEnd) {
-        return lineStartIndex;
-      }
-
-      let bestPosition = lineStartIndex;
-      let minDistance = Infinity;
-
-      for (let i = 0; i <= lineText.length; i++) {
-        const widthFromStart = positionWidths[i];
-        const charVisualX = maxWidth - lead - widthFromStart;
-        const distance = Math.abs(relativeX - charVisualX);
-
-        if (distance < minDistance) {
-          minDistance = distance;
-          bestPosition = lineStartIndex + i;
-        }
-      }
-
-      return bestPosition;
-    } else {
-      if (relativeX <= lead) {
-        return lineStartIndex;
-      }
-
-      let bestPosition = lineStartIndex;
-      let minDistance = Math.abs(relativeX - lead);
-
-      for (let i = 0; i <= lineText.length; i++) {
-        const currentX = lead + positionWidths[i];
-        const distance = Math.abs(relativeX - currentX);
-
-        if (distance < minDistance) {
-          minDistance = distance;
-          bestPosition = lineStartIndex + i;
-        }
-      }
-
-      // Replacement runs (e.g. an inline-math chip) are atomic to the flat
-      // model: one anchor char, one advance. The nearest-stop loop above can
-      // land on an interior index (they all collapse to the right edge); snap
-      // to the near edge by the click's x. Interior positions are nested-
-      // selection concerns (contentSelectionFromPoint), never flat indices.
-      for (const run of layout.marks
-        ? replacementRuns(
-            chars,
-            formats,
-            layout.marks,
-            layout.structuredContent,
-          )
-        : []) {
-        if (run.start < lineStartIndex || run.start >= lineEndIndex) continue;
-        const startLocal = run.start - lineStartIndex;
-        if (startLocal + 1 >= positionWidths.length) continue;
-        // The run's anchor char carries its on-line slice width (the override
-        // map), so its left/right edges are the adjacent position widths.
-        const chipLeftX = lead + positionWidths[startLocal];
-        const chipRightX = lead + positionWidths[startLocal + 1];
-        if (relativeX <= chipLeftX || relativeX >= chipRightX) {
-          if (bestPosition > run.start && bestPosition < run.end) {
-            bestPosition = relativeX <= chipLeftX ? run.start : run.end;
-          }
-          continue;
-        }
-        return relativeX - chipLeftX < (chipRightX - chipLeftX) / 2
-          ? run.start
-          : run.end;
-      }
-
-      return bestPosition;
-    }
   }
 
   /**
@@ -2544,7 +1410,6 @@ export class TextNode<
       layout,
       this.baseX(layout, originX),
       blockTopY + layout.insetY,
-      layout.adjustedMaxWidth,
       selection,
       blockIndex,
       continuous,

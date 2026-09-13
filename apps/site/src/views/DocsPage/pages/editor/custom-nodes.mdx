@@ -100,6 +100,41 @@ paintTextRun({
 });
 ```
 
+To place the caret, resolve clicks and draw highlights over that text, use the text engine prose itself is laid out with. `layoutText` wraps and measures one run of text once; the other functions read that layout, so the caret, a click and a highlight all land on the glyphs `paintTextRun` draws — mixed Arabic and English lines included, and a click never lands between the two halves of an emoji. Coordinates are relative to the text box: add your own origin.
+
+```ts
+import {
+  layoutText,
+  lineEdges,
+  textCaretRect,
+  textOffsetAtPoint,
+  textRangeRects,
+} from "@tasfer/editor";
+
+const text = layoutText({
+  chars,
+  formats,
+  width, // the text area lines wrap to
+  textStyle,
+  fontFamily,
+  fonts: styles.fonts,
+  direction, // "ltr" | "rtl"
+  align, // optional: "left" | "center" | "right"; null hugs the reading start
+  marks,
+});
+
+const caret = textCaretRect(text, offset); // { x, y, height }
+const offsetAtClick = textOffsetAtPoint(text, local.x - boxX, local.y - boxY);
+const highlight = textRangeRects(text, from, to); // one rect per line or bidi run
+
+for (const line of text.lines) {
+  const { left, right } = lineEdges(text, line); // after alignment
+  // paintTextRun({ …, x: boxX + (isRTL ? right : left), … })
+}
+```
+
+For text still being composed through an IME, `foldComposition(chars, offset, preview)` returns the characters with the preview folded in and its `compositionRange`; lay those out (passing the range to `layoutText`) and underline `compositionRects(text)`. Nothing it returns is stored.
+
 <h3 id="document-edge">Leaving a node at the document's edge</h3>
 
 A block that stores no flat text has no caret position to offer at its own top or bottom edge. So when one sits first or last in the document, the editor grows an empty paragraph there rather than trapping the caret: clicking or tapping the blank page above or below it starts that paragraph and puts the caret in it, and so do ArrowUp/ArrowDown and PageUp/PageDown. A document whose only block is your node is never a document with nowhere to type.
