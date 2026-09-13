@@ -40,12 +40,15 @@ import type { FeatureInputRule } from "@tasfer/editor/feature-facets";
 import { getBlockTextLength } from "@tasfer/editor/node-shared";
 import { getBlockDirection } from "@tasfer/editor/rtl";
 import {
+  clearSelection,
   isNodeSelection,
+  moveCursorDown,
   moveCursorLeft,
   moveCursorPageDown,
   moveCursorPageUp,
   moveCursorRight,
   moveCursorToPosition,
+  moveCursorUp,
 } from "@tasfer/editor/selection";
 import type { Block } from "@tasfer/editor/serlization/loadPage";
 import type {
@@ -396,6 +399,58 @@ export function enterAdjacentMathTreeHorizontally(
   if (!selection) return undefined;
   return {
     state: updateContentSelection(state, selection),
+    ops: [],
+    handled: true,
+  };
+}
+
+/**
+ * Enter an adjacent tree-authoritative display equation with ArrowUp/ArrowDown.
+ *
+ * Core's line mover only knows the equation's EMPTY compatibility projection, so
+ * it parks a flat cursor at offset zero with no nested caret. Every tree handler
+ * reads the nested caret, so Backspace there hit the tree handler's claimed
+ * no-op and did nothing (and typing had no row to land in). Run the same move
+ * core would, and when it lands on a materialized equation, promote it to a
+ * structured caret: ArrowDown enters at the equation's start, ArrowUp at its
+ * end. Returns undefined when the move stays out of equations, so ordinary
+ * vertical movement is untouched.
+ */
+export function enterAdjacentMathTreeVertically(
+  state: EditorState,
+  direction: "up" | "down",
+  viewport?: ViewportState,
+): MathTreeStateEditResult | undefined {
+  if (state.document.contentSelection) return undefined;
+  const cursor = state.document.cursor;
+  if (!cursor) return undefined;
+  const cleared = clearSelection(state);
+  const moved =
+    direction === "up"
+      ? moveCursorUp(cleared, viewport)
+      : moveCursorDown(cleared, viewport);
+  const landed = moved.document.cursor?.position.blockIndex;
+  if (landed === undefined || landed === cursor.position.blockIndex) {
+    return undefined;
+  }
+  const adjacent = moved.document.page.blocks[landed] as
+    Block | MathBlock | undefined;
+  if (!adjacent || adjacent.deleted || adjacent.type !== "math") {
+    return undefined;
+  }
+  const document = getMathStructuredDocument(adjacent);
+  if (!document) return undefined;
+
+  const source = getStructuredMathSource(adjacent) ?? "";
+  const selection = mathContentSelectionFromSourceOffset(
+    adjacent.id,
+    mathContentIdForBlock(adjacent.id),
+    document,
+    direction === "up" ? source.length : 0,
+  );
+  if (!selection) return undefined;
+  return {
+    state: updateContentSelection(moved, selection),
     ops: [],
     handled: true,
   };

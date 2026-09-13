@@ -54,6 +54,7 @@ import {
   backspaceActiveMathTree,
   deleteForwardActiveMathTree,
   enterAdjacentMathTreeHorizontally,
+  enterAdjacentMathTreeVertically,
   exitActiveMathTreeHorizontally,
   exitActiveMathTreeVertically,
   extendActiveMathTreeSelectionByUnit,
@@ -2029,15 +2030,17 @@ export class MathNode extends TextNode<MathBlock> {
           : undefined),
       100,
     );
-    const moveVertical = (direction: "up" | "down") => (state: EditorState) =>
-      moveActiveMathTreeCaretVertically(state, direction) ??
-      (hasActiveMathTreeCaret(state)
-        ? (exitActiveMathTreeVertically(state, direction) ?? {
-            state,
-            ops: [],
-            handled: true as const,
-          })
-        : undefined);
+    const moveVertical =
+      (direction: "up" | "down") =>
+      (state: EditorState, { viewport }: ViewportPayload) =>
+        moveActiveMathTreeCaretVertically(state, direction) ??
+        (hasActiveMathTreeCaret(state)
+          ? (exitActiveMathTreeVertically(state, direction) ?? {
+              state,
+              ops: [],
+              handled: true as const,
+            })
+          : enterAdjacentMathTreeVertically(state, direction, viewport));
     bus.registerState(MOVE_CURSOR_UP, moveVertical("up"), 100);
     bus.registerState(MOVE_CURSOR_DOWN, moveVertical("down"), 100);
     const movePage =
