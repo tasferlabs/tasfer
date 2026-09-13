@@ -14,8 +14,15 @@
 
 import type { Block } from "../../serlization/loadPage";
 import type { EditorState, EditorStyles } from "../../state-types";
-import type { ContentPoint } from "../../structured-selection";
-import type { NodeCaretRect, Point } from "./Node";
+import type {
+  ContentPoint,
+  ContentSelection,
+} from "../../structured-selection";
+import type {
+  NodeCaretRect,
+  NodeContentSelectionGeometry,
+  Point,
+} from "./Node";
 
 /**
  * Ask the block's node for the caret rect of `point`, in the coordinate space
@@ -42,6 +49,42 @@ export function contentPointCaretRect(
     marks: state.marks,
   });
   return node.contentCaretRect(layout, point, {
+    state,
+    block,
+    blockIndex,
+    maxWidth,
+    isFirst: false,
+    styles,
+    marks: state.marks,
+    origin,
+  });
+}
+
+/**
+ * Ask the block's node for the geometry of a nested range — its painted band
+ * and the edges selection handles hang from — in the coordinate space `origin`
+ * is expressed in. `null` when the node declares no such geometry.
+ */
+export function contentSelectionGeometry(
+  selection: ContentSelection,
+  block: Block,
+  blockIndex: number,
+  state: EditorState,
+  maxWidth: number,
+  styles: EditorStyles,
+  origin: Point,
+): NodeContentSelectionGeometry | null {
+  const node = state.nodes.get(block.type);
+  if (!node?.contentSelectionGeometry) return null;
+  const layout = node.layout({
+    block,
+    blockIndex,
+    maxWidth,
+    isFirst: false,
+    styles,
+    marks: state.marks,
+  });
+  return node.contentSelectionGeometry(layout, selection, {
     state,
     block,
     blockIndex,

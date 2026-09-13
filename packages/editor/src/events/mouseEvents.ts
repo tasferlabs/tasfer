@@ -46,6 +46,7 @@ import type {
 import { closeActiveMenu, setLinkHover, updateMode } from "../state-utils";
 import {
   type ContentPoint,
+  isContentSelectionCollapsed,
   updateContentSelection,
 } from "../structured-selection";
 import { getEditorStyles } from "../styles";
@@ -83,8 +84,9 @@ function commandModifier(event: { ctrlKey: boolean; metaKey: boolean }) {
 
 /**
  * Whether the current selection is something an HTML5 drag can carry: a real
- * text range in an editable document, not a nested (structured content)
- * selection — a caret inside a formula belongs to its own feature.
+ * range in an editable document — flat text, or a range inside a node's own
+ * content (text selected in a table cell), which a drag carries and removes
+ * the way a cut does.
  *
  * A state predicate only — whether the platform HAS the gesture is
  * {@link supportsHtml5Drag}, asked at the points that touch the environment
@@ -94,7 +96,8 @@ export function canDragSelection(state: EditorState): boolean {
   if (state.ui.mode === "readonly" || state.ui.mode === "suspended") {
     return false;
   }
-  if (state.document.contentSelection) return false;
+  const content = state.document.contentSelection;
+  if (content) return !isContentSelectionCollapsed(content);
   const selection = state.document.selection;
   return !!selection && !selection.isCollapsed;
 }
@@ -561,6 +564,9 @@ export function handleMouseDown(
     )
   ) {
     session.pressedOnSelection = position;
+    session.pressedOnSelectionContent = state.document.contentSelection
+      ? contentSelection
+      : null;
     return { state, ops };
   }
 
@@ -602,6 +608,7 @@ export function extendDragSelectionToPoint(
   canvasY: number,
   viewport: ViewportState,
   visibility?: VisibleBlockRange,
+  pointerType: "mouse" | "touch" = "mouse",
 ): EditorState | null {
   const contentSelection = state.document.contentSelection;
   if (contentSelection) {
@@ -635,7 +642,7 @@ export function extendDragSelectionToPoint(
       canvasY,
       state,
       viewport,
-      "mouse",
+      pointerType,
       undefined,
       visibility,
       {
@@ -945,11 +952,14 @@ export function handleMouseUp(
   // A press on the selection that never became an HTML5 drag (`dragstart`
   // clears this) — collapse to the caret it resolved to, the click it was.
   const pressedOnSelection = session.pressedOnSelection;
+  const pressedOnSelectionContent = session.pressedOnSelectionContent;
   session.pressedOnSelection = null;
+  session.pressedOnSelectionContent = null;
   if (pressedOnSelection) {
     const placed = state.actionBus.dispatchState(PLACE_CURSOR_AT_POINT, state, {
       position: pressedOnSelection,
       extend: false,
+      contentSelection: pressedOnSelectionContent,
     });
     return { state: updateMode(placed.state, "edit"), ops };
   }
@@ -993,6 +1003,7 @@ export function handlePointerCancel(
   stopAutoScroll(session);
   session.pendingCapture = null;
   session.pressedOnSelection = null;
+  session.pressedOnSelectionContent = null;
 
   // Cancel a captured region drag (scrollbar thumb)
   const cancelled = routeCapturedCancel({

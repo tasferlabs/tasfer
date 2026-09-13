@@ -217,6 +217,29 @@ export interface NodeCaretRect {
   readonly height: number;
 }
 
+/** An axis-aligned rect in the caller's coordinate space. */
+export interface NodeRect {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+/**
+ * Geometry of a non-collapsed {@link ContentSelection} a node owns — what
+ * {@link Node.contentSelectionGeometry} returns.
+ */
+export interface NodeContentSelectionGeometry {
+  /** The band the node paints for the range, used to test "is this on it". */
+  readonly rects: readonly NodeRect[];
+  /** The band's reading start: the start selection handle hangs from here. */
+  readonly start: NodeCaretRect;
+  /** The band's reading end: the end selection handle hangs from here. */
+  readonly end: NodeCaretRect;
+  /** Whether the anchor is the start (and the focus the end). */
+  readonly isForward: boolean;
+}
+
 /** Context for {@link Node.activate} — enough to decide which overlay to open. */
 export interface NodeActivateCtx {
   readonly state: EditorState;
@@ -463,6 +486,21 @@ export abstract class Node<B extends NodeBlock = NodeBlock> {
     point: ContentPoint,
     c: NodeContentCaretCtx<B>,
   ): NodeCaretRect | null;
+
+  /**
+   * Optionally describe a non-collapsed range this node owns: the band it
+   * paints and the edges the touch selection handles hang from. The range
+   * counterpart to {@link contentCaretRect} — without it core cannot draw or
+   * grab handles for a nested range, nor tell that a tap landed on it.
+   *
+   * Rects are in the coordinate space of `c.origin`. Return `null` for a range
+   * the node does not own or paints no band for.
+   */
+  contentSelectionGeometry?(
+    layout: NodeLayout,
+    selection: ContentSelection,
+    c: NodeContentCaretCtx<B>,
+  ): NodeContentSelectionGeometry | null;
 
   /**
    * Optional: adjust how much vertical flow this block consumes, given its

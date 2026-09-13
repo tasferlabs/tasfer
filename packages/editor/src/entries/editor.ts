@@ -2326,6 +2326,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // The press that started this is now a drag, not a click — the release must
     // not collapse the selection out from under it.
     this.session.pressedOnSelection = null;
+    this.session.pressedOnSelectionContent = null;
     this.session.textDragSource = range;
     this.session.textDragHandled = false;
   };
@@ -2416,6 +2417,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     const source = this.session.textDragSource;
     this.session.textDragSource = null;
     this.session.pressedOnSelection = null;
+    this.session.pressedOnSelectionContent = null;
     this.clearTextDrag();
 
     // The drag landed as a move somewhere this editor never saw a drop for —

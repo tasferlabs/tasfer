@@ -78,6 +78,21 @@ Collaborators come through the same gate. A remote peer's caret inside your cont
 
 The rect is drawn verbatim, so the node owns how tall its caret looks. Return **text height** — ascent + descent — anchored at the top of the line, which is how prose measures its own caret. A line box is taller than that (it also carries the row's leading), so returning the full line height draws a caret noticeably taller than the one in the paragraph beside it.
 
+A **range** inside your content needs one more hook, `contentSelectionGeometry`. It describes the band your node paints for a non-collapsed `ContentSelection`, plus the two edges the touch selection handles hang from:
+
+```ts
+contentSelectionGeometry(layout, selection, c) {
+  return {
+    rects: [/* the band, relative to c.origin */],
+    start: { x, y, height }, // reading start: the start handle hangs above it
+    end: { x, y, height },   // reading end: the end handle hangs below it
+    isForward: true,         // whether the anchor is the start
+  };
+}
+```
+
+With it, phones draw and grab selection handles on a range in your content, dragging a handle moves the range's focus through your `contentSelectionFromPoint`, and a tap or long-press on the band counts as touching the selection. A mouse press on the band can also start a text drag that carries the range out. Without it, a range in your content has no handles, and a tap on it collapses it.
+
 To draw the text itself, use `paintTextRun`: it is the engine's own marked-line renderer, so a node that lays out its own line boxes still resolves marks, batches for Arabic ligatures and paints replacement runs identically to prose.
 
 ```ts

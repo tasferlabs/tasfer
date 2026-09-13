@@ -26,11 +26,15 @@
 import { getSelectionRange } from "../actions/actions";
 import type { ClipboardPayload } from "../actions/clipboard";
 import { buildClipboardPayload } from "../actions/clipboard";
-import { type DragRange, positionWithinRange } from "../actions/drag-actions";
+import {
+  positionWithinRange,
+  type TextDragSource,
+} from "../actions/drag-actions";
 import { isApplePlatform } from "../platform";
 import {
   getContentSelectionFromViewport,
   getTextPositionFromViewport,
+  isPointWithinSelectionRects,
 } from "../selection";
 import type {
   EditorState,
@@ -73,9 +77,12 @@ export interface DragTransfer {
 export function loadTextDrag(
   state: EditorState,
   transfer: DragTransfer,
-): DragRange | null {
+): TextDragSource | null {
   if (!canDragSelection(state)) return null;
-  const range = getSelectionRange(state);
+  const content = state.document.contentSelection;
+  const range: TextDragSource | null = content
+    ? { content: { anchor: content.anchor, focus: content.focus } }
+    : getSelectionRange(state);
   if (!range) return null;
   const payload = buildClipboardPayload(state);
   if (!payload) return null;
@@ -171,7 +178,7 @@ export function dropTargetAt(
   canvasX: number,
   canvasY: number,
   visibility: VisibleBlockRange | undefined,
-  source: DragRange | null,
+  source: TextDragSource | null,
 ): TextDropTarget | null {
   if (state.ui.mode === "readonly" || state.ui.mode === "suspended") {
     return null;
@@ -189,8 +196,28 @@ export function dropTargetAt(
   const block = state.document.page.blocks[position.blockIndex];
   if (!block || block.deleted) return null;
 
+  // Text carried out of a node's content (a table cell) is still the live
+  // selection while it is dragged, so a drop onto its own band is refused by
+  // the band the node paints for it.
+  const flatSource = source && "content" in source ? null : source;
+  if (
+    source &&
+    !flatSource &&
+    isPointWithinSelectionRects(
+      canvasX,
+      canvasY,
+      state,
+      viewport,
+      undefined,
+      visibility,
+    )
+  ) {
+    return null;
+  }
+
   if (isTextualBlock(block)) {
-    return source && positionWithinRange(position, source.start, source.end)
+    return flatSource &&
+      positionWithinRange(position, flatSource.start, flatSource.end)
       ? null
       : { kind: "text", position };
   }
@@ -198,9 +225,9 @@ export function dropTargetAt(
   // The block itself is being carried away, so whatever is inside it goes too:
   // there is nothing left to drop into.
   if (
-    source &&
-    position.blockIndex >= source.start.blockIndex &&
-    position.blockIndex <= source.end.blockIndex
+    flatSource &&
+    position.blockIndex >= flatSource.start.blockIndex &&
+    position.blockIndex <= flatSource.end.blockIndex
   ) {
     return null;
   }

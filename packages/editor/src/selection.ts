@@ -7,7 +7,11 @@ import {
   type TextualBlock,
 } from "./nodes/TextNode";
 import type { MarkRegistry } from "./rendering/marks";
-import { contentPointCaretRect } from "./rendering/nodes/content-caret";
+import {
+  contentPointCaretRect,
+  contentSelectionGeometry,
+} from "./rendering/nodes/content-caret";
+import type { NodeContentSelectionGeometry } from "./rendering/nodes/Node";
 import type { NodeRegistry } from "./rendering/nodes/Node";
 import { getBlockHeight } from "./rendering/renderer";
 import { getBlockDirection } from "./rtl";
@@ -364,6 +368,73 @@ export function getContentPointDocumentCoords(
     styles,
     visibility,
   );
+}
+
+/**
+ * Document-space geometry of the live nested range (text selected inside a
+ * table cell): the band its node paints and the edges its handles hang from.
+ * `null` without a non-collapsed content selection, or when the owning node
+ * declares no range geometry.
+ */
+export function getContentSelectionDocumentGeometry(
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles = getEditorStyles(state),
+  visibility?: VisibleBlockRange,
+): NodeContentSelectionGeometry | null {
+  const selection = state.document.contentSelection;
+  if (!selection || isContentSelectionCollapsed(selection)) return null;
+  const blockIndex = findBlockIndex(
+    state.document.page,
+    selection.focus.blockId,
+  );
+  const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted) return null;
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  return contentSelectionGeometry(
+    selection,
+    block,
+    blockIndex,
+    state,
+    maxWidth,
+    styles,
+    {
+      x: styles.canvas.paddingLeft,
+      y: getBlockTopDocument(
+        state,
+        blockIndex,
+        maxWidth,
+        styles,
+        viewport,
+        visibility,
+      ),
+    },
+  );
+}
+
+/**
+ * The anchor and focus handle placements for a nested range's geometry — the
+ * same shape the flat handle paths produce: the start handle hangs above its
+ * edge (`isTop`), the end handle below.
+ */
+export function contentSelectionHandlePositions(
+  geometry: NodeContentSelectionGeometry,
+): {
+  anchor: { x: number; y: number; height: number; isTop: boolean };
+  focus: { x: number; y: number; height: number; isTop: boolean };
+} {
+  const { start, end, isForward } = geometry;
+  const at = (edge: NodeContentSelectionGeometry["start"], isTop: boolean) => ({
+    x: edge.x,
+    y: edge.y,
+    height: edge.height,
+    isTop,
+  });
+  return {
+    anchor: at(isForward ? start : end, isForward),
+    focus: at(isForward ? end : start, !isForward),
+  };
 }
 
 /**
@@ -1274,7 +1345,25 @@ export function isPointWithinSelectionRects(
 ): boolean {
   const selection = state.document.selection;
   if (!selection || selection.isCollapsed) {
-    return false;
+    // A range inside a node's content (text selected in a table cell) is
+    // tested against the band that node paints for it.
+    const geometry = getContentSelectionDocumentGeometry(
+      state,
+      viewport,
+      styles,
+      visibility,
+    );
+    const documentY = y + viewport.scrollY;
+    return (
+      !!geometry &&
+      geometry.rects.some(
+        (rect) =>
+          x >= rect.x &&
+          x <= rect.x + rect.width &&
+          documentY >= rect.y &&
+          documentY <= rect.y + rect.height,
+      )
+    );
   }
 
   // Sort anchor and focus to get start and end
