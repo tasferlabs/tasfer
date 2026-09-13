@@ -85,6 +85,7 @@ import {
   type NodeContentCaretCtx,
   type NodeContentHitCtx,
   type NodeContentHitOptions,
+  type NodeContentSelectionGeometry,
   type NodeHitRegion,
   type NodeLayout,
   type NodeLayoutCtx,
@@ -897,6 +898,47 @@ export class TableNode extends Node<TableBlock> {
       // Text height, not the line box — core draws this rect verbatim, so the
       // node owns how tall its caret looks. See `cellCaretHeight`.
       height: cellCaretHeight(layout),
+    };
+  }
+
+  /**
+   * The band a range paints and the edges its touch handles hang from — the
+   * same band {@link paintContentBand} fills, so a handle sits on its corner.
+   */
+  contentSelectionGeometry(
+    passedLayout: NodeLayout,
+    selection: ContentSelection,
+    c: NodeContentCaretCtx<TableBlock>,
+  ): NodeContentSelectionGeometry | null {
+    const layout = previewedLayout(passedLayout as TableLayout, c);
+    const band = tableContentBand(layout, c.block, selection);
+    if (!band) return null;
+    const { x, y } = c.origin;
+    const rects =
+      band.kind === "text"
+        ? cellRangeRects(band.cell, band.from, band.to).map((rect) => ({
+            x: x + rect.x,
+            y: y + rect.y,
+            width: rect.width,
+            height: rect.height,
+          }))
+        : band.cells.map((cell) => ({
+            x: x + cell.x,
+            y: y + cell.y,
+            width: cell.width,
+            height: cell.height,
+          }));
+    if (rects.length === 0) return null;
+    // Reading order: top row first, then left to right — the edges prose
+    // handles hang from (see `selectionHighlightEdge`).
+    const sorted = [...rects].sort((a, b) => a.y - b.y || a.x - b.x);
+    const first = sorted[0];
+    const last = sorted[sorted.length - 1];
+    return {
+      rects,
+      start: { x: first.x, y: first.y, height: first.height },
+      end: { x: last.x + last.width, y: last.y, height: last.height },
+      isForward: band.isForward,
     };
   }
 

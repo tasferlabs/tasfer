@@ -8,18 +8,25 @@
  */
 
 import { registerTableInputActions } from "./input";
+import { tableCellIds, tableRangeToContentSelection } from "./selection";
 import { cellText, getTableDocument, readTable } from "./structured";
 import { tableExtension } from "./table-extension";
 import { createNodeRegistry } from "@tasfer/editor";
 import { createActionBus } from "@tasfer/editor/action-bus";
-import { DROP_TEXT } from "@tasfer/editor/actions/drag-actions";
-import { dropTargetAt } from "@tasfer/editor/events/dragEvents";
+import {
+  DROP_TEXT,
+  REMOVE_DRAGGED_TEXT,
+} from "@tasfer/editor/actions/drag-actions";
+import { dropTargetAt, loadTextDrag } from "@tasfer/editor/events/dragEvents";
+import { canDragSelection } from "@tasfer/editor/events/mouseEvents";
 import { getBlockHeight } from "@tasfer/editor/rendering/renderer";
 import { baseSchema } from "@tasfer/editor/schema";
+import { getContentSelectionDocumentGeometry } from "@tasfer/editor/selection";
 import { loadPage } from "@tasfer/editor/serlization/loadPage";
 import { serializeToMarkdown } from "@tasfer/editor/serlization/serializer";
 import type { EditorState, ViewportState } from "@tasfer/editor/state-types";
 import { createInitialState } from "@tasfer/editor/state-utils";
+import { updateContentSelection } from "@tasfer/editor/structured-selection";
 import { getEditorStyles } from "@tasfer/editor/styles";
 import { describe, expect, it } from "vitest";
 
@@ -186,6 +193,92 @@ describe("dropping text into a table cell", () => {
       start: { blockIndex: 0, textIndex: 0 },
       end: { blockIndex: TABLE_BLOCK, textIndex: 0 },
     });
+
+    expect(target).toBeNull();
+  });
+});
+
+describe("dragging text out of a table cell", () => {
+  /** "one", selected in the first body cell. */
+  function selectedInCell(): EditorState {
+    const state = stateOf(SOURCE);
+    const block = state.document.page.blocks[TABLE_BLOCK];
+    const document = getTableDocument(block)!;
+    const cellId = tableCellIds(document)[2];
+    return updateContentSelection(
+      state,
+      tableRangeToContentSelection(
+        document,
+        block.id,
+        { cellId, offset: 0 },
+        { cellId, offset: 3 },
+      )!,
+    );
+  }
+
+  function transfer() {
+    const data = new Map<string, string>();
+    return {
+      types: [] as string[],
+      effectAllowed: "",
+      dropEffect: "",
+      setData: (format: string, value: string) => void data.set(format, value),
+      getData: (format: string) => data.get(format) ?? "",
+      data,
+    };
+  }
+
+  it("starts a drag carrying the cell text", () => {
+    const state = selectedInCell();
+    const dataTransfer = transfer();
+
+    expect(canDragSelection(state)).toBe(true);
+    const source = loadTextDrag(state, dataTransfer);
+
+    expect(source && "content" in source).toBe(true);
+    expect(dataTransfer.data.get("text/plain")).toBe("one");
+  });
+
+  it("moves the cell text into a paragraph as one edit", () => {
+    const state = selectedInCell();
+    const source = loadTextDrag(state, transfer())!;
+
+    const result = state.actionBus.dispatchState(DROP_TEXT, state, {
+      source,
+      target: { kind: "text", position: { blockIndex: 0, textIndex: 5 } },
+      payload: { plainText: "one", html: "", markdown: "one" },
+    });
+
+    expect(cells(result.state)).toEqual(["A", "B", "", "two"]);
+    expect(markdown(result.state)).toContain("helloone world");
+    expect(result.state.document.contentSelection).toBeNull();
+  });
+
+  it("removes the cell text when the move landed elsewhere", () => {
+    const state = selectedInCell();
+    const source = loadTextDrag(state, transfer())!;
+
+    const result = state.actionBus.dispatchState(REMOVE_DRAGGED_TEXT, state, {
+      source,
+    });
+
+    expect(cells(result.state)).toEqual(["A", "B", "", "two"]);
+    expect(result.ops.length).toBeGreaterThan(0);
+  });
+
+  it("refuses a drop onto the text being carried", () => {
+    const state = selectedInCell();
+    const source = loadTextDrag(state, transfer())!;
+    const [band] = getContentSelectionDocumentGeometry(state, viewport)!.rects;
+
+    const target = dropTargetAt(
+      state,
+      viewport,
+      band.x + band.width / 2,
+      band.y + band.height / 2,
+      undefined,
+      source,
+    );
 
     expect(target).toBeNull();
   });
