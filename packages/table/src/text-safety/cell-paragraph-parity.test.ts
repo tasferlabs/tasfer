@@ -35,6 +35,10 @@ import {
   COMPOSITION_START,
   COMPOSITION_UPDATE,
 } from "@tasfer/editor/actions/input-actions";
+import {
+  MOVE_CURSOR_LEFT,
+  MOVE_CURSOR_RIGHT,
+} from "@tasfer/editor/actions/keyboard-actions";
 import { TOGGLE_EMPHASIS, TOGGLE_STRONG } from "@tasfer/editor/rendering/marks";
 import type { EditorState } from "@tasfer/editor/state-types";
 import { describe, expect, it } from "vitest";
@@ -48,6 +52,8 @@ const KEYS = {
   LineDelete: DELETE_TO_LINE_END,
   Bold: TOGGLE_STRONG,
   Italic: TOGGLE_EMPHASIS,
+  ArrowLeft: MOVE_CURSOR_LEFT,
+  ArrowRight: MOVE_CURSOR_RIGHT,
 } as const;
 
 type Step =
@@ -210,6 +216,32 @@ describe("a cell stores what a paragraph stores", () => {
       ["one ", []],
       ["two", ["strong"]],
       ["D three", []],
+    ]);
+  });
+
+  it("arrowing across a mark's edges switches the side typing takes", () => {
+    const last = expectParity("one two three", [
+      { select: [4, 7] },
+      { key: "Bold" },
+      // End of "two": the first ArrowRight steps out of the mark in place.
+      { caret: 7 },
+      { key: "ArrowRight" },
+      { type: "A" },
+      // One step left of "t|wo" lands on the start of the mark, arrived at
+      // from inside it: typing joins the mark.
+      { caret: 5 },
+      { key: "ArrowLeft" },
+      { type: "B" },
+      // Back to the start: the first ArrowLeft lands there on the mark's side,
+      // the second steps out of it in place.
+      { key: "ArrowLeft" },
+      { key: "ArrowLeft" },
+      { type: "C" },
+    ]);
+    expect(last.text).toEqual([
+      ["one C", []],
+      ["Btwo", ["strong"]],
+      ["A three", []],
     ]);
   });
 

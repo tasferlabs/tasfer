@@ -8,6 +8,7 @@
  * data (or the place the next edit will land) changes.
  */
 
+import { registerTableActions } from "../actions";
 import { registerTableInputActions } from "../input";
 import { CELL_TEXT_FIELD, getTableDocument, readTable } from "../structured";
 import { tableExtension } from "../table-extension";
@@ -56,6 +57,8 @@ export function markdownOf(state: EditorState): string {
 export function editorOf(source: string, peerId = "local"): EditorState {
   const bus = createActionBus();
   registerTableInputActions(bus);
+  // Caret moves (the arrow keys), as a mounted table registers them.
+  registerTableActions(bus);
   const page = loadPage(source, schema.data);
   const state = createInitialState(page, {
     schema: schema.data,

@@ -83,6 +83,8 @@ typing at its start does not.
 The side is stored in `ui.activeMarksMode`, the same slot as a Ctrl+B toggle:
 `inherit` is the side before the caret, and an explicit set equal to the next
 character's marks is the side after it. `editor.state.activeMarks` reflects it.
+Text inside a table cell follows the same rule. Moving a caret inside a node's
+content clears the stored side, just like moving a flat caret.
 Structured marks such as an inline formula are not affected, because their chips
 own their own caret stops.
 

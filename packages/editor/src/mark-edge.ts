@@ -15,10 +15,16 @@
  * move that resets the toggle (a click, Home/End, up/down) lands on the before
  * side for free.
  *
+ * Prose a node keeps inside its structured content (a table cell) follows the
+ * same rule: the field's own characters and marks decide the edge, read
+ * through the kind's `textFields` adapter, so no node type is named here. The
+ * node's own typing and arrow handlers apply it (see `contentCaretMarkEdge`).
+ *
  * Structured marks (an inline formula) are left out: a chip owns its own caret
  * and is entered and left through its own navigation.
  */
 
+import { getTextDirection } from "./rtl";
 import type {
   Block,
   CharRun,
@@ -26,10 +32,19 @@ import type {
   MarkSpan,
 } from "./serlization/loadPage";
 import type { EditorState } from "./state-types";
+import {
+  isContentSelectionCollapsed,
+  resolveContentTextPointOffset,
+} from "./structured-selection";
+import { findBlock } from "./sync/block-lookup";
 import { isTextualBlock } from "./sync/block-registry";
-import { getVisibleLengthFromRuns } from "./sync/char-runs";
+import {
+  getVisibleLengthFromRuns,
+  getVisibleTextFromRuns,
+} from "./sync/char-runs";
 import { getFormatsAtCharPosition } from "./sync/crdt-utils";
 import { areMarksEqual, markKey } from "./sync/mark-spans";
+import { getStructuredMarks } from "./sync/structured-content";
 
 /** Which neighbouring text the caret belongs to at a mark edge. */
 export type MarkEdgeSide = "before" | "after";
@@ -78,14 +93,27 @@ export function markEdgeAt(
   textIndex: number,
 ): MarkEdge | null {
   if (!block || block.deleted || !isTextualBlock(block)) return null;
-  const length = getVisibleLengthFromRuns(block.charRuns);
+  return markEdgeInText(state, block.charRuns, block.formats, textIndex);
+}
+
+/**
+ * The mark edge at `textIndex` in one run of text given as its characters and
+ * mark spans — a block's text or a prose field inside structured content.
+ */
+export function markEdgeInText(
+  state: EditorState,
+  charRuns: readonly CharRun[],
+  formats: readonly MarkSpan[],
+  textIndex: number,
+): MarkEdge | null {
+  const runs = [...charRuns];
+  const spans = [...formats];
+  const length = getVisibleLengthFromRuns(runs);
   const rawBefore =
-    textIndex > 0
-      ? getFormatsAtCharPosition(block.charRuns, block.formats, textIndex)
-      : [];
+    textIndex > 0 ? getFormatsAtCharPosition(runs, spans, textIndex) : [];
   const rawAfter =
     textIndex < length
-      ? getFormatsAtCharPosition(block.charRuns, block.formats, textIndex + 1)
+      ? getFormatsAtCharPosition(runs, spans, textIndex + 1)
       : [];
   // Beside a formula the chip owns the caret stops (it is entered and left by
   // its own navigation), so a second, flat stop there would double them.
@@ -127,6 +155,19 @@ export function inheritedMarksInText(
   );
 }
 
+/** Which side of `edge` the typing marks in `state` put the caret on. */
+function sideOnEdge(
+  state: EditorState,
+  edge: MarkEdge,
+): MarkEdgeSide | null {
+  const mode = state.ui.activeMarksMode;
+  if (mode.type === "inherit") return "before";
+  if (hasStructuredMark(state, mode.formats)) return null;
+  if (sameMarkSet(mode.formats, edge.after)) return "after";
+  if (sameMarkSet(mode.formats, edge.before)) return "before";
+  return null;
+}
+
 /**
  * The caret's side of the mark edge it sits on, or null when it is not on an
  * edge — no caret, a held selection, a nested (structured) caret, or a Ctrl+B
@@ -146,12 +187,47 @@ export function caretMarkEdgeSide(
     textIndex,
   );
   if (!edge) return null;
-  const mode = state.ui.activeMarksMode;
-  if (mode.type === "inherit") return { edge, side: "before" };
-  if (hasStructuredMark(state, mode.formats)) return null;
-  if (sameMarkSet(mode.formats, edge.after)) return { edge, side: "after" };
-  if (sameMarkSet(mode.formats, edge.before)) return { edge, side: "before" };
-  return null;
+  const side = sideOnEdge(state, edge);
+  return side ? { edge, side } : null;
+}
+
+/**
+ * The mark edge a collapsed caret inside a node's structured prose (text in a
+ * table cell) sits on, with the caret's side and the field's reading
+ * direction — or null off an edge, for a range, or in content whose kind
+ * declares no prose fields (an equation's source).
+ */
+export function contentCaretMarkEdge(state: EditorState): {
+  edge: MarkEdge;
+  side: MarkEdgeSide;
+  rtl: boolean;
+} | null {
+  const selection = state.document.contentSelection;
+  if (!selection || !isContentSelectionCollapsed(selection)) return null;
+  const focus = selection.focus;
+  if (focus.kind !== "text") return null;
+  const block = findBlock(state.document.page, focus.blockId);
+  const document = block?.structuredContent?.[focus.contentId];
+  if (!document) return null;
+  const isProse = state.schema
+    .structuredTextFields(document)
+    .some((ref) => ref.nodeId === focus.nodeId && ref.field === focus.field);
+  if (!isProse) return null;
+  const runs = document.nodes[focus.nodeId]?.textFields[focus.field];
+  if (!runs) return null;
+  const offset = resolveContentTextPointOffset(state.document.page, focus);
+  if (offset === null) return null;
+  const edge = markEdgeInText(
+    state,
+    runs,
+    getStructuredMarks(document, focus.nodeId, focus.field) as MarkSpan[],
+    offset,
+  );
+  if (!edge) return null;
+  const side = sideOnEdge(state, edge);
+  if (!side) return null;
+  const rtl = getTextDirection(getVisibleTextFromRuns([...runs])) === "rtl";
+  return { edge, side, rtl };
 }
 
 /** `state` with the caret put on `side` of `edge`, without moving it. */

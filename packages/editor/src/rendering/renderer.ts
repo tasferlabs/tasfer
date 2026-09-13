@@ -8,7 +8,7 @@ import type {
   InteractionSession,
 } from "../events/interaction-session";
 import { currentFontFamily, getFontStack } from "../fonts";
-import { caretMarkEdgeSide } from "../mark-edge";
+import { caretMarkEdgeSide, contentCaretMarkEdge } from "../mark-edge";
 import {
   type DirectionalContent,
   getBlockDirection,
@@ -1190,6 +1190,13 @@ function drawCaret(
  * right in an RTL one.
  */
 function markEdgeFlagFor(state: EditorState): "left" | "right" | null {
+  // A caret in a node's structured prose (a table cell) reads the field's own
+  // marks and direction.
+  const content = contentCaretMarkEdge(state);
+  if (content) {
+    if (state.ui.composition?.isComposing) return null;
+    return (content.side === "before") !== content.rtl ? "left" : "right";
+  }
   const current = caretMarkEdgeSide(state);
   const cursor = state.document.cursor;
   if (!current || !cursor) return null;

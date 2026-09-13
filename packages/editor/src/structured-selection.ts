@@ -539,9 +539,20 @@ export function updateContentSelection(
   // transform left it, and a nested caret moves through here rather than
   // through `updateCursor` — without this, arrowing to the next cell would
   // leave a stale wrap armed for the Backspace after it.
-  const ui = state.ui.revertibleInputRule
+  let ui = state.ui.revertibleInputRule
     ? { ...state.ui, revertibleInputRule: null }
     : state.ui;
+  // A Ctrl+B toggle, or the side of a mark edge, belongs to the caret spot it
+  // was set at — the same as a flat caret move clears it. Otherwise the side
+  // chosen at one edge would follow the caret into other text.
+  const previousFocus = state.document.contentSelection?.focus;
+  if (
+    ui.activeMarksMode.type === "explicit" &&
+    contentSelection &&
+    (!previousFocus || !contentPointsEqual(previousFocus, contentSelection.focus))
+  ) {
+    ui = { ...ui, activeMarksMode: { type: "inherit" } };
+  }
   return {
     ...state,
     ui,
