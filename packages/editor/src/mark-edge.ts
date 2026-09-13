@@ -19,7 +19,12 @@
  * and is entered and left through its own navigation.
  */
 
-import type { Block, Mark } from "./serlization/loadPage";
+import type {
+  Block,
+  CharRun,
+  Mark,
+  MarkSpan,
+} from "./serlization/loadPage";
 import type { EditorState } from "./state-types";
 import { isTextualBlock } from "./sync/block-registry";
 import { getVisibleLengthFromRuns } from "./sync/char-runs";
@@ -104,10 +109,21 @@ export function inheritedTypingMarks(
   block: Block,
   textIndex: number,
 ): Mark[] {
-  if (!isTextualBlock(block) || textIndex <= 0) return [];
+  if (!isTextualBlock(block)) return [];
+  return inheritedMarksInText(state, block.charRuns, block.formats, textIndex);
+}
+
+/** {@link inheritedTypingMarks} over one run of characters and mark spans. */
+export function inheritedMarksInText(
+  state: EditorState,
+  charRuns: readonly CharRun[],
+  formats: readonly MarkSpan[],
+  textIndex: number,
+): Mark[] {
+  if (textIndex <= 0) return [];
   return flatMarks(
     state,
-    getFormatsAtCharPosition(block.charRuns, block.formats, textIndex),
+    getFormatsAtCharPosition([...charRuns], [...formats], textIndex),
   );
 }
 

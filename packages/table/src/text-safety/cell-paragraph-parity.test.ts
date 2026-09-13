@@ -189,11 +189,12 @@ describe("a cell stores what a paragraph stores", () => {
       { caret: 9 },
       { type: "E" },
     ]);
-    // Typing inside a mark extends it; typing at either edge does not.
+    // Typing inside a mark extends it, and so does typing at its end; typing
+    // at its start does not (the caret is on the side before the edge).
     expect(last.text).toEqual([
       ["one S", []],
-      ["tXwo", ["strong"]],
-      ["E three", []],
+      ["tXwoE", ["strong"]],
+      [" three", []],
     ]);
   });
 
