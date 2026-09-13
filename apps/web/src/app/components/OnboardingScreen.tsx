@@ -181,13 +181,8 @@ function IdentityStep({
       <h2 className="ob-title">
         {t("onboarding.identityTitle", "An identity was created for you.")}
       </h2>
-      <p className="ob-sub">
-        {t(
-          "onboarding.identityIntro",
-          "The moment you opened Tasfer, it generated a keypair on this device — that's your identity, and there's no account or server behind it.",
-        )}
-      </p>
 
+      {/* No intro paragraph: the bullets already say it, and shorter wins. */}
       <ul className="ob-bullets">
         <li>
           <ShieldCheck size={15} strokeWidth={1.5} />
@@ -337,7 +332,7 @@ function LinkExistingStep({
       setErrorMsg(
         t(
           "onboarding.notADeviceCode",
-          "That's an invite to a space, not a device code. It adds you to one space instead of bringing your whole setup here.",
+          "That's a space invite, not a device code.",
         ),
       );
       return;
@@ -461,7 +456,7 @@ function LinkExistingStep({
       <p className="ob-sub">
         {t(
           "onboarding.linkIntro",
-          "Your other device can hand this one the same identity, and every space you have appears here. Open Profile → Link a device there to get the code.",
+          "On your other device, open Profile → Link a device to get a code.",
         )}
       </p>
 
@@ -579,7 +574,7 @@ function LinkedCard({ onSetUpSpace }: { onSetUpSpace: () => void }) {
             <div className="ob-status-sub">
               {t(
                 "onboarding.linkedNothingYet",
-                "Nothing has arrived yet. Keep your other device open and awake — or start a space here and carry on.",
+                "Nothing has arrived yet. Keep your other device open and awake.",
               )}
             </div>
             <button className="ob-btn ob-btn-outline" onClick={onSetUpSpace}>
@@ -667,7 +662,7 @@ function ProfileStep({
       <p className="ob-sub">
         {t(
           "onboarding.profileIntro",
-          "Tasfer works fully anonymous. The only time a name or avatar matters is when you invite someone to a space, since that's how they'll tell your edits apart. You can add this now or later.",
+          "Only people in your shared spaces see it.",
         )}
       </p>
 
@@ -794,7 +789,7 @@ function SpacePick({
       <p className="ob-sub">
         {t(
           "onboarding.spaceIntro",
-          "A space is a workspace that syncs directly between you and the people you invite — peer to peer, no server in the middle. Start one of your own, or join a peer's.",
+          "A space syncs directly between you and the people you invite.",
         )}
       </p>
 
@@ -877,13 +872,7 @@ function SpaceCreate({
       <h2 className="ob-title">
         {t("onboarding.createSpaceTitle", "Create your space.")}
       </h2>
-      <p className="ob-sub">
-        {t(
-          "onboarding.createSpaceIntro",
-          "It lives only on this device until you invite someone. Give it a name to keep things organized — or leave it blank and it's simply yours.",
-        )}
-      </p>
-
+      {/* No intro: the note below already says it stays on this device. */}
       <label className="ob-label">
         {t("onboarding.spaceNameOptional", "Space name (optional)")}
       </label>
@@ -1017,7 +1006,7 @@ function SpaceJoin({
       setErrorMsg(
         t(
           "onboarding.notASpaceInvite",
-          "That's a device code, not a space invite. It brings your whole setup from another device onto this one.",
+          "That's a device code, not a space invite.",
         ),
       );
       return;
@@ -1195,10 +1184,7 @@ function SpaceJoin({
       </div>
       <h2 className="ob-title">{t("onboarding.joinTitle", "Join a space.")}</h2>
       <p className="ob-sub">
-        {t(
-          "onboarding.joinIntro",
-          "Use an invite from a peer. It hands your device the keys to sync directly with theirs.",
-        )}
+        {t("onboarding.joinIntro", "Use the invite a peer sent you.")}
       </p>
 
       <div className="ob-seg" role="tablist">

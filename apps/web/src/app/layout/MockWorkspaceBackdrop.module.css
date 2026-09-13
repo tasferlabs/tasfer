@@ -1,14 +1,16 @@
 /*
- * Styles for the still-life app shell drawn behind first-run onboarding.
+ * Styles for the wireframe app shell drawn behind first-run onboarding.
  *
- * Every colour here is an app token on purpose: this is a portrait of Tasfer
- * at rest, not a second design system. The layout classes come from
- * Layout.module.css and PagesLinks.module.css so the proportions can never
- * drift from the real shell. Only what the real shell has no equivalent for —
- * the document body — is defined below.
+ * Every colour is an app token, and every placeholder is a translucent mix of
+ * the foreground — so the same wireframe reads correctly in light and dark.
+ * Layout uses logical properties throughout, so Arabic mirrors it for free.
  */
 
 .root {
+  --mock-fill: color-mix(in oklab, var(--foreground) 9%, transparent);
+  --mock-fill-strong: color-mix(in oklab, var(--foreground) 14%, transparent);
+  --mock-line: color-mix(in oklab, var(--foreground) 7%, transparent);
+
   position: fixed;
   inset: 0;
   z-index: 0;
@@ -19,141 +21,199 @@
   pointer-events: none;
 }
 
-/* ── the mock document ─────────────────────────────────────────────────── */
-.doc {
+/*
+ * The blur. Scaled up a touch so the soft edge a blur leaves at the borders
+ * falls outside the viewport instead of showing as a pale frame.
+ */
+.shell {
+  display: flex;
+  height: 100%;
+  filter: blur(7px);
+  transform: scale(1.03);
+}
+
+/* ── placeholders ──────────────────────────────────────────────────────── */
+.bar {
+  display: block;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--mock-fill);
+}
+
+/* ── sidebar ───────────────────────────────────────────────────────────── */
+.sidebar {
+  flex: 0 0 268px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding-block: 28px;
+  /* Extra room so the scale-up in `.shell` does not push rows off-screen. */
+  padding-inline: 36px 16px;
+  background: var(--sidebar);
+  border-inline-end: 1px solid var(--mock-line);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 32px;
+}
+
+.brandMark {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--primary) 45%, transparent);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 34px;
+}
+
+.pageRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding-inline-start: 4px;
+}
+
+.rowIcon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background: var(--mock-fill);
+}
+
+/* Always takes its space, so every page label lines up. */
+.pageDot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.pageDot[data-visible] {
+  background: var(--mock-fill-strong);
+}
+
+/* ── main frame ────────────────────────────────────────────────────────── */
+.frame {
   flex: 1 1 auto;
-  min-height: 0;
-  overflow: hidden;
-  padding-inline: 40px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 60px;
+  padding-inline: 36px;
   padding-block-start: 8px;
 }
 
-.docInner {
+.headerSpacer {
+  flex: 1;
+}
+
+.headerButton {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--mock-fill);
+}
+
+.cover {
+  flex: none;
+  height: 26vh;
+  max-height: 240px;
+  background: color-mix(in oklab, var(--primary) 10%, transparent);
+}
+
+/* ── the document ──────────────────────────────────────────────────────── */
+.doc {
+  width: 100%;
   /* Matches NARROW_CONTENT_WIDTH, the editor's own measure. */
   max-width: 720px;
   margin-inline: auto;
+  padding-inline: 40px;
+  padding-block-start: 48px;
 }
 
-.docTitle {
-  font-family: var(--font-display);
-  font-size: 2.25rem;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  line-height: 1.15;
-  color: var(--foreground);
-  margin-block-end: 1.75rem;
+.title {
+  composes: bar;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--mock-fill-strong);
 }
 
-.docText {
-  font-size: 1rem;
-  line-height: 1.8;
-  color: var(--foreground);
-  max-width: 62ch;
+.subtitle {
+  composes: bar;
+  height: 14px;
+  margin-block-start: 18px;
 }
 
-.docText + .docText {
-  margin-block-start: 1.25rem;
+.paragraph {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-block-start: 40px;
 }
 
-/* Preflight strips list markers, so this block restores them itself. */
-.docList {
-  margin-block-start: 1.25rem;
-  padding-inline-start: 1.5rem;
-  list-style: disc;
-  max-width: 62ch;
-  font-size: 1rem;
-  line-height: 1.8;
-  color: var(--foreground);
+.line {
+  composes: bar;
 }
 
-.docList li::marker {
-  color: var(--muted-foreground);
-}
-
-/*
- * The signature: a display equation set in the page body. It is the one frame
- * in this app no other notes tool produces, and it carries no words — so every
- * locale inherits it unchanged, and it never needs translating.
- */
-.math {
-  --math-size: 1.9rem;
-
+.block {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.08em;
-  margin-block: 2.25rem;
-  /* Math is set left-to-right in every locale, Arabic included. */
-  direction: ltr;
-  font-family: "Times New Roman", Times, Georgia, serif;
-  font-size: var(--math-size);
-  line-height: 1;
-  color: var(--foreground);
+  height: 88px;
+  margin-block-start: 36px;
+  border-radius: 14px;
+  border: 1px solid var(--mock-line);
 }
 
-/* Variables lean, operators stand up — the convention, not decoration. */
-.var {
-  font-style: italic;
+.blockBar {
+  composes: bar;
+  height: 18px;
+  background: var(--mock-fill-strong);
 }
 
-.integral {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.02em;
-  margin-inline-end: 0.12em;
+.cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-block-start: 40px;
 }
 
-.integralGlyph {
-  font-size: 2.1em;
-  line-height: 1;
-  font-style: italic;
-}
-
-.limits {
-  display: inline-flex;
+.card {
+  display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  /* Tied to the base size, not to `.limits`' own shrunken em. */
-  height: calc(var(--math-size) * 1.9);
-  padding-block: calc(var(--math-size) * 0.04);
-  font-size: calc(var(--math-size) * 0.46);
+  justify-content: flex-end;
+  gap: 10px;
+  aspect-ratio: 1;
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid var(--mock-line);
 }
 
-.sup {
-  font-size: 0.58em;
-  vertical-align: super;
-  line-height: 0;
-}
-
-.dx {
-  margin-inline-start: 0.28em;
-}
-
-.rel {
-  margin-inline: 0.34em;
-}
-
-.frac {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  font-size: 0.92em;
-  line-height: 1.2;
-}
-
-.fracNum {
-  padding-inline: 0.3em;
-  padding-block-end: 0.1em;
-  border-block-end: 1px solid currentColor;
-}
-
-.fracDen {
-  padding-block-start: 0.1em;
-}
-
-/* Radical: the glyph, then an overbar drawn across what it covers. */
-.radicand {
-  border-block-start: 1px solid currentColor;
-  padding-inline: 0.08em 0.1em;
-  margin-inline-start: -0.06em;
+.cardLine {
+  composes: bar;
+  height: 8px;
 }
