@@ -22,7 +22,11 @@ import {
   TABLE_INSERT_ROW,
   TABLE_MOVE_COLUMN,
 } from "./commands";
-import { commitTableEdits, withTableDocument } from "./context";
+import {
+  activeTableContext,
+  commitTableEdits,
+  withTableDocument,
+} from "./context";
 import { tableBlockNodeCodec } from "./data";
 import {
   type TableEdge,
@@ -30,15 +34,24 @@ import {
   tableEdgeStrips,
   withinEdgeBox,
 } from "./edge-adders";
-import { layoutTable, previewColumnMove, type TableLayout } from "./geometry";
+import {
+  layoutTable,
+  previewColumnMove,
+  type TableCellLayout,
+  type TableComposition,
+  type TableLayout,
+  type TableLayoutCtx,
+} from "./geometry";
 import { registerTableInputActions } from "./input";
 import { tableToolsOverlay } from "./overlays";
 import {
   cellCaretHeight,
+  cellCaretX,
   cellFromPoint,
   cellLineAtOffset,
   cellOffsetFromPoint,
-  cellOffsetX,
+  cellRangeRects,
+  type TableCaret,
   tableCaretFromContentPoint,
   tableCaretToContentSelection,
 } from "./selection";
@@ -98,6 +111,13 @@ import {
   type StructuredDocument,
   type StructuredEdit,
 } from "@tasfer/editor/sync/structured-content";
+import { compositionRects } from "@tasfer/editor/text-layout";
+
+/** Stroke width of the composition underline, matching the paragraph's. */
+const COMPOSITION_UNDERLINE_WIDTH = 1.5;
+
+/** Gap between the text baseline and the composition underline. */
+const COMPOSITION_UNDERLINE_GAP = 2;
 
 /** The id the column-resize grab bands are registered (and hit) under. */
 const COLUMN_RESIZE_REGION = "table-column-resize";
@@ -122,6 +142,65 @@ export interface TableBlock extends BlockRuntimeState {
   readonly type: "table";
 }
 
+/**
+ * What a nested range covers in a table's layout: a character span inside one
+ * cell, or whole cells when it spans several. `null` for a collapsed range, a
+ * range in another block, or one whose ends no longer resolve.
+ */
+function tableContentBand(
+  layout: TableLayout,
+  block: Parameters<typeof getTableDocument>[0],
+  selection: ContentSelection,
+):
+  | {
+      kind: "text";
+      cell: TableCellLayout;
+      from: number;
+      to: number;
+      isForward: boolean;
+    }
+  | { kind: "cells"; cells: TableCellLayout[]; isForward: boolean }
+  | null {
+  if (selection.focus.blockId !== block.id) return null;
+  if (selection.anchor.kind !== "text" || selection.focus.kind !== "text") {
+    return null;
+  }
+  const document = getTableDocument(block);
+  if (!document) return null;
+  const anchor = tableCaretFromContentPoint(document, selection.anchor);
+  const focus = tableCaretFromContentPoint(document, selection.focus);
+  if (!anchor || !focus) return null;
+  if (anchor.cellId === focus.cellId && anchor.offset === focus.offset) {
+    return null;
+  }
+
+  if (anchor.cellId === focus.cellId) {
+    const cell = layout.cells.find(
+      (candidate) => candidate.cellId === anchor.cellId,
+    );
+    if (!cell) return null;
+    return {
+      kind: "text",
+      cell,
+      from: Math.min(anchor.offset, focus.offset),
+      to: Math.max(anchor.offset, focus.offset),
+      isForward: anchor.offset <= focus.offset,
+    };
+  }
+
+  const order = layout.cells.filter((cell) => cell.cellId !== null);
+  const from = order.findIndex((cell) => cell.cellId === anchor.cellId);
+  const to = order.findIndex((cell) => cell.cellId === focus.cellId);
+  if (from < 0 || to < 0) return null;
+  return {
+    kind: "cells",
+    cells: order
+      .slice(Math.min(from, to), Math.max(from, to) + 1)
+      .filter((cell) => cell.width > 0 && cell.height > 0),
+    isForward: from <= to,
+  };
+}
+
 /** The resolved table style, with the paragraph metrics as a safety net. */
 function tableStyle(styles: EditorStyles): TableBlockStyle {
   return styles.blocks.table;
@@ -135,13 +214,7 @@ export class TableNode extends Node<TableBlock> {
 
   layout(c: NodeLayoutCtx): TableLayout {
     return memoizeNodeLayout(c.block, c.maxWidth, () =>
-      layoutTable(getTableDocument(c.block), {
-        maxWidth: c.maxWidth,
-        style: tableStyle(c.styles),
-        fontFamily: currentFontFamily(c.styles),
-        fonts: c.styles.fonts,
-        marks: c.marks,
-      }),
+      layoutTable(getTableDocument(c.block), tableLayoutCtx(c)),
     );
   }
 
@@ -218,8 +291,9 @@ export class TableNode extends Node<TableBlock> {
   paint(passedLayout: NodeLayout, c: NodePaintCtx): RenderedBlock {
     // While a column-move drag is held, everything is drawn from the previewed
     // order — the grid shows where the column would land, and the document is
-    // untouched until the release says so.
-    const layout = previewedLayout(passedLayout as TableLayout, c);
+    // untouched until the release says so. Text being composed through an IME
+    // is drawn in its cell the same way, before it commits.
+    const layout = previewedLayout(composedLayout(passedLayout, c), c);
     const { ctx } = c;
     const style = layout.style;
     const x = c.origin.x;
@@ -453,6 +527,9 @@ export class TableNode extends Node<TableBlock> {
   ): void {
     const selection = c.state.document.contentSelection;
     if (!selection) return;
+    // A composition's preview already stands in for the range it will replace,
+    // as it does in a paragraph, where the selection is removed as it starts.
+    if (tableComposition(c.state, c.block.id)) return;
     this.paintContentBand(layout, c, x, y, selection, {
       color: c.styles.selection.backgroundColor,
       opacity: c.styles.selection.opacity,
@@ -475,72 +552,30 @@ export class TableNode extends Node<TableBlock> {
     selection: ContentSelection,
     deco: RangeDecorationPaint,
   ): void {
-    if (selection.focus.blockId !== c.block.id) return;
-    if (selection.anchor.kind !== "text" || selection.focus.kind !== "text") {
-      return;
-    }
-    const document = getTableDocument(c.block);
-    if (!document) return;
-    const anchor = tableCaretFromContentPoint(document, selection.anchor);
-    const focus = tableCaretFromContentPoint(document, selection.focus);
-    if (!anchor || !focus) return;
-    if (anchor.cellId === focus.cellId && anchor.offset === focus.offset) {
-      return;
-    }
+    const band = tableContentBand(layout, c.block, selection);
+    if (!band) return;
 
     // Same fill, opacity and corner rounding prose uses, so a selection that
     // starts in a paragraph and a selection inside a cell look like one thing.
-    const rects: DecorationRect[] = [];
-
-    if (anchor.cellId === focus.cellId) {
-      const cell = layout.cells.find(
-        (candidate) => candidate.cellId === anchor.cellId,
-      );
-      if (cell) {
-        const from = Math.min(anchor.offset, focus.offset);
-        const to = Math.max(anchor.offset, focus.offset);
-        for (let at = 0; at < cell.lines.length; at++) {
-          const line = cell.lines[at];
-          const start = Math.max(from, line.startIndex);
-          const end = Math.min(to, line.endIndex);
-          if (end <= start) continue;
-          const startX = cellOffsetX(layout, cell, at, start);
-          const endX = cellOffsetX(layout, cell, at, end);
-          const width = Math.abs(endX - startX);
-          if (width <= 0 || line.height <= 0) continue;
-          rects.push({
-            x: x + Math.min(startX, endX),
-            y: y + line.y,
-            width,
-            height: line.height,
-            baseline: y + line.y + (line.baselineOffset ?? 0),
-          });
-        }
-      }
-      paintDecorationRects(c.ctx, rects, deco, c.styles);
-      return;
-    }
-
-    const order = layout.cells.filter((cell) => cell.cellId !== null);
-    const from = order.findIndex((cell) => cell.cellId === anchor.cellId);
-    const to = order.findIndex((cell) => cell.cellId === focus.cellId);
-    if (from >= 0 && to >= 0) {
-      for (let at = Math.min(from, to); at <= Math.max(from, to); at++) {
-        const cell = order[at];
-        if (cell.width <= 0 || cell.height <= 0) continue;
-        rects.push(
-          boxDecorationRect(
-            {
-              x: x + cell.x,
-              y: y + cell.y,
-              width: cell.width,
-              height: cell.height,
-            },
-            deco,
-          ),
-        );
-      }
-    }
+    const rects: DecorationRect[] =
+      band.kind === "text"
+        ? cellRangeRects(band.cell, band.from, band.to).map((rect) => ({
+            ...rect,
+            x: x + rect.x,
+            y: y + rect.y,
+            baseline: y + rect.baseline,
+          }))
+        : band.cells.map((cell) =>
+            boxDecorationRect(
+              {
+                x: x + cell.x,
+                y: y + cell.y,
+                width: cell.width,
+                height: cell.height,
+              },
+              deco,
+            ),
+          );
     paintDecorationRects(c.ctx, rects, deco, c.styles);
   }
 
@@ -569,6 +604,7 @@ export class TableNode extends Node<TableBlock> {
         c.ctx.rect(x + cell.x, y + cell.y, cell.width, cell.height);
         c.ctx.clip();
       }
+      this.paintCompositionUnderline(cell, c, x, y);
       for (const line of cell.lines) {
         if (line.text.length === 0) continue;
         paintTextRun({
@@ -591,6 +627,34 @@ export class TableNode extends Node<TableBlock> {
       }
       if (overflows) c.ctx.restore();
     }
+  }
+
+  /**
+   * The underline marking text still being composed, the way the OS and a
+   * paragraph mark it. Drawn from the engine's range rects, so it follows the
+   * preview across a wrap and through mixed-direction text.
+   */
+  private paintCompositionUnderline(
+    cell: TableCellLayout,
+    c: NodePaintCtx,
+    x: number,
+    y: number,
+  ): void {
+    const rects = compositionRects(cell.text);
+    if (rects.length === 0) return;
+    const { ctx } = c;
+    ctx.save();
+    ctx.strokeStyle = tableStyle(c.styles).color;
+    ctx.lineWidth = COMPOSITION_UNDERLINE_WIDTH;
+    ctx.beginPath();
+    for (const rect of rects) {
+      const underlineY =
+        y + cell.textY + (rect.baseline ?? rect.y) + COMPOSITION_UNDERLINE_GAP;
+      ctx.moveTo(x + cell.textX + rect.x, underlineY);
+      ctx.lineTo(x + cell.textX + rect.x + rect.width, underlineY);
+    }
+    ctx.stroke();
+    ctx.restore();
   }
 
   /** The hairlines: every interior edge, then the rounded outer border. */
@@ -800,7 +864,7 @@ export class TableNode extends Node<TableBlock> {
     return (
       tableCaretToContentSelection(document, c.block.id, {
         cellId: cell.cellId,
-        offset: cellOffsetFromPoint(layout, cell, local),
+        offset: cellOffsetFromPoint(cell, local),
       }) ?? null
     );
   }
@@ -812,12 +876,14 @@ export class TableNode extends Node<TableBlock> {
     c: NodeContentCaretCtx<TableBlock>,
   ): NodeCaretRect | null {
     // The caret rides its cell, so during a column-move drag it is placed in
-    // the previewed order the grid is painted in.
-    const layout = previewedLayout(passedLayout as TableLayout, c);
+    // the previewed order the grid is painted in — and during a composition,
+    // in the cell as it is drawn with the preview folded in.
+    const layout = previewedLayout(composedLayout(passedLayout, c), c);
     const document = getTableDocument(c.block);
     if (!document) return null;
-    const caret = tableCaretFromContentPoint(document, point);
-    if (!caret) return null;
+    const stored = tableCaretFromContentPoint(document, point);
+    if (!stored) return null;
+    const caret = composedCaret(c, point, stored);
     const cell = layout.cells.find(
       (candidate) => candidate.cellId === caret.cellId,
     );
@@ -826,7 +892,7 @@ export class TableNode extends Node<TableBlock> {
     const line = cell.lines[lineIndex];
     if (!line) return null;
     return {
-      x: c.origin.x + cellOffsetX(layout, cell, lineIndex, caret.offset),
+      x: c.origin.x + cellCaretX(cell, caret.offset),
       y: c.origin.y + line.y,
       // Text height, not the line box — core draws this rect verbatim, so the
       // node owns how tall its caret looks. See `cellCaretHeight`.
@@ -1291,6 +1357,83 @@ function previewedLayout(
   const drag = columnDragOf(c.state, c.block.id);
   if (!drag) return layout;
   return previewColumnMove(layout, drag.from, columnIndexForGap(drag));
+}
+
+/** The layout inputs a table block reads from its editor instance. */
+function tableLayoutCtx(
+  c: Pick<NodeLayoutCtx, "maxWidth" | "styles" | "marks">,
+): TableLayoutCtx {
+  return {
+    maxWidth: c.maxWidth,
+    style: tableStyle(c.styles),
+    fontFamily: currentFontFamily(c.styles),
+    fonts: c.styles.fonts,
+    marks: c.marks,
+  };
+}
+
+/**
+ * The IME text the local caret is composing in one of this table's cells.
+ *
+ * A structured selection stays in the document until the composition commits
+ * (so a cancelled one destroys nothing), which makes a selected range here the
+ * span the preview stands in for. A range across cells shows no preview: the
+ * commit clears those cells whole, which a preview inside one cell cannot show.
+ */
+function tableComposition(
+  state: EditorState,
+  blockId: string,
+): TableComposition | undefined {
+  const composition = state.ui.composition;
+  if (!composition?.isComposing || !composition.text) return undefined;
+  const context = activeTableContext(state);
+  if (!context || context.block.id !== blockId) return undefined;
+  const { anchor, caret } = context;
+  if (anchor.cellId !== caret.cellId) return undefined;
+  return {
+    cellId: caret.cellId,
+    from: Math.min(anchor.offset, caret.offset),
+    to: Math.max(anchor.offset, caret.offset),
+    text: composition.text,
+  };
+}
+
+/** The layout with any live composition folded into its cell. */
+function composedLayout(
+  layout: NodeLayout,
+  c: Pick<NodeLayoutCtx, "maxWidth" | "styles" | "marks"> & {
+    readonly state: EditorState;
+    readonly block: Parameters<typeof getTableDocument>[0];
+  },
+): TableLayout {
+  const composition = tableComposition(c.state, c.block.id);
+  if (!composition) return layout as TableLayout;
+  return layoutTable(getTableDocument(c.block), tableLayoutCtx(c), composition);
+}
+
+/**
+ * Where a stored caret sits in the composed cell. The local caret rides the
+ * end of the preview, as it does in a paragraph; any other caret in the cell
+ * (a peer's) keeps its place in the text around it.
+ */
+function composedCaret(
+  c: { readonly state: EditorState; readonly block: { readonly id: string } },
+  point: ContentPoint,
+  caret: TableCaret,
+): TableCaret {
+  const composition = tableComposition(c.state, c.block.id);
+  if (!composition || composition.cellId !== caret.cellId) return caret;
+  const focus = c.state.document.contentSelection?.focus;
+  const local =
+    focus?.kind === "text" &&
+    point.kind === "text" &&
+    focus.nodeId === point.nodeId &&
+    focus.afterCharId === point.afterCharId;
+  const { from, to, text } = composition;
+  if (local) return { ...caret, offset: from + text.length };
+  if (caret.offset <= from) return caret;
+  if (caret.offset < to) return { ...caret, offset: from };
+  return { ...caret, offset: caret.offset - (to - from) + text.length };
 }
 
 /** Merge the held edge into a block's view-state (or clear it with `null`),

@@ -15,7 +15,6 @@ import {
   nextCodePointEnd,
   prevCodePointStart,
 } from "@tasfer/editor/code-points";
-import { measureTextUpToIndex } from "@tasfer/editor/fonts";
 import type { CharRun } from "@tasfer/editor/serlization/loadPage";
 import type {
   ContentSelection,
@@ -24,10 +23,15 @@ import type {
 import {
   getCharIdAtVisiblePosition,
   getVisibleOffsetAfterChar,
-  getVisibleTextFromChars,
   getVisibleTextFromRuns,
 } from "@tasfer/editor/sync/char-runs";
 import type { StructuredDocument } from "@tasfer/editor/sync/structured-content";
+import {
+  textCaretRect,
+  textLineIndexAt,
+  textOffsetAtPoint,
+  textRangeRects,
+} from "@tasfer/editor/text-layout";
 import {
   findWordBoundary,
   findWordEnd,
@@ -174,16 +178,13 @@ export function cellFromPoint(
   return cell;
 }
 
-/** The line of a cell that owns `offset`, or the last line. */
+/** The line of a cell a caret at `offset` sits on, or the last line. */
 export function cellLineAtOffset(
   cell: TableCellLayout,
   offset: number,
 ): number {
-  for (let at = 0; at < cell.lines.length; at++) {
-    const line = cell.lines[at];
-    if (offset <= line.endIndex) return at;
-  }
-  return Math.max(0, cell.lines.length - 1);
+  const line = textLineIndexAt(cell.text, offset);
+  return line >= 0 ? line : Math.max(0, cell.lines.length - 1);
 }
 
 /**
@@ -207,86 +208,52 @@ export function cellCaretHeight(layout: TableLayout): number {
   return ascent + descent;
 }
 
-/** Measured x (block-local) of `offset` within one of the cell's lines. */
-export function cellOffsetX(
-  layout: TableLayout,
-  cell: TableCellLayout,
-  lineIndex: number,
-  offset: number,
-): number {
-  const line = cell.lines[lineIndex];
-  if (!line) return cell.textX;
-  const advance = measureTextUpToIndex(
-    cell.chars,
-    cell.marks,
-    line.startIndex,
-    Math.max(line.startIndex, Math.min(offset, line.endIndex)),
-    layout.style.fontSize,
-    layout.style.fontWeight,
-    layout.fontFamily,
-    layout.fonts,
-    0,
-    layout.marks,
-  );
-  // Measured from the line's own edge, which already carries the column's
-  // alignment — so the caret lands on the glyphs paint actually drew.
-  return cell.direction === "rtl"
-    ? line.x + line.width - advance
-    : line.x + advance;
+/**
+ * Block-local x of a caret at `offset` in `cell` — measured by the engine, so it
+ * lands on the glyph boundary paint drew, in mixed-direction lines too.
+ */
+export function cellCaretX(cell: TableCellLayout, offset: number): number {
+  return cell.textX + textCaretRect(cell.text, offset).x;
 }
 
 /**
- * The offset in `cell` nearest to a block-local point.
- *
- * Measures forward from the line start and takes the nearest character
- * boundary, mirroring the search for a right-to-left cell so an Arabic cell's
- * caret lands where the glyphs actually are. Whole code points only — a caret
- * never splits a surrogate pair.
+ * The highlight over `[from, to)` inside one cell, in block-local coordinates:
+ * one rect per line, or per direction run where a line mixes directions.
+ */
+export function cellRangeRects(
+  cell: TableCellLayout,
+  from: number,
+  to: number,
+): { x: number; y: number; width: number; height: number; baseline: number }[] {
+  return textRangeRects(cell.text, from, to).flatMap((rect) =>
+    rect.width > 0 && rect.height > 0
+      ? [
+          {
+            x: cell.textX + rect.x,
+            y: cell.textY + rect.y,
+            width: rect.width,
+            height: rect.height,
+            baseline: cell.textY + (rect.baseline ?? rect.y),
+          },
+        ]
+      : [],
+  );
+}
+
+/**
+ * The offset in `cell` nearest to a block-local point. A point above the text
+ * (in the cell's top padding) resolves on the first line, below it on the last.
+ * Never lands between the halves of an emoji.
  */
 export function cellOffsetFromPoint(
-  layout: TableLayout,
   cell: TableCellLayout,
   local: { readonly x: number; readonly y: number },
 ): number {
-  if (cell.lines.length === 0) return 0;
-  let lineIndex = 0;
-  for (let at = 0; at < cell.lines.length; at++) {
-    lineIndex = at;
-    if (local.y < cell.lines[at].y + cell.lines[at].height) break;
-  }
-  const line = cell.lines[lineIndex];
-  const rtl = cell.direction === "rtl";
-  const target = rtl ? line.x + line.width - local.x : local.x - line.x;
-
-  const weight = layout.style.fontWeight;
-  const text = getVisibleTextFromChars(cell.chars);
-  let best = line.startIndex;
-  let bestDistance = Math.abs(target);
-  let offset = line.startIndex;
-  while (offset < line.endIndex) {
-    offset = Math.min(
-      line.endIndex,
-      nextCodePointEnd(text, Math.max(offset, line.startIndex)),
-    );
-    const advance = measureTextUpToIndex(
-      cell.chars,
-      cell.marks,
-      line.startIndex,
-      offset,
-      layout.style.fontSize,
-      weight,
-      layout.fontFamily,
-      layout.fonts,
-      0,
-      layout.marks,
-    );
-    const distance = Math.abs(target - advance);
-    if (distance < bestDistance) {
-      best = offset;
-      bestDistance = distance;
-    }
-  }
-  return best;
+  return textOffsetAtPoint(
+    cell.text,
+    local.x - cell.textX,
+    Math.max(0, local.y - cell.textY),
+  );
 }
 
 /** Where a pointer lands inside the table, as a collapsed nested selection. */
@@ -298,7 +265,7 @@ export function tableSelectionFromPoint(
 ): ContentSelection | null {
   const cell = cellFromPoint(layout, local);
   if (!cell?.cellId) return null;
-  const offset = cellOffsetFromPoint(layout, cell, local);
+  const offset = cellOffsetFromPoint(cell, local);
   return (
     tableCaretToContentSelection(document, blockId, {
       cellId: cell.cellId,
@@ -493,14 +460,13 @@ function verticalNeighbour(
 
 /** The offset in `cell` whose x on `lineIndex` is closest to `x`. */
 function offsetNearestX(
-  layout: TableLayout,
   cell: TableCellLayout,
   lineIndex: number,
   x: number,
 ): number {
   const line = cell.lines[lineIndex];
   if (!line) return 0;
-  return cellOffsetFromPoint(layout, cell, { x, y: line.y + line.height / 2 });
+  return cellOffsetFromPoint(cell, { x, y: line.y + line.height / 2 });
 }
 
 /**
@@ -525,10 +491,10 @@ export function moveTableCaretVertically(
   const cell = cellById(layout, caret.cellId);
   if (!cell?.cellId) return undefined;
   const lineIndex = cellLineAtOffset(cell, caret.offset);
-  const x = cellOffsetX(layout, cell, lineIndex, caret.offset);
+  const x = cellCaretX(cell, caret.offset);
   const nextLine = direction === "up" ? lineIndex - 1 : lineIndex + 1;
   if (unit === "line" && nextLine >= 0 && nextLine < cell.lines.length) {
-    return { ...caret, offset: offsetNearestX(layout, cell, nextLine, x) };
+    return { ...caret, offset: offsetNearestX(cell, nextLine, x) };
   }
   const neighbour = verticalNeighbour(
     layout,
@@ -540,7 +506,7 @@ export function moveTableCaretVertically(
     direction === "up" ? Math.max(0, neighbour.lines.length - 1) : 0;
   return {
     cellId: neighbour.cellId,
-    offset: offsetNearestX(layout, neighbour, landing, x),
+    offset: offsetNearestX(neighbour, landing, x),
   };
 }
 
@@ -568,6 +534,6 @@ export function tableEntryCaret(
     direction === "down" ? 0 : Math.max(0, target.lines.length - 1);
   return {
     cellId: target.cellId,
-    offset: offsetNearestX(layout, target, lineIndex, x),
+    offset: offsetNearestX(target, lineIndex, x),
   };
 }

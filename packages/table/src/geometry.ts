@@ -4,9 +4,10 @@
  * Split from the node so the whole size computation is testable without a
  * paint context, and so the height pass, paint, hit-test and the caret all read
  * ONE result. Every cell is ordinary prose, so this measures and wraps through
- * the engine's own text pipeline (`wrapText` / `measureTextUpToIndex`) rather
- * than a table-local approximation — otherwise a caret placed from these boxes
- * would drift from the glyphs `paint` draws.
+ * the engine's own text layout (`@tasfer/editor/text-layout`) — the one every
+ * paragraph uses — rather than a table-local approximation, so a caret, a click
+ * and a highlight land on the glyphs `paint` draws, mixed-direction lines
+ * included.
  *
  * The table always fits the page width: there is no horizontal scroll in the
  * viewport (it scrolls vertically only), so a grid that overflowed would simply
@@ -25,12 +26,7 @@ import {
   type TableView,
 } from "./structured";
 import type { FontFamily } from "@tasfer/editor/fonts";
-import {
-  getFontMetrics,
-  measureTextUpToIndex,
-  type WrappedLine,
-  wrapText,
-} from "@tasfer/editor/fonts";
+import { getFontMetrics } from "@tasfer/editor/fonts";
 import type { MarkRegistry } from "@tasfer/editor/rendering/marks";
 import type { NodeLayout } from "@tasfer/editor/rendering/nodes/Node";
 import { getTextDirection } from "@tasfer/editor/rtl";
@@ -46,6 +42,12 @@ import {
   getVisibleTextFromChars,
 } from "@tasfer/editor/sync/char-runs";
 import type { StructuredDocument } from "@tasfer/editor/sync/structured-content";
+import {
+  foldComposition,
+  layoutText,
+  lineEdges,
+  type TextLayout,
+} from "@tasfer/editor/text-layout";
 
 /** One column's horizontal band, in block-local coordinates. */
 export interface TableColumnLayout {
@@ -70,9 +72,15 @@ export interface TableCellLayout {
   readonly y: number;
   readonly width: number;
   readonly height: number;
-  /** Left edge and width of the text area inside the cell's padding. */
+  /** Left edge, top and width of the text area inside the cell's padding. */
   readonly textX: number;
+  readonly textY: number;
   readonly textWidth: number;
+  /**
+   * The cell's text laid out by the engine, relative to (`textX`, `textY`).
+   * The caret, the hit-test and the highlight all read this.
+   */
+  readonly text: TextLayout;
   /** Document-order characters (tombstones included) of the cell's text field. */
   readonly chars: Char[];
   readonly marks: readonly MarkRange[];
@@ -83,35 +91,11 @@ export interface TableCellLayout {
    */
   readonly direction: "rtl" | "ltr";
   /**
-   * Wrapped line boxes in block-local coordinates. `x` is each line's LEFT edge
-   * with the column's alignment already applied, so paint, the caret and the
-   * hit-test all read the same edge instead of re-deriving the alignment three
-   * times.
+   * `text`'s line boxes moved into block-local coordinates. `x` is each line's
+   * LEFT edge with the column's alignment already applied — the edge the engine
+   * measures carets from — so paint draws where the caret is placed.
    */
   readonly lines: readonly RenderedLine[];
-}
-
-/**
- * The gap between a line's left edge and the cell's text area, for one column
- * alignment. `null` means "the reading direction's leading edge", which is what
- * an undecorated GFM column gets.
- */
-export function alignOffset(
-  align: TableAlign | null,
-  direction: "rtl" | "ltr",
-  textWidth: number,
-  lineWidth: number,
-): number {
-  const slack = textWidth - lineWidth;
-  // A line wider than its cell — a column squeezed below even its minimum, where
-  // wrapping has no move left. Alignment is meaningless then, so pin the line's
-  // READING start to the cell edge and let the tail overflow behind the clip:
-  // aligning a negative slack would push the start out of the cell instead, and
-  // the first characters are the ones worth keeping.
-  if (slack < 0) return direction === "rtl" ? slack : 0;
-  const resolved = align ?? (direction === "rtl" ? "right" : "left");
-  if (resolved === "center") return slack / 2;
-  return resolved === "right" ? slack : 0;
 }
 
 /** One row band and its cells, one per column (holes included). */
@@ -142,6 +126,18 @@ export interface TableLayout extends NodeLayout {
   readonly fontFamily: FontFamily;
   readonly fonts: FontStyles;
   readonly marks?: MarkRegistry;
+}
+
+/**
+ * Live IME text being composed in one cell, shown in place before it commits.
+ * `from`/`to` are the cell's selected range the commit will replace (equal for
+ * a plain caret).
+ */
+export interface TableComposition {
+  readonly cellId: string;
+  readonly from: number;
+  readonly to: number;
+  readonly text: string;
 }
 
 /** Everything the geometry needs that is not the document itself. */
@@ -265,6 +261,7 @@ export function fitColumnWidths(
 export function layoutTable(
   document: StructuredDocument | undefined,
   ctx: TableLayoutCtx,
+  composition?: TableComposition,
 ): TableLayout {
   const view: TableView = document
     ? readTable(document)
@@ -308,10 +305,33 @@ export function layoutTable(
   // read these arrays, so a cell is never converted from runs twice.
   const text = view.rows.map((row) =>
     row.cells.map((cell) => {
-      if (!cell) return { chars: [] as Char[], marks: [] as MarkRange[] };
+      if (!cell) {
+        return {
+          chars: [] as Char[],
+          marks: [] as MarkRange[],
+          direction: "ltr" as const,
+          compositionRange: null,
+        };
+      }
+      const stored = charRunsToChars([
+        ...(cell.textFields[CELL_TEXT_FIELD] ?? []),
+      ]);
+      // Resolved per cell, not per block: a table can pair an Arabic label
+      // column with a Latin data column. Read from the stored text, so the
+      // cell does not flip direction while a composition is still undecided.
+      const direction = getTextDirection(getVisibleTextFromChars(stored));
+      const folded =
+        composition?.cellId === cell.id
+          ? foldComposition(stored, composition.from, composition.text, {
+              from: composition.from,
+              to: composition.to,
+            })
+          : { chars: stored, compositionRange: null };
       return {
-        chars: charRunsToChars([...(cell.textFields[CELL_TEXT_FIELD] ?? [])]),
+        chars: folded.chars,
         marks: (cell.markFields?.[CELL_TEXT_FIELD] ?? []) as MarkRange[],
+        direction,
+        compositionRange: folded.compositionRange,
       };
     }),
   );
@@ -343,35 +363,29 @@ export function layoutTable(
   for (let rowIndex = 0; rowIndex < view.rows.length; rowIndex++) {
     const row = view.rows[rowIndex];
     const rowCells: TableCellLayout[] = [];
-    // Two passes over the row: wrap every cell to learn the tallest, then
-    // position the boxes. A cell's lines are top-aligned within the row, so the
-    // second pass only needs the row's own top.
-    const wrapped: { lines: WrappedLine[]; height: number }[] = [];
+    // Two passes over the row: lay every cell's text out to learn the tallest,
+    // then position the boxes. A cell's lines are top-aligned within the row,
+    // so the second pass only needs the row's own top.
+    const laidOut: TextLayout[] = [];
     for (let column = 0; column < columns.length; column++) {
       const cell = text[rowIndex][column];
-      const textWidth = Math.max(1, columns[column].width - padding);
-      const cellLines =
-        cell.chars.length > 0
-          ? wrapText(
-              cell.chars,
-              cell.marks,
-              textWidth,
-              style.fontSize,
-              style.fontWeight,
-              ctx.fontFamily,
-              ctx.fonts,
-              0,
-              null,
-              ctx.marks,
-            )
-          : [{ text: "", consumedSpace: false }];
-      wrapped.push({
-        lines: cellLines,
-        height: cellLines.length * rowLineHeight,
-      });
+      laidOut.push(
+        layoutText({
+          chars: cell.chars,
+          formats: cell.marks,
+          width: Math.max(1, columns[column].width - padding),
+          textStyle: style,
+          fontFamily: ctx.fontFamily,
+          fonts: ctx.fonts,
+          direction: cell.direction,
+          align: columns[column].align,
+          marks: ctx.marks,
+          compositionRange: cell.compositionRange,
+        }),
+      );
     }
-    const contentHeight = wrapped.reduce(
-      (tallest, cell) => Math.max(tallest, cell.height),
+    const contentHeight = laidOut.reduce(
+      (tallest, cell) => Math.max(tallest, cell.contentHeight),
       rowLineHeight,
     );
     const rowHeight = Math.round(contentHeight + style.cellPaddingY * 2);
@@ -379,45 +393,17 @@ export function layoutTable(
     for (let column = 0; column < columns.length; column++) {
       const cell = view.rows[rowIndex].cells[column];
       const content = text[rowIndex][column];
+      const cellText = laidOut[column];
       const box = columns[column];
       const textX = box.x + style.cellPaddingX;
-      const textWidth = Math.max(1, box.width - padding);
-      const direction = getTextDirection(
-        getVisibleTextFromChars(content.chars),
-      );
-      const cellLines: RenderedLine[] = [];
-      let lineY = y + style.cellPaddingY;
-      let textIndex = 0;
-      for (const line of wrapped[column].lines) {
-        const width = measureTextUpToIndex(
-          content.chars,
-          content.marks,
-          textIndex,
-          textIndex + line.text.length,
-          style.fontSize,
-          style.fontWeight,
-          ctx.fontFamily,
-          ctx.fonts,
-          0,
-          ctx.marks,
-        );
-        cellLines.push({
-          text: line.text,
-          // The line's TRUE width, not one clamped to the cell: clamping made an
-          // over-wide line claim it fit, so the caret and the hit-test both
-          // placed themselves against a box the glyphs had already left.
-          x: textX + alignOffset(box.align, direction, textWidth, width),
-          y: lineY,
-          width,
-          height: rowLineHeight,
-          baselineOffset: ascent,
-          startIndex: textIndex,
-          endIndex: textIndex + line.text.length,
-        });
-        lineY += rowLineHeight;
-        textIndex += line.text.length;
-        if (line.consumedSpace) textIndex += 1;
-      }
+      const textY = y + style.cellPaddingY;
+      const cellLines = cellText.lines.map((line): RenderedLine => ({
+        ...line,
+        // Block-local, with the column's alignment applied, so paint and the
+        // clip read the same edge the engine measures the caret from.
+        x: textX + lineEdges(cellText, line).left,
+        y: textY + line.y,
+      }));
       const layout: TableCellLayout = {
         cellId: cell?.id ?? null,
         rowIndex,
@@ -427,10 +413,12 @@ export function layoutTable(
         width: box.width,
         height: rowHeight,
         textX,
-        textWidth,
+        textY,
+        textWidth: cellText.width,
+        text: cellText,
         chars: content.chars,
         marks: content.marks,
-        direction,
+        direction: cellText.isRTL ? "rtl" : "ltr",
         lines: cellLines,
       };
       rowCells.push(layout);
