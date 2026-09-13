@@ -20,6 +20,7 @@
 import { type Claimed, commitTableEdits, type TableContext } from "./context";
 import { cellLength, cellRuns, tableCellIds } from "./selection";
 import type { ActionBus } from "@tasfer/editor/action-bus";
+import { inheritedMarksInText } from "@tasfer/editor/mark-edge";
 import { TOGGLE_MARK } from "@tasfer/editor/rendering/marks";
 import type { Mark, MarkSpan } from "@tasfer/editor/serlization/loadPage";
 import type { EditorState } from "@tasfer/editor/state-types";
@@ -162,14 +163,25 @@ export function toggleTableMark(
   const spans = coveredSpans(context);
   const collapsed = spans.every((span) => span.from === span.to);
   if (collapsed) {
+    // Start from what typing here would take: the explicit set, or the marks
+    // of the text behind the caret — so Ctrl+B at the end of a bold run turns
+    // bold off for what comes next, as it does in a paragraph.
     const mode = state.ui.activeMarksMode;
-    const pending =
+    const current =
       mode.type === "explicit"
-        ? mode.formats.filter((format) => format.type !== name)
-        : [];
-    const wasPending =
-      mode.type === "explicit" &&
-      mode.formats.some((format) => format.type === name);
+        ? mode.formats
+        : inheritedMarksInText(
+            state,
+            cellRuns(context.document, context.caret.cellId) ?? [],
+            getStructuredMarks(
+              context.document,
+              context.caret.cellId,
+              "text",
+            ) as MarkSpan[],
+            context.caret.offset,
+          );
+    const pending = current.filter((format) => format.type !== name);
+    const wasPending = current.some((format) => format.type === name);
     return {
       state: {
         ...state,

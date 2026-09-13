@@ -198,6 +198,21 @@ describe("a cell stores what a paragraph stores", () => {
     ]);
   });
 
+  it("Ctrl+B at the end of a bold run turns bold off for what comes next", () => {
+    const last = expectParity("one two three", [
+      { select: [4, 7] },
+      { key: "Bold" },
+      { caret: 7 },
+      { key: "Bold" },
+      { type: "D" },
+    ]);
+    expect(last.text).toEqual([
+      ["one ", []],
+      ["two", ["strong"]],
+      ["D three", []],
+    ]);
+  });
+
   it("deleting into and across a mark's edges", () => {
     expectParity("one two three", [
       { select: [4, 7] },
