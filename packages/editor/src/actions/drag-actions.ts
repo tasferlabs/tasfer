@@ -22,17 +22,41 @@ import type {
   EditorState,
   Operation,
   Position,
+  TextDragSource,
   TextDropTarget,
 } from "../state-types";
 import { getBlockTextLength, updateMode } from "../state-utils";
 import { updateContentSelection } from "../structured-selection";
-import { deleteSelectedText } from "./actions";
+import { deleteSelectedText, insertText } from "./actions";
 import { type ClipboardPayload, insertClipboardPayload } from "./clipboard";
 
 /** A document range, as a drag records the text it picked up. */
 export interface DragRange {
   readonly start: Position;
   readonly end: Position;
+}
+
+export type { TextDragSource };
+
+/**
+ * Remove what a drag carried away. A range inside a node's content goes
+ * through the owning feature's input path with nothing typed — the same
+ * removal a cut into that content makes — so the node keeps its own
+ * invariants.
+ */
+function removeDragSource(
+  state: EditorState,
+  source: TextDragSource,
+): { state: EditorState; ops: Operation[] } {
+  if ("content" in source) {
+    const selected = updateContentSelection(clearSelection(state), {
+      ...source.content,
+      lastUpdate: Date.now(),
+    });
+    if (!selected.document.contentSelection) return { state, ops: [] };
+    return insertText(selected, "");
+  }
+  return deleteSelectedText(selectRange(state, source));
 }
 
 /**
@@ -145,7 +169,7 @@ function selectRange(state: EditorState, range: DragRange): EditorState {
  * which a deletion elsewhere in the document cannot move.
  */
 export const DROP_TEXT = stateAction<{
-  source: DragRange | null;
+  source: TextDragSource | null;
   target: TextDropTarget;
   payload: ClipboardPayload;
 }>("drop-text", (state, { source, target, payload }) => {
@@ -154,19 +178,26 @@ export const DROP_TEXT = stateAction<{
   let insertAt = target.kind === "text" ? target.position : null;
 
   if (source) {
+    const flatSource = "content" in source ? null : source;
     // A move onto itself has nowhere to go.
-    if (insertAt && positionWithinRange(insertAt, source.start, source.end)) {
+    if (
+      insertAt &&
+      flatSource &&
+      positionWithinRange(insertAt, flatSource.start, flatSource.end)
+    ) {
       return { state, ops: [] };
     }
-    const removed = deleteSelectedText(selectRange(next, source));
+    const removed = removeDragSource(next, source);
     if (removed.ops.length === 0) return { state, ops: [] };
     ops.push(...removed.ops);
     next = removed.state;
-    if (insertAt) {
+    // Removing text inside a node's content moves no flat index, so only a
+    // flat removal re-points the insert.
+    if (insertAt && flatSource) {
       insertAt = retargetAfterDeletion(
         insertAt,
-        source,
-        next.document.cursor?.position ?? source.start,
+        flatSource,
+        next.document.cursor?.position ?? flatSource.start,
       );
     }
   }
@@ -237,10 +268,10 @@ export const DROP_TEXT = stateAction<{
  * {@link DROP_TEXT} instead, so the drag layer only reaches for this when its
  * own drop handler never ran.
  */
-export const REMOVE_DRAGGED_TEXT = stateAction<{ source: DragRange }>(
+export const REMOVE_DRAGGED_TEXT = stateAction<{ source: TextDragSource }>(
   "remove-dragged-text",
   (state, { source }) => {
-    const removed = deleteSelectedText(selectRange(state, source));
+    const removed = removeDragSource(state, source);
     if (removed.ops.length === 0) return { state, ops: [] };
     return { state: updateMode(removed.state, "edit"), ops: removed.ops };
   },

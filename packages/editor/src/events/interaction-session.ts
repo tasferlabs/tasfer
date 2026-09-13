@@ -13,8 +13,8 @@
  * undo, rendering diffs, or subscriber notifications.
  */
 
-import type { EditorState, Position } from "../state-types";
-import type { ContentPoint } from "../structured-selection";
+import type { EditorState, Position, TextDragSource } from "../state-types";
+import type { ContentPoint, ContentSelection } from "../structured-selection";
 import type { Region, RegionRegistry } from "./regions";
 
 /** Edge-of-viewport auto-scroll engaged during a drag (selection, image resize, …). */
@@ -179,6 +179,12 @@ export interface InteractionSession {
    */
   pressedOnSelection: Position | null;
   /**
+   * The nested caret the same press resolved to, when it landed in a node's
+   * own content (a table cell) — so the release collapses into that cell
+   * rather than onto the block's flat position.
+   */
+  pressedOnSelectionContent: ContentSelection | null;
+  /**
    * A press that landed on draggable selected text and may still become an
    * HTML5 drag — live from the DOM `mousedown` to its release. Unlike
    * `pressedOnSelection` this is set SYNCHRONOUSLY in the press handler, not a
@@ -195,7 +201,7 @@ export interface InteractionSession {
    * (another editor on the page, another application) passes over this one.
    * That distinction is what makes a drop a move rather than an insert.
    */
-  textDragSource: { start: Position; end: Position } | null;
+  textDragSource: TextDragSource | null;
   /**
    * Set when this editor's own `drop` committed the drag it also started, so the
    * `dragend` that follows doesn't remove the source a second time — the drop
@@ -232,6 +238,7 @@ export function createInteractionSession(
     handleDragPrevRawFocus: null,
     handleDragPrevHit: null,
     pressedOnSelection: null,
+    pressedOnSelectionContent: null,
     textDragArmed: false,
     textDragSource: null,
     textDragHandled: false,

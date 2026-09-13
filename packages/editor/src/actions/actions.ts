@@ -1,5 +1,6 @@
 import { CONVERT_STRUCTURED_BLOCK, TEXT_INPUTTED } from "../action-bus";
 import { nextCodePointEnd, prevCodePointStart } from "../code-points";
+import { inheritedTypingMarks } from "../mark-edge";
 import { resolveMarkRuns } from "../mark-runs";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { isBlockRTL } from "../rtl";
@@ -1694,6 +1695,7 @@ export function insertText(
   }
   if (!state.document.cursor) return { state, ops };
 
+  let replacedMarks: Mark[] | null = null;
   // Block typing on a selected image (but allow deletion via deleteSelectedText elsewhere)
   if (state.document.selection && !state.document.selection.isCollapsed) {
     const { anchor, focus } = state.document.selection;
@@ -1714,6 +1716,19 @@ export function insertText(
     if (options?.wrapSelection) {
       const wrapped = wrapSelectionOnInput(state, input);
       if (wrapped) return wrapped;
+    }
+    // Typing over a selection takes the formatting of the text it replaces
+    // (the first selected character), read before the deletion removes it.
+    const range = getSelectionRange(state);
+    const firstReplaced = range
+      ? state.document.page.blocks[range.start.blockIndex]
+      : undefined;
+    if (range && firstReplaced && isTextualBlock(firstReplaced)) {
+      replacedMarks = inheritedTypingMarks(
+        state,
+        firstReplaced,
+        range.start.textIndex + 1,
+      );
     }
     // For other selections, delete them first and collect ops
     const deleteResult = deleteSelectedText(state);
@@ -1791,41 +1806,100 @@ export function insertText(
   let newTextIndex = insertIndex + input.length;
   let pageAcc = pageAfterInsert;
 
-  // Handle active formats (when user has toggled formatting without selection)
-  if (state.ui.activeMarksMode.type === "explicit") {
-    for (const format of state.ui.activeMarksMode.formats) {
-      // A structured mark (inline math) can't just cover the typed chars: the
-      // text becomes the new attachment's source and the flat range collapses
-      // to the mark's single anchor char. Later keystrokes land at the chip
-      // edge and continue the formula through the tree input rule.
-      if (state.schema.structuredMark(format.type)) {
-        const created = createFeatureMarkInRange(
-          pageAcc,
-          oldBlock.id,
-          insertIndex,
-          newTextIndex,
-          format,
-          state.CRDTbinding,
-          state.schema,
-        );
-        if (created.ops.length > 0) {
-          pageAcc = created.newPage;
-          ops.push(...created.ops);
-          newTextIndex = created.startIndex + 1;
-        }
-        continue;
-      }
-      const { newPage: pageAfterFormat, op: formatOp } = markCharsInRange(
+  // The marks the typed text takes: an explicit set (a Ctrl+B toggle, or the
+  // caret on the after side of a mark edge), else the marks of the text behind
+  // the caret — so typing at the end of a bold run stays bold, the same way it
+  // does in the middle of one (see `mark-edge.ts`).
+  const typingFormats =
+    state.ui.activeMarksMode.type === "explicit"
+      ? state.ui.activeMarksMode.formats
+      : (replacedMarks ?? inheritedTypingMarks(state, oldBlock, insertIndex));
+  for (const format of typingFormats) {
+    // A structured mark (inline math) can't just cover the typed chars: the
+    // text becomes the new attachment's source and the flat range collapses
+    // to the mark's single anchor char. Later keystrokes land at the chip
+    // edge and continue the formula through the tree input rule.
+    if (state.schema.structuredMark(format.type)) {
+      const created = createFeatureMarkInRange(
         pageAcc,
         oldBlock.id,
         insertIndex,
         newTextIndex,
         format,
-        true,
+        state.CRDTbinding,
+        state.schema,
+      );
+      if (created.ops.length > 0) {
+        pageAcc = created.newPage;
+        ops.push(...created.ops);
+        newTextIndex = created.startIndex + 1;
+      }
+      continue;
+    }
+    // Typed inside a run, the new text already sits within its span; only an
+    // edge (or a toggle) needs the mark set on it.
+    const typedBlock = findBlock(pageAcc, oldBlock.id);
+    if (
+      typedBlock &&
+      isTextualBlock(typedBlock) &&
+      allCharsHaveFormat(
+        typedBlock.charRuns,
+        typedBlock.formats,
+        insertIndex,
+        newTextIndex,
+        format.type,
+      )
+    ) {
+      continue;
+    }
+    const { newPage: pageAfterFormat, op: formatOp } = markCharsInRange(
+      pageAcc,
+      oldBlock.id,
+      insertIndex,
+      newTextIndex,
+      format,
+      true,
+      state.CRDTbinding,
+    );
+    pageAcc = pageAfterFormat;
+    ops.push(formatOp);
+  }
+  // …and none it should not. A span whose end (or start) is anchored to a
+  // deleted character still reaches past the visible run, so text typed on
+  // the outer side of that edge lands inside it and would come out marked even
+  // though the caret says it is outside. Structured marks keep their own rules.
+  if (
+    !typingFormats.some((format) => state.schema.structuredMark(format.type))
+  ) {
+    const typedBlock = findBlock(pageAcc, oldBlock.id);
+    const extra = new Set<string>();
+    if (typedBlock && isTextualBlock(typedBlock)) {
+      for (let i = insertIndex + 1; i <= newTextIndex; i++) {
+        for (const format of getFormatsAtCharPosition(
+          typedBlock.charRuns,
+          typedBlock.formats,
+          i,
+        )) {
+          if (state.schema.structuredMark(format.type)) continue;
+          if (typingFormats.some((wanted) => wanted.type === format.type)) {
+            continue;
+          }
+          extra.add(format.type);
+        }
+      }
+    }
+    for (const type of extra) {
+      const { newPage: pageAfterUnmark, op: unmarkOp } = markCharsInRange(
+        pageAcc,
+        oldBlock.id,
+        insertIndex,
+        newTextIndex,
+        { type },
+        false,
         state.CRDTbinding,
       );
-      pageAcc = pageAfterFormat;
-      ops.push(formatOp);
+      pageAcc = pageAfterUnmark;
+      ops.push(unmarkOp);
     }
   }
 

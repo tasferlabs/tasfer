@@ -22,6 +22,7 @@
 import type { Block, Char, MarkRange } from "./serlization/loadPage";
 import { isTextualBlock } from "./sync/block-registry";
 import { iterateAllChars } from "./sync/char-runs";
+import { areMarksEqual, markKey } from "./sync/mark-spans";
 
 /**
  * A single mark's contiguous run resolved to caret-edge offsets.
@@ -108,4 +109,58 @@ export function resolveMarkRunsFromChars(
     });
   }
   return runs;
+}
+
+/**
+ * Join runs of the same mark (same name, same attrs) that touch or overlap into
+ * one run, in document order. Text typed onto the end of a run is marked by its
+ * own span, so a word typed after "bold" is stored as neighbouring spans; a
+ * reader presenting marks to a person (a link's extent in the link editor)
+ * wants the one run they see. Read-side only — the stored spans are untouched,
+ * so replicas that applied ops in different orders still agree.
+ *
+ * `canJoin` names the marks this is safe for: a structured mark's runs are each
+ * their own attachment and must stay apart even when they touch. `text` is the
+ * block's visible text, to rebuild a joined run's text.
+ */
+export function joinTouchingMarkRuns(
+  runs: readonly MarkRunData[],
+  text: string,
+  canJoin: (name: string) => boolean,
+): MarkRunData[] {
+  const joined: MarkRunData[] = [];
+  const lastByMark = new Map<string, number>();
+  const ordered = runs
+    .map((run, index) => ({ run, index }))
+    .sort((a, b) => a.run.startIndex - b.run.startIndex || a.index - b.index);
+  for (const { run } of ordered) {
+    if (!canJoin(run.name)) {
+      joined.push(run);
+      continue;
+    }
+    const key = markKey({ type: run.name, attrs: run.attrs });
+    const slot = lastByMark.get(key);
+    const last = slot === undefined ? undefined : joined[slot];
+    if (
+      slot !== undefined &&
+      last &&
+      run.startIndex <= last.endIndex &&
+      areMarksEqual(
+        { type: last.name, attrs: last.attrs },
+        { type: run.name, attrs: run.attrs },
+      )
+    ) {
+      if (run.endIndex > last.endIndex) {
+        joined[slot] = {
+          ...last,
+          endIndex: run.endIndex,
+          text: text.slice(last.startIndex, run.endIndex),
+        };
+      }
+      continue;
+    }
+    lastByMark.set(key, joined.length);
+    joined.push(run);
+  }
+  return joined;
 }

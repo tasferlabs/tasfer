@@ -78,6 +78,21 @@ Collaborators come through the same gate. A remote peer's caret inside your cont
 
 The rect is drawn verbatim, so the node owns how tall its caret looks. Return **text height** — ascent + descent — anchored at the top of the line, which is how prose measures its own caret. A line box is taller than that (it also carries the row's leading), so returning the full line height draws a caret noticeably taller than the one in the paragraph beside it.
 
+A **range** inside your content needs one more hook, `contentSelectionGeometry`. It describes the band your node paints for a non-collapsed `ContentSelection`, plus the two edges the touch selection handles hang from:
+
+```ts
+contentSelectionGeometry(layout, selection, c) {
+  return {
+    rects: [/* the band, relative to c.origin */],
+    start: { x, y, height }, // reading start: the start handle hangs above it
+    end: { x, y, height },   // reading end: the end handle hangs below it
+    isForward: true,         // whether the anchor is the start
+  };
+}
+```
+
+With it, phones draw and grab selection handles on a range in your content, dragging a handle moves the range's focus through your `contentSelectionFromPoint`, and a tap or long-press on the band counts as touching the selection. A mouse press on the band can also start a text drag that carries the range out. Without it, a range in your content has no handles, and a tap on it collapses it.
+
 To draw the text itself, use `paintTextRun`: it is the engine's own marked-line renderer, so a node that lays out its own line boxes still resolves marks, batches for Arabic ligatures and paints replacement runs identically to prose.
 
 ```ts
@@ -99,6 +114,41 @@ paintTextRun({
   requestRedraw,
 });
 ```
+
+To place the caret, resolve clicks and draw highlights over that text, use the text engine prose itself is laid out with. `layoutText` wraps and measures one run of text once; the other functions read that layout, so the caret, a click and a highlight all land on the glyphs `paintTextRun` draws — mixed Arabic and English lines included, and a click never lands between the two halves of an emoji. Coordinates are relative to the text box: add your own origin.
+
+```ts
+import {
+  layoutText,
+  lineEdges,
+  textCaretRect,
+  textOffsetAtPoint,
+  textRangeRects,
+} from "@tasfer/editor";
+
+const text = layoutText({
+  chars,
+  formats,
+  width, // the text area lines wrap to
+  textStyle,
+  fontFamily,
+  fonts: styles.fonts,
+  direction, // "ltr" | "rtl"
+  align, // optional: "left" | "center" | "right"; null hugs the reading start
+  marks,
+});
+
+const caret = textCaretRect(text, offset); // { x, y, height }
+const offsetAtClick = textOffsetAtPoint(text, local.x - boxX, local.y - boxY);
+const highlight = textRangeRects(text, from, to); // one rect per line or bidi run
+
+for (const line of text.lines) {
+  const { left, right } = lineEdges(text, line); // after alignment
+  // paintTextRun({ …, x: boxX + (isRTL ? right : left), … })
+}
+```
+
+For text still being composed through an IME, `foldComposition(chars, offset, preview)` returns the characters with the preview folded in and its `compositionRange`; lay those out (passing the range to `layoutText`) and underline `compositionRects(text)`. Nothing it returns is stored.
 
 <h3 id="document-edge">Leaving a node at the document's edge</h3>
 

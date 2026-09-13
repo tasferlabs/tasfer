@@ -2,12 +2,14 @@
 
 import { type ActionBus, OPEN_LINK } from "../../action-bus";
 import {
-  type CoordsResolver,
+  type DocCoords,
   POINTER_MOVE,
   TEXT_CLICK,
 } from "../../actions/pointer-actions";
+import { contentMarkRuns } from "../../content-marks";
 import type { MarkCodec } from "../../serlization/codecs/mark-codec";
 import type { EditorState, LinkHoverState, Position } from "../../state-types";
+import type { ContentSelection } from "../../structured-selection";
 import { isTextualBlock } from "../../sync/block-registry";
 import { findCharInRuns, iterateVisibleChars } from "../../sync/char-runs";
 import { safeLinkHref } from "../../url-safety";
@@ -67,9 +69,11 @@ export class LinkMark extends Mark {
   registerActions(bus: ActionBus): void {
     bus.registerState(
       TEXT_CLICK,
-      (state, { position, modifiers }) => {
+      (state, { position, contentSelection, modifiers }) => {
         if (!modifiers.ctrlOrMeta) return;
-        const link = getLinkAtPosition(position, state);
+        const link =
+          getLinkAtPosition(position, state) ??
+          (contentSelection ? getContentLinkAt(contentSelection, state) : null);
         if (!link) return;
         // The editor's default opens an allowlisted url in a new tab; a host can
         // override OPEN_LINK to route it itself (native nav, confirmation).
@@ -94,15 +98,29 @@ export class LinkMark extends Mark {
       POINTER_MOVE,
       (
         state,
-        { textPosition, canvasX, canvasY, viewport, resolveCoords, modifiers },
-      ) => ({
-        state: computeLinkHover(
-          state,
+        {
           textPosition,
           canvasX,
           canvasY,
-          viewport.scrollY,
+          viewport,
           resolveCoords,
+          resolveContentCoords,
+          resolveContentSelection,
+          modifiers,
+        },
+      ) => ({
+        state: computeLinkHover(
+          state,
+          hoveredLink(
+            state,
+            textPosition,
+            resolveCoords,
+            resolveContentSelection,
+            resolveContentCoords,
+          ),
+          canvasX,
+          canvasY,
+          viewport.scrollY,
           modifiers.ctrlOrMeta,
         ),
         ops: [],
@@ -124,13 +142,63 @@ export class LinkMark extends Mark {
  * `ui.linkHover` anchor (scroll-adjusted, no `containerRect` baked in), so the
  * keep-open hit-test lines up with where the overlay is actually painted.
  */
-function computeLinkHover(
+/** The link under the pointer, with a lazy anchor for its tooltip. */
+interface HoveredLink {
+  readonly position: Position;
+  readonly url: string;
+  readonly text: string;
+  readonly startIndex: number;
+  readonly endIndex: number;
+  readonly content?: ContentSelection;
+  /** Document coords of the link's start. */
+  readonly coords: () => DocCoords | null;
+}
+
+/**
+ * Resolve the link under the pointer: in the block's flat text, or — for a
+ * block keeping prose inside its structured content (a table cell) — in the
+ * field the pointer's nested caret lands in. The nested hit-test costs a
+ * layout, so it runs only when the flat lookup misses over such a block.
+ */
+function hoveredLink(
   state: EditorState,
   textPosition: Position | null,
+  resolveCoords: (position: Position) => DocCoords | null,
+  resolveContentSelection: () => ContentSelection | null,
+  resolveContentCoords:
+    ((point: ContentSelection["anchor"]) => DocCoords | null) | undefined,
+): HoveredLink | null {
+  if (!textPosition) return null;
+  const flat = getLinkAtPosition(textPosition, state);
+  if (flat) {
+    return {
+      ...flat,
+      position: textPosition,
+      coords: () =>
+        resolveCoords({
+          blockIndex: textPosition.blockIndex,
+          textIndex: flat.startIndex,
+        }),
+    };
+  }
+  const block = state.document.page.blocks[textPosition.blockIndex];
+  if (!block?.structuredContent || !resolveContentCoords) return null;
+  const selection = resolveContentSelection();
+  const nested = selection ? getContentLinkAt(selection, state) : null;
+  if (!nested) return null;
+  return {
+    ...nested,
+    position: textPosition,
+    coords: () => resolveContentCoords(nested.content.anchor),
+  };
+}
+
+function computeLinkHover(
+  state: EditorState,
+  linkData: HoveredLink | null,
   canvasX: number,
   canvasY: number,
   scrollY: number,
-  resolveCoords: CoordsResolver,
   ctrlOrMeta: boolean,
 ): EditorState {
   // Modifier held with a tooltip showing → clear it (user wants to click-open).
@@ -142,9 +210,7 @@ function computeLinkHover(
     return state.ui.linkHover ? setLinkHover(state, null) : state;
   }
 
-  const linkData = textPosition ? getLinkAtPosition(textPosition, state) : null;
-
-  if (linkData && textPosition) {
+  if (linkData) {
     if (ctrlOrMeta) {
       // Show the pointer cursor (no tooltip) while the modifier is held.
       let next = setLinkHover(state, null);
@@ -153,23 +219,20 @@ function computeLinkHover(
         ui: { ...next.ui, isHoveringLinkWithModifier: true },
       };
     }
-    const linkStartPos = {
-      blockIndex: textPosition.blockIndex,
-      textIndex: linkData.startIndex,
-    };
-    const linkCoords = resolveCoords(linkStartPos);
+    const linkCoords = linkData.coords();
     if (linkCoords) {
       // Anchor in container space: `linkCoords` is document space, so subtract
       // scrollY to match canvas coords (the overlay adds containerRect itself —
       // don't bake it in here or it's added twice).
       const next = setLinkHover(state, {
-        position: textPosition,
+        position: linkData.position,
         url: linkData.url,
         text: linkData.text,
         x: linkCoords.x,
         y: linkCoords.y - scrollY + linkCoords.height,
         startIndex: linkData.startIndex,
         endIndex: linkData.endIndex,
+        ...(linkData.content ? { content: linkData.content } : {}),
       });
       return {
         ...next,
@@ -199,6 +262,33 @@ function computeLinkHover(
     };
   }
   return next;
+}
+
+/**
+ * The link at a nested caret inside structured prose (text in a table cell),
+ * with offsets into that field and its extent as a nested range.
+ */
+export function getContentLinkAt(
+  selection: ContentSelection,
+  state: EditorState,
+): {
+  url: string;
+  text: string;
+  startIndex: number;
+  endIndex: number;
+  content: ContentSelection;
+} | null {
+  const run = contentMarkRuns(state, selection).find(
+    (candidate) => candidate.name === "link",
+  );
+  if (!run) return null;
+  return {
+    url: (run.attrs.url as string | undefined) || "",
+    text: run.text,
+    startIndex: run.from,
+    endIndex: run.to,
+    content: run.selection,
+  };
 }
 
 /**

@@ -234,6 +234,12 @@ export interface LinkHoverState {
   readonly y: number;
   readonly startIndex: number;
   readonly endIndex: number;
+  /**
+   * Set when the link lives in prose a node keeps inside its structured content
+   * (text in a table cell): `startIndex`/`endIndex` are then offsets into that
+   * field and this is the link's extent as a nested range.
+   */
+  readonly content?: ContentSelection;
 }
 
 // Unified menu system - only one menu can be active at a time
@@ -334,8 +340,17 @@ export type TextDropTarget =
   | { readonly kind: "text"; readonly position: Position }
   | { readonly kind: "content"; readonly selection: ContentSelection };
 
+/**
+ * What a text drag picked up: a flat document range, or a range inside a
+ * node's own content (text selected in a table cell), addressed by the stable
+ * identities its content selection carries.
+ */
+export type TextDragSource =
+  | { readonly start: Position; readonly end: Position }
+  | { readonly content: ContentSelection };
+
 export interface TextDragState {
-  readonly source: { readonly start: Position; readonly end: Position } | null;
+  readonly source: TextDragSource | null;
   readonly target: TextDropTarget | null;
 }
 

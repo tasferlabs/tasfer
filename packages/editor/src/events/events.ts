@@ -36,6 +36,7 @@ import {
   updateContentSelection,
 } from "../structured-selection";
 import { applyEdgeScroll } from "./autoScroll";
+import { dragContentHandleToPoint } from "./chromeRegions";
 import {
   handleCompositionEnd,
   handleCompositionStart,
@@ -55,6 +56,7 @@ import {
 } from "./mouseEvents";
 import { tickPendingCapture } from "./regions";
 import {
+  dragCaretToPoint,
   handleTouchCancel,
   handleTouchEnd,
   handleTouchMove,
@@ -263,7 +265,10 @@ export function handleEvents(
         state.actionBus.dispatch(OPEN_CONTEXT_MENU, {
           x: session.touch.currentTouchX,
           y: session.touch.currentTouchY,
-          hasSelection: !!getSelectionRange(state),
+          hasSelection:
+            !!getSelectionRange(state) ||
+            (!!state.document.contentSelection &&
+              !isContentSelectionCollapsed(state.document.contentSelection)),
         });
       } else if (
         state.ui.mode !== "readonly" &&
@@ -390,15 +395,27 @@ export function handleEvents(
     // tap-path resolution here silently overwrites the drag path's result each
     // frame; over stacked math rows the two disagree and the focus (and loupe)
     // flicker between them.
-    const position = getTextPositionFromViewport(
-      session.autoScroll.lastPointerX,
-      session.autoScroll.lastPointerY,
-      state,
-      viewport,
-      undefined,
-      undefined,
-      { drag: true, prev: session.handleDragPrevHit },
-    );
+    if (state.document.contentSelection) {
+      state = dragContentHandleToPoint(
+        state,
+        session.autoScroll.lastPointerX,
+        session.autoScroll.lastPointerY,
+        viewport,
+        undefined,
+        { signalBoundary: false },
+      );
+    }
+    const position = state.document.contentSelection
+      ? null
+      : getTextPositionFromViewport(
+          session.autoScroll.lastPointerX,
+          session.autoScroll.lastPointerY,
+          state,
+          viewport,
+          undefined,
+          undefined,
+          { drag: true, prev: session.handleDragPrevHit },
+        );
     if (position) session.handleDragPrevHit = position;
 
     if (position && state.document.selection) {
@@ -470,19 +487,17 @@ export function handleEvents(
     // resolution here silently overwrites the drag path's caret each frame;
     // over stacked math rows the two disagree and the caret (and magnifier)
     // bounce between rows — the reported jitter.
-    const position = getTextPositionFromViewport(
+    const dragged = dragCaretToPoint(
+      state,
       session.autoScroll.lastPointerX,
       session.autoScroll.lastPointerY,
-      state,
       viewport,
       undefined,
-      undefined,
-      { drag: true, prev: state.document.cursor?.position ?? null },
+      { signalBoundary: false },
     );
 
-    if (position) {
-      state = updateCursor(state, position);
-
+    if (dragged) {
+      state = dragged;
       state.actionBus.dispatch(CURSOR_DRAG_MOVE, {
         touchX: session.touch.currentTouchX,
         touchY: session.touch.currentTouchY,

@@ -10,7 +10,8 @@
  */
 
 import { getFormatsAtPosition, getSelectionRange } from "./actions/actions";
-import { resolveMarkRuns } from "./mark-runs";
+import { contentMarkRuns } from "./content-marks";
+import { joinTouchingMarkRuns, resolveMarkRuns } from "./mark-runs";
 import { getBlockTextContent, getBlockTextLength } from "./node-shared";
 import {
   moveCursorToPosition,
@@ -20,6 +21,7 @@ import {
 import type { Block, MarkSpan } from "./serlization/loadPage";
 import type { EditorState, Position } from "./state-types";
 import {
+  type ContentSelection,
   isSameContentTextField,
   resolveContentTextPointOffset,
 } from "./structured-selection";
@@ -85,6 +87,13 @@ export interface MarkInfo {
   readonly from: number;
   readonly to: number;
   readonly text: string;
+  /**
+   * Set when the run lives in prose a node keeps inside its structured content
+   * (text in a table cell). `from`/`to` are then offsets into that field, and
+   * this is the run's extent as a nested range — pass it as `setMark`'s
+   * `range` to rewrite or clear the run.
+   */
+  readonly content?: ContentSelection;
 }
 
 /** A {@link DocPoint} resolved to concrete coordinates. */
@@ -469,6 +478,20 @@ export function queryMarkInfos(
   s: EditorState,
   at: DocPoint | DocRange = "caret",
 ): MarkInfo[] {
+  // A caret or range inside a node's structured prose (a table cell) has no
+  // flat offset; its marks are read from that field instead.
+  const nested = s.document.contentSelection;
+  if (nested && (at === "caret" || at === "selection")) {
+    return contentMarkRuns(s, nested).map((run) => ({
+      name: run.name,
+      attrs: run.attrs,
+      block: run.blockId,
+      from: run.from,
+      to: run.to,
+      text: run.text,
+      content: run.selection,
+    }));
+  }
   const span = resolveMarkSpan(s, at);
   if (!span) return [];
   const { start, end } = span;
@@ -481,7 +504,15 @@ export function queryMarkInfos(
     if (!block || block.deleted) continue;
     const lo = i === start.blockIndex ? start.offset : 0;
     const hi = i === end.blockIndex ? end.offset : Infinity;
-    for (const run of resolveMarkRuns(block)) {
+    // One run per mark as the reader sees it: text typed onto a run's end is
+    // stored as a neighbouring span, and a link's extent must cover all of it.
+    const runs = joinTouchingMarkRuns(
+      resolveMarkRuns(block),
+      getBlockTextContent(block),
+      (name) =>
+        !s.schema.structuredMark(name) && !s.marks.get(name)?.replacement,
+    );
+    for (const run of runs) {
       const hit = collapsed
         ? lo >= run.startIndex && lo < run.endIndex
         : run.startIndex < hi && run.endIndex > lo;

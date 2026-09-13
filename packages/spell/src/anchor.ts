@@ -20,19 +20,56 @@
 import type {
   Block,
   CharacterDecorationPoint,
+  ContentTextPoint,
   DecorationRange,
 } from "@tasfer/editor";
 
+/**
+ * A prose field inside a block's structured content (a table cell), as
+ * `editor.query.textFields` reports it. Absent means the block's own text.
+ */
+export interface TextFieldAddress {
+  readonly contentId: string;
+  readonly nodeId: string;
+  readonly field: string;
+}
+
 /** The char-run shape shared by every text-bearing block (structural copy of the core's `CharRun`). */
-interface RawCharRun {
+export interface RawCharRun {
   readonly peerId: string;
   readonly startCounter: number;
   readonly text: string;
   readonly deletedMask?: readonly number[];
 }
 
-function charRunsOf(block: Block): readonly RawCharRun[] | null {
-  const runs = (block as { charRuns?: unknown }).charRuns;
+interface RawStructuredContent {
+  readonly [contentId: string]:
+    | {
+        readonly nodes?: {
+          readonly [nodeId: string]:
+            | {
+                readonly deleted?: boolean;
+                readonly textFields?: { readonly [field: string]: unknown };
+              }
+            | undefined;
+        };
+      }
+    | undefined;
+}
+
+function charRunsOf(
+  block: Block,
+  field?: TextFieldAddress,
+): readonly RawCharRun[] | null {
+  let runs: unknown;
+  if (field) {
+    const content = (block as { structuredContent?: RawStructuredContent })
+      .structuredContent;
+    const node = content?.[field.contentId]?.nodes?.[field.nodeId];
+    runs = node && !node.deleted ? node.textFields?.[field.field] : undefined;
+  } else {
+    runs = (block as { charRuns?: unknown }).charRuns;
+  }
   return Array.isArray(runs) ? (runs as RawCharRun[]) : null;
 }
 
@@ -51,9 +88,10 @@ function isCharDeleted(run: RawCharRun, offset: number): boolean {
 export function anchorIds(
   block: Block,
   offsets: readonly number[],
+  field?: TextFieldAddress,
 ): (string | null)[] {
   const out: (string | null)[] = new Array(offsets.length).fill(null);
-  const runs = charRunsOf(block);
+  const runs = charRunsOf(block, field);
   if (!runs || offsets.length === 0) return out;
 
   let i = 0;
@@ -112,6 +150,7 @@ export function anchorRange(
 export function anchorRanges(
   block: Block,
   spans: ReadonlyArray<{ readonly from: number; readonly to: number }>,
+  field?: TextFieldAddress,
 ): DecorationRange[] {
   const offsets: number[] = [];
   for (const s of spans) offsets.push(s.from, s.to);
@@ -119,15 +158,66 @@ export function anchorRanges(
     .map((_, i) => i)
     .sort((a, b) => offsets[a] - offsets[b]);
   const sorted = order.map((i) => offsets[i]);
-  const ids = anchorIds(block, sorted);
+  const ids = anchorIds(block, sorted, field);
   const byIndex: (string | null)[] = new Array(offsets.length);
   order.forEach((originalIndex, sortedIndex) => {
     byIndex[originalIndex] = ids[sortedIndex];
   });
   return spans.map((_, i) => ({
-    from: { blockId: block.id, afterCharId: byIndex[i * 2] },
-    to: { blockId: block.id, afterCharId: byIndex[i * 2 + 1] },
+    from: anchorPoint(block.id, byIndex[i * 2], field),
+    to: anchorPoint(block.id, byIndex[i * 2 + 1], field),
   }));
+}
+
+/** The gap after `afterCharId`, in the block's text or in one of its fields. */
+export function anchorPoint(
+  blockId: string,
+  afterCharId: string | null,
+  field?: TextFieldAddress,
+): CharacterDecorationPoint | ContentTextPoint {
+  if (!field) return { blockId, afterCharId };
+  return {
+    kind: "text",
+    blockId,
+    contentId: field.contentId,
+    nodeId: field.nodeId,
+    field: field.field,
+    afterCharId,
+    affinity: "forward",
+  };
+}
+
+/**
+ * Ids of the visible characters in `[from, to)` of the block's text or one of
+ * its fields, in document order. One pass over the runs.
+ */
+export function visibleCharIds(
+  block: Block,
+  from: number,
+  to: number,
+  field?: TextFieldAddress,
+): string[] {
+  return charIdsInRuns(charRunsOf(block, field), from, to);
+}
+
+/** {@link visibleCharIds} over char runs read from anywhere. */
+export function charIdsInRuns(
+  runs: readonly RawCharRun[] | null | undefined,
+  from: number,
+  to: number,
+): string[] {
+  const ids: string[] = [];
+  if (!runs || to <= from) return ids;
+  let visible = 0;
+  for (const run of runs) {
+    for (let k = 0; k < run.text.length; k++) {
+      if (isCharDeleted(run, k)) continue;
+      if (visible >= to) return ids;
+      if (visible >= from) ids.push(`${run.peerId}:${run.startCounter + k}`);
+      visible += 1;
+    }
+  }
+  return ids;
 }
 
 /**
@@ -136,9 +226,12 @@ export function anchorRanges(
  * anchor no longer stands. Build once per block, then resolve many anchors
  * with {@link resolveAnchoredRange}.
  */
-export function charOffsetIndex(block: Block): Map<string, number> {
+export function charOffsetIndex(
+  block: Block,
+  field?: TextFieldAddress,
+): Map<string, number> {
   const index = new Map<string, number>();
-  const runs = charRunsOf(block);
+  const runs = charRunsOf(block, field);
   if (!runs) return index;
   let visible = 0;
   for (const run of runs) {

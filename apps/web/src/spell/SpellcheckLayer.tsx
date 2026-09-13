@@ -9,6 +9,7 @@ import {
 import { useTranslation } from "react-i18next";
 import {
   isApplePlatform,
+  type ContentPoint,
   type Doc,
   type DocPoint,
   type Editor,
@@ -93,6 +94,21 @@ function caretPoint(
   const point: DocPoint = "from" in range ? range.to : range;
   if (typeof point !== "object" || !("offset" in point)) return null;
   return { block: point.block, offset: point.offset ?? 0 };
+}
+
+/** Same word, same place: a flag's identity across re-checks. */
+function sameFlag(a: FlagRef, b: FlagRef): boolean {
+  return (
+    a.blockId === b.blockId &&
+    a.field?.nodeId === b.field?.nodeId &&
+    a.field?.field === b.field?.field &&
+    a.from === b.from &&
+    a.word === b.word
+  );
+}
+
+function flagKey(f: FlagRef): string {
+  return `${f.blockId}:${f.field?.nodeId ?? ""}:${f.from}:${f.word}`;
 }
 
 interface PopoverState {
@@ -216,18 +232,20 @@ export const SpellcheckLayer = forwardRef<
   // ── geometry ─────────────────────────────────────────────────────────────
   const anchorFor = useCallback(
     (flag: FlagRef): { x: number; y: number } | null => {
-      const span = checkerRef.current?.currentRange(flag) ?? {
-        from: flag.from,
-        to: flag.to,
-      };
-      const a = editor.view.coordsAtPos({
-        block: flag.blockId,
-        offset: span.from,
-      });
-      const b = editor.view.coordsAtPos({
-        block: flag.blockId,
-        offset: span.to,
-      });
+      let a: { x: number; y: number; height: number } | null;
+      let b: { x: number; y: number; height: number } | null;
+      if (flag.field) {
+        // A word in a table cell: its anchors are points inside the cell.
+        a = editor.view.coordsAtContent(flag.range.from as ContentPoint);
+        b = editor.view.coordsAtContent(flag.range.to as ContentPoint);
+      } else {
+        const span = checkerRef.current?.currentRange(flag) ?? {
+          from: flag.from,
+          to: flag.to,
+        };
+        a = editor.view.coordsAtPos({ block: flag.blockId, offset: span.from });
+        b = editor.view.coordsAtPos({ block: flag.blockId, offset: span.to });
+      }
       const rect = getContainerRect();
       if (!a || !rect) return null;
       // Visual start of the word: the smaller x, so an RTL word anchors at its
@@ -240,15 +258,28 @@ export const SpellcheckLayer = forwardRef<
     [editor, getContainerRect],
   );
 
-  const wordRange = (flag: FlagRef) => {
+  /** Select the flag's word, in a paragraph or inside a table cell. */
+  const selectWord = (flag: FlagRef) => {
+    if (flag.field) {
+      editor.change((c) =>
+        c.selectContent({
+          anchor: flag.range.from as ContentPoint,
+          focus: flag.range.to as ContentPoint,
+        }),
+      );
+      editor.view.scrollToPosition("caret");
+      return;
+    }
     const span = checkerRef.current?.currentRange(flag) ?? {
       from: flag.from,
       to: flag.to,
     };
-    return {
+    const range = {
       from: { block: flag.blockId, offset: span.from },
       to: { block: flag.blockId, offset: span.to },
     };
+    editor.setSelection(range);
+    editor.view.scrollToPosition(range.from);
   };
 
   // ── actions ──────────────────────────────────────────────────────────────
@@ -256,9 +287,11 @@ export const SpellcheckLayer = forwardRef<
     (p: DocPoint) => checkerRef.current?.flagAt(p) ?? null,
     [],
   );
+  // The checker resolves "caret" itself, including a caret in a table cell;
+  // a flat range still reads from its head.
   const flagAtCaret = useCallback(() => {
     const p = caretPoint(editor);
-    return p ? flagAt(p) : null;
+    return flagAt(p ?? "caret");
   }, [editor, flagAt]);
 
   const suggest = useCallback(
@@ -327,13 +360,11 @@ export const SpellcheckLayer = forwardRef<
   /** Select the word, bring it on screen and offer suggestions. */
   const goTo = useCallback(
     (flag: FlagRef) => {
-      const range = wordRange(flag);
-      editor.setSelection(range);
-      editor.view.scrollToPosition(range.from);
+      selectWord(flag);
       if (touch) showBar(flag);
       else openPopover(flag);
     },
-    // wordRange only reads refs.
+    // selectWord only reads refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [editor, touch, showBar, openPopover],
   );
@@ -477,27 +508,17 @@ export const SpellcheckLayer = forwardRef<
         performance.now() - lastChangeAtRef.current < TYPING_WINDOW_MS;
       const here = flagAtCaret();
       const open = popoverRef.current;
-      if (
-        open &&
-        (!here ||
-          here.blockId !== open.flag.blockId ||
-          here.from !== open.flag.from)
-      ) {
+      if (open && (!here || !sameFlag(here, open.flag))) {
         setPopover(null);
       }
       if (!touch) return;
       const docked = barRef.current;
-      if (
-        docked &&
-        (!here ||
-          here.word !== docked.flag.word ||
-          here.blockId !== docked.flag.blockId)
-      ) {
+      if (docked && (!here || !sameFlag(here, docked.flag))) {
         setBar(null);
         barDismissedRef.current = null;
       }
       if (here && !typing && !docked) {
-        const key = `${here.blockId}:${here.from}:${here.word}`;
+        const key = flagKey(here);
         if (barDismissedRef.current !== key) showBar(here);
       }
     });
@@ -583,7 +604,7 @@ export const SpellcheckLayer = forwardRef<
         onAdd={() => addToDictionary(flag)}
         onIgnore={() => ignoreOnce(flag)}
         onDismiss={() => {
-          barDismissedRef.current = `${flag.blockId}:${flag.from}:${flag.word}`;
+          barDismissedRef.current = flagKey(flag);
           setBar(null);
         }}
       />,

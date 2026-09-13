@@ -36,6 +36,7 @@ import {
 } from "../actions/structured-marks";
 import { isTextInputKey } from "../code-points";
 import { BLUR_SELECTION_CLEAR_DELAY } from "../constants";
+import { contentMarkEdit } from "../content-marks";
 import { IS_DEV } from "../env";
 import { edgeScrollDelta } from "../events/autoScroll";
 import { createChromeRegionRegistry } from "../events/chromeRegions";
@@ -215,6 +216,7 @@ import {
   type StructuredMutation,
 } from "../sync/structured-content";
 import { getVisibleBlocks } from "../sync/sync";
+import { blockTextFields, type TextFieldInfo } from "../text-fields";
 import { normalizeLinkUrl } from "../url-safety";
 import type { CanvasLayers } from "./layers";
 
@@ -401,15 +403,17 @@ export interface ChangeApi<S extends SchemaDefinition = AnySchemaDefinition> {
    * toggles across the selection (or the pending caret format) — the common
    * bold/italic case. Pass `active` to force apply (`true`) / remove (`false`),
    * `attrs` for the mark's per-mark data (e.g. a link's `url`), and `range` to
-   * target an explicit single-block span (default: selection). A no-op for an
-   * empty range or a missing/non-textual block.
+   * target an explicit single-block span (default: selection). `range` may
+   * also be a {@link ContentSelection} inside one prose field of a node's
+   * structured content (text in a table cell) — such as a {@link MarkInfo}'s
+   * `content`. A no-op for an empty range or a missing/non-textual block.
    */
   setMark<T extends MarkNameOf<S>>(
     name: T,
     opts?: {
       active?: boolean;
       attrs?: MarkAttrs<S, T>;
-      range?: DocRange;
+      range?: DocRange | ContentSelection;
     },
   ): this;
 
@@ -613,9 +617,11 @@ export interface EditorViewApi {
   /** Scroll the viewport to make a document point visible. Speaks the same
    * public {@link DocPoint} vocabulary as {@link coordsAtPos}: an absolute
    * `{ block, offset }` (the stable, CRDT-id form), or a relative
-   * `"caret"`/`"start"`/`"end"`. */
+   * `"caret"`/`"start"`/`"end"`. Also takes a {@link ContentPoint} (the
+   * {@link coordsAtContent} vocabulary) to reach a point inside structured
+   * content, such as a table cell, without moving the caret there. */
   scrollToPosition: (
-    point: DocPoint,
+    point: DocPoint | ContentPoint,
     options?: { viewportOffsetY?: number },
   ) => void;
   /**
@@ -790,6 +796,21 @@ export interface QueryApi<S extends SchemaDefinition = BaseSchemaDefinition> {
    * its node class. Returns `null` for a missing block/content id.
    */
   content(blockId: string, contentId: string): StructuredDocument | null;
+  /**
+   * The prose text a block keeps inside its structured content (a table's
+   * cells), in reading order, each with its visible text and mark runs. The
+   * block's own flat text is not included — read that with {@link block}.
+   * Empty for a missing block or one without structured prose. Address a
+   * position in a field with a `ContentTextPoint` built from the same ids.
+   */
+  textFields(blockId: string): TextFieldInfo[];
+  /**
+   * Plain text of the live selection — exactly what a copy would put on the
+   * clipboard as `text/plain`. A selection inside structured content (text in a
+   * table cell) reads through the owning node's serializer, so cells across a
+   * range come back tab- and newline-separated. `""` for a bare caret.
+   */
+  selectedText(): string;
 }
 
 /**
@@ -1808,7 +1829,12 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
           this._state.document.contentSelection?.focus;
         const caretPositionChanged =
           cursorPositionChanged || contentCaretPositionChanged;
-        if (caretPositionChanged) {
+        // An arrow press at a mark edge switches the caret's side without
+        // moving it; the caret's edge flag still has to repaint.
+        if (
+          caretPositionChanged ||
+          prevState.ui.activeMarksMode !== this._state.ui.activeMarksMode
+        ) {
           this.dirtyLayers.cursor = true;
         }
 
@@ -2036,16 +2062,24 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         }
 
         // Update hidden input position to match cursor for IME composition toolbar
+        const contentFocus = this._state.document.contentSelection?.focus;
         if (
           this.hiddenInput &&
-          this._state.document.cursor &&
+          (this._state.document.cursor || contentFocus) &&
           this._state.view.isFocused &&
           !viewportChangedAfterPaint
         ) {
-          const isComposing = this._state.ui.composition?.isComposing;
-          const cursorCoords = isComposing
-            ? getCursorCoordinatesWithComposition(this._state, this.viewport)
-            : this.coordsAtIndexPosition(this._state.document.cursor.position);
+          const cursor = this._state.document.cursor;
+          // A flat caret's composition coords are document-space; everything
+          // else here is already viewport-space. A content caret (a table cell)
+          // has its composition folded in by its node.
+          const isComposing =
+            !!cursor && !!this._state.ui.composition?.isComposing;
+          const cursorCoords = cursor
+            ? isComposing
+              ? getCursorCoordinatesWithComposition(this._state, this.viewport)
+              : this.coordsAtIndexPosition(cursor.position)
+            : this.coordsAtContentPoint(contentFocus!);
           if (cursorCoords) {
             this.hiddenInput.style.left = `${cursorCoords.x}px`;
             const viewportY = isComposing
@@ -2326,6 +2360,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // The press that started this is now a drag, not a click — the release must
     // not collapse the selection out from under it.
     this.session.pressedOnSelection = null;
+    this.session.pressedOnSelectionContent = null;
     this.session.textDragSource = range;
     this.session.textDragHandled = false;
   };
@@ -2416,6 +2451,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     const source = this.session.textDragSource;
     this.session.textDragSource = null;
     this.session.pressedOnSelection = null;
+    this.session.pressedOnSelectionContent = null;
     this.clearTextDrag();
 
     // The drag landed as a move somewhere this editor never saw a drop for —
@@ -4226,7 +4262,13 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     point: Exclude<DocPoint, "caret"> = "start",
     opts?: { onlyIfUnset?: boolean },
   ): void => {
-    if (opts?.onlyIfUnset && this._state.document.cursor) return;
+    // A caret inside a node's content (a table cell) is a caret too.
+    if (
+      opts?.onlyIfUnset &&
+      (this._state.document.cursor || this._state.document.contentSelection)
+    ) {
+      return;
+    }
     const resolved = resolvePoint(this._state, point);
     if (!resolved) return;
     this._state = updateMode(
@@ -4358,7 +4400,14 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     point: DocPoint,
   ): { x: number; y: number; height: number } | null => {
     const resolved = resolvePoint(this._state, point);
-    if (!resolved) return null;
+    if (!resolved) {
+      // A caret inside content a node owns (a table cell) has no flat offset;
+      // the node places it from the content point itself.
+      const content = this._state.document.contentSelection;
+      return point === "caret" && content
+        ? this.coordsAtContentPoint(content.focus)
+        : null;
+    }
     return this.coordsAtIndexPosition({
       blockIndex: resolved.blockIndex,
       textIndex: resolved.offset,
@@ -4746,9 +4795,27 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
             (opts.range === undefined || opts.range === "selection"));
         if (isToggle) {
           if (this.canToggleMark(name)) apply(this.toggleMarkAction(name));
+        } else if (
+          opts?.range &&
+          typeof opts.range === "object" &&
+          "anchor" in opts.range
+        ) {
+          const nested = opts.range;
+          const mark: Mark = opts.attrs
+            ? { type: name, attrs: opts.attrs }
+            : { type: name };
+          const target = contentMarkEdit(
+            ctx.state,
+            nested,
+            mark,
+            opts.active ?? true,
+          );
+          if (target)
+            c.editContent(target.blockId, target.contentId, target.edit);
         } else {
+          const range = opts?.range as DocRange | undefined;
           apply((s) => {
-            const r = resolveInlineRange(s, opts?.range);
+            const r = resolveInlineRange(s, range);
             if (!r || r.start === r.end) return { state: s, ops: [] };
             const mark: Mark = opts?.attrs
               ? { type: name, attrs: opts.attrs }
@@ -6094,17 +6161,32 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   };
 
   scrollToPosition = (
-    point: DocPoint,
+    point: DocPoint | ContentPoint,
     options?: { viewportOffsetY?: number },
   ): void => {
-    const resolved = resolvePoint(this._state, point);
-    if (!resolved) return;
+    const target = typeof point === "object" && "kind" in point ? point : null;
+    const resolved = target ? null : resolvePoint(this._state, point as DocPoint);
+    // A point inside content a node owns (a table cell) has no flat offset; it
+    // is followed through its content point, anchored to its block.
+    const contentPoint =
+      target ??
+      (!resolved && point === "caret"
+        ? this._state.document.contentSelection?.focus
+        : undefined);
+    const blockIndex = resolved
+      ? resolved.blockIndex
+      : contentPoint
+        ? findBlockIndex(this._state.document.page, contentPoint.blockId)
+        : -1;
+    if (blockIndex < 0) return;
     const position: Position = {
-      blockIndex: resolved.blockIndex,
-      textIndex: resolved.offset,
+      blockIndex,
+      textIndex: resolved?.offset ?? 0,
     };
     if (options?.viewportOffsetY !== undefined) {
-      const current = this.coordsAtIndexPosition(position);
+      const current = contentPoint
+        ? this.coordsAtContentPoint(contentPoint)
+        : this.coordsAtIndexPosition(position);
       if (current) {
         const maxScroll = Math.max(
           0,
@@ -6120,6 +6202,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         this.applyProgrammaticScroll(scrollY);
         this.pendingViewportAnchor = {
           position,
+          ...(contentPoint ? { contentPoint } : {}),
           viewportOffsetY: options.viewportOffsetY,
           remainingCorrections: 3,
         };
@@ -6133,7 +6216,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // targets, which put the highlight at the wrong viewport offset. The
     // pending-anchor corrections then converge on the true spot as heights
     // become exact.
-    this.scrollPositionIntoView(position);
+    this.scrollPositionIntoView(position, contentPoint);
   };
 
   // ── Public facets ──────────────────────────────────────────────────────────
@@ -6148,6 +6231,11 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     blocks: this.queryBlocks,
     marks: (at?: DocPoint | DocRange) => queryMarkInfos(this._state, at),
     content: this.queryContent,
+    textFields: (blockId: string) => {
+      const block = findBlock(this._state.document.page, blockId);
+      return block ? blockTextFields(block, this._state.schema) : [];
+    },
+    selectedText: () => getSelectionPlainText(this._state),
   };
 
   view: EditorViewApi = {

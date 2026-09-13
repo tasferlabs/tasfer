@@ -40,8 +40,10 @@ export {
   type NodeContentCaretCtx,
   type NodeContentHitCtx,
   type NodeContentHitOptions,
+  type NodeContentSelectionGeometry,
   type NodeHitRegion,
   type NodePointerType,
+  type NodeRect,
   type NodeRegionCtx,
   NodeRegistry,
   paintTextRun,
@@ -50,6 +52,26 @@ export {
   TextNode,
   type TextSpan,
 } from "./rendering/nodes";
+
+// The text engine every textual surface lays out and measures with: wrap, the
+// caret, click → offset and highlight rects for one run of marked CRDT text,
+// independent of blocks. A node that keeps text somewhere other than a block
+// (a table cell, a sidebar field) uses these so its caret and clicks land on
+// the glyphs `paintTextRun` draws, the same way they do in a paragraph.
+export {
+  compositionRects,
+  foldComposition,
+  layoutText,
+  lineEdges,
+  type TextAlign,
+  textCaretRect,
+  type TextLayout,
+  type TextLayoutInput,
+  textLineIndexAt,
+  textOffsetAtPoint,
+  textRangeRects,
+  type TextRect,
+} from "./text-layout";
 
 // Inline marks. `Mark` is the base class to subclass for a custom mark's
 // on-canvas paint (its `style()` returns the visual channels — color, a chip,
@@ -216,7 +238,9 @@ export type {
   MarkSpec,
   StructuredKindAdapters,
   StructuredKindSpec,
+  StructuredTextFieldRef,
 } from "./sync/schema";
+export type { TextFieldInfo, TextFieldMark } from "./text-fields";
 
 // Action bus — declare imperative actions (`action`) that hosts hook
 // via `editor.registerAction` (override by returning `true`, or observe by

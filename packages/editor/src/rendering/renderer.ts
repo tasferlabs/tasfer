@@ -8,12 +8,14 @@ import type {
   InteractionSession,
 } from "../events/interaction-session";
 import { currentFontFamily, getFontStack } from "../fonts";
+import { caretMarkEdgeSide, contentCaretMarkEdge } from "../mark-edge";
 import {
   type DirectionalContent,
   getBlockDirection,
   getTextDirection,
 } from "../rtl";
 import {
+  contentSelectionHandlePositions,
   getCursorDocumentCoords,
   isCursorBlinking,
   isNodeSelection,
@@ -55,6 +57,7 @@ import { getContentWithComposition, TextNode, UnknownNode } from "./nodes";
 import {
   blockOwnsContentCaret,
   contentPointCaretRect,
+  contentSelectionGeometry,
   nodePlacesContentCaret,
 } from "./nodes/content-caret";
 import { renderScrollbar } from "./scrollbar";
@@ -1132,6 +1135,12 @@ function drawCaret(
   cursorPos: { x: number; y: number; height: number },
   styles: EditorStyles,
   landingStartedAt?: number | null,
+  /**
+   * On a mark edge, the visual side whose marks typing takes: a short flag at
+   * the caret's top points at that text, so the two stops of one position
+   * look different (see `mark-edge.ts`).
+   */
+  markEdgeFlag?: "left" | "right" | null,
 ) {
   ctx.fillStyle = styles.cursor.color;
 
@@ -1142,12 +1151,17 @@ function drawCaret(
       : 1;
 
   if (progress >= 1) {
-    ctx.fillRect(
-      cursorPos.x,
-      cursorPos.y,
-      styles.cursor.width,
-      cursorPos.height,
-    );
+    const width = styles.cursor.width;
+    ctx.fillRect(cursorPos.x, cursorPos.y, width, cursorPos.height);
+    if (markEdgeFlag) {
+      const length = width * 2;
+      ctx.fillRect(
+        markEdgeFlag === "left" ? cursorPos.x - length : cursorPos.x + width,
+        cursorPos.y,
+        length,
+        width,
+      );
+    }
     return;
   }
 
@@ -1168,6 +1182,30 @@ function drawCaret(
     shape.cornerRadius,
   );
   ctx.fill();
+}
+
+/**
+ * Which way the local caret's mark-edge flag points, or null off an edge. The
+ * before side is the text behind the caret: visually left in an LTR block and
+ * right in an RTL one.
+ */
+function markEdgeFlagFor(state: EditorState): "left" | "right" | null {
+  // A caret in a node's structured prose (a table cell) reads the field's own
+  // marks and direction.
+  const content = contentCaretMarkEdge(state);
+  if (content) {
+    if (state.ui.composition?.isComposing) return null;
+    return (content.side === "before") !== content.rtl ? "left" : "right";
+  }
+  const current = caretMarkEdgeSide(state);
+  const cursor = state.document.cursor;
+  if (!current || !cursor) return null;
+  const block = state.document.page.blocks[cursor.position.blockIndex];
+  const rtl =
+    !!block &&
+    isTextualBlock(block) &&
+    getBlockDirection(block, state.marks) === "rtl";
+  return (current.side === "before") !== rtl ? "left" : "right";
 }
 
 export function renderCursorLayer(
@@ -1361,7 +1399,13 @@ export function renderCursorLayer(
 
   // Draw the caret — as a plain bar, or mid-"landing" morph if it just moved
   // here. Leaves fillStyle set to the cursor color for the touch handle below.
-  drawCaret(ctx, cursorPos, styles, caretLandingStartedAt);
+  drawCaret(
+    ctx,
+    cursorPos,
+    styles,
+    caretLandingStartedAt,
+    compositionRange ? null : markEdgeFlagFor(state),
+  );
 
   // Draw cursor drag handle on touch devices (small circle below cursor)
   if (isTouchOnlyDevice()) {
@@ -1464,6 +1508,48 @@ function getPositionCoordinates(
 }
 
 /**
+ * Handle positions for a range inside a node's content (text selected in a
+ * table cell), in viewport space — hung off the band the node paints.
+ */
+function getContentSelectionHandlePositionsForRender(
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles,
+  heightIndex?: BlockHeightIndex,
+): {
+  anchor: { x: number; y: number; height: number; isTop: boolean };
+  focus: { x: number; y: number; height: number; isTop: boolean };
+} | null {
+  const content = state.document.contentSelection;
+  if (!content || isContentSelectionCollapsed(content)) return null;
+  const blockIndex = findBlockIndex(state.document.page, content.focus.blockId);
+  const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted) return null;
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  const geometry = contentSelectionGeometry(
+    content,
+    block,
+    blockIndex,
+    state,
+    maxWidth,
+    styles,
+    {
+      x: styles.canvas.paddingLeft,
+      y: getBlockTopViewport(
+        state,
+        blockIndex,
+        maxWidth,
+        viewport,
+        styles,
+        heightIndex,
+      ),
+    },
+  );
+  return geometry ? contentSelectionHandlePositions(geometry) : null;
+}
+
+/**
  * Get selection handle positions for rendering.
  * Returns coordinates for both anchor and focus handles.
  */
@@ -1478,7 +1564,12 @@ function getSelectionHandlePositionsForRender(
 } | null {
   const selection = state.document.selection;
   if (!selection || selection.isCollapsed || isNodeSelection(selection)) {
-    return null;
+    return getContentSelectionHandlePositionsForRender(
+      state,
+      viewport,
+      styles,
+      heightIndex,
+    );
   }
 
   const isForward = selection.isForward;
@@ -1776,7 +1867,11 @@ export function renderSelectionHandles(
   }
 
   const selection = state.document.selection;
-  if (!selection || selection.isCollapsed) {
+  const content = state.document.contentSelection;
+  const hasRange =
+    (selection && !selection.isCollapsed) ||
+    (content && !isContentSelectionCollapsed(content));
+  if (!hasRange) {
     return;
   }
 

@@ -106,8 +106,7 @@ const versionConfig = JSON.parse(
 
 // Marketing version shown to users, from the same root version.json every other
 // build reads (android `versionName`, iOS `MARKETING_VERSION`, the desktop
-// package). `versionConfig.version` is the separate integer the API
-// min-version check uses.
+// package).
 const appVersion: string = versionConfig.appVersion;
 
 export default defineConfig({
@@ -154,7 +153,6 @@ export default defineConfig({
     __BUILD_TIMESTAMP__: JSON.stringify(buildTimestamp),
     __BUILD_COMMIT__: JSON.stringify(buildCommit),
     __APP_VERSION__: JSON.stringify(appVersion),
-    __CLIENT_VERSION__: versionConfig.version,
     "import.meta.env.VERCEL_ENV": JSON.stringify(
       process.env.VERCEL_ENV ?? null,
     ),

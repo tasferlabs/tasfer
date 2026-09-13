@@ -55,13 +55,25 @@ import {
   prevCodePointStart,
 } from "@tasfer/editor/code-points";
 import type { FeatureInputRule } from "@tasfer/editor/feature-facets";
+import { inheritedMarksInText } from "@tasfer/editor/mark-edge";
+import type {
+  CharRun,
+  Mark,
+  MarkSpan,
+} from "@tasfer/editor/serlization/loadPage";
 import type { EditorState } from "@tasfer/editor/state-types";
 import {
   getCharIdsInRangeFromRuns,
   getVisibleTextFromRuns,
 } from "@tasfer/editor/sync/char-runs";
 import {
+  allCharsHaveFormat,
+  getFormatsAtCharPosition,
+} from "@tasfer/editor/sync/crdt-utils";
+import {
   applyStructuredEdits,
+  getStructuredMarks,
+  type StructuredDocument,
   type StructuredEdit,
 } from "@tasfer/editor/sync/structured-content";
 import {
@@ -103,7 +115,7 @@ function clearRange(
   for (let at = Math.min(from, to); at <= Math.max(from, to); at++) {
     const cellId = order[at];
     const charIds = getCharIdsInRangeFromRuns(
-      cellRuns(document, cellId),
+      cellRuns(document, cellId) ?? [],
       0,
       cellLength(document, cellId),
     );
@@ -119,6 +131,101 @@ function clearRange(
   return { edits, caret: { cellId: order[Math.min(from, to)], offset: 0 } };
 }
 
+/**
+ * The flat marks on the first character a selection covers, or `undefined`
+ * for a bare caret — what text typed over the selection takes.
+ */
+function firstSelectedMarks(
+  state: EditorState,
+  context: TableContext,
+): Mark[] | undefined {
+  const { document, caret, anchor } = context;
+  let cellId: string;
+  let from: number;
+  if (anchor.cellId === caret.cellId) {
+    if (anchor.offset === caret.offset) return undefined;
+    cellId = caret.cellId;
+    from = Math.min(anchor.offset, caret.offset);
+  } else {
+    // A range across cells clears them whole and types into the first one.
+    const order = tableCellIds(document);
+    const first = order[
+      Math.min(order.indexOf(anchor.cellId), order.indexOf(caret.cellId))
+    ];
+    if (first === undefined) return undefined;
+    cellId = first;
+    from = 0;
+  }
+  if (from >= cellLength(document, cellId)) return [];
+  return inheritedMarksInText(
+    state,
+    cellRuns(document, cellId) ?? [],
+    getStructuredMarks(document, cellId, "text") as MarkSpan[],
+    from + 1,
+  );
+}
+
+/**
+ * The `mark_set` edits giving the characters just typed exactly `wanted`.
+ *
+ * Typed inside a run, the new text already sits within its span; only an edge
+ * (or a toggle) needs the mark set on it. And a span whose end is anchored to a
+ * deleted character still reaches past the visible run, so text typed on the
+ * outer side of that edge would come out marked though the caret says it is
+ * outside — those marks are cleared from the typed text.
+ */
+function typedMarkEdits(
+  state: EditorState,
+  typed: StructuredDocument,
+  caret: TableCaret,
+  inserted: readonly CharRun[],
+  wanted: readonly Mark[],
+): StructuredEdit[] {
+  const charIds = inserted.flatMap((run) =>
+    Array.from(
+      { length: run.text.length },
+      (_unused, at) => `${run.peerId}:${run.startCounter + at}`,
+    ),
+  );
+  if (charIds.length === 0) return [];
+  const runs = cellRuns(typed, caret.cellId) ?? [];
+  const spans = getStructuredMarks(typed, caret.cellId, "text") as MarkSpan[];
+  const from = caret.offset;
+  const to = from + charIds.length;
+  const edits: StructuredEdit[] = [];
+  for (const mark of wanted) {
+    if (state.schema.structuredMark(mark.type)) continue;
+    if (allCharsHaveFormat(runs, spans, from, to, mark.type)) continue;
+    edits.push({
+      kind: "mark_set",
+      nodeId: caret.cellId,
+      field: "text",
+      charIds,
+      mark,
+      value: true,
+    });
+  }
+  const extra = new Set<string>();
+  for (let at = from + 1; at <= to; at++) {
+    for (const mark of getFormatsAtCharPosition(runs, spans, at)) {
+      if (state.schema.structuredMark(mark.type)) continue;
+      if (wanted.some((keep) => keep.type === mark.type)) continue;
+      extra.add(mark.type);
+    }
+  }
+  for (const type of extra) {
+    edits.push({
+      kind: "mark_set",
+      nodeId: caret.cellId,
+      field: "text",
+      charIds,
+      mark: { type },
+      value: false,
+    });
+  }
+  return edits;
+}
+
 /** Insert `input` at the caret, replacing any selected range first. */
 function insertIntoCell(
   state: EditorState,
@@ -126,6 +233,9 @@ function insertIntoCell(
   input: string,
   markdownShortcuts: boolean,
 ): Claimed {
+  // Typing over a selection takes the formatting of the text it replaces (its
+  // first character), read before the deletion removes it — as a paragraph does.
+  const replacedMarks = firstSelectedMarks(state, context);
   const cleared = clearRange(context);
   const edits: StructuredEdit[] = cleared ? [...cleared.edits] : [];
   const caret = cleared?.caret ?? context.caret;
@@ -150,32 +260,29 @@ function insertIntoCell(
     charRuns,
   });
 
-  // Marks toggled at a collapsed caret are pending until something is typed —
-  // "Ctrl+B, then type" in a cell has to come out bold the way it does in a
-  // paragraph. The engine already holds that intent; this applies it to the
-  // characters just inserted.
-  const pending =
+  // The marks the typed text takes: an explicit set (a Ctrl+B toggle, or the
+  // caret on the after side of a mark edge), else the marks of the text behind
+  // the caret — so typing at the end of a bold run stays bold, the way it does
+  // in a paragraph (see `@tasfer/editor/mark-edge`).
+  const typingMarks =
     state.ui.activeMarksMode.type === "explicit"
       ? state.ui.activeMarksMode.formats
-      : [];
-  if (pending.length > 0) {
-    const insertedIds = charRuns.flatMap((run) =>
-      Array.from(
-        { length: run.text.length },
-        (_unused, at) => `${run.peerId}:${run.startCounter + at}`,
-      ),
-    );
-    for (const mark of pending) {
-      edits.push({
-        kind: "mark_set",
-        nodeId: caret.cellId,
-        field: "text",
-        charIds: insertedIds,
-        mark,
-        value: true,
-      });
-    }
-  }
+      : (replacedMarks ??
+        inheritedMarksInText(
+          state,
+          runs,
+          getStructuredMarks(document, caret.cellId, "text") as MarkSpan[],
+          caret.offset,
+        ));
+  edits.push(
+    ...typedMarkEdits(
+      state,
+      applyStructuredEdits(context.document, edits),
+      caret,
+      charRuns,
+      typingMarks,
+    ),
+  );
 
   let landing: TableCaret = {
     cellId: caret.cellId,

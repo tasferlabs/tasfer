@@ -71,6 +71,23 @@ Marks are inline formatting carried on runs of text. The CRDT names are `strong`
   ]}
 />
 
+Typing keeps a mark going until the caret arrows out of it, the same way for
+every flat mark (links included). Where a mark starts or ends, one caret position
+has two stops: attached to the text before it or to the text after it. Typed text
+takes the marks of that side. `ArrowLeft`/`ArrowRight` first switch sides without
+moving the caret, then move. A step lands on the side of the text it passed, and
+any other caret move (a click, Home/End, up/down, a word jump) lands on the side
+before the caret. So by default typing at the end of a run continues it, and
+typing at its start does not.
+
+The side is stored in `ui.activeMarksMode`, the same slot as a Ctrl+B toggle:
+`inherit` is the side before the caret, and an explicit set equal to the next
+character's marks is the side after it. `editor.state.activeMarks` reflects it.
+Text inside a table cell follows the same rule. Moving a caret inside a node's
+content clears the stored side, just like moving a flat caret.
+Structured marks such as an inline formula are not affected, because their chips
+own their own caret stops.
+
 <h2 id="math">Optional math</h2>
 
 Math is a feature, not a core node type. It ships as its own package,
@@ -517,6 +534,29 @@ Two more helpers matter once a structured document gets large enough to walk:
   identity-bearing attrs when a snapshot mints new ids. A kind that stores a node
   reference in an attr (a table cell's `columnId`) must supply this, or the copy
   references identities that no longer exist.
+
+If people read text inside your structured document as prose — a table's
+cells, not a formula's LaTeX — say so with a `textFields` adapter on the kind's
+`structuredKinds` entry. It returns the prose character fields of one document
+as `{ nodeId, field }` pairs, in reading order:
+
+```ts
+const tableKind: StructuredKindSpec = {
+  kind: "table",
+  textFields: (document) =>
+    readTable(document).rows.flatMap((row) =>
+      // A row can have holes where a cell is missing.
+      row.cells.flatMap((cell) =>
+        cell ? [{ nodeId: cell.id, field: "text" }] : [],
+      ),
+    ),
+};
+```
+
+Tools that work on prose read those fields through
+`editor.query.textFields(blockId)` without knowing your node, so a spell
+checker underlines misspellings inside your document the way it does in a
+paragraph. A kind without the adapter has no prose fields.
 
 <h2 id="extend">Extending</h2>
 

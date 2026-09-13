@@ -31,6 +31,7 @@ import {
   charOffsetIndex,
   findRawBlock,
   resolveAnchoredRange,
+  type TextFieldAddress,
 } from "./anchor";
 import type {
   CheckBlock,
@@ -43,6 +44,7 @@ import type {
 import { normalizeForLookup, scriptOf } from "./script";
 import type {
   BlockData,
+  ContentSelection,
   Decoration,
   DecorationRange,
   Doc,
@@ -52,6 +54,7 @@ import type {
   EditorStateSnapshot,
   Operation,
   RangeDecoration,
+  TextFieldMark,
 } from "@tasfer/editor";
 
 /** How a range decoration is painted (mirrors the core's `RangeDecoration.style`). */
@@ -78,7 +81,7 @@ export interface SpellCheckerOptions {
   transport: SpellTransport;
   /** Decoration layer name (default `"spell"`). */
   layer?: string;
-  /** Block types never checked (default: code, math, table, image, line). */
+  /** Block types never checked (default: code, math, image, line). */
   skipBlockTypes?: ReadonlySet<string>;
   /** Mark names whose runs are never tokenised (default: code, link, math). */
   skipMarks?: ReadonlySet<string>;
@@ -105,9 +108,14 @@ export interface SpellCheckerOptions {
   now?: () => number;
 }
 
-/** A flag plus where it lives: its block, the block version it was checked at, and its stable anchors. */
+/**
+ * A flag plus where it lives: its block, the prose field inside the block's
+ * structured content when it is not the block's own text (a table cell), the
+ * block version it was checked at, and its stable anchors.
+ */
 export interface FlagRef extends Flag {
   readonly blockId: string;
+  readonly field?: TextFieldAddress;
   readonly version: number;
   readonly range: DecorationRange;
 }
@@ -115,7 +123,6 @@ export interface FlagRef extends Flag {
 const DEFAULT_SKIP_BLOCK_TYPES: ReadonlySet<string> = new Set([
   "code",
   "math",
-  "table",
   "image",
   "line",
 ]);
@@ -135,7 +142,42 @@ const BOUNDARY_CHAR = /[\s\p{P}]$/u;
 
 interface CaretPos {
   readonly block: string;
+  /** Set when the caret is in a prose field of the block's structured content. */
+  readonly field?: TextFieldAddress;
   readonly offset: number;
+}
+
+/**
+ * Key of one checked text: a block's own text is keyed by the block id, a
+ * prose field by the block id and the field's address. NUL never appears in
+ * an id, so keys cannot collide.
+ */
+function unitKey(blockId: string, field?: TextFieldAddress): string {
+  return field
+    ? `${blockId}\u0000${field.contentId}\u0000${field.nodeId}\u0000${field.field}`
+    : blockId;
+}
+
+function parseUnitKey(key: string): {
+  blockId: string;
+  field?: TextFieldAddress;
+} {
+  const [blockId, contentId, nodeId, field] = key.split("\u0000");
+  return contentId === undefined
+    ? { blockId }
+    : { blockId, field: { contentId, nodeId, field } };
+}
+
+function blockOfUnit(key: string): string {
+  const at = key.indexOf("\u0000");
+  return at < 0 ? key : key.slice(0, at);
+}
+
+function sameField(a?: TextFieldAddress, b?: TextFieldAddress): boolean {
+  if (!a || !b) return !a && !b;
+  return (
+    a.contentId === b.contentId && a.nodeId === b.nodeId && a.field === b.field
+  );
 }
 
 interface Dirty {
@@ -192,8 +234,8 @@ export class SpellChecker {
 
   /** Per-block version stamp; bumped on every op touching the block. */
   private versions = new Map<string, number>();
-  /** Latest accepted flags per block, sorted by `from`. */
-  private flagsByBlock = new Map<string, FlagRef[]>();
+  /** Latest accepted flags per checked text (see {@link unitKey}), sorted by `from`. */
+  private flagsByUnit = new Map<string, FlagRef[]>();
   /** Blocks awaiting a check, with the most urgent priority requested. */
   private dirty = new Map<string, Dirty>();
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -238,7 +280,7 @@ export class SpellChecker {
     if (this.disposed || this.running) return;
     this.running = true;
     const { editor, transport } = this.o;
-    this.lastCaret = pointOf(editor.state.selection.range);
+    this.lastCaret = this.caretOf(editor.state);
     this.unsubscribers.push(
       editor.on("change", this.onChange),
       editor.subscribe(this.onSnapshot),
@@ -257,7 +299,7 @@ export class SpellChecker {
     this.initialPassActive = 0;
     this.clearTimers();
     this.dirty.clear();
-    this.flagsByBlock.clear();
+    this.flagsByUnit.clear();
     this.publishQueued = false;
     this.o.editor.view.clearDecorations(this.layer);
     this.setPublishedCount(0);
@@ -284,12 +326,12 @@ export class SpellChecker {
   dropWord(word: string): void {
     const key = normalizeWord(word);
     let changed = false;
-    for (const [blockId, flags] of this.flagsByBlock) {
+    for (const [unit, flags] of this.flagsByUnit) {
       const kept = flags.filter((f) => normalizeWord(f.word) !== key);
       if (kept.length !== flags.length) {
         changed = true;
-        if (kept.length === 0) this.flagsByBlock.delete(blockId);
-        else this.flagsByBlock.set(blockId, kept);
+        if (kept.length === 0) this.flagsByUnit.delete(unit);
+        else this.flagsByUnit.set(unit, kept);
       }
     }
     if (changed) this.schedulePublish();
@@ -308,11 +350,7 @@ export class SpellChecker {
   /** The visible flag whose word contains `p` (inclusive at both ends), or `null`. */
   flagAt(p: DocPoint): FlagRef | null {
     const pos = this.resolvePoint(p);
-    if (!pos) return null;
-    for (const { flag, from, to } of this.liveFlags(pos.block)) {
-      if (from <= pos.offset && pos.offset <= to) return flag;
-    }
-    return null;
+    return pos ? this.flagAtPos(pos) : null;
   }
 
   /** Every visible flag in document order. */
@@ -330,8 +368,12 @@ export class SpellChecker {
     if (!pos || all.length === 0) return null;
     const order = this.blockOrder();
     const bi = order.get(pos.block) ?? -1;
+    const fi = this.fieldIndex(pos.block, pos.field);
     const hit = all.find(
-      (e) => e.blockIndex > bi || (e.blockIndex === bi && e.from > pos.offset),
+      (e) =>
+        e.blockIndex > bi ||
+        (e.blockIndex === bi &&
+          (e.fieldIndex > fi || (e.fieldIndex === fi && e.from > pos.offset))),
     );
     return hit?.flag ?? (wrap ? all[0].flag : null);
   }
@@ -342,9 +384,14 @@ export class SpellChecker {
     if (!pos || all.length === 0) return null;
     const order = this.blockOrder();
     const bi = order.get(pos.block) ?? Infinity;
+    const fi = this.fieldIndex(pos.block, pos.field);
     for (let i = all.length - 1; i >= 0; i--) {
       const e = all[i];
-      if (e.blockIndex < bi || (e.blockIndex === bi && e.to < pos.offset)) {
+      if (
+        e.blockIndex < bi ||
+        (e.blockIndex === bi &&
+          (e.fieldIndex < fi || (e.fieldIndex === fi && e.to < pos.offset)))
+      ) {
         return e.flag;
       }
     }
@@ -358,7 +405,7 @@ export class SpellChecker {
   currentRange(f: FlagRef): { from: number; to: number } | null {
     const raw = findRawBlock(this.o.doc.getRawBlocks(), f.blockId);
     if (!raw) return null;
-    return resolveAnchoredRange(charOffsetIndex(raw), f.range);
+    return resolveAnchoredRange(charOffsetIndex(raw, f.field), f.range);
   }
 
   /** Suggestions for a flag (LRU-cached, in-flight requests de-duplicated). */
@@ -425,7 +472,7 @@ export class SpellChecker {
     const now = this.now();
     this.lastLocalInputAt = now;
     this.changeSinceNotify = true;
-    const caret = pointOf(this.o.editor.state.selection.range);
+    const caret = this.caretOf(this.o.editor.state);
     const caretBlock = caret?.block ?? null;
 
     for (const id of touched) {
@@ -434,12 +481,13 @@ export class SpellChecker {
     }
 
     const last = tx.ops[tx.ops.length - 1];
+    const typed = last ? insertedText(last) : null;
     const finishedWord =
       caretBlock !== null &&
       last !== undefined &&
-      last.op === "text_insert" &&
+      typed !== null &&
       last.blockId === caretBlock &&
-      BOUNDARY_CHAR.test(insertedText(last));
+      BOUNDARY_CHAR.test(typed);
 
     if (caret) this.dropFlagsAroundCaret(caret, tx.ops, finishedWord);
 
@@ -454,7 +502,7 @@ export class SpellChecker {
 
   private onSnapshot = (snapshot: EditorStateSnapshot) => {
     if (!this.running) return;
-    const caret = pointOf(snapshot.selection.range);
+    const caret = this.caretOf(snapshot);
     const byTyping = this.changeSinceNotify;
     this.changeSinceNotify = false;
     const prev = this.lastCaret;
@@ -462,7 +510,9 @@ export class SpellChecker {
       (caret === null) !== (prev === null) ||
       (caret !== null &&
         prev !== null &&
-        (caret.block !== prev.block || caret.offset !== prev.offset));
+        (caret.block !== prev.block ||
+          !sameField(caret.field, prev.field) ||
+          caret.offset !== prev.offset));
     if (!moved) return;
     this.lastCaret = caret;
     this.caretByTyping = byTyping;
@@ -479,7 +529,7 @@ export class SpellChecker {
       this.prefetchTimer = setTimeout(() => {
         this.prefetchTimer = null;
         if (!this.running) return;
-        const f = this.flagAt({ block: caret.block, offset: caret.offset });
+        const f = this.flagAtPos(caret);
         if (f) void this.suggest(f).catch(() => undefined);
       }, PREFETCH_DELAY_MS);
     }
@@ -502,7 +552,14 @@ export class SpellChecker {
   private forgetBlock(blockId: string): void {
     this.versions.delete(blockId);
     this.dirty.delete(blockId);
-    if (this.flagsByBlock.delete(blockId)) this.schedulePublish();
+    let changed = false;
+    for (const unit of [...this.flagsByUnit.keys()]) {
+      if (blockOfUnit(unit) === blockId) {
+        this.flagsByUnit.delete(unit);
+        changed = true;
+      }
+    }
+    if (changed) this.schedulePublish();
   }
 
   private queue(blockId: string, priority: CheckPriority, delay: number): void {
@@ -555,11 +612,11 @@ export class SpellChecker {
       .blocks({ from: "start", to: "end" })
       .filter((b) => !this.skipBlockTypes.has(b.type));
     const live = new Set(all.map((b) => b.id));
-    for (const id of [...this.flagsByBlock.keys()]) {
-      if (!live.has(id)) this.flagsByBlock.delete(id);
+    for (const unit of [...this.flagsByUnit.keys()]) {
+      if (!live.has(blockOfUnit(unit))) this.flagsByUnit.delete(unit);
     }
 
-    const caretBlock = pointOf(editor.state.selection.range)?.block ?? null;
+    const caretBlock = this.caretOf(editor.state)?.block ?? null;
     const viewport = editor.view.getViewport();
     const near: BlockData[] = [];
     const rest: BlockData[] = [];
@@ -603,13 +660,46 @@ export class SpellChecker {
         this.forgetBlock(id);
         continue;
       }
+      const version = this.versions.get(id) ?? 0;
+      // Prose a node keeps in structured content (a table's cells) is checked
+      // field by field; such a block has no prose of its own to check.
+      const fields = editor.query.textFields(id);
+      if (fields.length > 0) {
+        const live = new Set<string>();
+        for (const field of fields) {
+          const address = {
+            contentId: field.contentId,
+            nodeId: field.nodeId,
+            field: field.field,
+          };
+          const unit = unitKey(id, address);
+          live.add(unit);
+          if (field.text.trim().length === 0) {
+            this.setFlags(unit, []);
+            continue;
+          }
+          blocks.push({
+            blockId: unit,
+            version,
+            text: field.text,
+            skip: this.skipSpansOf(field.marks),
+          });
+        }
+        // A cell that has gone takes its flags with it.
+        for (const unit of [...this.flagsByUnit.keys()]) {
+          if (blockOfUnit(unit) === id && !live.has(unit)) {
+            this.setFlags(unit, []);
+          }
+        }
+        continue;
+      }
       if (b.text.trim().length === 0) {
         this.setFlags(id, []);
         continue;
       }
       blocks.push({
         blockId: id,
-        version: this.versions.get(id) ?? 0,
+        version,
         text: b.text,
         skip: this.skipSpans(id, b.text.length),
       });
@@ -642,10 +732,17 @@ export class SpellChecker {
     length: number,
   ): ReadonlyArray<readonly [number, number]> {
     if (length === 0) return [];
-    const runs = this.o.editor.query.marks({
-      from: { block: blockId, offset: 0 },
-      to: { block: blockId, offset: length },
-    });
+    return this.skipSpansOf(
+      this.o.editor.query.marks({
+        from: { block: blockId, offset: 0 },
+        to: { block: blockId, offset: length },
+      }),
+    );
+  }
+
+  private skipSpansOf(
+    runs: readonly Pick<TextFieldMark, "name" | "from" | "to">[],
+  ): ReadonlyArray<readonly [number, number]> {
     const spans: Array<readonly [number, number]> = [];
     for (const m of runs) {
       if (this.skipMarks.has(m.name) && m.to > m.from)
@@ -656,38 +753,42 @@ export class SpellChecker {
   }
 
   private applyResult(r: CheckedBlock): void {
-    if ((this.versions.get(r.blockId) ?? 0) !== r.version) return; // stale
-    const raw = findRawBlock(this.o.doc.getRawBlocks(), r.blockId);
+    // `r.blockId` is the unit key the request was sent with.
+    const unit = r.blockId;
+    const { blockId, field } = parseUnitKey(unit);
+    if ((this.versions.get(blockId) ?? 0) !== r.version) return; // stale
+    const raw = findRawBlock(this.o.doc.getRawBlocks(), blockId);
     if (!raw) {
-      this.forgetBlock(r.blockId);
+      this.forgetBlock(blockId);
       return;
     }
     const flags = [...r.flags]
       .sort((a, b) => a.from - b.from)
       .slice(0, this.maxFlagsPerBlock);
-    const ranges = anchorRanges(raw, flags);
+    const ranges = anchorRanges(raw, flags, field);
     const refs: FlagRef[] = flags.map((f, i) => ({
       ...f,
-      blockId: r.blockId,
+      blockId,
+      ...(field ? { field } : {}),
       version: r.version,
       range: ranges[i],
     }));
     // Ignore-once entries survive exactly as long as the same word stands at
-    // the same anchors; anything else in this block is forgotten.
+    // the same anchors; anything else in this text is forgotten.
     const alive = new Set(refs.map(ignoreKey));
-    const prefix = `${r.blockId}|`;
+    const prefix = `${unit}|`;
     for (const key of this.ignoredOnce) {
       if (key.startsWith(prefix) && !alive.has(key))
         this.ignoredOnce.delete(key);
     }
-    this.setFlags(r.blockId, refs);
+    this.setFlags(unit, refs);
   }
 
-  private setFlags(blockId: string, flags: FlagRef[]): void {
+  private setFlags(unit: string, flags: FlagRef[]): void {
     if (flags.length === 0) {
-      if (!this.flagsByBlock.delete(blockId)) return;
+      if (!this.flagsByUnit.delete(unit)) return;
     } else {
-      this.flagsByBlock.set(blockId, flags);
+      this.flagsByUnit.set(unit, flags);
     }
     this.schedulePublish();
   }
@@ -701,12 +802,11 @@ export class SpellChecker {
     ops: readonly Operation[],
     boundaryTyped: boolean,
   ): void {
-    const flags = this.flagsByBlock.get(caret.block);
+    const unit = unitKey(caret.block, caret.field);
+    const flags = this.flagsByUnit.get(unit);
     if (!flags) return;
     const textual = ops.some(
-      (op) =>
-        op.blockId === caret.block &&
-        (op.op === "text_insert" || op.op === "text_delete"),
+      (op) => op.blockId === caret.block && isTextEdit(op),
     );
     if (!textual) return;
     const raw = findRawBlock(this.o.doc.getRawBlocks(), caret.block);
@@ -714,7 +814,7 @@ export class SpellChecker {
       this.forgetBlock(caret.block);
       return;
     }
-    const index = charOffsetIndex(raw);
+    const index = charOffsetIndex(raw, caret.field);
     // A boundary char typed right after a word does not touch the word: only
     // the gap after it is "edited". Anything else clears caret ± 1.
     const lo = boundaryTyped ? caret.offset : caret.offset - 1;
@@ -724,7 +824,7 @@ export class SpellChecker {
       if (!live) return false;
       return live.to < lo || live.from > hi;
     });
-    if (kept.length !== flags.length) this.setFlags(caret.block, kept);
+    if (kept.length !== flags.length) this.setFlags(unit, kept);
   }
 
   // ── publishing ────────────────────────────────────────────────────────────
@@ -757,21 +857,22 @@ export class SpellChecker {
     if (!this.running) return;
     this.lastPublishAt = this.now();
     const { editor } = this.o;
-    const caret = pointOf(editor.state.selection.range);
+    const caret = this.caretOf(editor.state);
+    const caretUnit = caret ? unitKey(caret.block, caret.field) : null;
     const hideCaretWord =
       caret !== null &&
       this.caretByTyping &&
       this.now() - this.lastLocalInputAt < this.caretGraceMs;
 
     let entries: FlagRef[] = [];
-    for (const [blockId, flags] of this.flagsByBlock) {
+    for (const [unit, flags] of this.flagsByUnit) {
       let list = flags;
       if (this.ignoredOnce.size > 0) {
         list = list.filter((f) => !this.ignoredOnce.has(ignoreKey(f)));
       }
-      if (hideCaretWord && caret && blockId === caret.block) {
-        const raw = findRawBlock(this.o.doc.getRawBlocks(), blockId);
-        const index = raw ? charOffsetIndex(raw) : null;
+      if (hideCaretWord && caret && unit === caretUnit) {
+        const raw = findRawBlock(this.o.doc.getRawBlocks(), caret.block);
+        const index = raw ? charOffsetIndex(raw, caret.field) : null;
         list = list.filter((f) => {
           if (!index) return true;
           const live = resolveAnchoredRange(index, f.range);
@@ -848,9 +949,56 @@ export class SpellChecker {
 
   // ── resolution helpers ────────────────────────────────────────────────────
 
+  /**
+   * The caret: a flat one from the selection range, or one inside a prose
+   * field of structured content (a table cell) from the content selection.
+   */
+  private caretOf(state: {
+    readonly selection: EditorStateSnapshot["selection"];
+    readonly contentSelection: ContentSelection | null;
+  }): CaretPos | null {
+    const flat = pointOf(state.selection.range);
+    if (flat) return flat;
+    const focus = state.contentSelection?.focus;
+    if (!focus || focus.kind !== "text") return null;
+    const field = {
+      contentId: focus.contentId,
+      nodeId: focus.nodeId,
+      field: focus.field,
+    };
+    let offset = 0;
+    if (focus.afterCharId !== null) {
+      const raw = findRawBlock(this.o.doc.getRawBlocks(), focus.blockId);
+      const at = raw
+        ? charOffsetIndex(raw, field).get(focus.afterCharId)
+        : undefined;
+      if (at === undefined) return null;
+      offset = at;
+    }
+    return { block: focus.blockId, field, offset };
+  }
+
+  /** The visible flag whose word contains the caret position, or `null`. */
+  private flagAtPos(pos: CaretPos): FlagRef | null {
+    for (const { flag, from, to } of this.liveFlags(
+      unitKey(pos.block, pos.field),
+    )) {
+      if (from <= pos.offset && pos.offset <= to) return flag;
+    }
+    return null;
+  }
+
+  /** Where a field sits in its block's reading order; `-1` for block text. */
+  private fieldIndex(blockId: string, field?: TextFieldAddress): number {
+    if (!field) return -1;
+    return this.o.editor.query
+      .textFields(blockId)
+      .findIndex((candidate) => sameField(candidate, field));
+  }
+
   private resolvePoint(p: DocPoint): CaretPos | null {
     const { editor } = this.o;
-    if (p === "caret") return pointOf(editor.state.selection.range);
+    if (p === "caret") return this.caretOf(editor.state);
     if (p === "start" || p === "end") {
       const blocks = editor.query.blocks({ from: "start", to: "end" });
       const b = p === "start" ? blocks[0] : blocks[blocks.length - 1];
@@ -874,15 +1022,16 @@ export class SpellChecker {
     return order;
   }
 
-  /** A block's visible flags with their current offsets (dead anchors dropped). */
+  /** One text's visible flags with their current offsets (dead anchors dropped). */
   private liveFlags(
-    blockId: string,
+    unit: string,
   ): Array<{ flag: FlagRef; from: number; to: number }> {
-    const flags = this.flagsByBlock.get(blockId);
+    const flags = this.flagsByUnit.get(unit);
     if (!flags) return [];
+    const { blockId, field } = parseUnitKey(unit);
     const raw = findRawBlock(this.o.doc.getRawBlocks(), blockId);
     if (!raw) return [];
-    const index = charOffsetIndex(raw);
+    const index = charOffsetIndex(raw, field);
     const out: Array<{ flag: FlagRef; from: number; to: number }> = [];
     for (const flag of flags) {
       if (this.ignoredOnce.has(ignoreKey(flag))) continue;
@@ -895,6 +1044,7 @@ export class SpellChecker {
   private orderedFlags(): Array<{
     flag: FlagRef;
     blockIndex: number;
+    fieldIndex: number;
     from: number;
     to: number;
   }> {
@@ -902,15 +1052,36 @@ export class SpellChecker {
     const out: Array<{
       flag: FlagRef;
       blockIndex: number;
+      fieldIndex: number;
       from: number;
       to: number;
     }> = [];
-    for (const blockId of this.flagsByBlock.keys()) {
+    const fieldOrder = new Map<string, number>();
+    for (const unit of this.flagsByUnit.keys()) {
+      const { blockId, field } = parseUnitKey(unit);
       const blockIndex = order.get(blockId);
       if (blockIndex === undefined) continue;
-      for (const e of this.liveFlags(blockId)) out.push({ ...e, blockIndex });
+      let fieldIndex = -1;
+      if (field) {
+        if (!fieldOrder.has(blockId)) {
+          this.o.editor.query.textFields(blockId).forEach((f, i) => {
+            fieldOrder.set(unitKey(blockId, f), i);
+          });
+          fieldOrder.set(blockId, -1);
+        }
+        fieldIndex = fieldOrder.get(unit) ?? -1;
+        if (fieldIndex < 0) continue;
+      }
+      for (const e of this.liveFlags(unit)) {
+        out.push({ ...e, blockIndex, fieldIndex });
+      }
     }
-    out.sort((a, b) => a.blockIndex - b.blockIndex || a.from - b.from);
+    out.sort(
+      (a, b) =>
+        a.blockIndex - b.blockIndex ||
+        a.fieldIndex - b.fieldIndex ||
+        a.from - b.from,
+    );
     return out;
   }
 }
@@ -918,11 +1089,28 @@ export class SpellChecker {
 function ignoreKey(f: FlagRef): string {
   const from = "afterCharId" in f.range.from ? f.range.from.afterCharId : "";
   const to = "afterCharId" in f.range.to ? f.range.to.afterCharId : "";
-  return `${f.blockId}|${from}|${to}|${normalizeWord(f.word)}`;
+  return `${unitKey(f.blockId, f.field)}|${from}|${to}|${normalizeWord(f.word)}`;
 }
 
-function insertedText(op: Extract<Operation, { op: "text_insert" }>): string {
+/** An edit to characters: in a block's own text or in a structured field. */
+function isTextEdit(op: Operation): boolean {
+  if (op.op === "text_insert" || op.op === "text_delete") return true;
+  return (
+    op.op === "content_edit" &&
+    (op.edit.kind === "text_insert" || op.edit.kind === "text_delete")
+  );
+}
+
+/** The text an insert op typed, or `null` for any other op. */
+function insertedText(op: Operation): string | null {
+  const runs =
+    op.op === "text_insert"
+      ? op.charRuns
+      : op.op === "content_edit" && op.edit.kind === "text_insert"
+        ? op.edit.charRuns
+        : null;
+  if (!runs) return null;
   let text = "";
-  for (const run of op.charRuns) text += run.text;
+  for (const run of runs) text += run.text;
   return text;
 }

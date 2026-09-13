@@ -11,6 +11,7 @@ import {
   createParagraphBelowOnClick,
 } from "../actions/edit-actions";
 import { TEXT_CLICK } from "../actions/pointer-actions";
+import { structuredMarkRunForContentPoint } from "../actions/structured-marks";
 import {
   CLOSE_NODE_OVERLAY,
   isVisualBlockSelection,
@@ -578,63 +579,15 @@ export function handleTouchMove(
         }
       }
 
-      // Follow either caret currency. Structured nodes resolve directly to a
-      // stable endpoint; ordinary text keeps the index-space path. Both use
-      // nearest-stop drag geometry and feed the previous stop back for row
-      // hysteresis inside stacked math slots.
-      let moved = false;
-      const currentContent = state.document.contentSelection;
-      if (currentContent) {
-        const hit = getContentSelectionFromViewport(
-          canvasX,
-          canvasY,
-          state,
-          viewport,
-          "touch",
-          undefined,
-          visibility,
-          {
-            drag: true,
-            previousContentPoint: currentContent.focus,
-          },
-        );
-        if (
-          hit &&
-          hit.focus.blockId === currentContent.focus.blockId &&
-          hit.focus.contentId === currentContent.focus.contentId
-        ) {
-          if (!contentPointsEqual(currentContent.focus, hit.focus)) {
-            state.actionBus.dispatch(CURSOR_DRAG_BOUNDARY);
-          }
-          const next = updateContentSelection(state, hit);
-          if (next.document.contentSelection) {
-            state = next;
-            moved = true;
-          }
-        }
-      } else {
-        const newPosition = getTextPositionFromViewport(
-          canvasX,
-          canvasY,
-          state,
-          viewport,
-          undefined,
-          visibility,
-          { drag: true, prev: state.document.cursor?.position ?? null },
-        );
-        if (newPosition) {
-          const prevPosition = state.document.cursor?.position;
-          if (
-            prevPosition &&
-            (prevPosition.blockIndex !== newPosition.blockIndex ||
-              prevPosition.textIndex !== newPosition.textIndex)
-          ) {
-            state.actionBus.dispatch(CURSOR_DRAG_BOUNDARY);
-          }
-          state = updateCursor(state, newPosition);
-          moved = true;
-        }
-      }
+      const dragged = dragCaretToPoint(
+        state,
+        canvasX,
+        canvasY,
+        viewport,
+        visibility,
+      );
+      const moved = dragged !== null;
+      if (dragged) state = dragged;
 
       if (moved) {
         state.actionBus.dispatch(CURSOR_DRAG_MOVE, {
@@ -1504,4 +1457,110 @@ export function handleTouchCancel(
       },
     },
   };
+}
+
+/**
+ * Move a lone caret (the magnifier drag) to the point under the finger, in
+ * whichever currency the target speaks: a node that places carets in its own
+ * content (a table cell, an equation) answers first, ordinary text otherwise.
+ * Unlike a range drag, a lone caret has no anchor to keep inside one
+ * attachment, so it crosses freely between paragraphs, cells, other tables and
+ * equations. Dispatches {@link CURSOR_DRAG_BOUNDARY} when the caret changes,
+ * unless `signalBoundary` is off (the edge auto-scroll moves it every frame).
+ * Returns `null` when nothing under the point can hold the caret.
+ *
+ * Shared by the touchmove drag and the per-frame edge auto-scroll, which must
+ * resolve alike or the edge frames undo the drag's caret.
+ */
+export function dragCaretToPoint(
+  state: EditorState,
+  canvasX: number,
+  canvasY: number,
+  viewport: ViewportState,
+  visibility?: VisibleBlockRange,
+  { signalBoundary = true }: { signalBoundary?: boolean } = {},
+): EditorState | null {
+  const boundary = () => {
+    if (signalBoundary) state.actionBus.dispatch(CURSOR_DRAG_BOUNDARY);
+  };
+  const currentContent = state.document.contentSelection;
+  const cursor = state.document.cursor?.position ?? null;
+  const flatAt = () =>
+    getTextPositionFromViewport(
+      canvasX,
+      canvasY,
+      state,
+      viewport,
+      undefined,
+      visibility,
+      { drag: true, prev: cursor },
+    );
+  const placeFlat = (position: Position): EditorState | null => {
+    // A block without flat text (a table) has no index to hold a caret; its
+    // content hit-test above is the only way in.
+    const block = state.document.page.blocks[position.blockIndex];
+    if (!block || !isTextualBlock(block)) return null;
+    if (
+      currentContent ||
+      !cursor ||
+      cursor.blockIndex !== position.blockIndex ||
+      cursor.textIndex !== position.textIndex
+    ) {
+      boundary();
+    }
+    return updateCursor(state, position);
+  };
+
+  // An inline structured mark (a math chip) keeps claiming the pointer on its
+  // line for row hysteresis, so leaving it is judged on the flat position —
+  // the same exit test the mouse drag uses.
+  if (currentContent) {
+    const run = structuredMarkRunForContentPoint(state, currentContent.focus);
+    if (run) {
+      const flat = getTextPositionFromViewport(
+        canvasX,
+        canvasY,
+        state,
+        viewport,
+        undefined,
+        visibility,
+      );
+      if (
+        flat &&
+        (flat.blockIndex !== run.blockIndex ||
+          flat.textIndex < run.startIndex ||
+          flat.textIndex > run.endIndex)
+      ) {
+        return placeFlat(flat);
+      }
+    }
+  }
+
+  const hit = getContentSelectionFromViewport(
+    canvasX,
+    canvasY,
+    state,
+    viewport,
+    "touch",
+    undefined,
+    visibility,
+    // Nodes apply row hysteresis only to a previous point in their own
+    // attachment, so a point elsewhere is harmless.
+    { drag: true, previousContentPoint: currentContent?.focus },
+  );
+  if (hit) {
+    const next = updateContentSelection(state, hit);
+    if (next.document.contentSelection) {
+      if (
+        !currentContent ||
+        !contentPointsEqual(currentContent.focus, hit.focus)
+      ) {
+        boundary();
+      }
+      return next;
+    }
+  }
+
+  const position = flatAt();
+  return position ? placeFlat(position) : null;
 }

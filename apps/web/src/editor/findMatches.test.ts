@@ -3,7 +3,11 @@ import {
   mathContentIdForBlock,
   parseMathDocumentInit,
 } from "@tasfer/math/data";
+import { createDoc, type ContentPoint } from "@tasfer/editor";
+import { blockTextFields } from "@tasfer/editor/internal";
+import { getTableDocument, tableCaretFromContentPoint } from "@tasfer/table";
 import { describe, expect, it } from "vitest";
+import { appDataSchema } from "../appDataSchema";
 import { findDocumentMatches } from "./findMatches";
 
 function textBlock(id: string, text: string): Block {
@@ -106,10 +110,47 @@ describe("findDocumentMatches", () => {
       "content",
       "flat",
     ]);
-    expect(matches[0]?.scrollOffset).toBe(1);
+    expect(matches[0]?.scrollTarget).toEqual({ block: "inline", offset: 1 });
     expect(matches[0]?.range.from).toMatchObject({
       blockId: "inline",
       contentId: "inline/inline",
     });
+  });
+
+  it("finds text inside table cells, in reading order", () => {
+    const doc = createDoc({
+      markdown: [
+        "cat",
+        "",
+        "| Pet | Note |",
+        "| --- | --- |",
+        "| cat | a black cat |",
+      ].join("\n"),
+      schema: appDataSchema,
+    });
+    const blocks = doc.getRawBlocks();
+    const matches = findDocumentMatches(blocks, "cat", (block) =>
+      blockTextFields(block, appDataSchema),
+    );
+
+    expect(matches.map((match) => match.selection.kind)).toEqual([
+      "flat",
+      "content",
+      "content",
+    ]);
+    const table = blocks.find((block) => (block.type as string) === "table")!;
+    const document = getTableDocument(table)!;
+    const spans = matches.slice(1).map((match) => {
+      const range = match.range as { from: ContentPoint; to: ContentPoint };
+      return [
+        tableCaretFromContentPoint(document, range.from)?.offset,
+        tableCaretFromContentPoint(document, range.to)?.offset,
+      ];
+    });
+    expect(spans).toEqual([
+      [0, 3],
+      [8, 11],
+    ]);
+    doc.destroy();
   });
 });

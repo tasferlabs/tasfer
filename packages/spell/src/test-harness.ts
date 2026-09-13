@@ -9,7 +9,7 @@
  * this package it imports only the public `@tasfer/editor` root.
  */
 
-import type { Doc, Operation, TasferEditor } from "@tasfer/editor";
+import type { Doc, Operation, Schema, TasferEditor } from "@tasfer/editor";
 import { createDoc, createEditor } from "@tasfer/editor";
 
 const VIEWPORT = { width: 800, height: 480 };
@@ -180,14 +180,23 @@ export interface Harness {
  */
 export function createHarness(
   content: string | { bytes: Uint8Array },
-  opts: { peerId?: string } = {},
+  opts: { peerId?: string; schema?: Schema } = {},
 ): Harness {
   installFakeDom();
   const peerId = opts.peerId ?? `spell-test-${crypto.randomUUID().slice(0, 8)}`;
   const doc =
     typeof content === "string"
-      ? createDoc({ markdown: content, peerId, pageId: "spell-page" })
-      : createDoc({ bytes: content.bytes, peerId });
+      ? createDoc({
+          markdown: content,
+          peerId,
+          pageId: "spell-page",
+          ...(opts.schema ? { schema: opts.schema.data } : {}),
+        })
+      : createDoc({
+          bytes: content.bytes,
+          peerId,
+          ...(opts.schema ? { schema: opts.schema.data } : {}),
+        });
   const localOps: Operation[] = [];
   const offDoc = doc.on("update", (u) => {
     if (u.local) localOps.push(...u.ops);
@@ -196,6 +205,7 @@ export function createHarness(
     element: fakeElement("div"),
     doc,
     accessibilityTree: false,
+    ...(opts.schema ? { schema: opts.schema } : {}),
   });
   return {
     editor,

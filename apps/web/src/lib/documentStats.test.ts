@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
-import type { Block } from "@tasfer/editor";
+import {
+  createDoc,
+  type Block,
+  type ContentSelection,
+  type TextFieldInfo,
+} from "@tasfer/editor";
+import { appDataSchema } from "@/appDataSchema";
 import {
   computeDocumentStats,
   computeSelectionStats,
+  contentSelectionSpan,
   countWordsFromBlocks,
   selectionSpanFromRange,
 } from "./documentStats";
@@ -58,6 +65,19 @@ describe("computeDocumentStats", () => {
     ]);
     expect(stats.words).toBe(3);
     expect(stats.paragraphs).toBe(1);
+  });
+
+  it("counts the words in table cells without calling cells paragraphs", () => {
+    const doc = createDoc({
+      markdown: ["Intro text.", "", "| Name | Note |", "| --- | --- |", "| one two | three |"].join("\n"),
+      schema: appDataSchema,
+    });
+    const stats = computeDocumentStats(doc.getRawBlocks());
+    doc.destroy();
+    // "Intro text." plus Name, Note, one, two, three.
+    expect(stats.words).toBe(7);
+    expect(stats.paragraphs).toBe(1);
+    expect(stats.sentences).toBe(1);
   });
 
   it("counts each CJK character as a word", () => {
@@ -162,5 +182,83 @@ describe("computeSelectionStats", () => {
       to: { block: "b3", offset: 4 },
     });
     expect(stats.words).toBe(0);
+  });
+});
+
+describe("selection inside table cells", () => {
+  const point = (afterCharId: string | null) =>
+    ({
+      kind: "text",
+      blockId: "table",
+      contentId: "grid",
+      nodeId: "cell",
+      field: "text",
+      afterCharId,
+      affinity: "forward",
+    }) as ContentSelection["anchor"];
+  const editorWith = (
+    selection: ContentSelection | null,
+    text: string,
+    fields: readonly TextFieldInfo[] = [{} as TextFieldInfo],
+  ) => ({
+    state: { contentSelection: selection },
+    query: { textFields: () => [...fields], selectedText: () => text },
+  });
+
+  it("counts the selected cell text, not the document", () => {
+    const span = contentSelectionSpan(
+      editorWith({ anchor: point(null), focus: point("p:1") }, "one two"),
+    );
+    expect(span).toEqual({ text: "one two" });
+    const stats = computeSelectionStats([], span!);
+    expect(stats.words).toBe(2);
+    // Cells are not paragraphs, the same as the document count.
+    expect(stats.paragraphs).toBe(0);
+  });
+
+  it("counts every cell of a range across cells", () => {
+    const stats = computeSelectionStats([], { text: "one two\tthree\nfour" });
+    expect(stats.words).toBe(4);
+    expect(stats.characters).toBe("one twothreefour".length);
+  });
+
+  it("is no selection for a caret or for content without prose", () => {
+    expect(
+      contentSelectionSpan(
+        editorWith({ anchor: point("p:1"), focus: point("p:1") }, ""),
+      ),
+    ).toBeNull();
+    expect(contentSelectionSpan(editorWith(null, ""))).toBeNull();
+    // An equation's source is not prose the document count reads.
+    expect(
+      contentSelectionSpan(
+        editorWith({ anchor: point(null), focus: point("p:1") }, "x^2", []),
+      ),
+    ).toBeNull();
+  });
+
+  it("brings a table's cells along when a range passes over it", () => {
+    const doc = createDoc({
+      markdown: [
+        "Intro text.",
+        "",
+        "| Name | Note |",
+        "| --- | --- |",
+        "| one two | three |",
+        "",
+        "Outro here",
+      ].join("\n"),
+      schema: appDataSchema,
+    });
+    const blocks = doc.getRawBlocks().filter((block) => !block.deleted);
+    doc.destroy();
+    const first = blocks[0]!.id;
+    const last = blocks[blocks.length - 1]!.id;
+    const stats = computeSelectionStats(blocks, {
+      from: { block: first, offset: 0 },
+      to: { block: last, offset: "Outro".length },
+    });
+    // "Intro text." + Name, Note, one, two, three + "Outro".
+    expect(stats.words).toBe(8);
   });
 });

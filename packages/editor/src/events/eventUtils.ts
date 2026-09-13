@@ -6,6 +6,8 @@ import { isTouchDevice, isTouchOnlyDevice } from "../node-shared";
 import { AtomicNode } from "../rendering/nodes";
 import { getBlockHeight } from "../rendering/renderer";
 import {
+  contentSelectionHandlePositions,
+  getContentSelectionDocumentGeometry,
   getSelectionHandleCoords,
   isNodeSelection,
   scrollToMakeCursorVisible,
@@ -156,7 +158,15 @@ function getSelectionHandlePositions(
 } | null {
   const selection = state.document.selection;
   if (!selection || selection.isCollapsed || isNodeSelection(selection)) {
-    return null;
+    // A range inside a node's content hangs its handles off the band its node
+    // paints (see Node.contentSelectionGeometry).
+    const geometry = getContentSelectionDocumentGeometry(
+      state,
+      viewport,
+      undefined,
+      visibility,
+    );
+    return geometry ? contentSelectionHandlePositions(geometry) : null;
   }
 
   const styles = getEditorStyles(state);

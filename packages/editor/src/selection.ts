@@ -1,5 +1,6 @@
 import { nextCodePointEnd, prevCodePointStart } from "./code-points";
 import { currentFontFamily, measureCharsUpToIndex } from "./fonts";
+import { caretMarkEdgeSide, markEdgeAt, withMarkEdgeSide } from "./mark-edge";
 import {
   getContentWithComposition,
   TextNode,
@@ -7,7 +8,11 @@ import {
   type TextualBlock,
 } from "./nodes/TextNode";
 import type { MarkRegistry } from "./rendering/marks";
-import { contentPointCaretRect } from "./rendering/nodes/content-caret";
+import {
+  contentPointCaretRect,
+  contentSelectionGeometry,
+} from "./rendering/nodes/content-caret";
+import type { NodeContentSelectionGeometry } from "./rendering/nodes/Node";
 import type { NodeRegistry } from "./rendering/nodes/Node";
 import { getBlockHeight } from "./rendering/renderer";
 import { getBlockDirection } from "./rtl";
@@ -364,6 +369,73 @@ export function getContentPointDocumentCoords(
     styles,
     visibility,
   );
+}
+
+/**
+ * Document-space geometry of the live nested range (text selected inside a
+ * table cell): the band its node paints and the edges its handles hang from.
+ * `null` without a non-collapsed content selection, or when the owning node
+ * declares no range geometry.
+ */
+export function getContentSelectionDocumentGeometry(
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles = getEditorStyles(state),
+  visibility?: VisibleBlockRange,
+): NodeContentSelectionGeometry | null {
+  const selection = state.document.contentSelection;
+  if (!selection || isContentSelectionCollapsed(selection)) return null;
+  const blockIndex = findBlockIndex(
+    state.document.page,
+    selection.focus.blockId,
+  );
+  const block = state.document.page.blocks[blockIndex];
+  if (!block || block.deleted) return null;
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  return contentSelectionGeometry(
+    selection,
+    block,
+    blockIndex,
+    state,
+    maxWidth,
+    styles,
+    {
+      x: styles.canvas.paddingLeft,
+      y: getBlockTopDocument(
+        state,
+        blockIndex,
+        maxWidth,
+        styles,
+        viewport,
+        visibility,
+      ),
+    },
+  );
+}
+
+/**
+ * The anchor and focus handle placements for a nested range's geometry — the
+ * same shape the flat handle paths produce: the start handle hangs above its
+ * edge (`isTop`), the end handle below.
+ */
+export function contentSelectionHandlePositions(
+  geometry: NodeContentSelectionGeometry,
+): {
+  anchor: { x: number; y: number; height: number; isTop: boolean };
+  focus: { x: number; y: number; height: number; isTop: boolean };
+} {
+  const { start, end, isForward } = geometry;
+  const at = (edge: NodeContentSelectionGeometry["start"], isTop: boolean) => ({
+    x: edge.x,
+    y: edge.y,
+    height: edge.height,
+    isTop,
+  });
+  return {
+    anchor: at(isForward ? start : end, isForward),
+    focus: at(isForward ? end : start, !isForward),
+  };
 }
 
 /**
@@ -1274,7 +1346,25 @@ export function isPointWithinSelectionRects(
 ): boolean {
   const selection = state.document.selection;
   if (!selection || selection.isCollapsed) {
-    return false;
+    // A range inside a node's content (text selected in a table cell) is
+    // tested against the band that node paints for it.
+    const geometry = getContentSelectionDocumentGeometry(
+      state,
+      viewport,
+      styles,
+      visibility,
+    );
+    const documentY = y + viewport.scrollY;
+    return (
+      !!geometry &&
+      geometry.rects.some(
+        (rect) =>
+          x >= rect.x &&
+          x <= rect.x + rect.width &&
+          documentY >= rect.y &&
+          documentY <= rect.y + rect.height,
+      )
+    );
   }
 
   // Sort anchor and focus to get start and end
@@ -2420,7 +2510,91 @@ export function moveCursorToPosition(
   return newState;
 }
 
+/**
+ * Left arrow. At a mark edge the first press only switches which side of the
+ * edge the caret types on (see `mark-edge.ts`); otherwise the caret moves one
+ * position and, arriving on an edge, takes the side of the text it just passed.
+ */
 export function moveCursorLeft(state: EditorState): EditorState {
+  return moveCursorAcrossMarkEdges(state, "left", moveCursorLeftOneStep);
+}
+
+/** Right arrow — the mirror of {@link moveCursorLeft}. */
+export function moveCursorRight(state: EditorState): EditorState {
+  return moveCursorAcrossMarkEdges(state, "right", moveCursorRightOneStep);
+}
+
+function moveCursorAcrossMarkEdges(
+  state: EditorState,
+  direction: "left" | "right",
+  step: (state: EditorState) => EditorState,
+): EditorState {
+  const cursor = state.document.cursor;
+  // A held selection (Shift+arrow extends through here) keeps plain moves: the
+  // side is a typing concern, and an unmoved focus would stall the extension.
+  if (!cursor || state.document.selection || state.document.contentSelection) {
+    return step(state);
+  }
+  const block = state.document.page.blocks[cursor.position.blockIndex];
+  // "Forward" is logical: visual left advances through RTL text.
+  const rtl =
+    !!block &&
+    isTextualBlock(block) &&
+    getBlockDirection(block, state.marks) === "rtl";
+  const forward = (direction === "right") !== rtl;
+
+  const current = caretMarkEdgeSide(state);
+  if (current && current.side === (forward ? "before" : "after")) {
+    return updateCaretSide(
+      state,
+      withMarkEdgeSide(state, current.edge, forward ? "after" : "before"),
+    );
+  }
+
+  const moved = step(state);
+  const landed = moved.document.cursor?.position;
+  if (
+    !landed ||
+    moved.document.selection ||
+    moved.document.contentSelection ||
+    (landed.blockIndex === cursor.position.blockIndex &&
+      landed.textIndex === cursor.position.textIndex)
+  ) {
+    return moved;
+  }
+  // A forward step passed the text before the caret, so it already sits on the
+  // before side (the move reset the toggle to inherit). A backward step passed
+  // the text after it.
+  if (forward) return moved;
+  const edge = markEdgeAt(
+    moved,
+    moved.document.page.blocks[landed.blockIndex],
+    landed.textIndex,
+  );
+  return edge ? withMarkEdgeSide(moved, edge, "after") : moved;
+}
+
+/**
+ * Switching sides leaves the caret where it is, so refresh its blink clock:
+ * the press must show the caret (and its edge cue) rather than land on the off
+ * half of a blink.
+ */
+function updateCaretSide(
+  previous: EditorState,
+  next: EditorState,
+): EditorState {
+  const cursor = previous.document.cursor;
+  if (!cursor) return next;
+  return {
+    ...next,
+    document: {
+      ...next.document,
+      cursor: { ...cursor, lastUpdate: Date.now() },
+    },
+  };
+}
+
+function moveCursorLeftOneStep(state: EditorState): EditorState {
   if (!state.document.cursor) return createInitialCursorState(state);
 
   const { blockIndex: blockIndex, textIndex } = state.document.cursor.position;
@@ -2540,7 +2714,7 @@ export function moveCursorLeft(state: EditorState): EditorState {
   return state;
 }
 
-export function moveCursorRight(state: EditorState): EditorState {
+function moveCursorRightOneStep(state: EditorState): EditorState {
   if (!state.document.cursor) return createInitialCursorState(state);
 
   const { blockIndex: blockIndex, textIndex } = state.document.cursor.position;

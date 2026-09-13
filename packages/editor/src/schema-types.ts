@@ -5,6 +5,8 @@
  * type layer is carried by `Schema`, `DataSchema`, `Doc`, and `Editor` so a
  * schema assembled with `defineNode` / `defineMark` produces a typed public API.
  */
+import type { ContentSelection } from "./structured-selection";
+
 export interface SchemaDefinition {
   readonly blocks: Record<string, Record<string, unknown>>;
   readonly marks: Record<string, Record<string, unknown>>;
@@ -81,6 +83,12 @@ export type MarkInfoFor<S extends SchemaDefinition, T extends MarkNameOf<S>> = {
   readonly from: number;
   readonly to: number;
   readonly text: string;
+  /**
+   * Set when the run lives in text inside a block's structured content (a
+   * table cell): `from`/`to` are offsets into that field, and this is the
+   * run's extent as a nested range — a `setMark` range.
+   */
+  readonly content?: ContentSelection;
 };
 
 export type SchemaMarkInfo<S extends SchemaDefinition> = {

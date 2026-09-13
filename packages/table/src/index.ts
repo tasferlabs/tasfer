@@ -72,7 +72,6 @@ export {
   withinEdgeBox,
 } from "./edge-adders";
 export {
-  alignOffset,
   fitColumnWidths,
   layoutTable,
   type TableCellLayout,
@@ -109,11 +108,12 @@ export {
   type TableToolsOverlayData,
 } from "./overlays";
 export {
+  cellCaretX,
   cellFromPoint,
   cellLength,
   cellLineAtOffset,
   cellOffsetFromPoint,
-  cellOffsetX,
+  cellRangeRects,
   cellRuns,
   cellTextRange,
   cellWordRange,

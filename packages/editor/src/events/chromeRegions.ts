@@ -38,8 +38,16 @@ import {
   selectedBlockIds,
   snapSelectionToConstructs,
 } from "../selection";
-import type { EditorState } from "../state-types";
-import type { ContentPoint } from "../structured-selection";
+import type {
+  EditorState,
+  ViewportState,
+  VisibleBlockRange,
+} from "../state-types";
+import {
+  type ContentPoint,
+  contentPointsEqual,
+  updateContentSelection,
+} from "../structured-selection";
 import { getEditorStyles } from "../styles";
 import { getAtomicBlockAtPoint, getSelectionHandleAtPoint } from "./eventUtils";
 import {
@@ -49,6 +57,7 @@ import {
   withScrollbarInteraction,
   withStoppedMomentum,
 } from "./interaction-session";
+import { extendDragSelectionToPoint } from "./mouseEvents";
 import type { RegionCtx, RegionPoint } from "./regions";
 import { type Region, RegionRegistry } from "./regions";
 
@@ -179,6 +188,41 @@ function endHandleLoupe(state: EditorState, session: InteractionSession): void {
   session.handleDragPrevHit = null;
 }
 
+/**
+ * Move the held handle of a range inside a node's content (text selected in a
+ * table cell) to the finger: the focus follows through the node's own
+ * hit-test, within the same attachment, the anchor stays. Ticks
+ * {@link CURSOR_DRAG_BOUNDARY} when the focus moves. Unchanged state when the
+ * finger is over nothing the range can extend to.
+ */
+export function dragContentHandleToPoint(
+  state: EditorState,
+  x: number,
+  y: number,
+  viewport: ViewportState,
+  visibility?: VisibleBlockRange,
+  { signalBoundary = true }: { signalBoundary?: boolean } = {},
+): EditorState {
+  const previous = state.document.contentSelection?.focus;
+  const next = extendDragSelectionToPoint(
+    state,
+    x,
+    y,
+    viewport,
+    visibility,
+    "touch",
+  );
+  if (!next) return state;
+  const focus = next.document.contentSelection?.focus;
+  if (
+    signalBoundary &&
+    (!previous || !focus || !contentPointsEqual(previous, focus))
+  ) {
+    state.actionBus.dispatch(CURSOR_DRAG_BOUNDARY);
+  }
+  return next;
+}
+
 /** Touch selection handles (anchor/focus) — drag to adjust the selection. */
 const selectionHandleRegion: Region = {
   id: "selection-handle",
@@ -220,7 +264,16 @@ const selectionHandleRegion: Region = {
 
       let state = ctx.state;
       const sel = state.document.selection;
-      if (grabbedAnchorHandle && sel) {
+      const content = state.document.contentSelection;
+      if (grabbedAnchorHandle && !sel && content) {
+        // A range inside a node's content swaps its ends the same way.
+        const swapped = updateContentSelection(state, {
+          anchor: content.focus,
+          focus: content.anchor,
+          lastUpdate: Date.now(),
+        });
+        if (swapped.document.contentSelection) state = swapped;
+      } else if (grabbedAnchorHandle && sel) {
         state = {
           ...state,
           document: {
@@ -288,18 +341,23 @@ const selectionHandleRegion: Region = {
       // anchor must be the raw hit, not the snapped focus: a focus widened to a
       // construct's edge sits on the OUTER baseline row, which would disarm the
       // hysteresis exactly where it's needed.
-      const newPosition = getTextPositionFromViewport(
-        p.x,
-        p.y,
-        state,
-        viewport,
-        undefined,
-        ctx.visibility,
-        { drag: true, prev: session.handleDragPrevHit },
-      );
+      const newPosition = state.document.contentSelection
+        ? null
+        : getTextPositionFromViewport(
+            p.x,
+            p.y,
+            state,
+            viewport,
+            undefined,
+            ctx.visibility,
+            { drag: true, prev: session.handleDragPrevHit },
+          );
       if (newPosition) session.handleDragPrevHit = newPosition;
 
-      let next = state;
+      let next =
+        state.ui.selectionHandleDrag && state.document.contentSelection
+          ? dragContentHandleToPoint(state, p.x, p.y, viewport, ctx.visibility)
+          : state;
       if (
         newPosition &&
         state.document.selection &&

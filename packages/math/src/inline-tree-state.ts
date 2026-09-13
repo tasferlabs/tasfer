@@ -41,6 +41,7 @@ import {
   type FeatureInputRule,
   STRUCTURED_MARK_ANCHOR_CHAR,
 } from "@tasfer/editor/feature-facets";
+import { inheritedTypingMarks } from "@tasfer/editor/mark-edge";
 import { getBlockTextLength } from "@tasfer/editor/node-shared";
 import type { TextualBlock } from "@tasfer/editor/nodes/TextNode";
 import { invalidateBlockCache } from "@tasfer/editor/rendering/renderer";
@@ -1108,14 +1109,15 @@ export function hasActiveInlineMathTreeCaret(state: EditorState): boolean {
  * Once it reports that edge, horizontal document navigation must hand the
  * caret back to the flat host block rather than claiming the arrow as a no-op.
  *
- * A chip edge has exactly ONE caret stop and it belongs to the formula: the
- * flat position at the run boundary is the same visual spot as the tree edge
- * caret that just failed to move, so parking the caret there would swallow
- * the press. The exit therefore continues past the boundary in the same
- * press — into an adjacent chip's tree when one faces the landing edge, or
- * one ordinary flat step otherwise (the shared entry bridge covers both).
- * Only when that step has nowhere to go (the chip closes the document) does
- * the caret rest on the boundary itself.
+ * The exit rests on the flat run boundary: the same visual spot as the tree
+ * edge caret, but outside the formula, so what is typed next is plain host
+ * text beside it. The next press in the same direction moves on through the
+ * host text, and a press back toward the chip re-enters it.
+ *
+ * A flat caret on a chip edge normally continues the formula when typed at
+ * (see `editableInlineMathContext`). The exit opts out of that by holding the
+ * boundary's own prose marks as an explicit typing set — the slot a mark edge
+ * uses for its side (see `mark-edge.ts`) — which any later caret move clears.
  *
  * The formula interior always renders LTR, but the HOST side of the boundary
  * follows the block: in an RTL block the prose visually left of the chip is
@@ -1129,20 +1131,28 @@ export function exitActiveInlineMathTreeHorizontally(
   const context = activeInlineMathContext(state);
   if (!context) return undefined;
   const rtl = getBlockDirection(context.block, state.marks) === "rtl";
-  const atEdge = moveCursorToPosition(
-    updateContentSelection(state, null),
-    context.blockIndex,
-    (direction === "left") !== rtl
-      ? context.run.startIndex
-      : context.run.endIndex,
+  const edgeIndex =
+    (direction === "right") !== rtl
+      ? context.run.endIndex
+      : context.run.startIndex;
+  const atEdge = clearSelection(
+    moveCursorToPosition(
+      updateContentSelection(state, null),
+      context.blockIndex,
+      edgeIndex,
+    ),
   );
-  const continued = enterAdjacentInlineMathTreeHorizontally(atEdge, direction);
-  if (continued) return continued;
   return {
-    state:
-      direction === "left"
-        ? moveCursorLeft(clearSelection(atEdge))
-        : moveCursorRight(clearSelection(atEdge)),
+    state: {
+      ...atEdge,
+      ui: {
+        ...atEdge.ui,
+        activeMarksMode: {
+          type: "explicit",
+          formats: inheritedTypingMarks(atEdge, context.block, edgeIndex),
+        },
+      },
+    },
     ops: [],
     handled: true,
   };
@@ -1551,6 +1561,15 @@ function editableInlineMathContext(
   // the formula" gestures.
   const active = activeInlineMathContext(state);
   if (active) return active;
+  // An explicit typing set without the formula's mark means the caret was put
+  // outside it (an arrow exit, or a Ctrl+B toggle there): type prose.
+  const marksMode = state.ui.activeMarksMode;
+  if (
+    marksMode.type === "explicit" &&
+    !marksMode.formats.some((mark) => state.schema.structuredMark(mark.type))
+  ) {
+    return undefined;
+  }
   if (
     input.length !== 1 ||
     input === " " ||

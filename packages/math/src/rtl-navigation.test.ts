@@ -158,26 +158,24 @@ describe("entering an inline chip with arrows in an RTL block", () => {
 });
 
 describe("exiting an inline chip with arrows in an RTL block", () => {
-  it("ArrowLeft at the formula's source start exits past the run's END offset", () => {
-    // The run boundary is the same visual stop as the tree edge caret, so the
-    // exit press continues one flat step past it (logical forward in RTL).
+  it("ArrowLeft at the formula's source start exits to the run's END offset", () => {
+    // Visual left is logical forward in RTL, so the exit rests on the boundary
+    // after the run, where typing continues the prose beside the formula.
     const state = enterAtSourceOffset(rtlChipState(), 0);
     const run = chipRun(state);
     const moved = state.actionBus.dispatchState(MOVE_CURSOR_LEFT, state);
     expect(moved.state.document.contentSelection).toBeNull();
-    expect(moved.state.document.cursor?.position.textIndex).toBe(
-      run.endIndex + 1,
-    );
+    expect(moved.state.document.cursor?.position.textIndex).toBe(run.endIndex);
   });
 
-  it("ArrowRight at the formula's source end exits past the run's START offset", () => {
+  it("ArrowRight at the formula's source end exits to the run's START offset", () => {
     const before = rtlChipState();
     const run = chipRun(before);
     const state = enterAtSourceOffset(before, run.latex!.length);
     const moved = state.actionBus.dispatchState(MOVE_CURSOR_RIGHT, state);
     expect(moved.state.document.contentSelection).toBeNull();
     expect(moved.state.document.cursor?.position.textIndex).toBe(
-      run.startIndex - 1,
+      run.startIndex,
     );
   });
 });

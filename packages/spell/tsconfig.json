@@ -24,6 +24,8 @@
 
       "@tasfer/editor": ["../editor/src/index.ts"],
       "@tasfer/editor/*": ["../editor/src/*"],
+      // Tests only (src/table-cells.test.ts); the package never imports it.
+      "@tasfer/table": ["../table/src/index.ts"],
       "@shared/*": ["../../shared/*"]
     }
   },

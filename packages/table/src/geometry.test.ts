@@ -1,5 +1,4 @@
 import {
-  alignOffset,
   fitColumnWidths,
   layoutTable,
   previewColumnMove,
@@ -9,6 +8,7 @@ import { matchGfmTable, tableSeedFromToken } from "./markdown";
 import { buildTableDocument, cellRunsFromText } from "./structured";
 import { createDeterministicIdentityAllocator } from "@shared/identity";
 import { resolveTheme } from "@tasfer/editor/styles";
+import { lineEdges } from "@tasfer/editor/text-layout";
 import { describe, expect, it } from "vitest";
 
 const styles = resolveTheme({});
@@ -276,29 +276,40 @@ describe("layoutTable", () => {
   });
 });
 
-describe("alignOffset with a line wider than its cell", () => {
+describe("cell line alignment with a line wider than its cell", () => {
   // A column squeezed past the point wrapping can help: a single glyph cannot
-  // be broken, so the line genuinely exceeds the cell. The offset must keep the
-  // line's READING start on the cell edge — aligning the negative slack would
-  // push the start outside instead, hiding the characters that matter most.
+  // be broken, so the line genuinely exceeds the cell. The line must keep its
+  // READING start on the cell edge — aligning the negative slack would push the
+  // start outside instead, hiding the characters that matter most.
+  const left = (
+    align: "left" | "center" | "right" | null,
+    direction: "ltr" | "rtl",
+    cellWidth: number,
+    lineWidth: number,
+  ) =>
+    lineEdges(
+      { width: cellWidth, isRTL: direction === "rtl", align },
+      { width: lineWidth },
+    ).left;
+
   it("pins an over-wide line to the leading edge in left-to-right text", () => {
-    expect(alignOffset(null, "ltr", 10, 40)).toBe(0);
-    expect(alignOffset("right", "ltr", 10, 40)).toBe(0);
-    expect(alignOffset("center", "ltr", 10, 40)).toBe(0);
+    expect(left(null, "ltr", 10, 40)).toBe(0);
+    expect(left("right", "ltr", 10, 40)).toBe(0);
+    expect(left("center", "ltr", 10, 40)).toBe(0);
   });
 
   it("pins an over-wide line to the leading edge in right-to-left text", () => {
     // The line box is measured from its left edge, so the right-to-left reading
     // start sits at the cell's right border once the box is shifted left.
-    expect(alignOffset(null, "rtl", 10, 40)).toBe(-30);
-    expect(alignOffset("left", "rtl", 10, 40)).toBe(-30);
+    expect(left(null, "rtl", 10, 40)).toBe(-30);
+    expect(left("left", "rtl", 10, 40)).toBe(-30);
   });
 
   it("still aligns normally when the line fits", () => {
-    expect(alignOffset(null, "ltr", 40, 10)).toBe(0);
-    expect(alignOffset("right", "ltr", 40, 10)).toBe(30);
-    expect(alignOffset("center", "ltr", 40, 10)).toBe(15);
-    expect(alignOffset(null, "rtl", 40, 10)).toBe(30);
+    expect(left(null, "ltr", 40, 10)).toBe(0);
+    expect(left("right", "ltr", 40, 10)).toBe(30);
+    expect(left("center", "ltr", 40, 10)).toBe(15);
+    expect(left(null, "rtl", 40, 10)).toBe(30);
   });
 });
 

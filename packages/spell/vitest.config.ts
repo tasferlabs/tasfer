@@ -7,6 +7,8 @@ export default defineConfig({
       // The engine is a peer dependency; tests run against its source so this
       // package never needs a prior `npm run build` in the editor package.
       "@tasfer/editor": resolve(import.meta.dirname, "../editor/src"),
+      // Tests only: a real table, to check prose inside structured content.
+      "@tasfer/table": resolve(import.meta.dirname, "../table/src"),
       "@shared": resolve(import.meta.dirname, "../../shared"),
     },
   },

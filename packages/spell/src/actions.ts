@@ -20,12 +20,14 @@
  * the `marks` to re-apply; {@link replaceWord} gathers both from the editor.
  */
 
+import { anchorPoint, charIdsInRuns, type TextFieldAddress } from "./anchor";
 import type { FlagRef } from "./checker";
 import type {
   ChangeApi,
   Editor,
   MutationAction,
   StoredMark,
+  StructuredEdit,
 } from "@tasfer/editor";
 import { action } from "@tasfer/editor";
 
@@ -43,6 +45,16 @@ export interface ReplaceWordPayload {
   readonly word?: string;
   /** Marks covering the whole word, re-applied when the diff touches an edge. */
   readonly marks?: readonly StoredMark[];
+  /**
+   * Set when the word is in a prose field of the block's structured content (a
+   * table cell) rather than in the block's own text. A structured field is
+   * edited by character identity, so it carries the word's character ids
+   * (`to - from` of them) and the id of the character before the word.
+   */
+  readonly field?: TextFieldAddress & {
+    readonly charIds: readonly string[];
+    readonly afterCharId: string | null;
+  };
 }
 
 /** A checker-shaped hook `replaceWord` calls to re-check the edited block. */
@@ -59,6 +71,10 @@ export const REPLACE_WORD: MutationAction<ReplaceWordPayload> =
 function replaceWordMutation(c: ChangeApi, p: ReplaceWordPayload): void {
   const { block, from, to, text } = p;
   if (to < from) return;
+  if (p.field) {
+    replaceFieldWord(c, p, p.field);
+    return;
+  }
   const old = p.word ?? null;
   let prefix = 0;
   let suffix = 0;
@@ -100,6 +116,97 @@ function replaceWordMutation(c: ChangeApi, p: ReplaceWordPayload): void {
   c.select({ block, offset: newTo });
 }
 
+/** {@link replaceWordMutation} for a word inside a structured prose field. */
+function replaceFieldWord(
+  c: ChangeApi,
+  p: ReplaceWordPayload,
+  field: NonNullable<ReplaceWordPayload["field"]>,
+): void {
+  const { block, text } = p;
+  const ids = field.charIds;
+  if (ids.length !== p.to - p.from) return;
+  const old = p.word ?? null;
+  let prefix = 0;
+  let suffix = 0;
+  if (old !== null && old.length === ids.length) {
+    prefix = commonPrefix(old, text);
+    suffix = commonSuffix(old, text, prefix);
+  }
+  const midIds = ids.slice(prefix, ids.length - suffix);
+  const midText = text.slice(prefix, text.length - suffix);
+  const touchesEdge = prefix === 0 || suffix === 0;
+  const marks = touchesEdge ? (p.marks ?? []) : [];
+  const address = {
+    contentId: field.contentId,
+    nodeId: field.nodeId,
+    field: field.field,
+  };
+
+  const inserted: string[] = [];
+  const runs: { peerId: string; startCounter: number; text: string }[] = [];
+  for (let at = 0; at < midText.length; at++) {
+    const id = c.identities.nextId();
+    inserted.push(id);
+    const sep = id.lastIndexOf(":");
+    const peerId = id.slice(0, sep);
+    const counter = Number(id.slice(sep + 1));
+    const last = runs[runs.length - 1];
+    if (
+      last &&
+      last.peerId === peerId &&
+      last.startCounter + last.text.length === counter
+    ) {
+      last.text += midText[at];
+    } else {
+      runs.push({ peerId, startCounter: counter, text: midText[at] });
+    }
+  }
+
+  const edits: StructuredEdit[] = [];
+  if (midIds.length > 0) {
+    edits.push({
+      kind: "text_delete",
+      nodeId: address.nodeId,
+      field: address.field,
+      charIds: midIds,
+    });
+  }
+  if (runs.length > 0) {
+    edits.push({
+      kind: "text_insert",
+      nodeId: address.nodeId,
+      field: address.field,
+      afterCharId: prefix > 0 ? ids[prefix - 1] : field.afterCharId,
+      charRuns: runs,
+    });
+  }
+  // The new word, by identity: kept prefix, inserted middle, kept suffix.
+  const word = [
+    ...ids.slice(0, prefix),
+    ...inserted,
+    ...ids.slice(ids.length - suffix),
+  ];
+  if (word.length > 0) {
+    for (const mark of marks) {
+      edits.push({
+        kind: "mark_set",
+        nodeId: address.nodeId,
+        field: address.field,
+        charIds: word,
+        mark,
+        value: true,
+      });
+    }
+  }
+  if (edits.length > 0) c.editContent(block, field.contentId, edits);
+  const caret = anchorPoint(
+    block,
+    word.length > 0 ? word[word.length - 1] : field.afterCharId,
+    address,
+  );
+  if ("kind" in caret) c.selectContent({ anchor: caret, focus: caret });
+}
+
 /**
  * Replace the word a flag points at with `text`, in one undoable step, keeping
  * its formatting, and land the caret after it. Returns `false` (and changes
@@ -112,6 +219,7 @@ export function replaceWord(
   text: string,
   checker?: RecheckHook,
 ): boolean {
+  if (f.field) return replaceFieldWordAt(editor, f, f.field, text, checker);
   const block = editor.query.block({ block: f.blockId });
   if (!block) return false;
   const span = locateWord(block.text, f, checker);
@@ -137,6 +245,53 @@ export function replaceWord(
     text,
     word: f.word,
     marks,
+  });
+  if (changed) checker?.recheck(f.blockId);
+  return changed;
+}
+
+function replaceFieldWordAt(
+  editor: Editor,
+  f: FlagRef,
+  address: TextFieldAddress,
+  text: string,
+  checker?: RecheckHook,
+): boolean {
+  const field = editor.query
+    .textFields(f.blockId)
+    .find(
+      (candidate) =>
+        candidate.contentId === address.contentId &&
+        candidate.nodeId === address.nodeId &&
+        candidate.field === address.field,
+    );
+  if (!field) return false;
+  const span = locateWord(field.text, f, checker);
+  if (!span) return false;
+  const { from, to } = span;
+  const runs = editor.query.content(f.blockId, address.contentId)?.nodes[
+    address.nodeId
+  ]?.textFields[address.field];
+  const charIds = charIdsInRuns(runs, from, to);
+  if (charIds.length !== to - from) return false;
+  const [afterCharId] = from > 0 ? charIdsInRuns(runs, from - 1, from) : [null];
+
+  const marks: StoredMark[] = field.marks
+    .filter((m) => m.from <= from && m.to >= to)
+    .map((m) =>
+      Object.keys(m.attrs).length > 0
+        ? { type: m.name, attrs: m.attrs }
+        : { type: m.name },
+    );
+
+  const changed = editor.dispatch(REPLACE_WORD, {
+    block: f.blockId,
+    from,
+    to,
+    text,
+    word: f.word,
+    marks,
+    field: { ...address, charIds, afterCharId: afterCharId ?? null },
   });
   if (changed) checker?.recheck(f.blockId);
   return changed;

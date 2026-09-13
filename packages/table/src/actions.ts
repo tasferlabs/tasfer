@@ -55,6 +55,7 @@ import {
   prependLeadingParagraph,
   SELECT_ALL,
 } from "@tasfer/editor/actions/edit-actions";
+import { contentCaretMarkEdge, withMarkEdgeSide } from "@tasfer/editor/mark-edge";
 import {
   EXTEND_SELECTION_DOWN,
   EXTEND_SELECTION_END,
@@ -109,6 +110,23 @@ import type { StructuredDocument } from "@tasfer/editor/sync/structured-content"
 /** A claimed motion: state changed (or deliberately did not), no ops. */
 function claim(state: EditorState): Claimed {
   return { state, ops: [], handled: true };
+}
+
+/**
+ * Restart the caret's blink after a press that switched its side without
+ * moving it, so the press shows the caret instead of landing on a blink's off
+ * half.
+ */
+function withRefreshedBlink(state: EditorState): EditorState {
+  const selection = state.document.contentSelection;
+  if (!selection) return state;
+  return {
+    ...state,
+    document: {
+      ...state.document,
+      contentSelection: { ...selection, lastUpdate: Date.now() },
+    },
+  };
 }
 
 /** Lay a table block out at the current viewport width. */
@@ -277,15 +295,35 @@ export function registerTableActions(bus: ActionBus): void {
     (state: EditorState): Claimed | undefined => {
       const context = activeTableContext(state);
       if (!context) return undefined;
-      const moved = stepTableCaret(
-        context.document,
-        context.caret,
-        horizontal(context, key, unit),
-      );
+      const direction = horizontal(context, key, unit);
+      const forward = direction === "forward";
+      // At a mark edge the first character press only switches which side the
+      // caret types on, the same as in a paragraph (see `mark-edge.ts`).
+      const current = unit === "character" ? contentCaretMarkEdge(state) : null;
+      if (current && current.side === (forward ? "before" : "after")) {
+        return claim(
+          withRefreshedBlink(
+            withMarkEdgeSide(
+              state,
+              current.edge,
+              forward ? "after" : "before",
+            ),
+          ),
+        );
+      }
+      const moved = stepTableCaret(context.document, context.caret, direction);
       // No neighbouring stop means the table's very start or end: claim the key
       // anyway so the caret never escapes sideways into a block it cannot
       // address.
-      return moved ? placeCaret(state, context, moved) : claim(state);
+      if (!moved) return claim(state);
+      const placed = placeCaret(state, context, moved);
+      // A backward step passed the text after the caret, so arriving on an
+      // edge it takes that side; a forward step already sits on the before side.
+      if (!placed || forward || unit !== "character") return placed;
+      const landed = contentCaretMarkEdge(placed.state);
+      return landed
+        ? claim(withMarkEdgeSide(placed.state, landed.edge, "after"))
+        : placed;
     };
   bus.registerState(MOVE_CURSOR_LEFT, step("left", "character"), 100);
   bus.registerState(MOVE_CURSOR_RIGHT, step("right", "character"), 100);
