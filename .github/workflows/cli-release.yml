@@ -8,9 +8,11 @@ name: CLI Release
 # The normal path is the Release workflow, which cuts the release once and
 # calls this and the desktop build on the same ref — one dispatch, one commit,
 # so the CLI in a release can never come from a different tree than the
-# installers beside it. Dispatching this alone is the way to fill a platform
-# a Release run missed; `prepare` only creates the release when it is missing,
-# and every upload clobbers by name, so a re-run into a live release is fine.
+# installers beside it. It cannot be dispatched on its own, which keeps it out
+# of the Actions list; to fill a platform a Release run missed, re-run the
+# failed jobs of that Release run. `prepare` only creates the release when it is
+# missing, and every upload clobbers by name, so a re-run into a live release is
+# fine.
 #
 # `tasfer update` and the `install.sh` served from the site both read these
 # releases through the GitHub API, match an asset by `<platform>-<arch>` and
@@ -35,12 +37,6 @@ on:
       publish:
         type: boolean
         default: true
-  workflow_dispatch:
-    inputs:
-      publish:
-        description: "Upload to the v<appVersion> GitHub release"
-        type: boolean
-        default: false
 
 permissions:
   contents: write

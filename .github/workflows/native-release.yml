@@ -11,24 +11,20 @@ name: Native Release
 #
 # The normal path is the Release workflow, which cuts the release first and
 # calls this and the CLI build on the same ref, so both land in `v<appVersion>`
-# from one commit. Dispatching this alone still works and is how a failed
-# desktop build is re-run without rebuilding the CLI — `prepare` cuts the
-# release when it is missing and falls through when Release already did.
+# from one commit. It cannot be dispatched on its own, which keeps it out of
+# the Actions list; a failed desktop build is re-run by re-running the failed
+# jobs of that Release run, which leaves the finished CLI jobs alone. `prepare`
+# cuts the release when it is missing and falls through when Release already
+# did.
 #
-# workflow_dispatch with publish=false is a safe dry run: full signed build,
-# artifacts uploaded to the workflow run instead of a release.
+# publish=false (Release's dry run) is a full signed build with artifacts
+# uploaded to the workflow run instead of a release.
 on:
   workflow_call:
     inputs:
       publish:
         type: boolean
         default: true
-  workflow_dispatch:
-    inputs:
-      publish:
-        description: "Upload to the v<appVersion> GitHub release"
-        type: boolean
-        default: false
 
 permissions:
   contents: write

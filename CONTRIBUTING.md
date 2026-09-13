@@ -139,12 +139,15 @@ carries a version — so the bump is one line and no follow-up edits. The
 How the cycle works:
 
 - Bump `appVersion` in `version.json` and merge it to `main`.
-- Dispatch **Native Release** on that ref with `publish: true`. It creates the
+- Dispatch **Release** on that ref with `publish: true`. It creates the
   `v<appVersion>` GitHub release from `version.json` before building — never
-  electron-builder, which would race one publisher per artifact — then builds
-  and signs the desktop app and uploads the artifacts onto that release.
-  macOS is the only platform currently built; the Windows and Linux targets are
-  configured but switched off in the workflow.
+  electron-builder, which would race one publisher per artifact — then runs the
+  desktop build (`native-release.yml`) and the `tasfer` CLI build
+  (`cli-release.yml`) on that same ref and uploads both onto that release.
+  Those two files are only called by Release and have no dispatch button of
+  their own; if one of them fails, use "Re-run failed jobs" on the Release run.
+  macOS is the only desktop platform currently built; the Windows and Linux
+  targets are configured but switched off in the workflow.
 - The `packages/*` libraries go to npm by bumping `packagesVersion` in
   `version.json`, then dispatching the **npm Publish** workflow, which builds
   them in dependency order, stamps that version onto every manifest and pins the
@@ -159,7 +162,7 @@ How the cycle works:
   source files outside of the Root Directory" enabled).
 
 Dry runs: the **npm Publish** workflow can be dispatched with `dry_run`, and
-**Native Release** can be dispatched with `publish: false` to build without
+**Release** can be dispatched with `publish: false` to build without
 publishing a release.
 
 ### App Store & Play (after a desktop release)
