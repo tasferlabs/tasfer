@@ -167,4 +167,32 @@ describe("caret coordinates in a table cell", () => {
     expect(editor.view.getScrollY()).toBeGreaterThan(0);
     expect(editor.view.coordsAtPos("caret")!.y).toBeCloseTo(120, 0);
   });
+
+  it("scrollToPosition reaches a cell point without moving the caret", () => {
+    const filler = Array.from({ length: 80 }, (_, i) => [
+      `Line ${i}`,
+      "",
+    ]).flat();
+    const { editor, block } = tableEditor(filler, ["", ...filler]);
+    const document = getTableDocument(block)!;
+    const cellId = Object.values(document.nodes).find((node) =>
+      node.textFields?.text?.some((run) => run.text.includes("one")),
+    )!.id;
+    const point = tableCaretToContentPoint(document, block.id, {
+      cellId,
+      offset: 3,
+    })!;
+    editor.setCaret("start");
+    const before = editor.state.contentSelection;
+
+    editor.view.scrollToPosition(point);
+
+    expect(editor.view.getScrollY()).toBeGreaterThan(0);
+    const coords = editor.view.coordsAtContent(point)!;
+    expect(coords.y).toBeGreaterThanOrEqual(0);
+    expect(coords.y + coords.height).toBeLessThanOrEqual(
+      editor.view.getViewport().height,
+    );
+    expect(editor.state.contentSelection).toEqual(before);
+  });
 });

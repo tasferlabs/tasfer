@@ -617,9 +617,11 @@ export interface EditorViewApi {
   /** Scroll the viewport to make a document point visible. Speaks the same
    * public {@link DocPoint} vocabulary as {@link coordsAtPos}: an absolute
    * `{ block, offset }` (the stable, CRDT-id form), or a relative
-   * `"caret"`/`"start"`/`"end"`. */
+   * `"caret"`/`"start"`/`"end"`. Also takes a {@link ContentPoint} (the
+   * {@link coordsAtContent} vocabulary) to reach a point inside structured
+   * content, such as a table cell, without moving the caret there. */
   scrollToPosition: (
-    point: DocPoint,
+    point: DocPoint | ContentPoint,
     options?: { viewportOffsetY?: number },
   ) => void;
   /**
@@ -6159,16 +6161,18 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   };
 
   scrollToPosition = (
-    point: DocPoint,
+    point: DocPoint | ContentPoint,
     options?: { viewportOffsetY?: number },
   ): void => {
-    const resolved = resolvePoint(this._state, point);
-    // A caret inside content a node owns (a table cell) has no flat offset; it
+    const target = typeof point === "object" && "kind" in point ? point : null;
+    const resolved = target ? null : resolvePoint(this._state, point as DocPoint);
+    // A point inside content a node owns (a table cell) has no flat offset; it
     // is followed through its content point, anchored to its block.
     const contentPoint =
-      !resolved && point === "caret"
+      target ??
+      (!resolved && point === "caret"
         ? this._state.document.contentSelection?.focus
-        : undefined;
+        : undefined);
     const blockIndex = resolved
       ? resolved.blockIndex
       : contentPoint
