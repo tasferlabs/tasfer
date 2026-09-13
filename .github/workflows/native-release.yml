@@ -69,7 +69,12 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: macos-latest
+          # Pinned off macos-latest: the macos-26-arm64 20260907 image fails
+          # electron-builder's signing keychain setup (`security
+          # set-key-partition-list` → SecKeychainUnlock rejects its own temp
+          # keychain password). 20260728 signed fine. Move back once a newer
+          # image signs again.
+          - os: macos-15
             platform: mac
           # Windows is off until code signing is sorted out. An unsigned
           # installer hands every visitor a SmartScreen warning, and the
