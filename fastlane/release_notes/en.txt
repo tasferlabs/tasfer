@@ -1,2 +1,2 @@
-- The app now supports tables blocks.
+- Spelling check to the languages your speak.
 - Bug fixes and improvements.
