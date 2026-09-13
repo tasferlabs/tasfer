@@ -22,6 +22,7 @@ import {
 } from "@/lib/dateTimePreferences";
 import { useDateTimePrefs } from "@/app/contexts/DateTimePrefsContext";
 import {
+  contentSelectionSpan,
   countWordsFromBlocks,
   selectionSpanFromRange,
   type SelectionSpan,
@@ -290,7 +291,9 @@ export default function EditorPage() {
   useEffect(() => {
     if (!activeEditor) return;
     const sync = () => {
-      const span = selectionSpanFromRange(activeEditor.state.selection.range);
+      const span =
+        selectionSpanFromRange(activeEditor.state.selection.range) ??
+        contentSelectionSpan(activeEditor);
       // Losing the selection applies at once — it costs no counting, and
       // deferring it would leave a stale span over freshly edited blocks (typing
       // over a selection is exactly that case).
