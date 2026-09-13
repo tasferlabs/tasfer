@@ -1,3 +1,7 @@
+# 2026-09-13
+
+- Bold, italic, code, strikethrough and links keep going as you type; use the arrow keys to step out of them, like inline math
+
 # 2026-09-12
 
 - Typos are underlined, with suggested fixes

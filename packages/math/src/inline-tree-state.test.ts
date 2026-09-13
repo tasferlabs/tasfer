@@ -766,10 +766,9 @@ describe("interactive structured MathMark", () => {
     expect(enterInlineMathTreeAtPosition(chipState(), 0, 1)).toBeUndefined();
   });
 
-  it("returns horizontal navigation to the host text past both tree edges", () => {
-    // "a•b": the run boundary (index 2 / 1) is the same visual stop as the
-    // tree edge caret that just failed to move, so the exit press continues
-    // one flat step past it instead of parking on the boundary.
+  it("exits to the host text beside the formula on both sides", () => {
+    // "a•b": the exit press rests on the run boundary (index 2 / 1), outside
+    // the formula, so the next keystroke types plain prose next to it.
     const atEnd = enterMathOffset(chipState("inline-exit-right", "a$xy$b"), 2);
     const right = atEnd.actionBus.dispatchState(MOVE_CURSOR_RIGHT, atEnd);
 
@@ -777,8 +776,11 @@ describe("interactive structured MathMark", () => {
     expect(right.state.document.contentSelection).toBeNull();
     expect(right.state.document.cursor?.position).toEqual({
       blockIndex: 0,
-      textIndex: 3,
+      textIndex: 2,
     });
+    const typedAfter = insertText(right.state, "z").state;
+    expect(flatText(typedAfter)).toBe(`a${A}zb`);
+    expect(canonicalSource(typedAfter)).toBe("xy");
 
     const atStart = enterMathOffset(chipState("inline-exit-left", "a$xy$b"), 0);
     const left = atStart.actionBus.dispatchState(MOVE_CURSOR_LEFT, atStart);
@@ -787,6 +789,68 @@ describe("interactive structured MathMark", () => {
     expect(left.state.document.contentSelection).toBeNull();
     expect(left.state.document.cursor?.position).toEqual({
       blockIndex: 0,
+      textIndex: 1,
+    });
+    const typedBefore = insertText(left.state, "z").state;
+    expect(flatText(typedBefore)).toBe(`az${A}b`);
+    expect(canonicalSource(typedBefore)).toBe("xy");
+  });
+
+  it("moves on from the exit boundary or re-enters the formula", () => {
+    const atEnd = enterMathOffset(chipState("inline-exit-again", "a$xy$b"), 2);
+    const exited = atEnd.actionBus.dispatchState(MOVE_CURSOR_RIGHT, atEnd);
+
+    const onward = exited.state.actionBus.dispatchState(
+      MOVE_CURSOR_RIGHT,
+      exited.state,
+    );
+    expect(onward.state.document.contentSelection).toBeNull();
+    expect(onward.state.document.cursor?.position).toEqual({
+      blockIndex: 0,
+      textIndex: 3,
+    });
+
+    const back = exited.state.actionBus.dispatchState(
+      MOVE_CURSOR_LEFT,
+      exited.state,
+    );
+    expect(back.state.document.cursor).toBeNull();
+    expect(back.state.document.contentSelection?.focus).toEqual(
+      nestedPointAtSourceOffset(back.state, 2),
+    );
+  });
+
+  it("rests beside a chip that ends or starts its line", () => {
+    // "a•" / "•b" over a second line: the exit stays on the chip's own line.
+    const atEnd = enterMathOffset(
+      chipState("inline-exit-eol", "a$xy$\nnext"),
+      2,
+    );
+    const right = atEnd.actionBus.dispatchState(MOVE_CURSOR_RIGHT, atEnd);
+    expect(right.claimed).toBe(true);
+    expect(right.state.document.contentSelection).toBeNull();
+    expect(right.state.document.cursor?.position).toEqual({
+      blockIndex: 0,
+      textIndex: 2,
+    });
+
+    // Arrow in from the end of the line above: the step lands on the chip's
+    // leading edge and promotes, so the caret starts inside the formula.
+    const above = moveCursorToPosition(
+      chipState("inline-exit-sol", "prev\n$xy$b"),
+      0,
+      4,
+    );
+    const entered = above.actionBus.dispatchState(MOVE_CURSOR_RIGHT, above);
+    expect(entered.state.document.contentSelection).not.toBeNull();
+    const left = entered.state.actionBus.dispatchState(
+      MOVE_CURSOR_LEFT,
+      entered.state,
+    );
+    expect(left.claimed).toBe(true);
+    expect(left.state.document.contentSelection).toBeNull();
+    expect(left.state.document.cursor?.position).toEqual({
+      blockIndex: 1,
       textIndex: 0,
     });
   });
@@ -815,10 +879,10 @@ describe("interactive structured MathMark", () => {
     );
   });
 
-  it("exits one chip into a neighbouring chip's tree across one plain char", () => {
+  it("walks from one chip into a neighbouring chip's tree across one plain char", () => {
     // "a• •b" — two chips one space apart. Arrowing right off the first
-    // formula's end crosses the space AND lands on the second chip's leading
-    // edge, which promotes: one press moves from `x|` to `|y`.
+    // formula's end rests beside it; the next press crosses the space AND
+    // lands on the second chip's leading edge, which promotes into `|y`.
     const before = chipState("inline-chip-hop", "a$x$ $y$b");
     const block = before.document.page.blocks[0];
     if (!isTextualBlock(block)) throw new Error("expected a textual block");
@@ -833,7 +897,12 @@ describe("interactive structured MathMark", () => {
     if (!first) throw new Error("expected a nested caret in the first chip");
     const inFirst = updateContentSelection(before, first);
 
-    const hopped = inFirst.actionBus.dispatchState(MOVE_CURSOR_RIGHT, inFirst);
+    const exited = inFirst.actionBus.dispatchState(MOVE_CURSOR_RIGHT, inFirst);
+    expect(exited.state.document.contentSelection).toBeNull();
+    const hopped = exited.state.actionBus.dispatchState(
+      MOVE_CURSOR_RIGHT,
+      exited.state,
+    );
 
     expect(hopped.claimed).toBe(true);
     expect(hopped.state.document.contentSelection?.focus).toEqual(

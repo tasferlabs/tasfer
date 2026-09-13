@@ -10,7 +10,7 @@
  */
 
 import { getFormatsAtPosition, getSelectionRange } from "./actions/actions";
-import { resolveMarkRuns } from "./mark-runs";
+import { joinTouchingMarkRuns, resolveMarkRuns } from "./mark-runs";
 import { getBlockTextContent, getBlockTextLength } from "./node-shared";
 import {
   moveCursorToPosition,
@@ -481,7 +481,15 @@ export function queryMarkInfos(
     if (!block || block.deleted) continue;
     const lo = i === start.blockIndex ? start.offset : 0;
     const hi = i === end.blockIndex ? end.offset : Infinity;
-    for (const run of resolveMarkRuns(block)) {
+    // One run per mark as the reader sees it: text typed onto a run's end is
+    // stored as a neighbouring span, and a link's extent must cover all of it.
+    const runs = joinTouchingMarkRuns(
+      resolveMarkRuns(block),
+      getBlockTextContent(block),
+      (name) =>
+        !s.schema.structuredMark(name) && !s.marks.get(name)?.replacement,
+    );
+    for (const run of runs) {
       const hit = collapsed
         ? lo >= run.startIndex && lo < run.endIndex
         : run.startIndex < hi && run.endIndex > lo;

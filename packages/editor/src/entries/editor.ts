@@ -1808,7 +1808,12 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
           this._state.document.contentSelection?.focus;
         const caretPositionChanged =
           cursorPositionChanged || contentCaretPositionChanged;
-        if (caretPositionChanged) {
+        // An arrow press at a mark edge switches the caret's side without
+        // moving it; the caret's edge flag still has to repaint.
+        if (
+          caretPositionChanged ||
+          prevState.ui.activeMarksMode !== this._state.ui.activeMarksMode
+        ) {
           this.dirtyLayers.cursor = true;
         }
 

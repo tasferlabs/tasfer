@@ -8,6 +8,7 @@ import type {
   InteractionSession,
 } from "../events/interaction-session";
 import { currentFontFamily, getFontStack } from "../fonts";
+import { caretMarkEdgeSide } from "../mark-edge";
 import {
   type DirectionalContent,
   getBlockDirection,
@@ -1134,6 +1135,12 @@ function drawCaret(
   cursorPos: { x: number; y: number; height: number },
   styles: EditorStyles,
   landingStartedAt?: number | null,
+  /**
+   * On a mark edge, the visual side whose marks typing takes: a short flag at
+   * the caret's top points at that text, so the two stops of one position
+   * look different (see `mark-edge.ts`).
+   */
+  markEdgeFlag?: "left" | "right" | null,
 ) {
   ctx.fillStyle = styles.cursor.color;
 
@@ -1144,12 +1151,17 @@ function drawCaret(
       : 1;
 
   if (progress >= 1) {
-    ctx.fillRect(
-      cursorPos.x,
-      cursorPos.y,
-      styles.cursor.width,
-      cursorPos.height,
-    );
+    const width = styles.cursor.width;
+    ctx.fillRect(cursorPos.x, cursorPos.y, width, cursorPos.height);
+    if (markEdgeFlag) {
+      const length = width * 2;
+      ctx.fillRect(
+        markEdgeFlag === "left" ? cursorPos.x - length : cursorPos.x + width,
+        cursorPos.y,
+        length,
+        width,
+      );
+    }
     return;
   }
 
@@ -1170,6 +1182,23 @@ function drawCaret(
     shape.cornerRadius,
   );
   ctx.fill();
+}
+
+/**
+ * Which way the local caret's mark-edge flag points, or null off an edge. The
+ * before side is the text behind the caret: visually left in an LTR block and
+ * right in an RTL one.
+ */
+function markEdgeFlagFor(state: EditorState): "left" | "right" | null {
+  const current = caretMarkEdgeSide(state);
+  const cursor = state.document.cursor;
+  if (!current || !cursor) return null;
+  const block = state.document.page.blocks[cursor.position.blockIndex];
+  const rtl =
+    !!block &&
+    isTextualBlock(block) &&
+    getBlockDirection(block, state.marks) === "rtl";
+  return (current.side === "before") !== rtl ? "left" : "right";
 }
 
 export function renderCursorLayer(
@@ -1363,7 +1392,13 @@ export function renderCursorLayer(
 
   // Draw the caret — as a plain bar, or mid-"landing" morph if it just moved
   // here. Leaves fillStyle set to the cursor color for the touch handle below.
-  drawCaret(ctx, cursorPos, styles, caretLandingStartedAt);
+  drawCaret(
+    ctx,
+    cursorPos,
+    styles,
+    caretLandingStartedAt,
+    compositionRange ? null : markEdgeFlagFor(state),
+  );
 
   // Draw cursor drag handle on touch devices (small circle below cursor)
   if (isTouchOnlyDevice()) {

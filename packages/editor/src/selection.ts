@@ -1,5 +1,6 @@
 import { nextCodePointEnd, prevCodePointStart } from "./code-points";
 import { currentFontFamily, measureCharsUpToIndex } from "./fonts";
+import { caretMarkEdgeSide, markEdgeAt, withMarkEdgeSide } from "./mark-edge";
 import {
   getContentWithComposition,
   TextNode,
@@ -2509,7 +2510,91 @@ export function moveCursorToPosition(
   return newState;
 }
 
+/**
+ * Left arrow. At a mark edge the first press only switches which side of the
+ * edge the caret types on (see `mark-edge.ts`); otherwise the caret moves one
+ * position and, arriving on an edge, takes the side of the text it just passed.
+ */
 export function moveCursorLeft(state: EditorState): EditorState {
+  return moveCursorAcrossMarkEdges(state, "left", moveCursorLeftOneStep);
+}
+
+/** Right arrow — the mirror of {@link moveCursorLeft}. */
+export function moveCursorRight(state: EditorState): EditorState {
+  return moveCursorAcrossMarkEdges(state, "right", moveCursorRightOneStep);
+}
+
+function moveCursorAcrossMarkEdges(
+  state: EditorState,
+  direction: "left" | "right",
+  step: (state: EditorState) => EditorState,
+): EditorState {
+  const cursor = state.document.cursor;
+  // A held selection (Shift+arrow extends through here) keeps plain moves: the
+  // side is a typing concern, and an unmoved focus would stall the extension.
+  if (!cursor || state.document.selection || state.document.contentSelection) {
+    return step(state);
+  }
+  const block = state.document.page.blocks[cursor.position.blockIndex];
+  // "Forward" is logical: visual left advances through RTL text.
+  const rtl =
+    !!block &&
+    isTextualBlock(block) &&
+    getBlockDirection(block, state.marks) === "rtl";
+  const forward = (direction === "right") !== rtl;
+
+  const current = caretMarkEdgeSide(state);
+  if (current && current.side === (forward ? "before" : "after")) {
+    return updateCaretSide(
+      state,
+      withMarkEdgeSide(state, current.edge, forward ? "after" : "before"),
+    );
+  }
+
+  const moved = step(state);
+  const landed = moved.document.cursor?.position;
+  if (
+    !landed ||
+    moved.document.selection ||
+    moved.document.contentSelection ||
+    (landed.blockIndex === cursor.position.blockIndex &&
+      landed.textIndex === cursor.position.textIndex)
+  ) {
+    return moved;
+  }
+  // A forward step passed the text before the caret, so it already sits on the
+  // before side (the move reset the toggle to inherit). A backward step passed
+  // the text after it.
+  if (forward) return moved;
+  const edge = markEdgeAt(
+    moved,
+    moved.document.page.blocks[landed.blockIndex],
+    landed.textIndex,
+  );
+  return edge ? withMarkEdgeSide(moved, edge, "after") : moved;
+}
+
+/**
+ * Switching sides leaves the caret where it is, so refresh its blink clock:
+ * the press must show the caret (and its edge cue) rather than land on the off
+ * half of a blink.
+ */
+function updateCaretSide(
+  previous: EditorState,
+  next: EditorState,
+): EditorState {
+  const cursor = previous.document.cursor;
+  if (!cursor) return next;
+  return {
+    ...next,
+    document: {
+      ...next.document,
+      cursor: { ...cursor, lastUpdate: Date.now() },
+    },
+  };
+}
+
+function moveCursorLeftOneStep(state: EditorState): EditorState {
   if (!state.document.cursor) return createInitialCursorState(state);
 
   const { blockIndex: blockIndex, textIndex } = state.document.cursor.position;
@@ -2629,7 +2714,7 @@ export function moveCursorLeft(state: EditorState): EditorState {
   return state;
 }
 
-export function moveCursorRight(state: EditorState): EditorState {
+function moveCursorRightOneStep(state: EditorState): EditorState {
   if (!state.document.cursor) return createInitialCursorState(state);
 
   const { blockIndex: blockIndex, textIndex } = state.document.cursor.position;

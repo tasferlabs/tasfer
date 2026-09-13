@@ -74,7 +74,7 @@ editor.change((c) =>
     {
       name: "insertText",
       type: "(text, range?, mark?) => this",
-      desc: 'Insert text, replacing range (default: selection). insertText("x") types at the caret, inheriting the pending caret format; an explicit range replaces it. mark optionally applies one inline mark to the inserted run.',
+      desc: 'Insert text, replacing range (default: selection). insertText("x") types at the caret with the pending caret format, or else the marks of the side of a mark edge the caret is on (see Core inline marks); an explicit range replaces it. mark optionally applies one inline mark to the inserted run.',
     },
     {
       name: "deleteRange",
