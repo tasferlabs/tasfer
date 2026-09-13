@@ -1,15 +1,10 @@
 import { createContext } from "react";
 import type { ClientPlatform } from "@/platform";
-import type {
-  UpdateCheckOutcome,
-  VersionInfo,
-} from "../hooks/useVersionCheck";
+import type { UpdateCheckOutcome } from "../hooks/useVersionCheck";
 
 export interface VersionContextValue {
   /** Whether version check is loading */
   isLoading: boolean;
-  /** Version info from API */
-  versionInfo: VersionInfo | null;
   /** Whether a soft update is available (shows popup) */
   updateAvailable: boolean;
   /** Version string of the pending update, when the host reports one */
@@ -26,13 +21,11 @@ export interface VersionContextValue {
   serviceWorkerUpdateReady: boolean;
   /** Current platform (ios, android, web) */
   platform: ClientPlatform;
-  /** Platform-specific update URL */
-  updateUrl: string | null;
   /** Dismiss the update popup for this session */
   dismissUpdate: () => void;
   /** Check for an update on demand and report what was found (desktop only) */
   checkForUpdate: () => Promise<UpdateCheckOutcome>;
-  /** Trigger app update (reload, install the downloaded desktop update, or navigate to the update URL) */
+  /** Trigger app update (reload, or install the downloaded desktop update) */
   performUpdate: () => Promise<void>;
   /** Called by service worker registration when new version is ready */
   setServiceWorkerUpdateReady: (ready: boolean) => void;

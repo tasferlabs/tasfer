@@ -4,14 +4,9 @@
  * Values are injected at build time from /version.json at the monorepo root.
  */
 
-declare const __CLIENT_VERSION__: number;
 declare const __APP_VERSION__: string;
 declare const __BUILD_TIMESTAMP__: string;
 declare const __BUILD_COMMIT__: string;
-
-/** Current client version (integer) - from version.json */
-export const CLIENT_VERSION: number =
-  typeof __CLIENT_VERSION__ !== "undefined" ? __CLIENT_VERSION__ : 1;
 
 /** Marketing version (semver) users see - from version.json */
 export const APP_VERSION: string =

@@ -1,17 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { getClientPlatform, type ClientPlatform } from "@/platform";
 
-export interface UpdateUrls {
-  ios: string | null;
-  android: string | null;
-  web: string | null;
-}
-
-export interface VersionInfo {
-  latestVersion: number;
-  updateUrls: UpdateUrls;
-}
-
 /** What a user-initiated update check ended up finding. */
 export type UpdateCheckOutcome =
   | { status: "available"; version: string | null }
@@ -32,8 +21,6 @@ export interface VersionCheckResult {
   isLoading: boolean;
   /** Error message if version check failed */
   error: string | null;
-  /** Version info from the API */
-  versionInfo: VersionInfo | null;
   /** Whether a newer version is available */
   updateAvailable: boolean;
   /** Version string of the pending update, when the host reports one */
@@ -46,8 +33,6 @@ export interface VersionCheckResult {
   updateDownloaded: boolean;
   /** Current platform */
   platform: ClientPlatform;
-  /** Update URL for current platform */
-  updateUrl: string | null;
   /** Run an update check on demand and report what it found */
   checkForUpdate: () => Promise<UpdateCheckOutcome>;
   /** Platform-specific update action (download + install) */
@@ -212,14 +197,12 @@ export function useVersionCheck(): VersionCheckResult {
   return {
     isLoading,
     error,
-    versionInfo: null,
     updateAvailable,
     updateVersion,
     updateDownloading,
     downloadPercent,
     updateDownloaded,
     platform,
-    updateUrl: null,
     checkForUpdate,
     performPlatformUpdate: bridgeRef.current ? performPlatformUpdate : null,
   };

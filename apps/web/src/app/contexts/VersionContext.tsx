@@ -10,8 +10,6 @@ import { useVersionCheck } from "../hooks/useVersionCheck";
 import { serviceWorkerBridge } from "@/serviceWorkerBridge";
 import { VersionContext } from "./version-context";
 
-const DISMISS_KEY = "update-dismissed-version";
-
 // Clear all service worker caches before update
 async function clearAllCaches(): Promise<void> {
   try {
@@ -26,14 +24,12 @@ async function clearAllCaches(): Promise<void> {
 export function VersionProvider({ children }: { children: ReactNode }) {
   const {
     isLoading,
-    versionInfo,
     updateAvailable: apiUpdateAvailable,
     updateVersion,
     updateDownloading,
     downloadPercent,
     updateDownloaded,
     platform,
-    updateUrl,
     checkForUpdate,
     performPlatformUpdate,
   } = useVersionCheck();
@@ -43,24 +39,7 @@ export function VersionProvider({ children }: { children: ReactNode }) {
   const [activateServiceWorker, setActivateServiceWorker] = useState<
     (() => void) | null
   >(null);
-  const [updateDismissed, setUpdateDismissed] = useState(() => {
-    // Check if user already dismissed this version
-    const dismissed = localStorage.getItem(DISMISS_KEY);
-    if (dismissed && versionInfo) {
-      return dismissed === String(versionInfo.latestVersion);
-    }
-    return false;
-  });
-
-  // Reset dismissed state if latest version changes
-  useEffect(() => {
-    if (versionInfo) {
-      const dismissed = localStorage.getItem(DISMISS_KEY);
-      if (dismissed !== String(versionInfo.latestVersion)) {
-        setUpdateDismissed(false);
-      }
-    }
-  }, [versionInfo]);
+  const [updateDismissed, setUpdateDismissed] = useState(false);
 
   // Connect to service worker bridge
   useEffect(() => {
@@ -79,10 +58,7 @@ export function VersionProvider({ children }: { children: ReactNode }) {
 
   const dismissUpdate = useCallback(() => {
     setUpdateDismissed(true);
-    if (versionInfo) {
-      localStorage.setItem(DISMISS_KEY, String(versionInfo.latestVersion));
-    }
-  }, [versionInfo]);
+  }, []);
 
   const performUpdate = useCallback(async () => {
     // Electron: delegate to the native auto-updater
@@ -123,21 +99,14 @@ export function VersionProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    // If we have a platform-specific update URL, open it
-    if (updateUrl) {
-      window.open(updateUrl, "_blank");
-      return;
-    }
-
     // Default: caches are already cleared, so a plain reload fetches fresh assets
     window.location.reload();
-  }, [activateServiceWorker, updateUrl, performPlatformUpdate]);
+  }, [activateServiceWorker, performPlatformUpdate]);
 
   return (
     <VersionContext.Provider
       value={{
         isLoading,
-        versionInfo,
         updateAvailable,
         updateVersion,
         updateDownloading,
@@ -146,7 +115,6 @@ export function VersionProvider({ children }: { children: ReactNode }) {
         updateDismissed,
         serviceWorkerUpdateReady,
         platform,
-        updateUrl,
         dismissUpdate,
         checkForUpdate,
         performUpdate,
