@@ -393,6 +393,16 @@ describe("raw LaTeX paste", () => {
     }
   });
 
+  it("keeps URLs and file names with underscores plain", () => {
+    for (const text of [
+      "https://www.vattenfalleldistribution.se/globalassets/4.-var-verksamhet/om-elnatet/elnatets-uppbyggnad/vf_elnatetsuppbyggnad_1200x720.png?format=webp",
+      "www.example.com/a_b-c",
+      "report-v2_1.pdf",
+    ]) {
+      expect(isUnambiguousLatexPaste(text), text).toBe(false);
+    }
+  });
+
   it("keeps unknown commands and malformed groups plain", () => {
     for (const text of [
       String.raw`\notARealCommand{x}`,

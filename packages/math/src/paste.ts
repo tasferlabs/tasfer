@@ -30,6 +30,14 @@ export function isUnambiguousLatexPaste(text: string): boolean {
     return false;
   }
 
+  // URLs and file names are valid TeX but their `_`, `-` and `/` are not math.
+  if (
+    /[a-z][a-z0-9+.-]*:\/\/|(?:^|[^\w])www\./i.test(latex) ||
+    /^[\p{L}\p{N}_.-]+\.[A-Za-z][A-Za-z0-9]{1,4}$/u.test(latex)
+  ) {
+    return false;
+  }
+
   if (/\\[A-Za-z]+/.test(latex) || /\\[^A-Za-z\s]/.test(latex)) {
     return true;
   }
