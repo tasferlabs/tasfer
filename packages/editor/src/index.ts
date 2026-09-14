@@ -324,6 +324,7 @@ export {
   DELETE_WORD_FORWARD,
   EXIT_BLOCK,
   INSERT_TEXT,
+  insertParagraphBeside,
   JOIN_WITH_PREVIOUS_BLOCK,
   joinWithPreviousBlock,
   MOVE_BLOCK,

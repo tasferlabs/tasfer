@@ -47,7 +47,7 @@ import {
 import type { Block, Mark } from "../serlization/loadPage";
 import type { EditorState, Operation, ViewportState } from "../state-types";
 import { getBlockTextContent } from "../state-utils";
-import { findBlock } from "../sync/block-lookup";
+import { findBlock, findBlockIndex } from "../sync/block-lookup";
 import {
   escapesAtDocumentEdge,
   isPreformattedType,
@@ -512,6 +512,76 @@ export function registerBreakReplacesSelection(bus: ActionBus): void {
   };
   bus.registerState(SPLIT_BLOCK, replace, 1000);
   bus.registerState(EXIT_BLOCK, replace, 1000);
+}
+
+/**
+ * Insert an empty paragraph directly below (`side: "after"`) or above
+ * (`side: "before"`) the block at `blockIndex` and emit its `block_insert`.
+ * `caret: "new"` moves the caret into the paragraph (Enter leaving a block);
+ * `caret: "keep"` leaves the selection where it was (Enter at the start of an
+ * equation pushes it down and stays in it). The paragraph type is clamped to
+ * the schema's `content` expression; returns `undefined` when the shape allows
+ * no block there.
+ *
+ * The shared body behind the Enter exits in `dev-docs/enter-key.md`, so the
+ * order key, schema clamp and caret hand-off live in one place.
+ */
+export function insertParagraphBeside(
+  state: EditorState,
+  blockIndex: number,
+  side: "before" | "after",
+  caret: "new" | "keep",
+): StateResult | undefined {
+  const page = state.document.page;
+  const block = page.blocks[blockIndex];
+  if (!block || block.deleted) return undefined;
+
+  const at = visibleIndex(page, blockIndex) + (side === "after" ? 1 : 0);
+  const type = contentInsertType(state, at, "paragraph");
+  if (type === undefined) return undefined;
+
+  const previousId =
+    side === "after" ? block.id : (page.blocks[blockIndex - 1]?.id ?? null);
+  const newParagraphId = state.CRDTbinding.nextId();
+  const op: Operation = {
+    op: "block_insert",
+    id: state.CRDTbinding.nextId(),
+    clock: state.CRDTbinding.getClock(),
+    pageId: state.CRDTbinding.pageId,
+    orderKey: orderKeyAfter(page.blocks, previousId),
+    blockId: newParagraphId,
+    blockType: type as Block["type"],
+  };
+  // Replay the op so the paragraph lands where every replica sorts it (a
+  // tombstone tied on a neighbour's orderKey shifts the position), then find
+  // blocks by id instead of assuming an index.
+  const newPage = applyOps(page, [op], state.schema);
+  let next: EditorState = {
+    ...state,
+    document: { ...state.document, page: newPage },
+  };
+  if (caret === "new") {
+    next = clearSelection(next);
+    next = moveCursorToPosition(
+      next,
+      findBlockIndex(newPage, newParagraphId),
+      0,
+    );
+  } else if (next.document.cursor) {
+    // The flat caret addresses its block by index; follow the block it was in.
+    const shifted = findBlockIndex(newPage, block.id);
+    next = {
+      ...next,
+      document: {
+        ...next.document,
+        cursor: {
+          ...next.document.cursor,
+          position: { ...next.document.cursor.position, blockIndex: shifted },
+        },
+      },
+    };
+  }
+  return { state: next, ops: [op] };
 }
 
 /**
