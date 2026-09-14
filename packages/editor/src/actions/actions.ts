@@ -3641,10 +3641,20 @@ export function splitBlock(state: EditorState): ActionResult {
   let blockCopy1Type: Block["type"];
   let blockCopy2Type: Block["type"];
 
+  // Enter on an EMPTY heading turns it into a paragraph in place, the same way
+  // an empty list item or quote leaves its type (dev-docs/enter-key.md). A
+  // schema that refuses the conversion falls back to the split below.
+  if (originalType.startsWith("heading") && isEmpty) {
+    const converted = convertBlockAtCursor(stateBeforeSplit, {
+      type: "paragraph",
+    });
+    if (converted.ops.length > 0) return converted;
+  }
+
   if (originalType.startsWith("heading")) {
     const headingType = originalType as "heading1" | "heading2" | "heading3";
     if (isEmpty) {
-      // Empty heading: keep heading above, create paragraph below
+      // Empty heading the schema would not convert: keep it, paragraph below
       blockCopy1Type = headingType;
       blockCopy2Type = "paragraph";
     } else if (isAtStart) {

@@ -48,6 +48,13 @@ function blocks(state: EditorState): string[] {
     });
 }
 
+function live(state: EditorState, blockIndex: number): number {
+  const id = state.document.page.blocks[blockIndex]?.id;
+  return state.document.page.blocks
+    .filter((block) => !block.deleted)
+    .findIndex((block) => block.id === id);
+}
+
 function enter(state: EditorState) {
   return state.actionBus.dispatchState(SPLIT_BLOCK, state);
 }
@@ -87,6 +94,45 @@ describe("Enter over a selected text range", () => {
 });
 
 describe("Enter in prose blocks", () => {
+  it("turns an empty heading into a paragraph in place", () => {
+    const state = caret(stateOf("# Title\n\n## "), 1, 0);
+    const before = blocks(state);
+    expect(before[1]).toBe('heading2:""');
+
+    const result = enter(state);
+
+    expect(blocks(result.state)).toEqual([before[0], 'paragraph:""']);
+    expect(
+      live(result.state, result.state.document.cursor!.position.blockIndex),
+    ).toBe(1);
+  });
+
+  it("keeps the heading split rules for non-empty headings", () => {
+    expect(blocks(enter(caret(stateOf("# Title"), 0, 0)).state)).toEqual([
+      'paragraph:""',
+      'heading1:"Title"',
+    ]);
+    expect(blocks(enter(caret(stateOf("# Title"), 0, 2)).state)).toEqual([
+      'heading1:"Ti"',
+      'heading1:"tle"',
+    ]);
+    expect(blocks(enter(caret(stateOf("# Title"), 0, 5)).state)).toEqual([
+      'heading1:"Title"',
+      'paragraph:""',
+    ]);
+  });
+
+  it("leaves a quote at its end and on an empty quote, splits it in the middle", () => {
+    expect(blocks(enter(caret(stateOf("> abc"), 0, 3)).state)).toEqual([
+      'quote:"abc"',
+      'paragraph:""',
+    ]);
+    expect(blocks(enter(caret(stateOf("> abc"), 0, 1)).state)).toEqual([
+      'quote:"a"',
+      'quote:"bc"',
+    ]);
+  });
+
   it("Shift+Enter in prose is the ordinary split", () => {
     expect(blocks(shiftEnter(caret(stateOf("hello"), 0, 2)).state)).toEqual([
       'paragraph:"he"',
