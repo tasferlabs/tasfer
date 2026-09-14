@@ -3,6 +3,7 @@
 // them, and the node registry imports back into this module, so keeping these off
 // `state-utils` breaks the `ListNode extends TextNode` circular-init hazard.
 import { createActionBus } from "./action-bus";
+import { registerBreakReplacesSelection } from "./actions/edit-actions";
 import { getBaseDataSchema } from "./baseDataSchema";
 import type { Mark, MarkRegistry } from "./rendering/marks";
 import { createDefaultMarkRegistry } from "./rendering/marks";
@@ -122,6 +123,9 @@ export function createInitialState(
   // each node install its own action handlers (e.g. CodeNode claims Enter to
   // insert a newline in code blocks) before the state is handed out.
   const actionBus = createActionBus();
+  // Enter/Shift+Enter over a text range deletes the range before any block
+  // handler answers the key (see dev-docs/enter-key.md).
+  registerBreakReplacesSelection(actionBus);
   for (const node of nodes.nodeList()) {
     node.registerActions?.(actionBus);
   }

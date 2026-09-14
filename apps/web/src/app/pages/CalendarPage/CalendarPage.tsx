@@ -129,7 +129,7 @@ export default function CalendarPage() {
   const navigate = useNavigate();
   const { getConfirmation } = useConfirmation();
   const { isMobile } = useMobileLayout();
-  const { activeSpaceId } = useSpaces();
+  const { firstSpaceId } = useSpaces();
   const timelineRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const [selectedDate, setSelectedDate] = useState(() => wallNow());
@@ -381,7 +381,7 @@ export default function CalendarPage() {
   const prevWeekDays = useMemo(() => getWeekDays(prevDate), [prevDate]);
   const nextWeekDays = useMemo(() => getWeekDays(nextDate), [nextDate]);
 
-  const { data: pages } = useGetCalendarPages(activeSpaceId, start, end);
+  const { data: pages } = useGetCalendarPages(start, end);
 
   // ── Undo / redo for calendar-level edits ──
   // Only what the calendar itself does to a page: moves, resizes, creations,
@@ -391,7 +391,6 @@ export default function CalendarPage() {
     record: recordUndo,
     undo: popUndo,
     redo: popRedo,
-    clear: clearUndo,
   } = useCalendarUndo();
   const { toast } = useToast();
 
@@ -594,7 +593,7 @@ export default function CalendarPage() {
 
   const createPageAtTime = useCallback(
     (startMinutes: number, durationMinutes: number, date?: Date) => {
-      if (!activeSpaceId) return;
+      if (!firstSpaceId) return;
       const scheduledDate = new Date(date || selectedDate);
       scheduledDate.setHours(0, 0, 0, 0);
       scheduledDate.setMinutes(startMinutes);
@@ -610,7 +609,7 @@ export default function CalendarPage() {
         setPreviewAnchor(null);
       });
     },
-    [activeSpaceId, selectedDate, guardDiscard],
+    [firstSpaceId, selectedDate, guardDiscard],
   );
 
   // Duplicate an existing event into a new page: copies its title, parent,
@@ -624,7 +623,7 @@ export default function CalendarPage() {
       sourceId: string,
       opts?: { scheduledAt?: string; select?: boolean },
     ) => {
-      if (!activeSpaceId) return;
+      if (!firstSpaceId) return;
       const platform = getPlatform();
       let src;
       try {
@@ -636,7 +635,7 @@ export default function CalendarPage() {
         title: src.title,
         titleMd: src.titleMd,
         parentId: src.parentId,
-        spaceId: src.spaceId ?? activeSpaceId,
+        spaceId: src.spaceId ?? firstSpaceId,
         scheduledAt: opts?.scheduledAt ?? src.scheduledAt ?? undefined,
         duration: src.duration ?? undefined,
         allDay: src.allDay ?? undefined,
@@ -668,7 +667,7 @@ export default function CalendarPage() {
         setPreviewAnchor(null);
       }
     },
-    [activeSpaceId, queryClient, recordCreateUndo, t],
+    [firstSpaceId, queryClient, recordCreateUndo, t],
   );
 
   // After the draft card renders, resolve its position as the anchor
@@ -708,7 +707,7 @@ export default function CalendarPage() {
       task?: boolean,
       spaceId?: string,
     ) => {
-      const targetSpaceId = spaceId ?? activeSpaceId;
+      const targetSpaceId = spaceId ?? firstSpaceId;
       if (!draftEvent || !targetSpaceId) return;
       // Mark saving before the async create so the discard guards pass through
       // rather than prompting while the draft is being committed.
@@ -723,7 +722,7 @@ export default function CalendarPage() {
         task: task ?? true,
       });
     },
-    [draftEvent, activeSpaceId, createPage],
+    [draftEvent, firstSpaceId, createPage],
   );
 
   // Separate all-day and timed events
@@ -2112,13 +2111,6 @@ export default function CalendarPage() {
     }, 60000);
     return () => clearInterval(interval);
   }, []);
-
-  // The stack describes pages in the space that was open when they were
-  // recorded, and its entries are meaningless once the calendar shows another
-  // space's events.
-  useEffect(() => {
-    clearUndo();
-  }, [activeSpaceId, clearUndo]);
 
   // An undone event is often on a day that isn't on screen, so say what
   // happened rather than letting the keystroke look like it did nothing.

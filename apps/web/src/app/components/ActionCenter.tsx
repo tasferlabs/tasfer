@@ -27,6 +27,7 @@ import { useCreatePage, useSearchPages, type ISearchPage } from "../api/pages.ap
 import { TitlePreview } from "../TitlePreview";
 import { useActionCenter } from "../contexts/ActionCenterContext";
 import { useSpaces } from "../contexts/SpaceContext";
+import { useNewPageSpaceId } from "../hooks/useNewPageSpaceId";
 import { useVersion } from "../contexts/VersionContext";
 import { useToast } from "./Toast";
 import { useTheme } from "../hooks/useTheme";
@@ -166,7 +167,8 @@ export function ActionCenter() {
   const [search, setSearch] = useState("");
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { activeSpaceId, spaces } = useSpaces();
+  const { spaces } = useSpaces();
+  const newPageSpaceId = useNewPageSpaceId();
   const { setTheme, effectiveTheme } = useTheme();
   const queryClient = useQueryClient();
   const { isMobile, isShort } = useMobileLayout();
@@ -305,11 +307,11 @@ export function ActionCenter() {
         ],
         icon: <Plus size={16} />,
         run: () => {
-          if (activeSpaceId)
+          if (newPageSpaceId)
             createPage.mutate({
               title: "",
               parentId: null,
-              spaceId: activeSpaceId,
+              spaceId: newPageSpaceId,
             });
         },
       },
@@ -411,7 +413,7 @@ export function ActionCenter() {
   }, [
     t,
     effectiveTheme,
-    activeSpaceId,
+    newPageSpaceId,
     createPage,
     navigate,
     setTheme,

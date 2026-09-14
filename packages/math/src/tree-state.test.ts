@@ -1105,6 +1105,34 @@ describe("tree-backed display math state integration", () => {
     },
   );
 
+  it.each([
+    ["A^_", "{A}_{}^{}"],
+    ["A_^", "{A}_{}^{}"],
+    ["A^_n", "{A}_{n}^{}"],
+    ["A_^2", "{A}_{}^{2}"],
+  ])(
+    "gives the owning scripts node the matching slot typed in %s's empty slot",
+    (input, source) => {
+      // `A^{|}` + `_` pairs a subscript with `A` and moves the caret into it,
+      // never nesting a base-less subscript inside the empty superscript.
+      const typed = typeText(treeState("$$\n\n$$"), input).state;
+      expect(treeSource(typed)).toBe(source);
+      expect(isValidLatex(treeSource(typed) ?? "")).toBe(true);
+    },
+  );
+
+  it("moves into the existing matching slot from an empty script slot", () => {
+    const typed = typeText(treeState("$$\n\n$$"), "A_n^").state;
+    expect(treeSource(typed)).toBe("{A}_{n}^{}");
+    // Caret in the empty `^{|}`; a `_` re-enters the subscript at its end.
+    expect(treeSource(typeText(typed, "_2").state)).toBe("{A}_{n2}^{}");
+  });
+
+  it("pairs an empty nested slot with its own base, not the outer one", () => {
+    const typed = typeText(treeState("$$\n\n$$"), "x^y^_3").state;
+    expect(treeSource(typed)).toBe("{x}^{{y}_{3}^{}}");
+  });
+
   it("escalates a slot-end script through nested scripts to the outermost free base", () => {
     const typed = typeText(treeState("$$\n\n$$"), "x^y^2_3").state;
     // `x^y^2` nests (the enclosing superscript is occupied, so the second `^`

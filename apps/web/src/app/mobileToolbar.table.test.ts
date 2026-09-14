@@ -81,9 +81,11 @@ describe("the toolbar's table menu", () => {
 
   it("offers the caret's row and column commands", () => {
     expect(tableMenu(square).options.map((option) => option.id)).toEqual([
+      "row-select",
       "row-above",
       "row-below",
       "row-delete",
+      "column-select",
       "column-before",
       "column-after",
       "column-left",
@@ -155,7 +157,7 @@ describe("the toolbar's table menu", () => {
   it("carries the commands into the flat native bar too", () => {
     const native = findItem(build(square).items, "table");
     expect(native?.kind).toBe("menu");
-    expect(native?.kind === "menu" && native.options).toHaveLength(12);
+    expect(native?.kind === "menu" && native.options).toHaveLength(14);
   });
 
   it("dispatches each command at the caret's own cell", () => {
@@ -171,6 +173,8 @@ describe("the toolbar's table menu", () => {
       side: "after",
     });
     expect(actions["row-delete"]).toEqual({ type: "table-delete-row" });
+    expect(actions["row-select"]).toEqual({ type: "table-select-row" });
+    expect(actions["column-select"]).toEqual({ type: "table-select-column" });
     expect(actions["column-delete"]).toEqual({ type: "table-delete-column" });
     // The move names the index the column ends up at, the engine's own currency.
     expect(actions["column-left"]).toEqual({

@@ -241,7 +241,7 @@ export function EventPreview({
   const queryClient = useQueryClient();
   const popoverRef = useRef<HTMLDivElement>(null);
   const { panelRef, setHasPanel, slotMounted } = useSidebarPanel();
-  const { activeSpaceId, spaces } = useSpaces();
+  const { firstSpaceId, spaces } = useSpaces();
   const { getConfirmation } = useConfirmation();
   const calendarInteractionActiveRef = useRef(calendarInteractionActive);
   calendarInteractionActiveRef.current = calendarInteractionActive;
@@ -256,9 +256,7 @@ export function EventPreview({
   // against the live rows. See the pre-fill block further down.
   const [prefillParent, setPrefillParent] = useState<RecentParent | null>(null);
   const [draftIsTask, setDraftIsTask] = useState(true);
-  const [draftSpaceId, setDraftSpaceId] = useState<string | null>(
-    activeSpaceId,
-  );
+  const [draftSpaceId, setDraftSpaceId] = useState<string | null>(firstSpaceId);
   // Desktop draft parent picker: search mode swaps in for the drill-down rows.
   const [parentSearchOpen, setParentSearchOpen] = useState(false);
 
@@ -362,7 +360,7 @@ export function EventPreview({
       // whichever space the sidebar happens to be showing.
       const targetSpaceId =
         rememberedSpaceId(REMEMBER_KEYS.eventSpace, spacesRef.current) ??
-        activeSpaceId;
+        firstSpaceId;
       setDraftSpaceId(targetSpaceId);
       // Read the pre-fill candidate here, as the draft opens, rather than
       // deriving it: every draft in a run has to ask again, and only a draft
@@ -371,7 +369,7 @@ export function EventPreview({
       setParentSearchOpen(false);
       setDetailsOpen(false);
     }
-  }, [pageId, draftActive, activeSpaceId]);
+  }, [pageId, draftActive, firstSpaceId]);
 
   // Compute initial position from anchor (only when pos is null)
   const computed = useMemo(
@@ -617,14 +615,12 @@ export function EventPreview({
   });
 
   const isDraft = !!draft && !pageId;
-  const draftTargetSpaceId = draftSpaceId ?? activeSpaceId;
-  // The calendar draws every space's events, not only the active one, so the
-  // previewed page may well live somewhere else. Everything space-scoped here —
-  // the parent candidates above all — has to follow the page's own space; the
-  // active space's pages are not parents this page could have.
+  const draftTargetSpaceId = draftSpaceId ?? firstSpaceId;
+  // The calendar draws every space's events, so everything space-scoped here —
+  // the parent candidates above all — has to follow the page's own space.
   const eventSpaceId = isDraft
     ? draftTargetSpaceId
-    : (previewPage?.spaceId ?? activeSpaceId);
+    : (previewPage?.spaceId ?? firstSpaceId);
   const eventSpaceName = eventSpaceId
     ? spaces.find((space) => space.id === eventSpaceId)?.name?.trim() ||
       t("space.untitled", "Untitled space")

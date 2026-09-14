@@ -131,6 +131,8 @@ import {
   TABLE_INSERT_COLUMN,
   TABLE_INSERT_ROW,
   TABLE_MOVE_COLUMN,
+  TABLE_SELECT_COLUMN,
+  TABLE_SELECT_ROW,
   TABLE_SET_COLUMN_ALIGN,
   TABLE_TOOLS_OVERLAY,
   type TableToolsOverlayData,
@@ -174,6 +176,7 @@ import {
   openImageUploadMenu,
   linkFromSelection,
   openLinkEditMenu,
+  openLinkMenuForSelection,
   type LinkEditOverlayData,
   type AppMountedEditor as MountedEditorInstance,
 } from "../editorSchema";
@@ -1069,6 +1072,8 @@ const TableToolsOverlay: ComponentType<NodeOverlayProps> = ({
       onDeleteColumn={() => editor.dispatch(TABLE_DELETE_COLUMN, {})}
       onMoveColumn={(to) => editor.dispatch(TABLE_MOVE_COLUMN, { to })}
       onAlign={(align) => editor.dispatch(TABLE_SET_COLUMN_ALIGN, { align })}
+      onSelectRow={() => editor.dispatch(TABLE_SELECT_ROW, {})}
+      onSelectColumn={() => editor.dispatch(TABLE_SELECT_COLUMN, {})}
     />
   );
 };
@@ -2098,32 +2103,7 @@ function PageEditor({
           // link. Mirrors the native accessory's link button
           // (handleFormatButtonClick). Rendered as a drawer on mobile by the
           // TasferLinkMark "link-edit" overlay.
-          const link = editor.query.marks().find((m) => m.name === "link");
-          if (link) {
-            openLinkEditMenu(editor, {
-              blockId: link.block,
-              startIndex: link.from,
-              endIndex: link.to,
-              url: (link.attrs.url as string | undefined) ?? "",
-              text: link.text,
-              content: link.content,
-              x: 0,
-              y: 0,
-            });
-            break;
-          }
-          // Create from a non-empty text selection: the chosen text becomes the
-          // link's text and the drawer collects the URL.
-          const target = linkFromSelection(editor);
-          if (target) {
-            openLinkEditMenu(editor, {
-              ...target,
-              url: "",
-              text: "",
-              x: 0,
-              y: 0,
-            });
-          }
+          openLinkMenuForSelection(editor, 0, 0);
           break;
         }
         case "edit-image": {
@@ -2164,6 +2144,12 @@ function PageEditor({
           break;
         case "table-align":
           editor.dispatch(TABLE_SET_COLUMN_ALIGN, { align: action.align });
+          break;
+        case "table-select-row":
+          editor.dispatch(TABLE_SELECT_ROW, {});
+          break;
+        case "table-select-column":
+          editor.dispatch(TABLE_SELECT_COLUMN, {});
           break;
         case "dismiss":
           dismissMobileKeyboard();
@@ -2999,36 +2985,7 @@ function PageEditor({
       } else if (iconType === "link") {
         // Open the link edit/create menu — rendered as a drawer on mobile by the
         // TasferLinkMark "link-edit" overlay.
-
-        // Editing an existing link under the caret.
-        const link = editorApi.query.marks().find((m) => m.name === "link");
-        if (link) {
-          openLinkEditMenu(editorApi, {
-            blockId: link.block,
-            startIndex: link.from,
-            endIndex: link.to,
-            url: (link.attrs.url as string | undefined) ?? "",
-            text: link.text,
-            content: link.content,
-            x: menuX,
-            y: menuY,
-          });
-          return true;
-        }
-
-        // Creating a new link from a selection.
-        const target = linkFromSelection(editorApi);
-        if (target) {
-          openLinkEditMenu(editorApi, {
-            ...target,
-            url: "",
-            text: "",
-            x: menuX,
-            y: menuY,
-          });
-          return true;
-        }
-        return false;
+        return openLinkMenuForSelection(editorApi, menuX, menuY);
       }
 
       // For "format" icon type, let native handle it (open block menu)
@@ -3778,6 +3735,7 @@ function PageEditor({
       const isCode = marks?.has("code") ?? false;
       const isStrikethrough = marks?.has("strike") ?? false;
       const isMath = marks?.has("math") ?? false;
+      const isLink = marks?.has("link") ?? false;
 
       items.push({
         id: "format",
@@ -3844,21 +3802,18 @@ function PageEditor({
             action: () => {
               const mountedEditor = mountedRef.current?.editor;
               if (!mountedEditor) return;
-              // A text range, or a range inside one table cell.
-              const target = linkFromSelection(mountedEditor);
-              if (!target) return;
               const containerRect = wrapperRef.current?.getBoundingClientRect();
               if (!containerRect) return;
-              // Open the link create menu — rendered as a drawer on mobile by
-              // the TasferLinkMark "link-edit" overlay.
-              openLinkEditMenu(mountedEditor, {
-                ...target,
-                url: "",
-                text: "",
-                x: containerRect.width / 2,
-                y: 100,
-              });
+              // Edit the link the selection already carries, so it can be
+              // changed or removed; otherwise create one from the selection
+              // (a text range, or a range inside one table cell).
+              openLinkMenuForSelection(
+                mountedEditor,
+                containerRect.width / 2,
+                100,
+              );
             },
+            active: isLink,
           },
         ],
       });

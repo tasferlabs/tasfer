@@ -309,6 +309,31 @@ export function cellPosition(
   return undefined;
 }
 
+/**
+ * The cell `delta` columns away in the same row, skipping holes, or
+ * `undefined` at the row's edge. What a selection that already covers whole
+ * cells grows sideways by: the rectangle it covers widens by a column rather
+ * than wrapping round onto the next row.
+ */
+export function rowNeighbourCell(
+  document: StructuredDocument,
+  cellId: string,
+  delta: -1 | 1,
+): string | undefined {
+  const at = cellPosition(document, cellId);
+  if (!at) return undefined;
+  const cells = readTable(document).rows[at.row]?.cells ?? [];
+  for (
+    let column = at.column + delta;
+    column >= 0 && column < cells.length;
+    column += delta
+  ) {
+    const cell = cells[column];
+    if (cell) return cell.id;
+  }
+  return undefined;
+}
+
 /** The cell at a grid position, or `undefined` for a hole or out of range. */
 export function cellAt(
   document: StructuredDocument,
@@ -316,6 +341,96 @@ export function cellAt(
   column: number,
 ): string | undefined {
   return readTable(document).rows[row]?.cells[column]?.id;
+}
+
+/**
+ * A block of the grid, as inclusive row and column bounds.
+ *
+ * A selection that spans cells covers a RECTANGLE, the way a spreadsheet's
+ * does: dragging from a header cell straight down takes that column, not every
+ * cell read between the two ends. It is what lets a whole row or a whole column
+ * be one selection — and what copy, paste, delete and the mark toggles all act
+ * on, so the band that paints it and the edit that follows cannot disagree.
+ */
+export interface TableCellRect {
+  readonly top: number;
+  readonly left: number;
+  readonly bottom: number;
+  readonly right: number;
+}
+
+/** The rectangle two cells span, or `undefined` if either is not in the grid. */
+export function cellRect(
+  document: StructuredDocument,
+  anchorCellId: string,
+  focusCellId: string,
+): TableCellRect | undefined {
+  const anchor = cellPosition(document, anchorCellId);
+  const focus = cellPosition(document, focusCellId);
+  if (!anchor || !focus) return undefined;
+  return {
+    top: Math.min(anchor.row, focus.row),
+    left: Math.min(anchor.column, focus.column),
+    bottom: Math.max(anchor.row, focus.row),
+    right: Math.max(anchor.column, focus.column),
+  };
+}
+
+/**
+ * The cells a rectangle covers, row by row, left to right. A hole (a cell a
+ * row does not have) owns no text and is skipped.
+ */
+export function cellsInRect(
+  document: StructuredDocument,
+  rect: TableCellRect,
+): string[] {
+  const ids: string[] = [];
+  const rows = readTable(document).rows;
+  for (let row = rect.top; row <= rect.bottom; row++) {
+    const cells = rows[row]?.cells ?? [];
+    for (let column = rect.left; column <= rect.right; column++) {
+      const cell = cells[column];
+      if (cell) ids.push(cell.id);
+    }
+  }
+  return ids;
+}
+
+/** The cells a cross-cell selection between two carets covers. */
+export function coveredCellIds(
+  document: StructuredDocument,
+  anchor: TableCaret,
+  focus: TableCaret,
+): string[] {
+  const rect = cellRect(document, anchor.cellId, focus.cellId);
+  return rect ? cellsInRect(document, rect) : [];
+}
+
+/**
+ * The carets that select a whole row (`axis: "row"`) or a whole column: from
+ * the start of its first cell to the end of its last. `undefined` when the
+ * index is outside the grid or the line has no cell at all.
+ */
+export function tableLineRange(
+  document: StructuredDocument,
+  axis: "row" | "column",
+  index: number,
+): TableCellRange | undefined {
+  const view = readTable(document);
+  const cells =
+    axis === "row"
+      ? (view.rows[index]?.cells ?? [])
+      : index >= 0 && index < view.columns.length
+        ? view.rows.map((row) => row.cells[index])
+        : [];
+  const present = cells.filter((cell) => cell !== undefined);
+  const first = present[0];
+  const last = present[present.length - 1];
+  if (!first || !last) return undefined;
+  return {
+    anchor: { cellId: first.id, offset: 0 },
+    focus: { cellId: last.id, offset: cellLength(document, last.id) },
+  };
 }
 
 /**

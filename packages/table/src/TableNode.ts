@@ -21,6 +21,7 @@ import {
   TABLE_INSERT_COLUMN,
   TABLE_INSERT_ROW,
   TABLE_MOVE_COLUMN,
+  TABLE_SELECT_COLUMN,
 } from "./commands";
 import {
   activeTableContext,
@@ -51,6 +52,7 @@ import {
   cellLineAtOffset,
   cellOffsetFromPoint,
   cellRangeRects,
+  coveredCellIds,
   type TableCaret,
   tableCaretFromContentPoint,
   tableCaretToContentSelection,
@@ -189,15 +191,19 @@ function tableContentBand(
     };
   }
 
+  // The rectangle the two ends span — the same cells copy, paste and delete
+  // take (see `coveredCellIds`).
+  const covered = new Set(coveredCellIds(document, anchor, focus));
+  if (covered.size === 0) return null;
   const order = layout.cells.filter((cell) => cell.cellId !== null);
   const from = order.findIndex((cell) => cell.cellId === anchor.cellId);
   const to = order.findIndex((cell) => cell.cellId === focus.cellId);
   if (from < 0 || to < 0) return null;
   return {
     kind: "cells",
-    cells: order
-      .slice(Math.min(from, to), Math.max(from, to) + 1)
-      .filter((cell) => cell.width > 0 && cell.height > 0),
+    cells: order.filter(
+      (cell) => covered.has(cell.cellId!) && cell.width > 0 && cell.height > 0,
+    ),
     isForward: from <= to,
   };
 }
@@ -1123,6 +1129,8 @@ export class TableNode extends Node<TableBlock> {
           state: setColumnDrag(ctx.state, blockId, {
             from: hit.index,
             to: dropGapAtX(layout, p.x - gridLeft),
+            pressX: p.x,
+            moved: false,
           }),
         }),
         onMove: (p, ctx) => {
@@ -1132,6 +1140,8 @@ export class TableNode extends Node<TableBlock> {
             state: setColumnDrag(ctx.state, blockId, {
               ...drag,
               to: dropGapAtX(layout, p.x - gridLeft),
+              moved:
+                drag.moved || Math.abs(p.x - drag.pressX) > COLUMN_CLICK_SLOP,
             }),
           };
         },
@@ -1141,6 +1151,17 @@ export class TableNode extends Node<TableBlock> {
           const drag = columnDragOf(ctx.state, blockId);
           const released = setColumnDrag(ctx.state, blockId, null);
           if (!drag) return { state: released };
+          // A press that never carried the column anywhere is a click on the
+          // grip, and a click picks the column out: it selects it whole, ready
+          // to copy, cut or format.
+          if (!drag.moved) {
+            const selected = released.actionBus.dispatchState(
+              TABLE_SELECT_COLUMN,
+              released,
+              { blockId, columnIndex: drag.from },
+            );
+            return { state: selected.state, ops: selected.ops };
+          }
           const to = columnIndexForGap(drag);
           if (to === drag.from) return { state: released };
           const result = released.actionBus.dispatchState(
@@ -1292,7 +1313,14 @@ interface ColumnMoveHit {
 interface ColumnDragState {
   readonly from: number;
   readonly to: number;
+  /** Where the press landed, to tell a click on the grip from a drag. */
+  readonly pressX: number;
+  /** Whether the pointer has travelled past {@link COLUMN_CLICK_SLOP}. */
+  readonly moved: boolean;
 }
+
+/** How far a press may wander and still count as a click on the grip. */
+const COLUMN_CLICK_SLOP = 3;
 
 /** Opacity of the wash over a column whose grip the pointer is resting on. */
 const COLUMN_HOVER_OPACITY = 0.08;
@@ -1362,7 +1390,11 @@ function setColumnDrag(
   const current = previous?.columnDrag;
   if (
     (current ?? null) === drag ||
-    (current && drag && current.from === drag.from && current.to === drag.to)
+    (current &&
+      drag &&
+      current.from === drag.from &&
+      current.to === drag.to &&
+      current.moved === drag.moved)
   ) {
     return state;
   }

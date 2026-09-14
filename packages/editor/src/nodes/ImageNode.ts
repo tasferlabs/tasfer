@@ -32,7 +32,11 @@
  */
 
 import { type ActionBus, DRAG_DETENT, stateAction } from "../action-bus";
-import { CLEAR_SELECTION, SPLIT_BLOCK } from "../actions/edit-actions";
+import {
+  CLEAR_SELECTION,
+  EXIT_BLOCK,
+  SPLIT_BLOCK,
+} from "../actions/edit-actions";
 import {
   EXTEND_SELECTION_DOWN,
   EXTEND_SELECTION_LEFT,
@@ -1370,7 +1374,8 @@ export class ImageNode extends AtomicNode<Image> {
     bus.registerState(EXTEND_SELECTION_UP, nudge("y", -1, true), 100);
     bus.registerState(EXTEND_SELECTION_DOWN, nudge("y", 1, true), 100);
 
-    // Escape reverts to the crop the mode was entered with; Enter keeps it.
+    // Escape reverts to the crop the mode was entered with; Enter and
+    // Shift+Enter keep it (dev-docs/enter-key.md).
     bus.registerState(
       CLEAR_SELECTION,
       (state) => exitRepositionFromKey(state, true),
@@ -1378,6 +1383,11 @@ export class ImageNode extends AtomicNode<Image> {
     );
     bus.registerState(
       SPLIT_BLOCK,
+      (state) => exitRepositionFromKey(state, false),
+      100,
+    );
+    bus.registerState(
+      EXIT_BLOCK,
       (state) => exitRepositionFromKey(state, false),
       100,
     );

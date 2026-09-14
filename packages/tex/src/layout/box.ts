@@ -48,6 +48,14 @@ export interface GlyphBox extends Dim {
    * present, the caret layer uses these instead of the box's two span edges.
    */
   readonly textCarets?: readonly { offset: number; dx: number }[];
+  /**
+   * Caret override for this glyph's trailing edge (its span end), for a slanted
+   * big operator whose ink leans past its advance. `dx` (em, from the box's left
+   * edge) replaces `width` as the stop's x. `height` (em above this glyph's
+   * baseline), when set, shortens only the DRAWN caret so it stays below the
+   * overhang; the stop's hit band keeps the full glyph extent.
+   */
+  readonly endCaret?: { readonly dx: number; readonly height?: number };
 }
 
 /**

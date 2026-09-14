@@ -14,20 +14,23 @@
  *
  * Editing affordances that the plain text pipeline gets wrong for code are
  * redirected through the action bus in {@link registerActions}: Enter inserts a
- * newline instead of splitting the block. Tab (two spaces) is dispatched from
- * the key handler via {@link INSERT_TAB}. Inline marks never apply — the block's
- * `hasFormats` capability is false (see CODE_CAPS in sync/block-registry).
+ * newline instead of splitting the block, and Shift+Enter or a third Enter on
+ * trailing blank lines leaves it (see `dev-docs/enter-key.md`). Tab (two
+ * spaces) is dispatched from the key handler via {@link INSERT_TAB}. Inline
+ * marks never apply — the block's `hasFormats` capability is false (see
+ * CODE_CAPS in sync/block-registry).
  */
 
 import { type CodeToken, highlightLine } from "./code-highlight";
 import {
   type ActionBus,
-  type ActionHandler,
   stateAction,
   type StateResult,
 } from "@tasfer/editor/action-bus";
 import { insertText } from "@tasfer/editor/actions/actions";
 import {
+  EXIT_BLOCK,
+  insertParagraphBeside,
   registerEmptyBlockBackspaceExit,
   SELECT_ALL,
   SPLIT_BLOCK,
@@ -526,19 +529,45 @@ export class CodeNode extends TextNode {
       50,
     );
 
-    // Enter in a code block inserts a literal newline instead of splitting the
-    // block. Returns `handled: true` only for code blocks; otherwise observes and
-    // passes through to the default block-split transform.
-    bus.register(
+    // Enter / Shift+Enter in a code block (policy: dev-docs/enter-key.md).
+    //   • Enter inserts a literal newline instead of splitting the block —
+    //     at the start, in the middle, at the end and in an empty block alike.
+    //   • The third Enter at the very end — the source already ends in two
+    //     blank lines — removes those two newlines and leaves the block for a
+    //     paragraph below.
+    //   • Shift+Enter leaves the block from anywhere, text untouched.
+    // Both claim only for code blocks; any other block passes through.
+    bus.registerState(
       SPLIT_BLOCK,
-      ((state: EditorState) => {
+      (state) => {
         const cursor = state.document.cursor;
         if (!cursor) return;
-        const block = state.document.page.blocks[cursor.position.blockIndex];
+        const { blockIndex, textIndex } = cursor.position;
+        const block = state.document.page.blocks[blockIndex];
         if (!block || block.deleted || block.type !== "code") return;
+        const text = getVisibleTextFromRuns((block as CodeBlock).charRuns);
+        if (textIndex === text.length && text.endsWith("\n\n")) {
+          const exited = exitCodeBlockTrimmingBlankLines(state, blockIndex);
+          if (exited) return { ...exited, handled: true };
+        }
         const r = insertText(state, "\n");
         return { state: r.state, ops: r.ops, handled: true };
-      }) as unknown as ActionHandler<void>,
+      },
+      0,
+    );
+    bus.registerState(
+      EXIT_BLOCK,
+      (state) => {
+        const cursor = state.document.cursor;
+        if (!cursor) return;
+        const { blockIndex } = cursor.position;
+        const block = state.document.page.blocks[blockIndex];
+        if (!block || block.deleted || block.type !== "code") return;
+        const exited = insertParagraphBeside(state, blockIndex, "after", "new");
+        return exited
+          ? { ...exited, handled: true }
+          : { state, ops: [], handled: true };
+      },
       0,
     );
   }
@@ -547,4 +576,32 @@ export class CodeNode extends TextNode {
   // Raw text round-trip (no inline-mark processing) — code is verbatim source.
 
   readonly codec = codeBlockNodeCodec;
+}
+
+/**
+ * The code block's "third Enter" exit: drop the two trailing newlines the
+ * previous two Enters typed, then start a paragraph below and move into it.
+ * One transaction, so a single undo restores both blank lines and the caret.
+ */
+function exitCodeBlockTrimmingBlankLines(
+  state: EditorState,
+  blockIndex: number,
+): StateResult | undefined {
+  const block = state.document.page.blocks[blockIndex] as CodeBlock;
+  const length = getVisibleTextFromRuns(block.charRuns).length;
+  const { newPage, op } = deleteCharsInRange(
+    state.document.page,
+    block.id,
+    length - 2,
+    length,
+    state.CRDTbinding,
+  );
+  const trimmed = moveCursorToPosition(
+    { ...state, document: { ...state.document, page: newPage } },
+    blockIndex,
+    length - 2,
+  );
+  const exited = insertParagraphBeside(trimmed, blockIndex, "after", "new");
+  if (!exited) return undefined;
+  return { state: exited.state, ops: [op, ...exited.ops] };
 }

@@ -1,5 +1,9 @@
 # @tasfer/provider-indexeddb
 
+> [!WARNING]
+> **Preview release.** This package is still in early development. Its API may
+> change, and future versions may include breaking changes.
+
 **Local-first persistence** for [`@tasfer/editor`](https://www.npmjs.com/package/@tasfer/editor).
 Attach it to a document and its CRDT operation log is mirrored into IndexedDB —
 reloads are instant and edits survive offline.

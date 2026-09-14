@@ -295,6 +295,38 @@ export function openLinkEditMenu(
 }
 
 /**
+ * Open the link popover for the live selection: edit (or clear) the link the
+ * selection touches when there is one, otherwise create one from the selected
+ * text. Reads the whole selection, not just the caret, so a range that ends
+ * exactly on a link's last character still finds it. Returns `false` when there
+ * is neither a link nor text to wrap.
+ */
+export function openLinkMenuForSelection(
+  editor: AppEditor,
+  x: number,
+  y: number,
+): boolean {
+  const link = editor.query.marks("selection").find((m) => m.name === "link");
+  if (link) {
+    openLinkEditMenu(editor, {
+      blockId: link.block,
+      startIndex: link.from,
+      endIndex: link.to,
+      url: (link.attrs.url as string | undefined) ?? "",
+      text: link.text,
+      content: link.content,
+      x,
+      y,
+    });
+    return true;
+  }
+  const target = linkFromSelection(editor);
+  if (!target) return false;
+  openLinkEditMenu(editor, { ...target, url: "", text: "", x, y });
+  return true;
+}
+
+/**
  * The app's code node: the built-in {@link CodeNode} plus a menu-driven `open`
  * flag on its `"code-language"` overlay slot. The engine node emits that slot for
  * every visible code block (the language chip is always available); this override

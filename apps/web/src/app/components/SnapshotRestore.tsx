@@ -41,12 +41,12 @@ import { usePageSettings } from "../contexts/PageSettingsContext";
 import { useAuth } from "../contexts/AuthContext";
 import {
   useCreatePage,
+  useGetPage,
   useGetPageVersions,
   useVersionBlocks,
   type IVersion,
 } from "../api/pages.api";
 import { useGetSpaceMembers } from "../api/spaces.api";
-import { useSpaces } from "../contexts/SpaceContext";
 import { getPlatform } from "@/platform";
 import { extractTitleFromBlocks } from "@tasfer/editor/internal";
 import { SnapshotPreview } from "./SnapshotPreview";
@@ -276,7 +276,10 @@ export function SnapshotRestore({
   const setOpen = onOpenChange || setInternalOpen;
 
   const { onRestoreSnapshot, pageId } = usePageSettings();
-  const { activeSpaceId } = useSpaces();
+  // A fork lands next to its source, and the version authors are that space's
+  // members.
+  const { data: page } = useGetPage(pageId ?? undefined);
+  const pageSpaceId = page?.spaceId ?? null;
   const { getConfirmation } = useConfirmation();
   const { mutateAsync: createPage, isPending: isForking } = useCreatePage();
 
@@ -332,7 +335,7 @@ export function SnapshotRestore({
   }, [selectedBlocks, getConfirmation, t, onRestoreSnapshot, setOpen]);
 
   const handleFork = useCallback(async () => {
-    if (!activeSpaceId || !selectedBlocks || selectedBlocks.length === 0) return;
+    if (!pageSpaceId || !selectedBlocks || selectedBlocks.length === 0) return;
 
     const titleFromSnapshot = extractTitleFromBlocks(selectedBlocks);
     const sourceTitle = titleFromSnapshot || t("common.version", "Version");
@@ -343,7 +346,7 @@ export function SnapshotRestore({
     const forkedPage = await createPage({
       title: forkTitle,
       parentId: null,
-      spaceId: activeSpaceId,
+      spaceId: pageSpaceId,
     });
 
     const platform = getPlatform();
@@ -363,7 +366,7 @@ export function SnapshotRestore({
     setOpen(false);
     navigate(`/page/${forkedPage.id}`);
   }, [
-    activeSpaceId,
+    pageSpaceId,
     selectedBlocks,
     createPage,
     navigate,
@@ -379,7 +382,7 @@ export function SnapshotRestore({
       versions={versions ?? []}
       isLoading={isLoading}
       selectedId={selected?.id}
-      spaceId={activeSpaceId}
+      spaceId={pageSpaceId}
       onSelect={setSelected}
     />
   );

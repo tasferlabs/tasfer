@@ -278,10 +278,11 @@ describe("a peer's selection in a table", () => {
 
     const layout = layoutOf(state);
     const bands = painted.filter(isBandFill);
-    // Cells 2..4 of the grid, each filled edge to edge.
-    expect(bands).toHaveLength(3);
+    // The rectangle between cells 2 and 4 — the first column of both body
+    // rows, not the cell read between them — each filled edge to edge.
+    expect(bands).toHaveLength(2);
     for (const [index, band] of bands.entries()) {
-      const cell = layout.cells[2 + index];
+      const cell = layout.cells[[2, 4][index]];
       // The radius trails the rect; the band itself is the cell, edge to edge.
       expect(band.args.slice(0, 4)).toEqual([
         cell.x,

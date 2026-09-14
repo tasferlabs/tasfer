@@ -12,6 +12,7 @@ import {
   DELETE_WORD_FORWARD,
   escapeAboveSelfContainedBlock,
   escapeBelowSelfContainedBlock,
+  EXIT_BLOCK,
   INSERT_TAB,
   INSERT_TEXT,
   REVERT_INPUT_RULE,
@@ -1186,7 +1187,12 @@ export function handleKeyDown(
       break;
     }
     case "Enter": {
-      const result = state.actionBus.dispatchState(SPLIT_BLOCK, state);
+      // Enter continues the block, Shift+Enter leaves it — per block type in
+      // dev-docs/enter-key.md.
+      const result = state.actionBus.dispatchState(
+        keyEvent.shiftKey ? EXIT_BLOCK : SPLIT_BLOCK,
+        state,
+      );
       newState = result.state;
       ops.push(...result.ops);
       break;

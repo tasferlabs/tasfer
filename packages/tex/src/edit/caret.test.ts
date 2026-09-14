@@ -350,6 +350,44 @@ describe("caret model", () => {
     expect(rects[0].width).toBeLessThan(layout.width);
   });
 
+  it("puts a bare integral's trailing caret past its slanted overhang", () => {
+    // ∫ leans past its advance by its italic correction. A caret at the advance
+    // edge cuts through the top hook, so a bare operator's trailing caret sits
+    // at the italic-corrected edge instead — the full operator box width.
+    for (const displayMode of [false, true]) {
+      const layout = layoutMath("\\int", { fontSize: 16, displayMode });
+      const rect = caretRect(layout, "\\int".length)!;
+      expect(rect.x).toBeCloseTo(layout.width, 5);
+      expect(rect.bottom - rect.top).toBeCloseTo(
+        layout.height + layout.depth,
+        1,
+      );
+    }
+  });
+
+  it("draws a scripted integral's trailing caret below its overhang", () => {
+    // With side scripts the caret stays at the advance edge (left of the
+    // subscript) but is drawn only from the math axis down, clear of the hook.
+    // The stop's hit band keeps the full glyph height.
+    const layout = layoutMath("\\int_0^1", { fontSize: 16, displayMode: true });
+    const end = "\\int".length;
+    const rect = caretRect(layout, end)!;
+    const stop = caretStops(layout).find((s) => s.offset === end && !s.boundary)!;
+    expect(rect.x).toBeCloseTo(stop.x, 5);
+    expect(rect.top).toBeCloseTo(stop.caretTop!, 5);
+    expect(rect.bottom).toBeCloseTo(stop.bottom, 5);
+    expect(rect.top).toBeGreaterThan(stop.top);
+    // The axis sits above the baseline (negative y).
+    expect(rect.top).toBeLessThan(0);
+  });
+
+  it("leaves an upright operator's trailing caret at its advance edge", () => {
+    const layout = layoutMath("\\sum", { fontSize: 16 });
+    const stop = caretStops(layout).find((s) => s.offset === "\\sum".length)!;
+    expect(stop.caretTop).toBeUndefined();
+    expect(stop.x).toBeCloseTo(layout.width, 5);
+  });
+
   it("highlights a limit operator's base (\\sum) instead of nothing", () => {
     // A display limit operator builds its base glyph in `stackLimits`; that glyph
     // must carry the operator's source span, or selecting `\sum` yields an empty

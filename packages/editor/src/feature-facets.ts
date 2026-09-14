@@ -31,7 +31,7 @@
  */
 
 import type { ActionBus, StateResult } from "./action-bus";
-import type { Mark } from "./serlization/loadPage";
+import type { Block, Mark } from "./serlization/loadPage";
 import type { EditorState } from "./state-types";
 import type { ContentSelection } from "./structured-selection";
 import type {
@@ -136,10 +136,25 @@ export interface FeatureActionHook extends OrderedFeatureFacet {
 /** Clipboard-safe representations of a selected slice of structured content. */
 export interface ContentSelectionSlice {
   readonly plainText: string;
-  /** Falls back to `plainText` when omitted. */
+  /**
+   * Falls back to the Markdown of {@link blocks} when they are given, else to
+   * `plainText`.
+   */
   readonly markdown?: string;
-  /** Falls back to escaped `plainText` when omitted. */
+  /**
+   * Falls back to the HTML of {@link blocks} when they are given, else to
+   * escaped `plainText`.
+   */
   readonly html?: string;
+  /**
+   * The slice as standalone blocks — a table's selected cells as a smaller
+   * table, a cell's selected characters as a paragraph. Core serializes them
+   * through the ordinary block codecs for whichever rich flavor the slice does
+   * not spell out, so a feature gets a formatting-preserving copy without
+   * reimplementing the inline serializers, and a paste into prose rebuilds
+   * exactly these blocks.
+   */
+  readonly blocks?: readonly Block[];
 }
 
 /** Data-only context for serializing an extension-owned nested selection. */
@@ -160,6 +175,35 @@ export interface ContentSelectionCtx {
 export type ContentSelectionSerializer = (
   ctx: ContentSelectionCtx,
 ) => ContentSelectionSlice | undefined;
+
+/** What a paste into an extension-owned nested selection carries. */
+export interface ContentSelectionPasteCtx extends ContentSelectionCtx {
+  /** The threaded editor state the paste applies to. */
+  readonly state: EditorState;
+  /** The clipboard's plain-text flavor (possibly empty). */
+  readonly text: string;
+  /**
+   * The canonical Markdown of a Tasfer-originated copy, decoded from the rich
+   * flavor's marker, or `undefined` for anything copied elsewhere. A feature
+   * that reads it can restore formatting losslessly; external content only
+   * ever offers {@link text}.
+   */
+  readonly markdown?: string;
+}
+
+/**
+ * Paste into a range inside one structured-document kind, registered on the
+ * schema through a `structuredKinds` entry.
+ *
+ * Core offers every paste that lands in a nested selection here first, and only
+ * falls back to inserting the plain text through the input rules when this
+ * returns `undefined`. A table uses it to spread a copied grid across cells; a
+ * kind with nothing to add simply omits it. The result's ops are the paste's
+ * whole transaction.
+ */
+export type ContentSelectionPaste = (
+  ctx: ContentSelectionPasteCtx,
+) => StateResult | undefined;
 
 /**
  * Adjust a nested range before it becomes the active selection, registered on

@@ -138,6 +138,7 @@ function buildBigOpAtom(
   info: { char: string },
   span: Span,
   style: Style,
+  scripted = false,
 ): Built {
   const cyclic = CYCLIC_OPS[info.char];
   const { glyph, baseShift } = buildBigOp(
@@ -148,8 +149,20 @@ function buildBigOpAtom(
   // stops for it (a bare `\oint`/`\sum` would otherwise contribute none — the
   // glyph from buildBigOp is span-less and the wrapper isn't a caret boundary —
   // leaving the caret invisible and un-landable just after the operator).
+  //
+  // A slanted operator (∫) leans past its advance, so a caret at `glyph.width`
+  // cuts through its top hook. Bare, the caret moves out to the italic-corrected
+  // edge, where the next atom starts. With side scripts there is no clear column
+  // (the subscript tucks under the overhang), so the caret stays at the advance
+  // edge but is drawn only from the math axis down, below the hook.
+  const endCaret =
+    glyph.italic > 0
+      ? scripted
+        ? { dx: glyph.width, height: (glyph.height - glyph.depth) / 2 }
+        : { dx: glyph.width + glyph.italic }
+      : undefined;
   const children: Placed[] = [
-    { box: { ...glyph, span }, dx: 0, dy: baseShift },
+    { box: { ...glyph, span, endCaret }, dx: 0, dy: baseShift },
   ];
 
   if (cyclic) {
@@ -1129,7 +1142,12 @@ function buildSupSub(
     }
   }
 
-  const baseBuilt = buildOrEmpty(node.base, style);
+  // A side-set big operator knows it carries scripts, which changes where its
+  // trailing caret is drawn (see buildBigOpAtom).
+  const baseBuilt =
+    node.base?.type === "atom" && node.base.info.group === "op"
+      ? buildBigOpAtom(node.base.info, node.base.span, style, true)
+      : buildOrEmpty(node.base, style);
   const base = baseBuilt.box;
   const { isCharBox } = baseBuilt;
 

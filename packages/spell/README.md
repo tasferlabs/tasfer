@@ -1,5 +1,9 @@
 # @tasfer/spell
 
+> [!WARNING]
+> **Preview release.** This package is still in early development. Its API may
+> change, and future versions may include breaking changes.
+
 Opt-in spellcheck for [`@tasfer/editor`](../editor). Hunspell compiled to
 WebAssembly runs in a Web Worker; a prose tokenizer decides which words are
 worth checking; a per-editor checker turns the worker's answers into range

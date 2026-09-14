@@ -25,6 +25,8 @@ import {
   type TableCaret,
   tableCaretFromContentPoint,
   tableCaretToContentSelection,
+  tableLineRange,
+  tableRangeToContentSelection,
 } from "./selection";
 import {
   buildTableDocument,
@@ -434,6 +436,53 @@ export const TABLE_SET_COLUMN_ALIGN = stateAction<
   TableTargetPayload & { readonly align: TableAlign | null }
 >("table-set-column-align", (state) => ({ state, ops: [] }));
 
+/**
+ * Select the target row whole — what the host's "Select row" dispatches, ready
+ * to be copied, cut, cleared or formatted as one. No operations: selecting
+ * changes no content.
+ */
+export const TABLE_SELECT_ROW = stateAction<TableTargetPayload>(
+  "table-select-row",
+  (state) => ({ state, ops: [] }),
+);
+
+/**
+ * Select the target column whole. Pressing a column's move grip without
+ * dragging it dispatches this too, so the grip that picks a column up also
+ * picks it out.
+ */
+export const TABLE_SELECT_COLUMN = stateAction<TableTargetPayload>(
+  "table-select-column",
+  (state) => ({ state, ops: [] }),
+);
+
+/** Park a nested range over a whole row or column of `target`'s table. */
+function selectTableLine(
+  state: EditorState,
+  target: TableTarget,
+  axis: "row" | "column",
+  index: number,
+): Claimed {
+  const range = tableLineRange(target.document, axis, index);
+  const selection =
+    range &&
+    tableRangeToContentSelection(
+      target.document,
+      target.block.id,
+      range.anchor,
+      range.focus,
+    );
+  if (!selection) return { state, ops: [], handled: true };
+  return {
+    state: updateContentSelection(clearSelection(state), {
+      ...selection,
+      lastUpdate: Date.now(),
+    }),
+    ops: [],
+    handled: true,
+  };
+}
+
 /** Where in the grid a command acts: the payload's cell, else the caret's. */
 function targetCell(
   target: TableTarget,
@@ -667,6 +716,22 @@ export function registerTableCommands(bus: ActionBus): void {
     ),
     100,
   );
+
+  const select =
+    (axis: "row" | "column") =>
+    (state: EditorState, payload: TableTargetPayload): Claimed | undefined => {
+      const target = commandTarget(state, payload);
+      if (!target) return undefined;
+      const at = targetCell(target, payload);
+      return selectTableLine(
+        state,
+        target,
+        axis,
+        axis === "row" ? at.row : at.column,
+      );
+    };
+  bus.registerState(TABLE_SELECT_ROW, select("row"), 100);
+  bus.registerState(TABLE_SELECT_COLUMN, select("column"), 100);
 
   bus.registerState(
     CONVERT_STRUCTURED_BLOCK,

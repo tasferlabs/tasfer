@@ -1425,6 +1425,8 @@
   "blocks.gridKw": "grid",
   "editor.table.title": "Edit table",
   "editor.table.tools": "Table tools",
+  "editor.table.selectRow": "Select row",
+  "editor.table.selectColumn": "Select column",
   "editor.table.addRowAbove": "Add row above",
   "editor.table.addRowBelow": "Add row below",
   "editor.table.removeRow": "Remove row",

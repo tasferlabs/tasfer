@@ -32,7 +32,6 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useDeletePage, useGetPage, useGetPages } from "../api/pages.api";
 import { MovePageDialog } from "./MovePageDialog";
 import { RenameDialog } from "./RenameDialog";
-import { useSpaces } from "../contexts/SpaceContext";
 import {
   usePageSettings,
   type FontStyle,
@@ -166,8 +165,10 @@ function PageSettingsImpl({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { getConfirmation } = useConfirmation();
-  const { activeSpaceId } = useSpaces();
-  const { data: rootPages } = useGetPages(activeSpaceId, null);
+  // After archiving, land on a page from the same space the archived one
+  // lived in.
+  const { data: currentPage } = useGetPage(currentPageId);
+  const { data: rootPages } = useGetPages(currentPage?.spaceId ?? null, null);
 
   const { mutate: deletePage, isPending: isDeleting } = useDeletePage({
     onSuccess: () => {

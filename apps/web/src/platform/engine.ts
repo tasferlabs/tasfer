@@ -3613,7 +3613,9 @@ export class Engine implements Platform {
     search: async (
       query: string,
       spaceId?: string | null,
+      options?: { limit?: number | null },
     ): Promise<PageSearchResult[]> => {
+      const limit = options?.limit === undefined ? 20 : options.limit;
       // Pages in an archived space stay live but are hidden as a whole (see
       // spaces.listArchived), so they must not surface here either.
       const rows = await this.driver.db.query<{
@@ -3633,15 +3635,25 @@ export class Engine implements Platform {
             AND (p.space_id IS NULL OR s.archived_at IS NULL)
             ${spaceId ? "AND p.space_id = ?" : ""}
           ORDER BY p.updated_at DESC
-          LIMIT 20`,
-        spaceId
-          ? [`%${query}%`, `%${query}%`, spaceId]
-          : [`%${query}%`, `%${query}%`],
+          ${limit === null ? "" : "LIMIT ?"}`,
+        [
+          `%${query}%`,
+          `%${query}%`,
+          ...(spaceId ? [spaceId] : []),
+          ...(limit === null ? [] : [limit]),
+        ],
       );
+
+      // An unlimited search can return a whole space; walking each result's
+      // ancestors one query at a time would cost a query per ancestor per
+      // page. Load the space's pages once and resolve paths from memory.
+      const resolvePath = spaceId
+        ? await this.spaceParentChainResolver(spaceId)
+        : (parentId: string | null) => this.buildParentChain(parentId);
 
       const results: PageSearchResult[] = [];
       for (const r of rows) {
-        const path = await this.buildParentChain(r.parent_id);
+        const path = await resolvePath(r.parent_id);
         results.push({
           id: r.id,
           title: r.title,
@@ -4959,6 +4971,48 @@ export class Engine implements Platform {
     }
 
     return chain;
+  }
+
+  /**
+   * Same result as `buildParentChain`, for many pages of one space: loads the
+   * space's live pages in a single query and memoizes each ancestor chain.
+   */
+  private async spaceParentChainResolver(
+    spaceId: string,
+  ): Promise<(parentId: string | null) => PagePathSegment[]> {
+    const rows = await this.driver.db.query<{
+      id: string;
+      title: string;
+      title_md: string;
+      parent_id: string | null;
+      color: string | null;
+    }>(
+      "SELECT id, title, title_md, parent_id, color FROM pages WHERE space_id = ? AND archived_at IS NULL",
+      [spaceId],
+    );
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const chains = new Map<string, PagePathSegment[]>();
+
+    const resolve = (
+      id: string | null,
+      visiting: Set<string>,
+    ): PagePathSegment[] => {
+      if (!id) return [];
+      const cached = chains.get(id);
+      if (cached) return cached;
+      const r = byId.get(id);
+      // A cycle ends the chain where it loops, as buildParentChain does.
+      if (!r || visiting.has(id)) return [];
+      visiting.add(id);
+      const chain = [
+        ...resolve(r.parent_id, visiting),
+        { id: r.id, title: r.title, titleMd: r.title_md, color: r.color },
+      ];
+      chains.set(id, chain);
+      return chain;
+    };
+
+    return (parentId) => resolve(parentId, new Set());
   }
 
   /**

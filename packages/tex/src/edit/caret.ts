@@ -31,6 +31,12 @@ export interface CaretStop {
   /** Bottom of the caret in pixels. */
   readonly bottom: number;
   /**
+   * Top of the DRAWN caret, when it is shorter than the stop's `top`..`bottom`
+   * band (e.g. just after an integral with scripts, where a full-height caret
+   * would cut through the sign's overhang). Hit-testing keeps using `top`.
+   */
+  readonly caretTop?: number;
+  /**
    * True for a stop at a construct's OUTER edge on the parent baseline (see
    * {@link ListBox.boundary}). When a source offset is both a construct's edge
    * and an inner glyph's edge (e.g. the end of `x^{2}` is also the end of the
@@ -204,12 +210,14 @@ function walk(
       const top = y - box.height * fs;
       const bottom = y + box.depth * fs;
       out.push({ offset: box.span.start, x, y, top, bottom, ...ctx });
+      const end = box.endCaret;
       out.push({
         offset: box.span.end,
-        x: x + box.width * fs,
+        x: x + (end?.dx ?? box.width) * fs,
         y,
         top,
         bottom,
+        ...(end?.height !== undefined ? { caretTop: y - end.height * fs } : {}),
         ...ctx,
       });
     }
@@ -699,7 +707,8 @@ export function caretRect(
   // Floor a short span to a legible minimum, expanding about the stop's centre so
   // it stays on its row. Never exceed the formula's own extent, so a small
   // single-row chip is matched, not overshot.
-  let { top, bottom } = best;
+  let top = best.caretTop ?? best.top;
+  let bottom = best.bottom;
   const minHeight = Math.min(
     layout.fontSize * MIN_CARET_HEIGHT_EM,
     layout.height + layout.depth,

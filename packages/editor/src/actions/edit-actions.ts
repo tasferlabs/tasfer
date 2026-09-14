@@ -47,7 +47,7 @@ import {
 import type { Block, Mark } from "../serlization/loadPage";
 import type { EditorState, Operation, ViewportState } from "../state-types";
 import { getBlockTextContent } from "../state-utils";
-import { findBlock } from "../sync/block-lookup";
+import { findBlock, findBlockIndex } from "../sync/block-lookup";
 import {
   escapesAtDocumentEdge,
   isPreformattedType,
@@ -59,6 +59,7 @@ import { markCharsInRange, orderKeyAfter } from "../sync/crdt-utils";
 import { applyOps, findPreviousVisibleBlockIndex } from "../sync/reducer";
 import {
   deleteForward,
+  deleteSelectedText,
   deleteText,
   deleteToLineEnd,
   deleteToLineStart,
@@ -462,11 +463,131 @@ export const DELETE_TO_LINE_END = stateAction("delete-to-line-end", (state) =>
 
 // ─── Block structure ─────────────────────────────────────────────────────────
 
+// Enter / Shift+Enter policy for every block type — what each key does when the
+// block is empty or the caret is at its start, middle or end — is written down
+// in `dev-docs/enter-key.md`. Every SPLIT_BLOCK / EXIT_BLOCK handler follows
+// that table; change the table first when the policy changes.
+
 /** Split the current block at the caret (Enter). */
 export const SPLIT_BLOCK = stateAction("split-block", (state) => {
   const result = splitBlock(state);
   return { state: result.state, ops: result.ops };
 });
+
+/**
+ * Leave the current block (Shift+Enter). A block that holds several lines of
+ * its own — a code block, an equation, a table — claims this to start a
+ * paragraph below from anywhere inside it. Every other block has nothing to
+ * leave, so the default is the ordinary Enter split.
+ */
+export const EXIT_BLOCK = stateAction("exit-block", (state) => {
+  const result = splitBlock(state);
+  return { state: result.state, ops: result.ops };
+});
+
+/**
+ * Enter over a selected text range replaces the range, the way typing does:
+ * the range is deleted first, then the block handlers see a plain caret. Runs
+ * ahead of every node/mark handler and never claims, so each block keeps its
+ * own Enter policy. A whole-block node selection (anchor === focus) is not a
+ * text range and passes through untouched — Enter there means "paragraph
+ * below". Nested (structured) ranges stay with the feature that owns them.
+ */
+export function registerBreakReplacesSelection(bus: ActionBus): void {
+  const replace = (state: EditorState) => {
+    const selection = state.document.selection;
+    if (!selection || selection.isCollapsed || state.ui.composition) return;
+    const { anchor, focus } = selection;
+    if (
+      anchor.blockIndex === focus.blockIndex &&
+      anchor.textIndex === focus.textIndex
+    ) {
+      return;
+    }
+    const deleted = deleteSelectedText(state);
+    // A range the delete refuses (it clips an atomic formula) must not reach a
+    // split that would ignore it: swallow the key instead.
+    const stillRanged =
+      deleted.state.document.selection &&
+      !deleted.state.document.selection.isCollapsed;
+    if (deleted.ops.length === 0 || stillRanged) {
+      return { state, ops: [], handled: true };
+    }
+    return { state: deleted.state, ops: deleted.ops };
+  };
+  bus.registerState(SPLIT_BLOCK, replace, 1000);
+  bus.registerState(EXIT_BLOCK, replace, 1000);
+}
+
+/**
+ * Insert an empty paragraph directly below (`side: "after"`) or above
+ * (`side: "before"`) the block at `blockIndex` and emit its `block_insert`.
+ * `caret: "new"` moves the caret into the paragraph (Enter leaving a block);
+ * `caret: "keep"` leaves the selection where it was (Enter at the start of an
+ * equation pushes it down and stays in it). The paragraph type is clamped to
+ * the schema's `content` expression; returns `undefined` when the shape allows
+ * no block there.
+ *
+ * The shared body behind the Enter exits in `dev-docs/enter-key.md`, so the
+ * order key, schema clamp and caret hand-off live in one place.
+ */
+export function insertParagraphBeside(
+  state: EditorState,
+  blockIndex: number,
+  side: "before" | "after",
+  caret: "new" | "keep",
+): StateResult | undefined {
+  const page = state.document.page;
+  const block = page.blocks[blockIndex];
+  if (!block || block.deleted) return undefined;
+
+  const at = visibleIndex(page, blockIndex) + (side === "after" ? 1 : 0);
+  const type = contentInsertType(state, at, "paragraph");
+  if (type === undefined) return undefined;
+
+  const previousId =
+    side === "after" ? block.id : (page.blocks[blockIndex - 1]?.id ?? null);
+  const newParagraphId = state.CRDTbinding.nextId();
+  const op: Operation = {
+    op: "block_insert",
+    id: state.CRDTbinding.nextId(),
+    clock: state.CRDTbinding.getClock(),
+    pageId: state.CRDTbinding.pageId,
+    orderKey: orderKeyAfter(page.blocks, previousId),
+    blockId: newParagraphId,
+    blockType: type as Block["type"],
+  };
+  // Replay the op so the paragraph lands where every replica sorts it (a
+  // tombstone tied on a neighbour's orderKey shifts the position), then find
+  // blocks by id instead of assuming an index.
+  const newPage = applyOps(page, [op], state.schema);
+  let next: EditorState = {
+    ...state,
+    document: { ...state.document, page: newPage },
+  };
+  if (caret === "new") {
+    next = clearSelection(next);
+    next = moveCursorToPosition(
+      next,
+      findBlockIndex(newPage, newParagraphId),
+      0,
+    );
+  } else if (next.document.cursor) {
+    // The flat caret addresses its block by index; follow the block it was in.
+    const shifted = findBlockIndex(newPage, block.id);
+    next = {
+      ...next,
+      document: {
+        ...next.document,
+        cursor: {
+          ...next.document.cursor,
+          position: { ...next.document.cursor.position, blockIndex: shifted },
+        },
+      },
+    };
+  }
+  return { state: next, ops: [op] };
+}
 
 /**
  * Reposition a block to sit immediately after `afterBlockId` (null = head),

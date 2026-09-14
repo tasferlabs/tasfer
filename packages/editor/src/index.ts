@@ -169,6 +169,8 @@ import { getBaseDataSchema as resolveBaseDataSchema } from "./baseDataSchema";
 export const baseDataSchema = resolveBaseDataSchema();
 export type {
   ContentSelectionCtx,
+  ContentSelectionPaste,
+  ContentSelectionPasteCtx,
   ContentSelectionResolver,
   ContentSelectionSerializer,
   ContentSelectionSlice,
@@ -320,7 +322,9 @@ export {
   DELETE_TO_LINE_START,
   DELETE_WORD_BACKWARD,
   DELETE_WORD_FORWARD,
+  EXIT_BLOCK,
   INSERT_TEXT,
+  insertParagraphBeside,
   JOIN_WITH_PREVIOUS_BLOCK,
   joinWithPreviousBlock,
   MOVE_BLOCK,
@@ -328,6 +332,7 @@ export {
   moveBlock,
   moveBlocks,
   prependLeadingParagraph,
+  registerBreakReplacesSelection,
   registerEmptyBlockBackspaceExit,
   REVERT_INPUT_RULE,
   SELECT_ALL,
