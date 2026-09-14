@@ -469,6 +469,17 @@ export const SPLIT_BLOCK = stateAction("split-block", (state) => {
 });
 
 /**
+ * Leave the current block (Shift+Enter). A block that holds several lines of
+ * its own — a code block, an equation, a table — claims this to start a
+ * paragraph below from anywhere inside it. Every other block has nothing to
+ * leave, so the default is the ordinary Enter split.
+ */
+export const EXIT_BLOCK = stateAction("exit-block", (state) => {
+  const result = splitBlock(state);
+  return { state: result.state, ops: result.ops };
+});
+
+/**
  * Reposition a block to sit immediately after `afterBlockId` (null = head),
  * emitting a single `block_set` of the block's fractional-index `orderKey`. The
  * dispatchable form of {@link moveBlock} so hosts/plugins (e.g. a
