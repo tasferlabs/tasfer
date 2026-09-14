@@ -235,23 +235,30 @@ export function useReorderPage<TContext = unknown>(
 export async function searchPages(
   query: string,
   spaceId?: string | null,
+  limit?: number | null,
 ): Promise<ISearchPage[]> {
   const platform = getPlatform();
-  return platform.pages.search(query, spaceId);
+  return platform.pages.search(query, spaceId, { limit });
 }
 
 /**
  * Search pages across every space. Pass `spaceId` to restrict the search to
  * one space — for pickers that can only land a page inside a given space.
+ * Results cap at 20 unless `limit` says otherwise; `null` returns every match.
  */
 export function useSearchPages(
   query: string,
-  options?: { spaceId?: string | null; enabled?: boolean },
+  options?: {
+    spaceId?: string | null;
+    enabled?: boolean;
+    limit?: number | null;
+  },
 ) {
   const spaceId = options?.spaceId ?? null;
+  const limit = options?.limit;
   return useQuery({
-    queryKey: ["pages-search", { spaceId, query }],
-    queryFn: () => searchPages(query, spaceId),
+    queryKey: ["pages-search", { spaceId, query, limit }],
+    queryFn: () => searchPages(query, spaceId, limit),
     enabled: options?.enabled ?? true,
     placeholderData: (prev) => prev,
   });

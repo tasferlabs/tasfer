@@ -870,9 +870,14 @@ export interface Platform {
     reorder(id: string, order: number): Promise<void>;
     /**
      * Search live pages by title and body text. Spans every non-archived space
-     * unless `spaceId` names one to restrict to.
+     * unless `spaceId` names one to restrict to. Returns the 20 most recently
+     * updated matches unless `limit` says otherwise; `null` returns every match.
      */
-    search(query: string, spaceId?: string | null): Promise<PageSearchResult[]>;
+    search(
+      query: string,
+      spaceId?: string | null,
+      options?: { limit?: number | null },
+    ): Promise<PageSearchResult[]>;
     /** Get pages in a calendar date range */
     calendar(start: number, end: number): Promise<PageCalendarItem[]>;
     /**

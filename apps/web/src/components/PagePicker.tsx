@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Command } from "cmdk";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown, ChevronRight, FileText, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useSearchPages, type ISearchPage } from "@/app/api/pages.api";
@@ -18,6 +19,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+
+/** Estimated row height; rows are measured once mounted. */
+const ROW_HEIGHT = 32;
 
 interface PagePickerProps {
   spaceId: string | null;
@@ -52,10 +56,15 @@ export function PagePicker({
   const anchorRef = useRef<HTMLDivElement>(null);
   const [anchorWidth, setAnchorWidth] = useState(0);
 
+  const listRef = useRef<HTMLDivElement>(null);
+
   // A parent must live in the picker's space, so this search stays scoped.
+  // Uncapped: any page in the space must be reachable without typing, and
+  // the list below only mounts the rows in view.
   const { data: pages } = useSearchPages(search, {
     spaceId,
-    enabled: !!spaceId,
+    enabled: !!spaceId && open,
+    limit: null,
   });
 
   const filtered = excludeIds?.length
@@ -65,6 +74,13 @@ export function PagePicker({
           !p.path?.some((ancestor) => excludeIds.includes(ancestor.id)),
       )
     : pages;
+
+  const virtualizer = useVirtualizer({
+    count: filtered?.length ?? 0,
+    getScrollElement: () => listRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 8,
+  });
 
   useEffect(() => {
     if (open) {
@@ -142,7 +158,7 @@ export function PagePicker({
             placeholder={t("editor.searchPages", "Search pages...")}
             className="h-9 w-full border-b border-border bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground"
           />
-          <Command.List className="max-h-52 overflow-y-auto p-1">
+          <Command.List ref={listRef} className="max-h-52 overflow-y-auto p-1">
             <Command.Empty className="py-4 text-center text-sm text-muted-foreground">
               {t("page.noPagesFound", "No pages found")}
             </Command.Empty>
@@ -164,41 +180,56 @@ export function PagePicker({
                 </span>
               </Command.Item>
             )}
-            {filtered?.map((page) => (
-              <Command.Item
-                key={page.id}
-                value={page.id}
-                onSelect={() => {
-                  onChange(page);
-                  setOpen(false);
-                }}
-                className="cursor-pointer flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm  select-none data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground"
-              >
-                <span
-                  className="shrink-0 inline-block w-3 h-3 rounded-full"
-                  style={{
-                    backgroundColor: (() => {
-                      const c =
-                        page.color ??
-                        (page.path &&
-                          [...page.path].reverse().find((p) => p.color)?.color);
-                      return c || "var(--page-color-default)";
-                    })(),
-                    opacity:
-                      page.color ||
-                      (page.path && page.path.some((p) => p.color))
-                        ? 1
-                        : 0.3,
-                  }}
-                />
-                <div className="min-w-0 flex-1 flex gap-2">
-                  <span className="truncate block">
-                    <TitlePreview title={page.title} titleMd={page.titleMd} />
-                  </span>
-                  {page.path && <PathBreadcrumb path={page.path} />}
-                </div>
-              </Command.Item>
-            ))}
+            <div
+              className="relative w-full"
+              style={{ height: virtualizer.getTotalSize() }}
+            >
+              {virtualizer.getVirtualItems().map((row) => {
+                const page = filtered![row.index];
+                return (
+                  <Command.Item
+                    key={page.id}
+                    value={page.id}
+                    data-index={row.index}
+                    ref={virtualizer.measureElement}
+                    onSelect={() => {
+                      onChange(page);
+                      setOpen(false);
+                    }}
+                    className="absolute inset-x-0 top-0 cursor-pointer flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm  select-none data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground"
+                    style={{ transform: `translateY(${row.start}px)` }}
+                  >
+                    <span
+                      className="shrink-0 inline-block w-3 h-3 rounded-full"
+                      style={{
+                        backgroundColor: (() => {
+                          const c =
+                            page.color ??
+                            (page.path &&
+                              [...page.path].reverse().find((p) => p.color)
+                                ?.color);
+                          return c || "var(--page-color-default)";
+                        })(),
+                        opacity:
+                          page.color ||
+                          (page.path && page.path.some((p) => p.color))
+                            ? 1
+                            : 0.3,
+                      }}
+                    />
+                    <div className="min-w-0 flex-1 flex gap-2">
+                      <span className="truncate block">
+                        <TitlePreview
+                          title={page.title}
+                          titleMd={page.titleMd}
+                        />
+                      </span>
+                      {page.path && <PathBreadcrumb path={page.path} />}
+                    </div>
+                  </Command.Item>
+                );
+              })}
+            </div>
           </Command.List>
         </Command>
       </PopoverContent>
