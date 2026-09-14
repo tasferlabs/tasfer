@@ -144,13 +144,13 @@ const rects = selectionRects(layout, startOffset, endOffset);
 `layout.items.get(id)` returns an item's bounds, baseline, and caret stops —
 with `mathDocumentCaretStop`, `mathDocumentCaretFromSourceOffset`, and
 `hitTestMathDocument` bridging between stable addresses and source offsets.
+When drawing a caret straight from a stop, use `stop.caretTop ?? stop.top` for
+its top: a few stops (just after an integral with scripts) draw a shorter caret
+than their hit band.
 
 Alongside these, the package exports the editing helpers an input layer needs:
 brace balancing, matrix row/column resizing, LaTeX normalization, unit
 navigation (`unitAt`, `unitBefore`, `unitAfter`), and the command vocabulary
-When drawing a caret straight from a stop, use `stop.caretTop ?? stop.top` for
-its top: a few stops (just after an integral with scripts) draw a shorter caret
-than their hit band.
 (`symbolCommands`, `operatorCommands`, `accentCommands`, …).
 
 ## Rendering to SVG

@@ -591,7 +591,6 @@ Tools that work on prose read those fields through
 checker underlines misspellings inside your document the way it does in a
 paragraph. A kind without the adapter has no prose fields.
 
-<h2 id="extend">Extending</h2>
 Copy and paste inside your document go through two more adapters on the same
 entry. `contentSelection({ document, selection })` returns what a nested range
 puts on the clipboard: `plainText`, plus optional `markdown` and `html`. Instead
@@ -614,6 +613,7 @@ const tableKind: StructuredKindSpec = {
 };
 ```
 
+<h2 id="extend">Extending</h2>
 
 `use` installs a reusable feature bundle. Feature objects can contribute nodes,
 marks, structured-kind adapters, live-input rules, action hooks, and theme or
