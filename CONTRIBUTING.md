@@ -23,10 +23,13 @@ Open an issue with the **feature request** template. Describe the problem you're
 ### Submitting Changes
 
 1. **Fork** the repository
-2. **Create a branch** from `main` (`git checkout -b my-change`)
+2. **Create a branch** from `dev` (`git checkout -b my-change dev`)
 3. **Make your changes** — keep commits focused and atomic
 4. **Test your changes** locally across platforms if applicable
-5. **Push** to your fork and open a **Pull Request**
+5. **Push** to your fork and open a **Pull Request** against `dev`
+
+`dev` is the default branch, where all work lands. `main` only moves when `dev`
+is merged into it for a release.
 
 ### Pull Request Guidelines
 
@@ -138,8 +141,8 @@ carries a version — so the bump is one line and no follow-up edits. The
 
 How the cycle works:
 
-- Bump `appVersion` in `version.json` and merge it to `main`.
-- Dispatch **Release** on that ref with `publish: true`. It creates the
+- Bump `appVersion` in `version.json` on `dev`, then merge `dev` into `main`.
+- Dispatch **Release** on `main` with `publish: true`. It creates the
   `v<appVersion>` GitHub release from `version.json` before building — never
   electron-builder, which would race one publisher per artifact — then runs the
   desktop build (`native-release.yml`) and the `tasfer` CLI build
