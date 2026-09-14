@@ -1,5 +1,9 @@
 # @tasfer/provider-webrtc
 
+> [!WARNING]
+> **Preview release.** This package is still in early development. Its API may
+> change, and future versions may include breaking changes.
+
 **Direct peer-to-peer sync** for [`@tasfer/editor`](https://www.npmjs.com/package/@tasfer/editor).
 Peers exchange document operations over WebRTC DataChannels — a small signaling
 step introduces them, and after that the data flows browser to browser with no

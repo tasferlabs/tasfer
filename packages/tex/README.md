@@ -1,5 +1,9 @@
 # @tasfer/tex
 
+> [!WARNING]
+> **Preview release.** This package is still in early development. Its API may
+> change, and future versions may include breaking changes.
+
 A **canvas-native, live-editable LaTeX math engine**. It parses LaTeX, lays it
 out with TeX's box-and-glue rules, and paints it **directly onto an HTML5
 `<canvas>`** with `fillText` and `fillRect` — no DOM, no SVG, no

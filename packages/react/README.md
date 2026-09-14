@@ -1,5 +1,9 @@
 # @tasfer/react
 
+> [!WARNING]
+> **Preview release.** This package is still in early development. Its API may
+> change, and future versions may include breaking changes.
+
 **React 19 bindings** for [`@tasfer/editor`](https://www.npmjs.com/package/@tasfer/editor),
 the headless canvas editor engine. A thin layer over the same imperative
 handle — not a fork of it.

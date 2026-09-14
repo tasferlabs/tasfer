@@ -1,5 +1,9 @@
 # @tasfer/provider-core
 
+> [!WARNING]
+> **Preview release.** This package is still in early development. Its API may
+> change, and future versions may include breaking changes.
+
 The **transport-agnostic sync protocol** behind every
 [`@tasfer/editor`](https://www.npmjs.com/package/@tasfer/editor) provider.
 Pair a CRDT `Doc` with a pipe and the two replicas converge: version vectors are
