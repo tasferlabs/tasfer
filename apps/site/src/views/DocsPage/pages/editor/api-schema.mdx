@@ -326,8 +326,10 @@ The caret inside a table is a `ContentPoint` addressing one cell's text field,
 never a block text index, so a collaborator editing another cell cannot move
 it. Arrow keys step within a cell and cross into the next at its edges, Tab
 walks the cells in row-major order, and Enter moves down a row rather than
-splitting the block (a GFM cell holds a single line). The vertical arrows also
-enter the table from the block above or below and leave it at its edge rows.
+splitting the block (a GFM cell holds a single line) — on the last row it adds
+a row first. Shift+Enter leaves the table for a paragraph below. The vertical
+arrows also enter the table from the block above or below and leave it at its
+edge rows.
 
 Selecting works the same way in cell addresses. Shift with any of those keys
 grows a range from wherever the caret was anchored, a double-click (or

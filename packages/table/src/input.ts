@@ -14,6 +14,7 @@
  * `./markdown-shortcuts`.
  */
 
+import { insertRow } from "./commands";
 import {
   activeTableContext,
   type Claimed,
@@ -39,7 +40,7 @@ import {
   coveredCellIds,
   tableCellIds,
 } from "./selection";
-import { cellRunsFromText } from "./structured";
+import { CELL_NODE, cellRunsFromText } from "./structured";
 import type { ActionBus } from "@tasfer/editor/action-bus";
 import {
   DELETE_BACKWARD,
@@ -48,6 +49,8 @@ import {
   DELETE_TO_LINE_START,
   DELETE_WORD_BACKWARD,
   DELETE_WORD_FORWARD,
+  EXIT_BLOCK,
+  insertParagraphBeside,
   REVERT_INPUT_RULE,
   SPLIT_BLOCK,
 } from "@tasfer/editor/actions/edit-actions";
@@ -63,6 +66,7 @@ import type {
   MarkSpan,
 } from "@tasfer/editor/serlization/loadPage";
 import type { EditorState } from "@tasfer/editor/state-types";
+import { updateContentSelection } from "@tasfer/editor/structured-selection";
 import {
   getCharIdsInRangeFromRuns,
   getVisibleTextFromRuns,
@@ -528,19 +532,60 @@ export function registerTableInputActions(bus: ActionBus): void {
     100,
   );
 
-  // A GFM cell holds one line, so Enter cannot split it. It moves to the cell
-  // below in the same column instead — the spreadsheet convention, and the one
-  // motion the key already suggests. On the last row it is claimed and does
-  // nothing rather than splitting the table's block.
+  // Enter / Shift+Enter in a cell (policy: dev-docs/enter-key.md). A GFM cell
+  // holds one line, so Enter cannot split it. It moves to the cell below in the
+  // same column instead — the spreadsheet convention — and on the last row it
+  // grows the table by a row and lands in that column of it. Shift+Enter
+  // leaves the table for a paragraph below.
   bus.registerState(
     SPLIT_BLOCK,
     (state) => {
       const context = activeTableContext(state);
       if (!context) return undefined;
       const at = cellPosition(context.document, context.caret.cellId);
-      const below = at && cellAt(context.document, at.row + 1, at.column);
-      if (!below) return { state, ops: [], handled: true };
-      return commitTableEdits(state, context, [], { cellId: below, offset: 0 });
+      if (!at) return { state, ops: [], handled: true };
+      const below = cellAt(context.document, at.row + 1, at.column);
+      if (below) {
+        return commitTableEdits(state, context, [], {
+          cellId: below,
+          offset: 0,
+        });
+      }
+      const grown = insertRow(
+        context.document,
+        state.CRDTbinding,
+        at.row,
+        "after",
+      );
+      if (!grown) return { state, ops: [], handled: true };
+      const rowCells = grown.edits.filter(
+        (edit) => edit.kind === "node_insert" && edit.node.type === CELL_NODE,
+      );
+      const landing = rowCells[at.column] ?? rowCells[0];
+      const cellId =
+        landing?.kind === "node_insert" ? landing.node.id : grown.caret?.cellId;
+      if (!cellId) return { state, ops: [], handled: true };
+      return commitTableEdits(state, context, grown.edits, {
+        cellId,
+        offset: 0,
+      });
+    },
+    100,
+  );
+  bus.registerState(
+    EXIT_BLOCK,
+    (state) => {
+      const context = activeTableContext(state);
+      if (!context) return undefined;
+      const exited = insertParagraphBeside(
+        updateContentSelection(state, null),
+        context.blockIndex,
+        "after",
+        "new",
+      );
+      return exited
+        ? { ...exited, handled: true }
+        : { state, ops: [], handled: true };
     },
     100,
   );
