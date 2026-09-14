@@ -36,8 +36,8 @@ import {
   cellLength,
   cellPosition,
   cellRuns,
-  type TableCaret,
   coveredCellIds,
+  type TableCaret,
   tableCellIds,
 } from "./selection";
 import { CELL_NODE, cellRunsFromText } from "./structured";
@@ -190,12 +190,8 @@ function typedMarkEdits(
         (_unused, at) => `${run.peerId}:${run.startCounter + at}`,
       ),
     ),
-  );
-  if (charIds.length === 0) return [];
-  const runs = cellRuns(typed, caret.cellId) ?? [];
-  const spans = getStructuredMarks(typed, caret.cellId, "text") as MarkSpan[];
     wanted,
-  const from = caret.offset;
+  );
 }
 
 /**
@@ -210,6 +206,10 @@ export function insertedMarkEdits(
   charIds: readonly string[],
   wanted: readonly Mark[],
 ): StructuredEdit[] {
+  if (charIds.length === 0) return [];
+  const runs = cellRuns(typed, caret.cellId) ?? [];
+  const spans = getStructuredMarks(typed, caret.cellId, "text") as MarkSpan[];
+  const from = caret.offset;
   const to = from + charIds.length;
   const edits: StructuredEdit[] = [];
   for (const mark of wanted) {
