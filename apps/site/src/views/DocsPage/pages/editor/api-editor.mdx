@@ -129,6 +129,8 @@ The editor consumes only the chords its keymap answers, and lets every other Ctr
   { name: "Cmd+A", type: "select all", desc: "Always claimed." },
   { name: "Cmd+B / Cmd+I / Cmd+E", type: "toggle strong / emphasis / code", desc: "Claimed only while the schema registers and allows that mark: a title field built with restrict({ marks: [] }) lets Cmd+B through to the host." },
   { name: "Cmd+Shift+X", type: "toggle strike", desc: "Same rule as the other marks. A plain Cmd+X is the native cut and is never claimed." },
+  { name: "Enter", type: "SPLIT_BLOCK", desc: "Continues the block: splits prose, adds a newline in a code block, moves down a table row. On an empty heading, list item, quote or equation it leaves that type for a paragraph. Deletes a selected text range first." },
+  { name: "Shift+Enter", type: "EXIT_BLOCK", desc: "Leaves a block that holds its own lines — a code block, an equation, a table — for a paragraph below. Everywhere else it does what Enter does." },
   { name: "Cmd+Enter, Shift+F10, Menu", type: "context menu", desc: "Dispatches OPEN_CONTEXT_MENU (see above)." },
   { name: "Ctrl+A/E/B/F/P/N/H/D/K", type: "emacs caret moves", desc: "macOS only, bare Ctrl. Elsewhere these codes reach the host — Ctrl+F is its find." },
 ]} />

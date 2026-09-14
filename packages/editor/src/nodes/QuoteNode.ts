@@ -237,7 +237,8 @@ export class QuoteNode extends TextNode {
    *   {@link registerEmptyBlockBackspaceExit}).
    * - Enter policy: inside text splits into two quotes; at the end keeps the
    *   quote and starts a paragraph below; on an empty quote converts to a
-   *   paragraph.
+   *   paragraph. Shift+Enter takes the generic EXIT_BLOCK (a plain split).
+   *   The full per-block table lives in `dev-docs/enter-key.md`.
    */
   registerActions(bus: ActionBus): void {
     registerEmptyBlockBackspaceExit(bus, this.types);

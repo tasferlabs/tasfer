@@ -463,6 +463,11 @@ export const DELETE_TO_LINE_END = stateAction("delete-to-line-end", (state) =>
 
 // ─── Block structure ─────────────────────────────────────────────────────────
 
+// Enter / Shift+Enter policy for every block type — what each key does when the
+// block is empty or the caret is at its start, middle or end — is written down
+// in `dev-docs/enter-key.md`. Every SPLIT_BLOCK / EXIT_BLOCK handler follows
+// that table; change the table first when the policy changes.
+
 /** Split the current block at the caret (Enter). */
 export const SPLIT_BLOCK = stateAction("split-block", (state) => {
   const result = splitBlock(state);
