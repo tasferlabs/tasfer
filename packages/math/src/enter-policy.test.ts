@@ -48,9 +48,43 @@ function blocks(state: EditorState): string[] {
     });
 }
 
+function enter(state: EditorState) {
+  return state.actionBus.dispatchState(SPLIT_BLOCK, state);
+}
 function shiftEnter(state: EditorState) {
   return state.actionBus.dispatchState(EXIT_BLOCK, state);
 }
+
+describe("Enter over a selected text range", () => {
+  it("deletes the range, then splits at the caret", () => {
+    let state = caret(stateOf("hello world"), 0, 5);
+    state = {
+      ...state,
+      document: {
+        ...state.document,
+        selection: {
+          anchor: { blockIndex: 0, textIndex: 0 },
+          focus: { blockIndex: 0, textIndex: 5 },
+          isForward: true,
+          isCollapsed: false,
+          lastUpdate: 0,
+        },
+      },
+    };
+
+    const result = enter(state);
+
+    expect(blocks(result.state)).toEqual([
+      'paragraph:""',
+      'paragraph:" world"',
+    ]);
+    expect(result.state.document.selection?.isCollapsed ?? true).toBe(true);
+    expect(result.state.document.cursor?.position).toEqual({
+      blockIndex: 1,
+      textIndex: 0,
+    });
+  });
+});
 
 describe("Enter in prose blocks", () => {
   it("Shift+Enter in prose is the ordinary split", () => {

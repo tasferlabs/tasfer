@@ -331,6 +331,7 @@ export {
   moveBlock,
   moveBlocks,
   prependLeadingParagraph,
+  registerBreakReplacesSelection,
   registerEmptyBlockBackspaceExit,
   REVERT_INPUT_RULE,
   SELECT_ALL,

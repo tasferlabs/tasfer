@@ -59,6 +59,7 @@ import { markCharsInRange, orderKeyAfter } from "../sync/crdt-utils";
 import { applyOps, findPreviousVisibleBlockIndex } from "../sync/reducer";
 import {
   deleteForward,
+  deleteSelectedText,
   deleteText,
   deleteToLineEnd,
   deleteToLineStart,
@@ -478,6 +479,40 @@ export const EXIT_BLOCK = stateAction("exit-block", (state) => {
   const result = splitBlock(state);
   return { state: result.state, ops: result.ops };
 });
+
+/**
+ * Enter over a selected text range replaces the range, the way typing does:
+ * the range is deleted first, then the block handlers see a plain caret. Runs
+ * ahead of every node/mark handler and never claims, so each block keeps its
+ * own Enter policy. A whole-block node selection (anchor === focus) is not a
+ * text range and passes through untouched — Enter there means "paragraph
+ * below". Nested (structured) ranges stay with the feature that owns them.
+ */
+export function registerBreakReplacesSelection(bus: ActionBus): void {
+  const replace = (state: EditorState) => {
+    const selection = state.document.selection;
+    if (!selection || selection.isCollapsed || state.ui.composition) return;
+    const { anchor, focus } = selection;
+    if (
+      anchor.blockIndex === focus.blockIndex &&
+      anchor.textIndex === focus.textIndex
+    ) {
+      return;
+    }
+    const deleted = deleteSelectedText(state);
+    // A range the delete refuses (it clips an atomic formula) must not reach a
+    // split that would ignore it: swallow the key instead.
+    const stillRanged =
+      deleted.state.document.selection &&
+      !deleted.state.document.selection.isCollapsed;
+    if (deleted.ops.length === 0 || stillRanged) {
+      return { state, ops: [], handled: true };
+    }
+    return { state: deleted.state, ops: deleted.ops };
+  };
+  bus.registerState(SPLIT_BLOCK, replace, 1000);
+  bus.registerState(EXIT_BLOCK, replace, 1000);
+}
 
 /**
  * Reposition a block to sit immediately after `afterBlockId` (null = head),
