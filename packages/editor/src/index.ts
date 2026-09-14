@@ -169,6 +169,8 @@ import { getBaseDataSchema as resolveBaseDataSchema } from "./baseDataSchema";
 export const baseDataSchema = resolveBaseDataSchema();
 export type {
   ContentSelectionCtx,
+  ContentSelectionPaste,
+  ContentSelectionPasteCtx,
   ContentSelectionResolver,
   ContentSelectionSerializer,
   ContentSelectionSlice,

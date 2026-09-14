@@ -590,6 +590,28 @@ checks the public feature contract while retaining literal node, mark, and
 attribute types for the resulting `Editor` API. The optional `name` is metadata,
 not a deduplication key; calling `use` twice composes twice, with the same
 later-definition-wins behavior as `extend`.
+Copy and paste inside your document go through two more adapters on the same
+entry. `contentSelection({ document, selection })` returns what a nested range
+puts on the clipboard: `plainText`, plus optional `markdown` and `html`. Instead
+of writing those rich flavors yourself you can return `blocks` — the range
+rebuilt as standalone blocks — and core serializes them through the ordinary
+codecs, so formatting survives and a paste into prose rebuilds exactly those
+blocks. `paste({ state, document, selection, text, markdown })` is offered every
+paste that lands in a nested range before core falls back to inserting `text`
+through the input rules; `markdown` is set only for a copy made in Tasfer.
+Return `{ state, ops }` to take the paste, or `undefined` to decline:
+
+```ts
+const tableKind: StructuredKindSpec = {
+  kind: "table",
+  contentSelection: ({ document, selection }) => ({
+    plainText: gridAsTabSeparatedText(document, selection),
+    blocks: [selectionAsTableBlock(document, selection)],
+  }),
+  paste: (ctx) => spreadAcrossCells(ctx), // undefined → plain insert
+};
+```
+
 
 For one-off registration, `extend` remains the lower-level API. It takes
 _arrays_ of node and mark specs and returns a new, immutable schema:
