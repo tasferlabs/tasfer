@@ -144,6 +144,9 @@ with `mathDocumentCaretStop`, `mathDocumentCaretFromSourceOffset`, and
 Alongside these, the package exports the editing helpers an input layer needs:
 brace balancing, matrix row/column resizing, LaTeX normalization, unit
 navigation (`unitAt`, `unitBefore`, `unitAfter`), and the command vocabulary
+When drawing a caret straight from a stop, use `stop.caretTop ?? stop.top` for
+its top: a few stops (just after an integral with scripts) draw a shorter caret
+than their hit band.
 (`symbolCommands`, `operatorCommands`, `accentCommands`, …).
 
 ## Rendering to SVG

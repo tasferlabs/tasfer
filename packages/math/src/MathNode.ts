@@ -1715,8 +1715,8 @@ export class MathNode extends TextNode<MathBlock> {
         const baselineY = blockTopY + l.mathTop + documentLayout.height;
         return {
           x: baseX + stop.x,
-          y: baselineY + stop.top,
-          height: stop.bottom - stop.top,
+          y: baselineY + (stop.caretTop ?? stop.top),
+          height: stop.bottom - (stop.caretTop ?? stop.top),
           exact: true,
         };
       }
