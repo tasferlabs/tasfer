@@ -36,6 +36,7 @@ import {
   cellPosition,
   cellRuns,
   type TableCaret,
+  coveredCellIds,
   tableCellIds,
 } from "./selection";
 import { cellRunsFromText } from "./structured";
@@ -82,7 +83,7 @@ import {
 } from "@tasfer/editor/word-chars";
 
 /** Delete edits clearing every cell a selection covers, plus the landing caret. */
-function clearRange(
+export function clearRange(
   context: TableContext,
 ): { edits: StructuredEdit[]; caret: TableCaret } | undefined {
   const { document, caret, anchor } = context;
@@ -107,13 +108,10 @@ function clearRange(
   // A range spanning cells clears each covered cell whole. A grid has no
   // meaningful "half a cell then half another": the covered cells ARE the
   // selection, which is also the unit the selection band paints.
-  const order = tableCellIds(document);
-  const from = order.indexOf(anchor.cellId);
-  const to = order.indexOf(caret.cellId);
-  if (from < 0 || to < 0) return undefined;
+  const covered = coveredCellIds(document, anchor, caret);
+  if (covered.length === 0) return undefined;
   const edits: StructuredEdit[] = [];
-  for (let at = Math.min(from, to); at <= Math.max(from, to); at++) {
-    const cellId = order[at];
+  for (const cellId of covered) {
     const charIds = getCharIdsInRangeFromRuns(
       cellRuns(document, cellId) ?? [],
       0,
@@ -128,14 +126,14 @@ function clearRange(
       });
     }
   }
-  return { edits, caret: { cellId: order[Math.min(from, to)], offset: 0 } };
+  return { edits, caret: { cellId: covered[0], offset: 0 } };
 }
 
 /**
  * The flat marks on the first character a selection covers, or `undefined`
  * for a bare caret — what text typed over the selection takes.
  */
-function firstSelectedMarks(
+export function firstSelectedMarks(
   state: EditorState,
   context: TableContext,
 ): Mark[] | undefined {
@@ -148,10 +146,7 @@ function firstSelectedMarks(
     from = Math.min(anchor.offset, caret.offset);
   } else {
     // A range across cells clears them whole and types into the first one.
-    const order = tableCellIds(document);
-    const first = order[
-      Math.min(order.indexOf(anchor.cellId), order.indexOf(caret.cellId))
-    ];
+    const first = coveredCellIds(document, anchor, caret)[0];
     if (first === undefined) return undefined;
     cellId = first;
     from = 0;
@@ -181,16 +176,36 @@ function typedMarkEdits(
   inserted: readonly CharRun[],
   wanted: readonly Mark[],
 ): StructuredEdit[] {
-  const charIds = inserted.flatMap((run) =>
-    Array.from(
-      { length: run.text.length },
-      (_unused, at) => `${run.peerId}:${run.startCounter + at}`,
+  return insertedMarkEdits(
+    state,
+    typed,
+    caret,
+    inserted.flatMap((run) =>
+      Array.from(
+        { length: run.text.length },
+        (_unused, at) => `${run.peerId}:${run.startCounter + at}`,
+      ),
     ),
   );
   if (charIds.length === 0) return [];
   const runs = cellRuns(typed, caret.cellId) ?? [];
   const spans = getStructuredMarks(typed, caret.cellId, "text") as MarkSpan[];
+    wanted,
   const from = caret.offset;
+}
+
+/**
+ * {@link typedMarkEdits} for characters already addressed by id: `charIds` are
+ * the visible characters starting at `caret`, in order. A paste calls this once
+ * per run of equally-formatted characters.
+ */
+export function insertedMarkEdits(
+  state: EditorState,
+  typed: StructuredDocument,
+  caret: TableCaret,
+  charIds: readonly string[],
+  wanted: readonly Mark[],
+): StructuredEdit[] {
   const to = from + charIds.length;
   const edits: StructuredEdit[] = [];
   for (const mark of wanted) {
@@ -200,7 +215,7 @@ function typedMarkEdits(
       kind: "mark_set",
       nodeId: caret.cellId,
       field: "text",
-      charIds,
+      charIds: [...charIds],
       mark,
       value: true,
     });
@@ -218,7 +233,7 @@ function typedMarkEdits(
       kind: "mark_set",
       nodeId: caret.cellId,
       field: "text",
-      charIds,
+      charIds: [...charIds],
       mark: { type },
       value: false,
     });
@@ -315,7 +330,7 @@ function insertIntoCell(
 }
 
 /** The id of the visible character immediately before `offset`, or null. */
-function charIdBefore(
+export function charIdBefore(
   runs: ReturnType<typeof cellRuns>,
   offset: number,
 ): string | null {

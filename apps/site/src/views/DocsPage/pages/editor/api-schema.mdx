@@ -333,20 +333,50 @@ Selecting works the same way in cell addresses. Shift with any of those keys
 grows a range from wherever the caret was anchored, a double-click (or
 double-tap) takes the word under it and a triple-click the whole cell, and a
 drag sweeps from the press. A range inside one cell highlights the characters
-it covers, exactly as prose does; a range that spans cells covers each of them
-whole, because a partial band across a grid reads as a rendering error and
-whole cells are the unit the clipboard, the mark toggles and the deletes all
-work in. At the grid's first and last stop the keys stay claimed and the range
-simply stops growing — a nested range and a flat one are different models, and
-there is no half-nested selection to hand the rest of the document.
+it covers, exactly as prose does; a range that spans cells covers the
+**rectangle** between its two ends — the rows from the anchor's to the focus's,
+by the columns from the anchor's to the focus's — each cell whole, the way a
+spreadsheet selects. Dragging down a column takes that column, not every cell
+read between the two ends. Those cells are the unit the clipboard, the mark
+toggles and the deletes all work in (`coveredCellIds(document, anchor, focus)`
+reads them). Once a range spans cells, Shift+Left/Right widens it a column at a
+time within the focus's row and stops at the row's edge rather than wrapping. At
+the grid's first and last stop the keys stay claimed and the range simply stops
+growing — a nested range and a flat one are different models, and there is no
+half-nested selection to hand the rest of the document.
+
+A whole row or column is one dispatch away, and clicking a column's move grip
+(below) without dragging it selects that column:
+
+```ts
+import { TABLE_SELECT_ROW, TABLE_SELECT_COLUMN } from "@tasfer/table";
+
+editor.dispatch(TABLE_SELECT_ROW, {});
+editor.dispatch(TABLE_SELECT_COLUMN, { columnIndex: 2 });
+```
 
 Copying a range inside one cell puts its characters on the clipboard; across
-cells it puts the covered cells, tab-separated within a row and newline
-separated between rows, which is the grid convention a spreadsheet reads. That
-projection is the kind's `contentSelection` adapter, and — like math's — it is
-installed by `tableExtension()` only: a worker replaying operations never holds
-a selection. Hosts assembling a schema by hand add `tableContentSelectionKind`
-to their `structuredKinds`.
+cells it puts the covered rectangle. The plain-text flavor is tab-separated
+within a row and newline separated between rows, which is the grid convention a
+spreadsheet reads. The rich flavors keep formatting: the slice hands core
+`blocks` — the range rebuilt as a standalone table, or a paragraph for part of
+one cell — and core serializes them through the ordinary codecs, so the HTML is
+a real `<table>` and the Markdown a GFM table. Pasted into prose, copied cells
+become a table of their own.
+
+Pasting into a table is the kind's `paste` adapter. A grid — cells copied here,
+or tab/newline-separated text from a spreadsheet, with Excel-style quoted cells
+— lands with its top-left cell on the top-left of the selection (or the caret's
+cell) and **overwrites** the cells it covers; when it runs past the last row or
+column the table grows to fit. The pasted block is left selected. Text with no
+tab or line break goes in at the caret like typing. Formatting survives only a
+copy made in Tasfer (core passes the paste its decoded Markdown); text from
+elsewhere is taken literally, so `*.ts` from a spreadsheet never pastes italic.
+
+Both adapters are installed by `tableExtension()` only — like math's, since a
+worker replaying operations never holds a selection or a clipboard. Hosts
+assembling a schema by hand add `tableContentSelectionKind` to their
+`structuredKinds`.
 
 The deletes a cell answers to are the ones every other text surface does:
 Backspace and Delete, their word-wise variants (Alt/Ctrl+Backspace,
@@ -431,7 +461,8 @@ nothing to undo if the drag is cancelled, and a remote edit landing mid-drag
 folds into the real document rather than a copy. The release dispatches
 `TABLE_MOVE_COLUMN` — one `node_move` of the column node, since every cell
 names its column by id and comes along by construction. A column dropped back
-beside itself is a no-op, and Escape cancels the drag (as it does any region
+beside itself is a no-op, a press released without moving selects the column
+(`TABLE_SELECT_COLUMN`), and Escape cancels the drag (as it does any region
 drag holding the pointer). The grip is mouse-only for the same reason the
 strips are; a phone reaches the move through the two commands in its keyboard
 toolbar's table menu.
@@ -559,6 +590,28 @@ checker underlines misspellings inside your document the way it does in a
 paragraph. A kind without the adapter has no prose fields.
 
 <h2 id="extend">Extending</h2>
+Copy and paste inside your document go through two more adapters on the same
+entry. `contentSelection({ document, selection })` returns what a nested range
+puts on the clipboard: `plainText`, plus optional `markdown` and `html`. Instead
+of writing those rich flavors yourself you can return `blocks` — the range
+rebuilt as standalone blocks — and core serializes them through the ordinary
+codecs, so formatting survives and a paste into prose rebuilds exactly those
+blocks. `paste({ state, document, selection, text, markdown })` is offered every
+paste that lands in a nested range before core falls back to inserting `text`
+through the input rules; `markdown` is set only for a copy made in Tasfer.
+Return `{ state, ops }` to take the paste, or `undefined` to decline:
+
+```ts
+const tableKind: StructuredKindSpec = {
+  kind: "table",
+  contentSelection: ({ document, selection }) => ({
+    plainText: gridAsTabSeparatedText(document, selection),
+    blocks: [selectionAsTableBlock(document, selection)],
+  }),
+  paste: (ctx) => spreadAcrossCells(ctx), // undefined → plain insert
+};
+```
+
 
 `use` installs a reusable feature bundle. Feature objects can contribute nodes,
 marks, structured-kind adapters, live-input rules, action hooks, and theme or
@@ -590,28 +643,6 @@ checks the public feature contract while retaining literal node, mark, and
 attribute types for the resulting `Editor` API. The optional `name` is metadata,
 not a deduplication key; calling `use` twice composes twice, with the same
 later-definition-wins behavior as `extend`.
-Copy and paste inside your document go through two more adapters on the same
-entry. `contentSelection({ document, selection })` returns what a nested range
-puts on the clipboard: `plainText`, plus optional `markdown` and `html`. Instead
-of writing those rich flavors yourself you can return `blocks` — the range
-rebuilt as standalone blocks — and core serializes them through the ordinary
-codecs, so formatting survives and a paste into prose rebuilds exactly those
-blocks. `paste({ state, document, selection, text, markdown })` is offered every
-paste that lands in a nested range before core falls back to inserting `text`
-through the input rules; `markdown` is set only for a copy made in Tasfer.
-Return `{ state, ops }` to take the paste, or `undefined` to decline:
-
-```ts
-const tableKind: StructuredKindSpec = {
-  kind: "table",
-  contentSelection: ({ document, selection }) => ({
-    plainText: gridAsTabSeparatedText(document, selection),
-    blocks: [selectionAsTableBlock(document, selection)],
-  }),
-  paste: (ctx) => spreadAcrossCells(ctx), // undefined → plain insert
-};
-```
-
 
 For one-off registration, `extend` remains the lower-level API. It takes
 _arrays_ of node and mark specs and returns a new, immutable schema:

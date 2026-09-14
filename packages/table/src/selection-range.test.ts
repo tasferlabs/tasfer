@@ -298,6 +298,13 @@ describe("extending a selection that already spans cells", () => {
   // that grows it has to be a cell too. Stepping by character through a cell
   // that is already wholly selected is a press that changes nothing, and a wide
   // cell eats one per character.
+  /** Three columns, so a range can grow by a cell without leaving its row. */
+  const source3 = [
+    "| Fruit basket | Price | Stock |",
+    "| --- | --- | --- |",
+    "| 1.20 | Green apples | 14 |",
+  ].join("\n");
+
   function crossed(source = TABLE): EditorState {
     // "Fruit basket" is 12 characters: the seventh step from offset 6 is the
     // one that leaves the cell.
@@ -312,6 +319,28 @@ describe("extending a selection that already spans cells", () => {
   }
 
   it("grows by a whole cell rather than a character", () => {
+    // From the start of "1.20", a character step at a time: the range leaves
+    // that cell and then takes the cell beside it whole.
+    let state = caretIn(busState(source3), 3, 0);
+    for (let at = 0; at < "1.20".length + 1; at++) {
+      state = state.actionBus.dispatchState(
+        EXTEND_SELECTION_RIGHT,
+        state,
+      ).state;
+    }
+    expect(rangeOf(state)?.focus).toEqual({ cell: 4, offset: 0 });
+
+    state = state.actionBus.dispatchState(EXTEND_SELECTION_RIGHT, state).state;
+
+    expect(rangeOf(state)).toEqual({
+      anchor: { cell: 3, offset: 0 },
+      focus: { cell: 5, offset: 0 },
+    });
+  });
+
+  it("stops at the row's edge instead of wrapping onto the next row", () => {
+    // The range covers a rectangle, so wrapping would suddenly take in every
+    // column of the row below.
     let state = crossed();
     expect(rangeOf(state)?.focus).toEqual({ cell: 1, offset: 0 });
 
@@ -319,22 +348,16 @@ describe("extending a selection that already spans cells", () => {
 
     expect(rangeOf(state)).toEqual({
       anchor: { cell: 0, offset: 6 },
-      focus: { cell: 2, offset: 0 },
+      focus: { cell: 1, offset: 0 },
     });
   });
 
   it("shrinks back into the cell the range crossed out of", () => {
     let state = crossed();
-    state = state.actionBus.dispatchState(EXTEND_SELECTION_RIGHT, state).state;
     state = state.actionBus.dispatchState(EXTEND_SELECTION_LEFT, state).state;
 
-    // A cell back is the previous cell's END, so turning round exactly undoes
-    // the step that crossed — and one more lands in the anchor's own cell,
-    // where the range is a character range again.
-    expect(rangeOf(state)?.focus).toEqual({ cell: 1, offset: "Price".length });
-
-    state = state.actionBus.dispatchState(EXTEND_SELECTION_LEFT, state).state;
-
+    // A cell back is the previous cell's END, so turning round lands in the
+    // anchor's own cell, where the range is a character range again.
     expect(rangeOf(state)).toEqual({
       anchor: { cell: 0, offset: 6 },
       focus: { cell: 0, offset: "Fruit basket".length },
@@ -342,13 +365,14 @@ describe("extending a selection that already spans cells", () => {
   });
 
   it("takes a whole cell on Shift+Alt+Right too", () => {
-    let state = crossed();
+    let state = caretIn(busState(source3), 3, "1.20".length);
+    state = state.actionBus.dispatchState(EXTEND_SELECTION_RIGHT, state).state;
     state = state.actionBus.dispatchState(
       EXTEND_SELECTION_WORD_RIGHT,
       state,
     ).state;
 
-    expect(rangeOf(state)?.focus).toEqual({ cell: 2, offset: 0 });
+    expect(rangeOf(state)?.focus).toEqual({ cell: 5, offset: 0 });
   });
 
   it("still walks a wrapped cell line by line while the range is inside it", () => {
@@ -522,13 +546,26 @@ describe("what a table selection copies as", () => {
   });
 
   it("copies covered cells whole, as a grid a spreadsheet can read", () => {
-    // Row-major from the second header cell into the first body row.
+    // From the first header cell to the second body cell: the rectangle
+    // between them, row by row.
+    let state = caretIn(busState(TABLE), 0, 0);
+    state = state.actionBus.dispatchState(EXTEND_SELECTION_DOWN, state, {
+      viewport,
+    }).state;
+    state = state.actionBus.dispatchState(EXTEND_SELECTION_RIGHT, state).state;
+
+    expect(sliceOf(state)?.plainText).toBe(
+      "Fruit basket\tPrice\nGreen apples\t1.20",
+    );
+  });
+
+  it("copies only the column a range runs down", () => {
     let state = caretIn(busState(TABLE), 1, 0);
     state = state.actionBus.dispatchState(EXTEND_SELECTION_DOWN, state, {
       viewport,
     }).state;
 
-    expect(sliceOf(state)?.plainText).toBe("Price\nGreen apples\t1.20");
+    expect(sliceOf(state)?.plainText).toBe("Price\n1.20");
   });
 
   it("copies nothing for a collapsed caret", () => {
