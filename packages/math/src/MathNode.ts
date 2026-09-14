@@ -86,6 +86,8 @@ import {
   DELETE_FORWARD,
   DELETE_WORD_BACKWARD,
   DELETE_WORD_FORWARD,
+  EXIT_BLOCK,
+  insertParagraphBeside,
   SELECT_ALL,
   SPLIT_BLOCK,
 } from "@tasfer/editor/actions/edit-actions";
@@ -363,6 +365,104 @@ function mathNodeFieldValue(
     case "name":
       return node.type === "operator" ? node.name : null;
   }
+}
+
+/**
+ * Enter (`"enter"`) or Shift+Enter (`"exit"`) on a block equation — the math
+ * rows of `dev-docs/enter-key.md`. Resolves the equation from the flat caret or
+ * the nested structured caret; returns `undefined` for any other block.
+ */
+function mathBlockEnter(
+  state: EditorState,
+  key: "enter" | "exit",
+): (StateResult & { handled: true }) | undefined {
+  const cursor = state.document.cursor;
+  const contentSelection = state.document.contentSelection;
+  const blockIndex = cursor
+    ? cursor.position.blockIndex
+    : contentSelection
+      ? findBlockIndex(state.document.page, contentSelection.focus.blockId)
+      : -1;
+  if (blockIndex < 0) return undefined;
+  const block = mathBlockAt(state, blockIndex);
+  if (!block) return undefined;
+  const claim = (result: StateResult | undefined) =>
+    result
+      ? { ...result, handled: true as const }
+      : { state, ops: [], handled: true as const };
+
+  const nodeSelected =
+    !!state.document.selection && !state.document.selection.isCollapsed;
+  if (key === "enter" && !nodeSelected) {
+    if (mathBlockSource(block).length === 0) {
+      return claim(replaceEmptyEquationWithParagraph(state, blockIndex));
+    }
+    if (caretAtEquationStart(state, block)) {
+      return claim(insertParagraphBeside(state, blockIndex, "before", "keep"));
+    }
+  }
+  return claim(insertParagraphBeside(state, blockIndex, "after", "new"));
+}
+
+/**
+ * Whether the collapsed nested caret sits at the very start of the equation's
+ * root row. Only the structured caret counts: a tree-authoritative equation's
+ * flat projection is an empty stub, so a flat offset 0 says nothing.
+ */
+function caretAtEquationStart(state: EditorState, block: MathBlock): boolean {
+  const selection = state.document.contentSelection;
+  if (!selection || !isContentSelectionCollapsed(selection)) return false;
+  const document = getMathStructuredDocument(block);
+  if (!document || selection.focus.contentId !== document.rootId) return false;
+  const math = getMathDocumentForBlock(block);
+  const position = math
+    ? contentPointToMathDocumentPosition(document, selection.focus)
+    : null;
+  return (
+    !!math && !!position && atRootRowEdge(math.root.body, position, "start")
+  );
+}
+
+/**
+ * An empty equation leaves on Enter the way an empty list item or quote does:
+ * it becomes a paragraph where it stood. The equation owns its content through
+ * a structured document, which a type morph cannot carry, so the block is
+ * tombstoned and a fresh paragraph takes its place — one undoable step.
+ */
+function replaceEmptyEquationWithParagraph(
+  state: EditorState,
+  blockIndex: number,
+): StateResult | undefined {
+  const block = state.document.page.blocks[blockIndex];
+  const inserted = insertParagraphBeside(
+    updateContentSelection(state, null),
+    blockIndex,
+    "after",
+    "new",
+  );
+  if (!inserted) return undefined;
+  const op: Operation = {
+    op: "block_delete",
+    id: state.CRDTbinding.nextId(),
+    clock: state.CRDTbinding.getClock(),
+    pageId: state.CRDTbinding.pageId,
+    blockId: block.id,
+  };
+  const page = applyOps(inserted.state.document.page, [op], state.schema);
+  const next = inserted.state;
+  const cursor = next.document.cursor;
+  const paragraphId = cursor
+    ? next.document.page.blocks[cursor.position.blockIndex]?.id
+    : undefined;
+  const caretIndex = paragraphId ? findBlockIndex(page, paragraphId) : -1;
+  return {
+    state: moveCursorToPosition(
+      { ...next, document: { ...next.document, page } },
+      caretIndex,
+      0,
+    ),
+    ops: [...inserted.ops, op],
+  };
 }
 
 /**
@@ -2371,58 +2471,20 @@ export class MathNode extends TextNode<MathBlock> {
       0,
     );
 
-    // Enter in a block equation must NOT split the LaTeX at the caret (that tears
-    // the formula and reads as deleting it). Instead it finalizes the equation
-    // and starts a fresh paragraph below — the same exit an image/line gives on
-    // Enter. Claims SPLIT_BLOCK only for math blocks; else observes and passes
-    // through to the default block-split (mirrors CodeNode claiming Enter).
+    // Enter / Shift+Enter in a block equation (policy: dev-docs/enter-key.md).
+    // Enter must NOT split the LaTeX at the caret (that tears the formula and
+    // reads as deleting it); it leaves the equation instead:
+    //   • empty equation      → it becomes a paragraph in place;
+    //   • caret at the start  → a paragraph above, caret stays in the equation;
+    //   • anywhere else       → a paragraph below, caret moves into it.
+    // Shift+Enter always takes the "paragraph below" exit. Claims only for math
+    // blocks; any other block passes through (mirrors CodeNode claiming Enter).
     bus.registerState(
       SPLIT_BLOCK,
-      (state) => {
-        const cursor = state.document.cursor;
-        const contentPoint = state.document.contentSelection?.focus;
-        const blockIndex = cursor
-          ? cursor.position.blockIndex
-          : contentPoint
-            ? findBlockIndex(state.document.page, contentPoint.blockId)
-            : -1;
-        if (blockIndex < 0) return;
-        const block = mathBlockAt(state, blockIndex);
-        if (!block) return;
-
-        const page = state.document.page;
-        const newParagraphId = state.CRDTbinding.nextId();
-        const orderKey = orderKeyAfter(page.blocks, block.id);
-        const ops: Operation[] = [
-          {
-            op: "block_insert",
-            id: state.CRDTbinding.nextId(),
-            clock: state.CRDTbinding.getClock(),
-            pageId: state.CRDTbinding.pageId,
-            orderKey,
-            blockId: newParagraphId,
-            blockType: "paragraph",
-          },
-        ];
-        // Replay the op so the paragraph lands where every replica sorts it
-        // (a tombstone tied on this block's orderKey shifts the position),
-        // then place the caret by id instead of assuming blockIndex + 1.
-        const newPage = applyOps(page, ops, state.schema);
-        let next: EditorState = {
-          ...state,
-          document: { ...state.document, page: newPage },
-        };
-        next = clearSelection(next);
-        const paragraphIndex = findBlockIndex(newPage, newParagraphId);
-        next = moveCursorToPosition(
-          next,
-          paragraphIndex !== -1 ? paragraphIndex : blockIndex + 1,
-          0,
-        );
-        return { state: next, ops, handled: true };
-      },
+      (state) => mathBlockEnter(state, "enter"),
       0,
     );
+    bus.registerState(EXIT_BLOCK, (state) => mathBlockEnter(state, "exit"), 0);
 
     // Post-insert normalization (the *effect* half of the caret/edit seam, the
     // counterpart to the pure queries on `edit`). After a keystroke settles, fill

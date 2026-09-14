@@ -6,7 +6,12 @@
  * SPLIT_BLOCK for Enter, EXIT_BLOCK for Shift+Enter — over fabricated state.
  */
 import { mathExtension } from "./math-extension";
-import { getStructuredMathSource } from "./structured";
+import {
+  getMathStructuredDocument,
+  getStructuredMathSource,
+} from "./structured";
+import { mathContentSelectionFromSourceOffset } from "./tree-selection";
+import { insertText } from "@tasfer/editor/actions/actions";
 import { EXIT_BLOCK, SPLIT_BLOCK } from "@tasfer/editor/actions/edit-actions";
 import { handleKeyDown } from "@tasfer/editor/events/keysEvents";
 import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
@@ -16,6 +21,7 @@ import { moveCursorToPosition, updateFocus } from "@tasfer/editor/selection";
 import { loadPage } from "@tasfer/editor/serlization/loadPage";
 import type { EditorState, ViewportState } from "@tasfer/editor/state-types";
 import { createInitialState } from "@tasfer/editor/state-utils";
+import { updateContentSelection } from "@tasfer/editor/structured-selection";
 import { getVisibleTextFromRuns } from "@tasfer/editor/sync/char-runs";
 import { describe, expect, it } from "vitest";
 
@@ -142,6 +148,65 @@ describe("Enter in prose blocks", () => {
       'bullet_list:"abc"',
       'bullet_list:""',
     ]);
+  });
+});
+
+describe("Enter in a display equation", () => {
+  function equation(source: string): EditorState {
+    let state = caret(stateOf("$$\n\n$$"), 0, 0);
+    for (const char of source) state = insertText(state, char).state;
+    return state;
+  }
+
+  function treeCaretAt(state: EditorState, sourceOffset: number) {
+    const block = state.document.page.blocks[0];
+    const document = getMathStructuredDocument(block);
+    if (!document) throw new Error("expected a structured equation");
+    const selection = mathContentSelectionFromSourceOffset(
+      block.id,
+      document.rootId,
+      document,
+      sourceOffset,
+    );
+    if (!selection) throw new Error(`no caret at ${sourceOffset}`);
+    return updateContentSelection(state, selection);
+  }
+
+  it("turns an empty equation into a paragraph", () => {
+    const result = enter(caret(stateOf("$$\n\n$$"), 0, 0));
+
+    expect(result.claimed).toBe(true);
+    expect(blocks(result.state)).toEqual(['paragraph:""']);
+    expect(result.state.document.contentSelection).toBeNull();
+    const at = result.state.document.cursor!.position.blockIndex;
+    expect(result.state.document.page.blocks[at].type).toBe("paragraph");
+    expect(result.state.document.page.blocks[at].deleted).toBeFalsy();
+  });
+
+  it("pushes the equation down with a paragraph above when the caret is at its start", () => {
+    const state = treeCaretAt(equation("xy"), 0);
+    const focus = state.document.contentSelection;
+
+    const result = enter(state);
+
+    expect(blocks(result.state)).toEqual(['paragraph:""', 'math:"xy"']);
+    expect(result.state.document.contentSelection).toEqual(focus);
+  });
+
+  it("starts a paragraph below from the middle or the end", () => {
+    for (const offset of [1, 2]) {
+      const result = enter(treeCaretAt(equation("xy"), offset));
+      expect(blocks(result.state)).toEqual(['math:"xy"', 'paragraph:""']);
+      expect(result.state.document.cursor?.position).toEqual({
+        blockIndex: 1,
+        textIndex: 0,
+      });
+    }
+  });
+
+  it("Shift+Enter always starts a paragraph below, even from the start", () => {
+    const result = shiftEnter(treeCaretAt(equation("xy"), 0));
+    expect(blocks(result.state)).toEqual(['math:"xy"', 'paragraph:""']);
   });
 });
 
