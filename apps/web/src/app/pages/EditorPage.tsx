@@ -205,10 +205,11 @@ export default function EditorPage() {
   const { editor: activeEditor, setEditor: setActiveEditor } =
     useActiveEditor();
   const navigate = useNavigate();
-  const { activeSpaceId } = useSpaces();
+  const { firstSpaceId } = useSpaces();
   const treeExpand = useTreeExpand();
+  // Only consulted on the bare /page route, to pick a page to open.
   const { data: pages, isLoading: isLoadingPages } = useGetPages(
-    activeSpaceId,
+    firstSpaceId,
     null,
   );
   const [lastPageId, setLastPageId] = useLocalStorage<string | null>(
@@ -338,7 +339,7 @@ export default function EditorPage() {
 
     if (!id) {
       // No page ID - check if we should show empty state
-      if (activeSpaceId && !isLoadingPages && (!pages || pages.length === 0)) {
+      if (firstSpaceId && !isLoadingPages && (!pages || pages.length === 0)) {
         setPersistedState("empty");
       }
     } else {
@@ -355,7 +356,7 @@ export default function EditorPage() {
     }
   }, [
     id,
-    activeSpaceId,
+    firstSpaceId,
     isLoadingPages,
     pages,
     isLoading,
@@ -665,7 +666,7 @@ export default function EditorPage() {
     // is disabled without a space, so a skeleton here would never resolve; the
     // state is deliberately not persisted, so creating the first space falls
     // straight through to it.
-    if (!activeSpaceId) {
+    if (!firstSpaceId) {
       return <EditorEmptyState />;
     }
 
@@ -739,7 +740,7 @@ export default function EditorPage() {
           onContentUpdate={handleContentUpdate}
           autoFocus={!readonly}
           pageId={id}
-          spaceId={pageSpaceId ?? activeSpaceId ?? undefined}
+          spaceId={pageSpaceId ?? firstSpaceId ?? undefined}
           onSyncStateChange={setSyncState}
           onAwarenessChange={handleAwarenessChange}
           onRestoreReady={
@@ -1071,14 +1072,16 @@ function ScheduleTag({
 
 function MovePageButton({
   pageId,
+  spaceId,
   currentParentId,
   children,
 }: {
   pageId: string;
+  /** The page's own space — a parent can only come from there. */
+  spaceId: string | null;
   currentParentId: string | null;
   children: React.ReactNode;
 }) {
-  const { activeSpaceId } = useSpaces();
   const queryClient = useQueryClient();
 
   const { mutate: move } = useMovePage({
@@ -1090,7 +1093,7 @@ function MovePageButton({
 
   return (
     <PagePicker
-      spaceId={activeSpaceId}
+      spaceId={spaceId}
       excludeIds={[pageId]}
       showNoneOption={!!currentParentId}
       onChange={(page) => move({ id: pageId, parentId: page?.id ?? null })}
@@ -1117,7 +1120,11 @@ function PageActionBar({ pageId }: { pageId: string }) {
   return (
     <>
       {permission !== "view" && page ? (
-        <MovePageButton pageId={pageId} currentParentId={page.parentId}>
+        <MovePageButton
+          pageId={pageId}
+          spaceId={page.spaceId ?? null}
+          currentParentId={page.parentId}
+        >
           <button className={style.breadcrumbs} style={{ cursor: "pointer" }}>
             {page.parents &&
               page.parents.length >= 1 &&
@@ -1251,7 +1258,7 @@ function NewPageDeepLink() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { activeSpaceId } = useSpaces();
+  const { firstSpaceId } = useSpaces();
   const creationStartedRef = useRef(false);
   const { mutate: createPage, isError } = useCreatePage({
     onSuccess: (newPage) => {
@@ -1261,10 +1268,10 @@ function NewPageDeepLink() {
   });
 
   useEffect(() => {
-    if (!activeSpaceId || creationStartedRef.current) return;
+    if (!firstSpaceId || creationStartedRef.current) return;
     creationStartedRef.current = true;
-    createPage({ title: "", parentId: null, spaceId: activeSpaceId });
-  }, [activeSpaceId, createPage]);
+    createPage({ title: "", parentId: null, spaceId: firstSpaceId });
+  }, [firstSpaceId, createPage]);
 
   if (isError) {
     return (
@@ -1315,7 +1322,7 @@ function EditorEmptyState() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { activeSpaceId } = useSpaces();
+  const { firstSpaceId } = useSpaces();
   const { mutate: createPage, isPending: isCreating } = useCreatePage({
     onSuccess: (newPage, variables) => {
       queryClient.invalidateQueries({
@@ -1327,11 +1334,11 @@ function EditorEmptyState() {
   });
 
   function handleAdd() {
-    if (!activeSpaceId) return;
+    if (!firstSpaceId) return;
     createPage({
       title: "",
       parentId: null,
-      spaceId: activeSpaceId,
+      spaceId: firstSpaceId,
     });
   }
   return (
@@ -1357,8 +1364,8 @@ function EditorNotFoundState() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { activeSpaceId } = useSpaces();
-  const { data: pages } = useGetPages(activeSpaceId, null);
+  const { firstSpaceId } = useSpaces();
+  const { data: pages } = useGetPages(firstSpaceId, null);
   const hasPages = !!pages && pages.length > 0;
   const { mutate: createPage, isPending: isCreating } = useCreatePage({
     onSuccess: (newPage, variables) => {
@@ -1370,8 +1377,8 @@ function EditorNotFoundState() {
   });
 
   function handleAdd() {
-    if (!activeSpaceId) return;
-    createPage({ title: "", parentId: null, spaceId: activeSpaceId });
+    if (!firstSpaceId) return;
+    createPage({ title: "", parentId: null, spaceId: firstSpaceId });
   }
 
   return (

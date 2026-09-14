@@ -4,8 +4,13 @@ import { useGetSpaces, type ISpace } from "../api/spaces.api";
 
 interface SpaceContextValue {
   spaces: ISpace[];
-  activeSpaceId: string | null;
-  setActiveSpaceId: (id: string) => void;
+  /**
+   * The first listed space. There is no "current" space: the sidebar and the
+   * calendar show every space at once. Anything tied to a page or event uses
+   * that page's own space; this is only for actions with nothing to go by,
+   * such as creating the very first page from an empty screen.
+   */
+  firstSpaceId: string | null;
   isLoading: boolean;
   loadError: Error | null;
 }
@@ -19,24 +24,15 @@ export function SpaceProvider({ children }: { children: React.ReactNode }) {
     spacesQuery.isError && spacesQuery.data === undefined
       ? spacesQuery.error
       : null;
-  const [activeSpaceId, setActiveSpaceId] = React.useState<string | null>(null);
-
-  // Default to first space
-  React.useEffect(() => {
-    if (!activeSpaceId && spaces.length > 0) {
-      setActiveSpaceId(spaces[0].id);
-    }
-  }, [spaces, activeSpaceId]);
 
   const value = React.useMemo(
     () => ({
       spaces,
-      activeSpaceId: activeSpaceId || spaces[0]?.id || null,
-      setActiveSpaceId,
+      firstSpaceId: spaces[0]?.id ?? null,
       isLoading: spacesQuery.isLoading,
       loadError,
     }),
-    [spaces, activeSpaceId, spacesQuery.isLoading, loadError],
+    [spaces, spacesQuery.isLoading, loadError],
   );
 
   return <SpaceContext.Provider value={value}>{children}</SpaceContext.Provider>;

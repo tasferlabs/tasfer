@@ -264,9 +264,8 @@ export function useSearchPages(
   });
 }
 
-// Calendar range query
+// Calendar range query — events from every space.
 export async function getCalendarPages(
-  _spaceId: string,
   start: number,
   end: number,
 ): Promise<ICalendarPage[]> {
@@ -274,15 +273,10 @@ export async function getCalendarPages(
   return platform.pages.calendar(start, end);
 }
 
-export function useGetCalendarPages(
-  spaceId: string | null,
-  start: number,
-  end: number,
-) {
+export function useGetCalendarPages(start: number, end: number) {
   return useQuery({
-    queryKey: ["calendar-pages", { spaceId, start, end }],
-    queryFn: () => getCalendarPages(spaceId!, start, end),
-    enabled: !!spaceId,
+    queryKey: ["calendar-pages", { start, end }],
+    queryFn: () => getCalendarPages(start, end),
   });
 }
 
