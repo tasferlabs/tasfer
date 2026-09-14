@@ -131,6 +131,8 @@ import {
   TABLE_INSERT_COLUMN,
   TABLE_INSERT_ROW,
   TABLE_MOVE_COLUMN,
+  TABLE_SELECT_COLUMN,
+  TABLE_SELECT_ROW,
   TABLE_SET_COLUMN_ALIGN,
   TABLE_TOOLS_OVERLAY,
   type TableToolsOverlayData,
@@ -1070,6 +1072,8 @@ const TableToolsOverlay: ComponentType<NodeOverlayProps> = ({
       onDeleteColumn={() => editor.dispatch(TABLE_DELETE_COLUMN, {})}
       onMoveColumn={(to) => editor.dispatch(TABLE_MOVE_COLUMN, { to })}
       onAlign={(align) => editor.dispatch(TABLE_SET_COLUMN_ALIGN, { align })}
+      onSelectRow={() => editor.dispatch(TABLE_SELECT_ROW, {})}
+      onSelectColumn={() => editor.dispatch(TABLE_SELECT_COLUMN, {})}
     />
   );
 };
@@ -2140,6 +2144,12 @@ function PageEditor({
           break;
         case "table-align":
           editor.dispatch(TABLE_SET_COLUMN_ALIGN, { align: action.align });
+          break;
+        case "table-select-row":
+          editor.dispatch(TABLE_SELECT_ROW, {});
+          break;
+        case "table-select-column":
+          editor.dispatch(TABLE_SELECT_COLUMN, {});
           break;
         case "dismiss":
           dismissMobileKeyboard();

@@ -9,8 +9,10 @@ import {
   ArrowRightToLine,
   ArrowUpToLine,
   Check,
+  Columns3,
   MoveLeft,
   MoveRight,
+  Rows3,
   Table2,
   Trash2,
 } from "lucide-react";
@@ -35,6 +37,10 @@ interface TableToolsProps {
   /** Move the caret's column so it ends up at `to`. */
   onMoveColumn: (to: number) => void;
   onAlign: (align: TableAlign | null) => void;
+  /** Select the caret's whole row, ready to copy, cut or format. */
+  onSelectRow: () => void;
+  /** Select the caret's whole column. */
+  onSelectColumn: () => void;
   /** Portal target for the menu — the editor's own overlay container. */
   container?: HTMLElement | null;
 }
@@ -87,6 +93,8 @@ export function TableTools({
   onDeleteColumn,
   onMoveColumn,
   onAlign,
+  onSelectRow,
+  onSelectColumn,
   container,
 }: TableToolsProps) {
   const { t } = useTranslation();
@@ -147,6 +155,12 @@ export function TableTools({
   // table's last row and last column have nothing to fall back to.
   const rowCommands: TableToolsRow[] = [
     {
+      id: "row-select",
+      label: t("editor.table.selectRow", "Select row"),
+      icon: <Rows3 className="size-4" />,
+      onSelect: onSelectRow,
+    },
+    {
       id: "row-above",
       label: t("editor.table.addRowAbove", "Add row above"),
       icon: <ArrowUpToLine className="size-4" />,
@@ -172,6 +186,12 @@ export function TableTools({
   ];
 
   const columnCommands: TableToolsRow[] = [
+    {
+      id: "column-select",
+      label: t("editor.table.selectColumn", "Select column"),
+      icon: <Columns3 className="size-4" />,
+      onSelect: onSelectColumn,
+    },
     {
       id: "column-before",
       label: t("editor.table.addColumnBefore", "Add column before"),

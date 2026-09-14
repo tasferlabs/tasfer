@@ -72,6 +72,8 @@ export type MobileToolbarIcon =
   // The table menu's own glyphs: insert a row above/below or a column
   // before/after the caret's cell, drop the row/column it is in (`trash`), and
   // set the column's alignment. Same Lucide art the desktop table menu draws.
+  | "row_select"
+  | "column_select"
   | "row_above"
   | "row_below"
   | "column_before"
@@ -120,6 +122,9 @@ export type MobileToolbarAction =
   // Move the caret's column so it ends up at `to` (the engine's own currency).
   | { type: "table-move-column"; to: number }
   | { type: "table-align"; align: TableAlign | null }
+  // Select the caret's whole row or column, ready to copy, cut or format.
+  | { type: "table-select-row" }
+  | { type: "table-select-column" }
   | { type: "toggle-strikethrough" }
   | { type: "set-block"; blockType: MobileToolbarBlockType }
   | { type: "indent-list" }
@@ -435,6 +440,12 @@ function buildTableMenu(
 ): MobileToolbarItem {
   const rows: MenuOption[] = [
     {
+      id: "row-select",
+      icon: "row_select",
+      label: t("editor.table.selectRow", "Select row"),
+      action: { type: "table-select-row" },
+    },
+    {
       id: "row-above",
       icon: "row_above",
       label: t("editor.table.addRowAbove", "Add row above"),
@@ -457,6 +468,12 @@ function buildTableMenu(
   }
 
   const columns: MenuOption[] = [
+    {
+      id: "column-select",
+      icon: "column_select",
+      label: t("editor.table.selectColumn", "Select column"),
+      action: { type: "table-select-column" },
+    },
     {
       id: "column-before",
       icon: "column_before",
