@@ -1950,9 +1950,10 @@ function absorbCharacterIntoBase(
  * (`x^{2_{3}}`). Mirrors the flat-source rule in `scriptAttachOffset`
  * (@tasfer/tex), including its escalation: nested scripts whose slots all
  * end at the caret resolve to the outermost one still missing the typed slot
- * (`x^{y^{2|}}` + `_` scripts `x`). Returns undefined — leaving the sibling
- * absorption rules to apply — when the caret is not at such a slot end, the
- * slot is semantically empty, a pending `\command` run ends at the caret, or
+ * (`x^{y^{2|}}` + `_` scripts `x`). A semantically empty slot pairs with its
+ * own scripts node only (see `extendOwnScriptsFromEmptySlot`). Returns
+ * undefined — leaving the sibling absorption rules to apply — when the caret is
+ * not at such a slot end, a pending `\command` run ends at the caret, or
  * the enclosing construct already owns the typed slot (which therefore nests,
  * exactly like the flat path).
  */
@@ -1985,7 +1986,9 @@ function extendEnclosingScriptsAtSlotEnd(
   } else if (resolved.position !== rowChildren.length) {
     return undefined;
   }
-  if (isSemanticallyEmptyRow(document, resolved.row.id)) return undefined;
+  if (isSemanticallyEmptyRow(document, resolved.row.id)) {
+    return extendOwnScriptsFromEmptySlot(document, resolved.row, fragment, root);
+  }
 
   let target: StructuredNode | undefined;
   let row: StructuredNode = resolved.row;
@@ -2017,6 +2020,37 @@ function extendEnclosingScriptsAtSlotEnd(
   return target
     ? extendPreviousScripts(document, target, fragment, root)
     : undefined;
+}
+
+/**
+ * The complementary script typed inside an EMPTY script slot joins the scripts
+ * node that owns the slot. Right after `A` `^` the caret sits in `A^{|}`; a `_`
+ * there means "A gets a subscript too" (`A_{|}^{}`), never a base-less
+ * subscript nested in the empty superscript (`A^{{}_{}}`). When the owner
+ * already has that slot the caret moves into it instead. Unlike the filled-slot
+ * rule this never escalates past the owner: the empty slot is the script the
+ * user just opened, so the pairing belongs to its base. Typing the SAME script
+ * the slot already is returns undefined and nests, as before.
+ */
+function extendOwnScriptsFromEmptySlot(
+  document: StructuredDocument,
+  row: StructuredNode,
+  fragment: StructuredDocument,
+  root: StructuredNode,
+): ScriptBaseAbsorption | undefined {
+  if (
+    row.placement.slot !== "subscript" &&
+    row.placement.slot !== "superscript"
+  ) {
+    return undefined;
+  }
+  if (onlyChild(fragment, root.id, row.placement.slot, "row")) return undefined;
+  const scriptsId = row.placement.parentId;
+  const scripts = scriptsId ? document.nodes[scriptsId] : undefined;
+  if (!scripts || scripts.deleted || scripts.type !== "scripts") {
+    return undefined;
+  }
+  return extendPreviousScripts(document, scripts, fragment, root);
 }
 
 /** Give the scripts node before the caret the construct's one script slot. */
