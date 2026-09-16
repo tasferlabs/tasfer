@@ -10,8 +10,8 @@ import {
   RefreshCw,
   Settings,
   Sun,
-  Archive,
 } from "lucide-react";
+import { TimelineIcon } from "./TimelineIcon";
 import {
   Fragment,
   useCallback,
@@ -330,19 +330,22 @@ export function ActionCenter() {
         run: () => navigate("/calendar"),
       },
       {
-        id: "archive",
-        label: t("nav.goToArchive", "Go to Archive"),
+        id: "timeline",
+        label: t("nav.goToTimeline", "Go to Timeline"),
         keywords: [
+          "timeline",
+          t("timeline.timelineKw", "timeline"),
+          "history",
+          t("timeline.historyKw", "history"),
           "archive",
-          t("archive.archiveKw", "archive"),
           "trash",
           t("common.trashKw", "trash"),
           t("common.archiveKw", "archive"),
           "deleted",
           t("common.deletedKw", "deleted"),
         ],
-        icon: <Archive size={16} />,
-        run: () => navigate("/archive"),
+        icon: <TimelineIcon size={16} />,
+        run: () => navigate("/timeline"),
       },
       {
         id: "settings",

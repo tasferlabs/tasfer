@@ -97,8 +97,8 @@
       "url": "/calendar"
     },
     {
-      "name": "Archive",
-      "url": "/archive"
+      "name": "Timeline",
+      "url": "/timeline"
     }
   ]
 }

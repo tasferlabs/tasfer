@@ -107,7 +107,7 @@ export interface PagePathSegment {
   color?: string | null;
 }
 
-/** A soft-deleted page surfaced in the Archive (root of an archived subtree) */
+/** A soft-deleted page surfaced in the Timeline (root of an archived subtree) */
 export interface ArchivedPageItem {
   id: string;
   title: string;
@@ -331,7 +331,7 @@ export interface Space {
   personal?: boolean;
 }
 
-/** An archived space surfaced in the Archive */
+/** An archived space surfaced in the Timeline */
 export interface ArchivedSpaceItem {
   id: string;
   name: string;

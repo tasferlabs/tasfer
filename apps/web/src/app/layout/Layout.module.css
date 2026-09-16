@@ -395,7 +395,7 @@
   color: var(--primary);
 }
 
-/* Live drop target while a page is dragged over the Archive link. */
+/* Live drop target while a page is dragged over the Timeline link. */
 .appNavigationLink.archiveDropTarget {
   background-color: color-mix(in srgb, var(--destructive), transparent 85%);
   color: var(--destructive);

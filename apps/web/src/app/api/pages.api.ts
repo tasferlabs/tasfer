@@ -147,7 +147,7 @@ export async function getArchivedPage(
   return platform.pages.getArchived(id);
 }
 
-// Archived (soft-deleted) pages — the Archive
+// Archived (soft-deleted) pages — shown in the Timeline
 export async function getArchivedPages(): Promise<ArchivedPageItem[]> {
   const platform = getPlatform();
   return platform.pages.listArchived();

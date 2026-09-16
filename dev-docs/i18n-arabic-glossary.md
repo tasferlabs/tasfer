@@ -80,6 +80,7 @@ One term, one rendering. Deviations are bugs.
 | Block | كتلة | |
 | Archive | الأرشيف | |
 | Archive (verb) | أرشفة | |
+| Timeline (screen) | الخط الزمني | where archived items and space changes are listed; not `سجل`, kept for version history |
 | Draft | مسودة | |
 | Snapshot | لقطة | |
 | Version (of a page) | **إصدار** | `سجل الإصدارات` for version history |

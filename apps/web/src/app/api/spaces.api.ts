@@ -455,7 +455,7 @@ export function useAcceptInvite<TContext = unknown>(
     mutationFn: ({ invite, callbacks }) => acceptInvite(invite, callbacks),
     ...options,
     onSuccess: (result, ...rest) => {
-      // A restore moves the space out of the Archive and back into the sidebar,
+      // A restore moves the space out of the Timeline and back into the sidebar,
       // same as unarchiving it by hand.
       if (result.status === "restored") {
         for (const key of spaceArchiveKeys()) {

@@ -191,7 +191,7 @@ function PageSettingsImpl({
       title: t("page.archivePage", "Archive Page"),
       description: t(
         "page.confirmArchivePage",
-        "Archiving deletes nothing. This page and its subpages move to the Archive, where you can restore them anytime.",
+        "Archiving deletes nothing. This page and its subpages move to the Timeline, where you can restore them anytime.",
       ),
       cancelText: t("common.cancel", "Cancel"),
       confirmText: t("common.archive", "Archive"),

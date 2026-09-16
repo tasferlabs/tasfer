@@ -931,11 +931,11 @@ export function EventPreview({
       description: previewPage.hasChildren
         ? t(
             "calendar.eventHasSubPagesArchive",
-            "This page has sub-pages. Archiving it moves them to the Archive too, where you can restore them anytime.",
+            "This page has sub-pages. Archiving it moves them to the Timeline too, where you can restore them anytime.",
           )
         : t(
             "calendar.confirmArchiveEvent",
-            "Archiving deletes nothing. This page moves to the Archive, where you can restore it anytime.",
+            "Archiving deletes nothing. This page moves to the Timeline, where you can restore it anytime.",
           ),
       cancelText: t("common.cancel", "Cancel"),
       confirmText: t("common.archive", "Archive"),

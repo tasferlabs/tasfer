@@ -44,7 +44,7 @@ const SCREENSHOT_LABEL_KEYS = {
 const SHORTCUT_KEYS = {
   newPage: "page.newPage",
   calendar: "calendar.title",
-  archive: "archive.title",
+  timeline: "timeline.title",
 };
 
 // Locales to emit. The first is the source locale and owns manifest.json — the
@@ -155,7 +155,7 @@ const SCREENSHOTS = [
 const SHORTCUTS = [
   { nameKey: SHORTCUT_KEYS.newPage, url: "/page?new" },
   { nameKey: SHORTCUT_KEYS.calendar, url: "/calendar" },
-  { nameKey: SHORTCUT_KEYS.archive, url: "/archive" },
+  { nameKey: SHORTCUT_KEYS.timeline, url: "/timeline" },
 ];
 
 function loadLocale(lng) {

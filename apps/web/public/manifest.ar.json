@@ -97,8 +97,8 @@
       "url": "/calendar"
     },
     {
-      "name": "الأرشيف",
-      "url": "/archive"
+      "name": "الخط الزمني",
+      "url": "/timeline"
     }
   ]
 }
