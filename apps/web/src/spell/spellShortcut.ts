@@ -2,8 +2,9 @@
  * The desktop spelling chords, as a pure predicate so the listener in
  * `SpellcheckLayer` and its test share one definition.
  *
- * Cmd/Ctrl+.        → fix-or-next (open suggestions for the word at the caret,
- *                     else jump to the next misspelled word and open them).
+ * Cmd/Ctrl+.        → fix-or-next (open suggestions for the word at the caret
+ *                     or just typed before it, else jump to the next
+ *                     misspelled word and open them).
  * Shift+Cmd/Ctrl+.  → the previous misspelled word.
  *
  * Matched on `code` so Arabic and other non-Latin layouts reach the same key.

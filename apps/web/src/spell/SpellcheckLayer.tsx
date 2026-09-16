@@ -445,14 +445,18 @@ export const SpellcheckLayer = forwardRef<
 
   const fixOrNext = useCallback(() => {
     if (!active) return;
-    const here = flagAtCaret();
-    if (here) {
-      if (touch) showBar(here);
-      else openPopover(here);
+    // The word at the caret, or the one just typed before it.
+    const here =
+      flagAtCaret() ??
+      checkerRef.current?.flagBehind(caretPoint(editor) ?? "caret") ??
+      null;
+    if (!here) {
+      stepTo("next");
       return;
     }
-    stepTo("next");
-  }, [active, flagAtCaret, touch, showBar, openPopover, stepTo]);
+    if (touch) showBar(here);
+    else openPopover(here);
+  }, [active, editor, flagAtCaret, touch, showBar, openPopover, stepTo]);
 
   const next = useCallback(() => stepTo("next"), [stepTo]);
   const prev = useCallback(() => stepTo("prev"), [stepTo]);
