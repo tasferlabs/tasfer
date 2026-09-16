@@ -73,6 +73,14 @@ const BASE = {
   orientation: "any",
   background_color: "#ffffff",
   theme_color: "#ffffff",
+  // Dark-theme overrides (proposed `color_scheme_dark`, w3c/manifest#1207).
+  // Browsers without support ignore it and keep the light colors above, so an
+  // installed Android app shows a white status bar in dark mode until they
+  // ship it. Values match `--background` under `.dark` in styles.css.
+  color_scheme_dark: {
+    background_color: "#09090b",
+    theme_color: "#09090b",
+  },
   categories: ["productivity", "utilities"],
   // Focus the already-running app instead of piling up windows; falls back to
   // default behavior where launch_handler is unsupported.
@@ -204,6 +212,7 @@ function main() {
       orientation: BASE.orientation,
       background_color: BASE.background_color,
       theme_color: BASE.theme_color,
+      color_scheme_dark: BASE.color_scheme_dark,
       categories: BASE.categories,
       launch_handler: BASE.launch_handler,
       icons: BASE.icons.map((icon) => ({ ...icon, src: p(icon.src) })),
