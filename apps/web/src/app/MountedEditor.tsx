@@ -3307,6 +3307,9 @@ function PageEditor({
       offSelectionChange();
       offChangeAwareness();
       disconnectAwareness();
+      // The avatar list lives above this editor and only changes on presence
+      // events, so a page nobody else is on would keep the last page's peers.
+      onAwarenessChange?.([]);
       menuIconThemeObserver.disconnect();
 
       // The editor (useEditor) is destroyed in the commit phase; the doc + its
