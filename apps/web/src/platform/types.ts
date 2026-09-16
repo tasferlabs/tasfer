@@ -13,6 +13,9 @@ import type {
 } from "@tasfer/editor/sync/version-history";
 import type { CursorPresence } from "@tasfer/provider-core/cursors";
 import type { DbRow, DbRunResult } from "./driver";
+import type { SpaceHistoryEntry } from "./space-history";
+
+export type { SpaceHistoryEntry };
 
 // =============================================================================
 // Data Types
@@ -365,6 +368,12 @@ export interface SpaceBaseOp {
   clock: HLC;
   /** Space this operation belongs to */
   spaceId: string;
+  /**
+   * Author's wall clock (unix ms) when the op was made. Display only — the
+   * Timeline shows it; merging never reads it. Absent on ops written before
+   * the Timeline existed.
+   */
+  at?: number;
 }
 
 /** Set a space property (LWW) */
@@ -687,8 +696,14 @@ export interface Platform {
   spaces: {
     /** List all spaces this device is a member of */
     list(): Promise<Space[]>;
-    /** List archived spaces this device is a member of (for the Archive) */
+    /** List archived spaces this device is a member of (for the Timeline) */
     listArchived(): Promise<ArchivedSpaceItem[]>;
+    /**
+     * Settings changes (created, renamed, made personal, member joined) across
+     * every space this device is a member of, archived ones included. Oldest
+     * first within a space; not ordered across spaces.
+     */
+    listHistory(): Promise<SpaceHistoryEntry[]>;
     /** Get a space with its members */
     get(id: string): Promise<Space & { members: SpaceMember[] }>;
     /**

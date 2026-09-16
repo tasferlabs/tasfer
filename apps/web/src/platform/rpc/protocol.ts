@@ -227,6 +227,7 @@ export const PLATFORM_SCHEMA: Record<string, Record<string, MethodDesc>> = {
   spaces: {
     list: { kind: "request" },
     listArchived: { kind: "request" },
+    listHistory: { kind: "request" },
     get: { kind: "request" },
     create: { kind: "request" },
     rename: { kind: "request" },

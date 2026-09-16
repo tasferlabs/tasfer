@@ -28,6 +28,7 @@ import type {
   Asset,
   Space,
   ArchivedSpaceItem,
+  SpaceHistoryEntry,
   SpaceMember,
   SpaceOperation,
   MemberSet,
@@ -35,6 +36,7 @@ import type {
   PairCallbacks,
 } from "./types";
 import { DEVICE_LINK_SCOPE } from "./types";
+import { buildSpaceHistory, type StoredSpaceOp } from "./space-history";
 import { deriveIdentitySharedSignalingKey } from "./peer-shared-key";
 import {
   type DeviceCert,
@@ -1641,6 +1643,87 @@ export class Engine implements Platform {
         name: r.name,
         archivedAt: r.archived_at,
       }));
+    },
+
+    listHistory: async (): Promise<SpaceHistoryEntry[]> => {
+      const identity = await this.identity.get();
+      const spaces = await this.driver.db.query<{
+        id: string;
+        personal: number;
+      }>(
+        `SELECT s.id, s.personal FROM spaces s
+         JOIN space_members m ON m.space_id = s.id
+         WHERE m.public_key = ?`,
+        [identity.publicKey],
+      );
+      if (spaces.length === 0) return [];
+
+      const [identityRow] = await this.driver.db.query<{
+        root_public_key: string | null;
+      }>("SELECT root_public_key FROM identity WHERE id = 1");
+      const ownKeys = new Set(
+        (await this.getOwnDeviceCerts()).map((c) => c.deviceKey),
+      );
+      ownKeys.add(identity.publicKey);
+      const deviceRoots = new Map(
+        (
+          await this.driver.db.query<{ public_key: string; root_key: string }>(
+            "SELECT public_key, root_key FROM devices",
+          )
+        ).map((d) => [d.public_key, d.root_key]),
+      );
+
+      const deviceNotes = await this.getDeviceNotes();
+
+      const out: SpaceHistoryEntry[] = [];
+      for (const space of spaces) {
+        // Only the settings op types: a space log is mostly page ops.
+        const rows = await this.driver.db.query<{
+          data: Uint8Array;
+          timestamp: number;
+        }>(
+          `SELECT data, timestamp FROM ops
+           WHERE scope_id = ? AND type IN ('space_set', 'member_add')
+           ORDER BY clock, peer_id`,
+          [`space:${space.id}`],
+        );
+        const ops: StoredSpaceOp[] = [];
+        for (const r of rows) {
+          try {
+            ops.push({
+              op: JSON.parse(new TextDecoder().decode(r.data)),
+              storedAt: r.timestamp,
+            });
+          } catch {
+            /* skip corrupted */
+          }
+        }
+        // Former members too: a change keeps its author after they leave.
+        const members = await this.driver.db.query<{
+          public_key: string;
+          name: string;
+        }>(
+          "SELECT public_key, name FROM space_members WHERE space_id = ?",
+          [space.id],
+        );
+        out.push(
+          ...buildSpaceHistory({
+            spaceId: space.id,
+            personal: space.personal === 1,
+            ops,
+            memberNames: new Map(
+              members
+                .filter((m) => m.name !== "")
+                .map((m) => [m.public_key, m.name]),
+            ),
+            deviceRoots,
+            deviceNotes,
+            ownKeys,
+            ownRoot: identityRow?.root_public_key ?? null,
+          }),
+        );
+      }
+      return out;
     },
 
     get: async (id: string): Promise<Space & { members: SpaceMember[] }> => {
@@ -4626,7 +4709,13 @@ export class Engine implements Platform {
     const clock: HLC = { counter, peerId: identity.publicKey };
     const id = `${identity.publicKey}:${counter}`;
 
-    const op = { ...partial, id, clock, spaceId } as SpaceOperation;
+    const op = {
+      ...partial,
+      id,
+      clock,
+      spaceId,
+      at: Date.now(),
+    } as SpaceOperation;
     await this.storeSpaceOp(op);
 
     // When we locally add a member, recompute shared spaces so

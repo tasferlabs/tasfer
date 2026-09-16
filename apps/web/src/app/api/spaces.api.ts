@@ -17,6 +17,7 @@ import type {
   SpaceInvite,
   PairCallbacks,
   ArchivedSpaceItem,
+  SpaceHistoryEntry,
 } from "@/platform/types";
 
 export interface ISpace {
@@ -27,12 +28,12 @@ export interface ISpace {
   personal?: boolean;
 }
 
-export type { ArchivedSpaceItem };
+export type { ArchivedSpaceItem, SpaceHistoryEntry };
 
 /**
  * Invalidate everything affected by a space changing its archived state.
- * Archiving or restoring a space moves it between the sidebar and the Archive,
- * and shifts which of its archived pages the Archive can surface (pages in an archived
+ * Archiving or restoring a space moves it between the sidebar and the Timeline,
+ * and shifts which of its archived pages the Timeline can surface (pages in an archived
  * space are hidden with it), so both space and page lists must refresh. The
  * calendar is its own key and hides the space's events the same way, so it has
  * to be named separately.
@@ -268,6 +269,23 @@ export function useGetArchivedSpaces(options?: { enabled?: boolean }) {
     queryKey: ["spaces-archived"],
     queryFn: getArchivedSpaces,
     enabled: options?.enabled,
+  });
+}
+
+export async function getSpaceHistory(): Promise<SpaceHistoryEntry[]> {
+  const platform = getPlatform();
+  return platform.spaces.listHistory();
+}
+
+/**
+ * Settings changes across every space, for the Timeline. Keyed under "spaces"
+ * so everything that refreshes the space list — a rename here or from a peer —
+ * refreshes this too.
+ */
+export function useGetSpaceHistory() {
+  return useQuery({
+    queryKey: ["spaces", "history"],
+    queryFn: getSpaceHistory,
   });
 }
 
