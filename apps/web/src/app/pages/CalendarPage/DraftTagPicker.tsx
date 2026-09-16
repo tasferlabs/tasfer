@@ -316,7 +316,9 @@ export function DraftTagPicker({
     if (!keyNavRef.current) return;
     keyNavRef.current = false;
     const el = buttonsRef.current.get(`${row}:${col}`);
-    el?.focus();
+    // focus() on its own scrolls an off-screen tag to the center in Chromium,
+    // so leave the scrolling to scrollIntoView, which moves it just enough.
+    el?.focus({ preventScroll: true });
     el?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [row, col]);
 
