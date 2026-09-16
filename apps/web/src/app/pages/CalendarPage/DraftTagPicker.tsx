@@ -635,6 +635,7 @@ export function DraftParentSearch({
   // Only the arrow keys drag the scroller along: hovering a row also moves the
   // highlight, and scrolling then would pull the list out from under the mouse.
   const keyNavRef = useRef(false);
+  const pointerRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     if (!keyNavRef.current) return;
@@ -717,7 +718,16 @@ export function DraftParentSearch({
                     style.parentSearchItem,
                     i === active && style.parentSearchItemActive,
                   )}
-                  onMouseEnter={() => setActiveIndex(i)}
+                  onMouseMove={(e) => {
+                    // A still pointer doesn't count: when the arrow keys
+                    // scroll the list, rows slide under it and would drag the
+                    // highlight back to wherever it rests.
+                    const last = pointerRef.current;
+                    pointerRef.current = { x: e.clientX, y: e.clientY };
+                    if (last && last.x === e.clientX && last.y === e.clientY)
+                      return;
+                    if (i !== active) setActiveIndex(i);
+                  }}
                   onClick={() => onSelect(page)}
                 >
                   <span
