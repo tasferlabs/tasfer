@@ -101,3 +101,46 @@ export function safeLinkHref(raw: unknown): string | null {
 export function isSafeLinkUrl(raw: unknown): boolean {
   return normalizeLinkUrl(raw) !== null;
 }
+
+/**
+ * Schemes the browser hands to whichever app claims them. They never navigate
+ * the document that asked, so aiming one at a new tab strands an empty tab
+ * behind the handoff.
+ */
+const HANDOFF_PROTOCOLS: readonly string[] = ["mailto:", "tel:"];
+
+/**
+ * Open a link URL the way a clicked `<a target="_blank">` would, after running
+ * it through {@link normalizeLinkUrl}. Returns false — having opened nothing —
+ * when the scheme isn't allowed.
+ *
+ * `window.open(url, "_blank", "noopener,noreferrer")` is the obvious spelling
+ * and the wrong one. Per HTML's "popup window is requested" steps, *any*
+ * non-empty feature string that leaves out `location`/`toolbar` asks for a
+ * popup window rather than a tab — so those two severance tokens silently
+ * change what is being requested. A popup is the thing an embedded browser
+ * window is most willing to refuse, and a refused popup is indistinguishable
+ * from a dead link. An anchor click asks for no window at all and severs the
+ * opener and referrer through `rel` instead.
+ *
+ * Call this inside the gesture that asked for it: user activation lives on the
+ * window, so the synthetic click inherits the real one.
+ */
+export function openLinkUrl(raw: unknown): boolean {
+  const url = normalizeLinkUrl(raw);
+  if (!url) return false;
+
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  if (!HANDOFF_PROTOCOLS.includes(new URL(url).protocol)) {
+    anchor.target = "_blank";
+    anchor.rel = "noopener noreferrer";
+  }
+  anchor.style.display = "none";
+  // Connected to the document, because a click on a detached anchor is not
+  // guaranteed to navigate.
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  return true;
+}

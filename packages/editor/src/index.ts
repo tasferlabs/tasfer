@@ -561,6 +561,7 @@ export { isApplePlatform } from "./platform";
 export {
   isSafeLinkUrl,
   normalizeLinkUrl,
+  openLinkUrl,
   SAFE_LINK_PROTOCOLS,
   safeLinkHref,
 } from "./url-safety";
