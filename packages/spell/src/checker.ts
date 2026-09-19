@@ -347,6 +347,21 @@ export class SpellChecker {
     void this.checkBlocks([blockId], "caret");
   }
 
+  /**
+   * Check the block holding `p` without waiting out the typing debounce, and
+   * resolve once its flags have landed. The word someone just typed is not
+   * flagged yet when they reach for the spelling shortcut; awaiting this first
+   * lets the shortcut see it instead of jumping off to another word.
+   */
+  async checkNow(p: DocPoint): Promise<void> {
+    if (!this.running) return;
+    const pos = this.resolvePoint(p);
+    if (!pos) return;
+    this.dirty.delete(pos.block);
+    this.armFlushTimer();
+    await this.checkBlocks([pos.block], "caret");
+  }
+
   // ── reads ─────────────────────────────────────────────────────────────────
 
   /** The visible flag whose word contains `p` (inclusive at both ends), or `null`. */

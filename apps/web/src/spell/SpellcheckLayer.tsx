@@ -294,6 +294,14 @@ export const SpellcheckLayer = forwardRef<
     return flagAt(p ?? "caret");
   }, [editor, flagAt]);
 
+  /** The flag under the caret, or on the word just typed before it. */
+  const flagNearCaret = useCallback(() => {
+    const checker = checkerRef.current;
+    if (!checker) return null;
+    const p = caretPoint(editor) ?? "caret";
+    return checker.flagAt(p) ?? checker.flagBehind(p);
+  }, [editor]);
+
   const suggest = useCallback(
     (f: FlagRef) => checkerRef.current?.suggest(f) ?? Promise.resolve([]),
     [],
@@ -445,18 +453,26 @@ export const SpellcheckLayer = forwardRef<
 
   const fixOrNext = useCallback(() => {
     if (!active) return;
-    // The word at the caret, or the one just typed before it.
-    const here =
-      flagAtCaret() ??
-      checkerRef.current?.flagBehind(caretPoint(editor) ?? "caret") ??
-      null;
-    if (!here) {
+    const open = (f: FlagRef) => (touch ? showBar(f) : openPopover(f));
+    const here = flagNearCaret();
+    if (here) {
+      open(here);
+      return;
+    }
+    const checker = checkerRef.current;
+    if (!checker) {
       stepTo("next");
       return;
     }
-    if (touch) showBar(here);
-    else openPopover(here);
-  }, [active, editor, flagAtCaret, touch, showBar, openPopover, stepTo]);
+    // Nothing flagged around the caret — but a word typed a moment ago is
+    // still waiting out the typing debounce, so it would not be flagged yet
+    // either. Check its block now rather than jumping off a fresh typo.
+    void checker.checkNow(caretPoint(editor) ?? "caret").then(() => {
+      const late = flagNearCaret();
+      if (late) open(late);
+      else stepTo("next");
+    });
+  }, [active, editor, flagNearCaret, touch, showBar, openPopover, stepTo]);
 
   const next = useCallback(() => stepTo("next"), [stepTo]);
   const prev = useCallback(() => stepTo("prev"), [stepTo]);
