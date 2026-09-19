@@ -1224,13 +1224,22 @@ export function EventPreview({
       </button>
     ) : null;
 
+  // A task has no page of its own to open — its body lives in this preview —
+  // so the full-page link belongs to events only. It waits for the fetched
+  // page, or it would flash before `task` arrives on a freshly created task.
+  // The empty span keeps the header's space-between from pulling the actions
+  // to the start.
+  const canOpenPage = Boolean(pageId) && Boolean(previewPage) && !isTask;
+
   const mobileHeader = (
     <div className={`${style.previewPopoverHeader} shrink-0`}>
-      {pageId && (
+      {canOpenPage ? (
         <Link to={`/page/${pageId}`} className={style.previewOpenLink}>
           <Maximize2 size={14} />
           {t("page.openPage", "Open page")}
         </Link>
+      ) : (
+        <span />
       )}
       <div className={style.previewHeaderActions}>
         {duplicateButton}
@@ -1566,7 +1575,7 @@ export function EventPreview({
       {spaceRow}
       {renderParentPicker(14)}
       {taskEventRow}
-      {pageId && (
+      {canOpenPage && (
         <div className={style.previewRow}>
           <Maximize2 size={14} className={style.previewRowIcon} />
           <Link to={`/page/${pageId}`} className={style.previewOpenLink}>
