@@ -9,6 +9,7 @@ import {
   Plus,
   RefreshCw,
   Settings,
+  SpellCheck,
   Sun,
 } from "lucide-react";
 import { TimelineIcon } from "./TimelineIcon";
@@ -40,6 +41,8 @@ import {
   scoreMatch,
   type FrecencyEntry,
 } from "@/lib/actionRanking";
+import { SPELL_PREF_KEYS } from "@/spell/personalDictionary";
+import { useSpellService, useSpellSetting } from "@/spell/SpellProvider";
 import { Button } from "@/components/ui/button";
 import { fullscreenChromeBarStyle, NO_DRAG } from "@/lib/fullscreenChrome";
 import { detectAdapter } from "@/platform";
@@ -175,6 +178,13 @@ export function ActionCenter() {
   const keyboardInset = useKeyboardInset();
   const { checkForUpdate } = useVersion();
   const { toast } = useToast();
+
+  // Spelling is the same synced setting the Settings page writes, so the
+  // switch there and this row always agree — on every device. The service is
+  // null where spelling has no prefs store to write to, and then there is no
+  // toggle to offer.
+  const spellService = useSpellService();
+  const spellEnabled = useSpellSetting<boolean>(SPELL_PREF_KEYS.enabled, true);
 
   // Desktop-only action: the web build updates through the service worker and
   // the mobile builds through their app stores, neither of which the user can
@@ -392,6 +402,33 @@ export function ActionCenter() {
       },
     ];
 
+    if (spellService) {
+      items.push({
+        id: "toggle-spellcheck",
+        label: spellEnabled.value
+          ? t("settings.spelling.turnOff", "Turn Off Spell Check")
+          : t("settings.spelling.turnOn", "Turn On Spell Check"),
+        keywords: [
+          "spelling",
+          t("settings.spelling.spellingKw", "spelling"),
+          "spellcheck",
+          t("settings.spelling.spellcheckKw", "spellcheck"),
+          "typo",
+          t("settings.spelling.typoKw", "typo"),
+          "enable",
+          t("common.enableKw", "enable"),
+          "disable",
+          t("common.disableKw", "disable"),
+          "toggle",
+          t("common.toggleKw", "toggle"),
+        ],
+        icon: <SpellCheck size={16} />,
+        // Through the service, not the pref: switching it back on also has to
+        // wake the worker, which `setEnabled` does and a bare write does not.
+        run: () => spellService.setEnabled(!spellEnabled.value),
+      });
+    }
+
     if (isDesktop) {
       items.push({
         id: "check-updates",
@@ -422,6 +459,8 @@ export function ActionCenter() {
     setTheme,
     isDesktop,
     runUpdateCheck,
+    spellService,
+    spellEnabled,
   ]);
 
   // Rank pages and actions for the current query. With a query, every item is
