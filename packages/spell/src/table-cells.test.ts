@@ -8,6 +8,7 @@
  */
 
 import { replaceWord } from "./actions";
+import { charOffsetIndex, findRawBlock, resolveAnchoredRange } from "./anchor";
 import { type FlagRef, SpellChecker, type SpellTransport } from "./checker";
 import type { CheckBlock, CheckedBlock, Flag } from "./protocol";
 import { createHarness, type Harness } from "./test-harness";
@@ -211,6 +212,37 @@ describe("spelling in table cells", () => {
     const second = checker.flags().find((f) => f.word === "sceond") as FlagRef;
     expect(replaceWord(h.editor, second, "Second", checker)).toBe(true);
     expect(cellText(cells[5])).toBe("Second");
+  });
+
+  it("keeps a selected word in a cell selected across a longer fix", async () => {
+    await setup();
+    const { block, document, cells } = table();
+    const flag = checker.flags().find((f) => f.word === "tpyo") as FlagRef;
+    // What walking to the flag leaves behind: the word itself selected.
+    h.editor.change((c) =>
+      c.selectContent({
+        anchor: flag.range.from as ContentTextPoint,
+        focus: flag.range.to as ContentTextPoint,
+      }),
+    );
+
+    expect(replaceWord(h.editor, flag, "typoes", checker)).toBe(true);
+    expect(cellText(cells[2])).toBe("one typoes");
+
+    const selection = h.editor.state.contentSelection!;
+    const raw = findRawBlock(h.doc.getRawBlocks(), block.id)!;
+    const index = charOffsetIndex(raw, {
+      contentId: document.rootId,
+      nodeId: cells[2],
+      field: "text",
+    });
+    // The whole new word, not the old word's four characters.
+    expect(
+      resolveAnchoredRange(index, {
+        from: selection.anchor as ContentTextPoint,
+        to: selection.focus as ContentTextPoint,
+      }),
+    ).toEqual({ from: 4, to: 10 });
   });
 
   it("re-checks a cell after an edit to it", async () => {
