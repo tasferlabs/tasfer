@@ -1,5 +1,6 @@
 import {
   deleteSelectedText,
+  deleteSelectionThroughOwner,
   getSelectionRange,
   insertText,
 } from "../actions/actions";
@@ -828,13 +829,7 @@ export async function cutSelectionToClipboard(
     let success = await copySelectionToClipboard(state, clipboard);
 
     if (success) {
-      const stateWithUndo = state;
-
-      const result =
-        stateWithUndo.document.contentSelection ||
-        stateWithUndo.schema.ownsInput("before-insert", stateWithUndo, "")
-          ? insertText(stateWithUndo, "")
-          : deleteSelectedText(stateWithUndo);
+      const result = deleteSelectionThroughOwner(state);
       return { success: true, result };
     }
 

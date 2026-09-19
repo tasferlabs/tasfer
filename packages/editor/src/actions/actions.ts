@@ -1102,6 +1102,35 @@ function applyDeleteUnit(
   };
 }
 
+/**
+ * Delete what is selected, routing through whichever layer owns it.
+ *
+ * A nested content selection, or a flat range a feature claims, belongs to that
+ * feature's tree — the deletion has to go through `insertText(state, "")` so the
+ * tree rewrites its own attachment, rather than through the flat char path which
+ * would edit the compatibility projection underneath it. Everything else is
+ * ordinary flat text.
+ *
+ * The `!isCollapsed` guard is load-bearing: `ownsInput` answers "does a feature
+ * claim input here", which a bare caret parked in a chip also satisfies. Without
+ * it a cut with a collapsed selection routes into the tree, which has no range
+ * to delete, and emits nothing — the clipboard gets the copy and the document
+ * keeps the text.
+ *
+ * This is the one definition. Cmd+X (the {@link CUT} action), the async
+ * `editor.cut()` clipboard path, and the SDK's `deleteRange("selection")` all
+ * call it, because three hand-copied versions of this branch had already drifted
+ * apart once.
+ */
+export function deleteSelectionThroughOwner(state: EditorState): ActionResult {
+  return state.document.contentSelection ||
+    (state.document.selection &&
+      !state.document.selection.isCollapsed &&
+      state.schema.ownsInput("before-insert", state, ""))
+    ? insertText(state, "")
+    : deleteSelectedText(state);
+}
+
 // Helper function to delete selected text
 /**
  * Delete selected text.

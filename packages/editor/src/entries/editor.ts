@@ -17,7 +17,7 @@ import {
 } from "../action-bus";
 import {
   convertBlockAtCursor,
-  deleteSelectedText,
+  deleteSelectionThroughOwner,
   insertText,
 } from "../actions/actions";
 import {
@@ -4770,14 +4770,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       },
       deleteRange: (range) => {
         if (range === undefined || range === "selection") {
-          apply((s) =>
-            s.document.contentSelection ||
-            (s.document.selection &&
-              !s.document.selection.isCollapsed &&
-              s.schema.ownsInput("before-insert", s, ""))
-              ? insertText(s, "")
-              : deleteSelectedText(s),
-          );
+          apply(deleteSelectionThroughOwner);
         } else {
           apply((s) => {
             const r = resolveInlineRange(s, range);

@@ -27,7 +27,12 @@
 import { action, stateAction } from "../action-bus";
 import type { EditorState } from "../state-types";
 import type { Operation } from "../sync/sync";
-import { deleteSelectedText, getSelectionRange, insertText } from "./actions";
+import {
+  deleteSelectedText,
+  deleteSelectionThroughOwner,
+  getSelectionRange,
+  insertText,
+} from "./actions";
 import { pasteFromClipboardEvent } from "./clipboard";
 import { selectionIntersectsStructuredMark } from "./structured-marks";
 
@@ -221,13 +226,7 @@ export const COPY = action("copy");
  * deletion is observable/overridable.
  */
 export const CUT = stateAction("cut", (state) => {
-  const result =
-    state.document.contentSelection ||
-    (state.document.selection &&
-      !state.document.selection.isCollapsed &&
-      state.schema.ownsInput("before-insert", state, ""))
-      ? insertText(state, "")
-      : deleteSelectedText(state);
+  const result = deleteSelectionThroughOwner(state);
   return { state: result.state, ops: result.ops };
 });
 
