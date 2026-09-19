@@ -58,6 +58,7 @@ import {
   blockOwnsContentCaret,
   contentPointCaretRect,
   contentSelectionGeometry,
+  markPlacesContentCaret,
   nodePlacesContentCaret,
 } from "./nodes/content-caret";
 import { renderScrollbar } from "./scrollbar";
@@ -691,9 +692,11 @@ interface ResolvedCaret {
  * Resolve every caret decoration to a paintable position.
  *
  * A flat caret needs a block with text to index into. A structured one does
- * not: it addresses content the node owns, so the gate is whether that node
- * declares nested caret geometry — which is what lets a peer's caret show in a
- * table cell, a block that has no flat text at all.
+ * not: it addresses content a node or a replacement mark owns, so the gate is
+ * whether either declares nested caret geometry. That is what lets a peer's
+ * caret show in a table cell — a block with no flat text at all — and inside an
+ * inline formula, whose host paragraph has plenty of text but places the caret
+ * through its math mark rather than by index.
  */
 function collectCaretDecorations(state: EditorState): ResolvedCaret[] {
   const out: ResolvedCaret[] = [];
@@ -706,8 +709,11 @@ function collectCaretDecorations(state: EditorState): ResolvedCaret[] {
     const contentPoint = isContentDecorationPoint(deco.point)
       ? deco.point
       : undefined;
+    // Either seam will do: the block's node may own nested geometry (a table
+    // cell), or a replacement mark on it may (an inline formula).
     const placeable = contentPoint
-      ? nodePlacesContentCaret(block, state)
+      ? nodePlacesContentCaret(block, state) ||
+        markPlacesContentCaret(block, state, contentPoint)
       : isTextualBlock(block);
     if (!placeable) continue;
     out.push({
