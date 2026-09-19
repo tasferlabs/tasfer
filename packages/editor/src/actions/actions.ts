@@ -110,7 +110,7 @@ import {
   selectionAbsorbsStructuredMarks,
   selectionIntersectsStructuredMark,
   selectionPartiallyIntersectsStructuredMark,
-  structuredMarkAttachmentCleanupOps,
+  structuredMarkCleanupOps,
   structuredMarkClonesComplete,
   structuredMarkContentIdsFrom,
   withAdoptedMarkAttachments,
@@ -1266,7 +1266,7 @@ export function deleteSelectedText(state: EditorState): ActionResult {
     // A structured mark wholly inside the range dies with its chars; delete
     // the attachments it referenced in the same transaction (computed against
     // the pre-delete block, whose runs are still resolvable).
-    const attachmentCleanupOps = structuredMarkAttachmentCleanupOps(
+    const attachmentCleanupOps = structuredMarkCleanupOps(
       block,
       start.textIndex,
       end.textIndex,
@@ -1354,7 +1354,7 @@ export function deleteSelectedText(state: EditorState): ActionResult {
             startLength,
             state.CRDTbinding,
           );
-          const cleanup = structuredMarkAttachmentCleanupOps(
+          const cleanup = structuredMarkCleanupOps(
             startBlock,
             start.textIndex,
             startLength,
@@ -1375,7 +1375,7 @@ export function deleteSelectedText(state: EditorState): ActionResult {
             end.textIndex,
             state.CRDTbinding,
           );
-          const cleanup = structuredMarkAttachmentCleanupOps(
+          const cleanup = structuredMarkCleanupOps(
             endBlock,
             0,
             end.textIndex,
@@ -1536,7 +1536,7 @@ export function deleteSelectedText(state: EditorState): ActionResult {
         state.CRDTbinding,
       );
     ops.push(startDeleteOp);
-    const startCleanupOps = structuredMarkAttachmentCleanupOps(
+    const startCleanupOps = structuredMarkCleanupOps(
       startBlock,
       start.textIndex,
       startBlockLen,
@@ -3763,7 +3763,7 @@ export function splitBlock(state: EditorState): ActionResult {
     ops.push(deleteOp);
     // Stamp cleanup after the deletion because that is also the order in
     // which the transaction returns and applies these operations.
-    const attachmentCleanupOps = structuredMarkAttachmentCleanupOps(
+    const attachmentCleanupOps = structuredMarkCleanupOps(
       currentBlock,
       textIndex,
       oldText.length,
