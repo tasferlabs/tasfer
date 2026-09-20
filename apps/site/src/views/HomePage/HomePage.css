@@ -518,8 +518,14 @@
   line-height: 1.55;
   color: var(--cy-muted-fg);
   padding-top: 14px;
-  position: sticky;
-  top: 90px;
+}
+/* Only pin the note once it has a column of its own; in the single-column
+   layout a sticky note scrolls over the prose it sits above. */
+@media (min-width: 880px) {
+  .lp-margin-note {
+    position: sticky;
+    top: 90px;
+  }
 }
 .lp-margin-note .num {
   display: block;
