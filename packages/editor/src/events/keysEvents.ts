@@ -47,6 +47,7 @@ import {
 } from "../actions/keyboard-actions";
 import { CURSOR_MOVED } from "../actions/pointer-actions";
 import { isTextInputKey } from "../code-points";
+import { getBlockTextContent } from "../node-shared";
 import { isApplePlatform } from "../platform";
 import { docSelectionFocus, toDocPoint } from "../positions";
 import {
@@ -116,6 +117,31 @@ function dispatchCursorCrossed(
     viewport,
     resolveCoords: (pos) => getCursorDocumentCoords(pos, newState, viewport),
   }).state;
+}
+
+/**
+ * Whether a modified delete toward `edge` has nothing of its own to remove,
+ * because the caret already sits on that edge of its block. The key then falls
+ * back to a plain ⌫ / ⌦ — the point of a delete key is that it deletes, and
+ * every other editor joins the neighbouring line here — instead of dying.
+ * Dispatching the plain action (rather than merging inline) keeps the fallback
+ * honest: it picks up every ⌫ handler, so an empty quote still exits and a list
+ * item still outdents.
+ *
+ * Only for a collapsed caret in a textual block: a range delete has content to
+ * remove whatever the caret offset, and a block that owns its own caret model
+ * (a table cell) claims these actions before the engine's default ever runs.
+ */
+function caretAtLineEdge(state: EditorState, edge: "start" | "end"): boolean {
+  const cursor = state.document.cursor;
+  if (!cursor || state.ui.composition) return false;
+  const selection = state.document.selection;
+  if (selection && !selection.isCollapsed) return false;
+  const block = state.document.page.blocks[cursor.position.blockIndex];
+  if (!block || block.deleted || !isTextualBlock(block)) return false;
+  return edge === "start"
+    ? cursor.position.textIndex <= 0
+    : cursor.position.textIndex >= getBlockTextContent(block).length;
 }
 
 /** The Cocoa emacs chords (⌃A/⌃E/⌃K/…) the keymap answers on macOS. */
@@ -401,7 +427,12 @@ export function handleKeyDown(
         case "KeyD":
           return state.actionBus.dispatchState(DELETE_FORWARD, state);
         case "KeyK":
-          return state.actionBus.dispatchState(DELETE_TO_LINE_END, state);
+          // On the line end the kill takes the break itself, as it does in
+          // Cocoa — the same fallback the ⌘⌦ branch makes.
+          return state.actionBus.dispatchState(
+            caretAtLineEdge(state, "end") ? DELETE_FORWARD : DELETE_TO_LINE_END,
+            state,
+          );
         default:
           return null;
       }
@@ -1160,13 +1191,17 @@ export function handleKeyDown(
       }
       // ⌘⌫ clears to the line start, ⌥⌫ (Ctrl+⌫ off Apple) one word. Line beats
       // word: on macOS both flags can be up at once only if the user holds ⌘⌥,
-      // where ⌘ wins by convention.
+      // where ⌘ wins by convention. On the line start neither has a run of its
+      // own to clear, so both step aside for a plain ⌫ and join the block above
+      // through every handler it has (see {@link caretAtLineEdge}).
       const result = state.actionBus.dispatchState(
-        isLineMod
-          ? DELETE_TO_LINE_START
-          : isWordMod
-            ? DELETE_WORD_BACKWARD
-            : DELETE_BACKWARD,
+        caretAtLineEdge(state, "start")
+          ? DELETE_BACKWARD
+          : isLineMod
+            ? DELETE_TO_LINE_START
+            : isWordMod
+              ? DELETE_WORD_BACKWARD
+              : DELETE_BACKWARD,
         state,
       );
       newState = result.state;
@@ -1174,12 +1209,16 @@ export function handleKeyDown(
       break;
     }
     case "Delete": {
+      // The mirror of ⌫ above: on the line end ⌘⌦ and ⌥⌦ have nothing of their
+      // own to clear, so a plain ⌦ takes the key and pulls the next block up.
       const result = state.actionBus.dispatchState(
-        isLineMod
-          ? DELETE_TO_LINE_END
-          : isWordMod
-            ? DELETE_WORD_FORWARD
-            : DELETE_FORWARD,
+        caretAtLineEdge(state, "end")
+          ? DELETE_FORWARD
+          : isLineMod
+            ? DELETE_TO_LINE_END
+            : isWordMod
+              ? DELETE_WORD_FORWARD
+              : DELETE_FORWARD,
         state,
       );
       newState = result.state;

@@ -496,9 +496,9 @@ export function registerTableInputActions(bus: ActionBus): void {
       // Nothing in reach means the caret already sits at that edge of the cell.
       // The key stays claimed and inert rather than carrying on into the
       // neighbour: a word delete must no more merge two cells than Backspace
-      // does. Holding the table whole stays plain Backspace's gesture — a
-      // modified delete never escalates, exactly as it never merges blocks in
-      // prose.
+      // does. Holding the table whole stays plain Backspace's gesture. (In
+      // prose a ⌘-delete on the line edge does fall back to a plain delete and
+      // joins the neighbouring block — a cell has no such join to offer.)
       if (charIds.length === 0) return { state, ops: [], handled: true };
       return commitTableEdits(
         state,

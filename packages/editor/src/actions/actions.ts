@@ -3143,9 +3143,10 @@ export function deleteWordBackward(state: EditorState): ActionResult {
  * {@link moveToLineEnd} — logical in both writing directions, so an RTL block
  * behaves the same as an LTR one.
  *
- * Unlike a word delete this never merges blocks: at the edge already, it is a
- * no-op rather than a join, so a stray ⌘⌫ can't silently swallow a paragraph
- * break.
+ * This never merges blocks itself: with the caret already on the edge there is
+ * no range to remove and it is a no-op. The key binding is what escalates — it
+ * routes a modified delete on the edge to the plain ⌫ / ⌦ action instead, so
+ * the join runs through every handler a plain delete has.
  */
 function deleteToLineEdge(
   state: EditorState,
