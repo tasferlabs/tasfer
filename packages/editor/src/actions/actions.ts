@@ -1131,6 +1131,24 @@ export function deleteSelectionThroughOwner(state: EditorState): ActionResult {
     : deleteSelectedText(state);
 }
 
+/**
+ * Order key for the empty paragraph a deletion leaves behind when it wipes out
+ * every block it touched. The replacement has to land *where the deleted
+ * content was*, so it is anchored after the nearest block still alive above the
+ * range. `orderKeyAfter(blocks, null)` is NOT "append" — it mints a key before
+ * every existing block (that is how {@link prependLeadingParagraph} puts a
+ * paragraph at the head of the document), so passing null here would float the
+ * replacement above the surviving content, most visibly above the document's
+ * title heading. Only a deletion with nothing left above it falls back to that.
+ */
+function replacementParagraphOrderKey(page: Page, beforeIndex: number): string {
+  for (let i = beforeIndex - 1; i >= 0; i--) {
+    const above = page.blocks[i];
+    if (above && !above.deleted) return orderKeyAfter(page.blocks, above.id);
+  }
+  return orderKeyAfter(page.blocks, null);
+}
+
 // Helper function to delete selected text
 /**
  * Delete selected text.
@@ -1187,9 +1205,15 @@ export function deleteSelectedText(state: EditorState): ActionResult {
       let cursorBlockIndex = start.blockIndex;
 
       if (wasOnlyVisibleBlock) {
-        // Append a new empty paragraph (the tombstone stays in place)
+        // Put a new empty paragraph where the block was (the tombstone stays
+        // in place). Nothing else is visible here, so this resolves to the head
+        // of the document — but go through the helper so the intent is "in the
+        // deleted block's place", not "before everything".
         const emptyParagraphId = state.CRDTbinding.nextId();
-        const orderKey = orderKeyAfter(state.document.page.blocks, null);
+        const orderKey = replacementParagraphOrderKey(
+          state.document.page,
+          start.blockIndex,
+        );
         const emptyParagraph: Block = {
           id: emptyParagraphId,
           orderKey,
@@ -1416,7 +1440,7 @@ export function deleteSelectedText(state: EditorState): ActionResult {
           id: state.CRDTbinding.nextId(),
           clock: state.CRDTbinding.getClock(),
           pageId: state.CRDTbinding.pageId,
-          orderKey: orderKeyAfter(page.blocks, null),
+          orderKey: replacementParagraphOrderKey(page, start.blockIndex),
           blockId,
           blockType: "paragraph",
         };
@@ -1448,9 +1472,11 @@ export function deleteSelectedText(state: EditorState): ActionResult {
     // and at least one endpoint is a non-text block, we need special handling
     if (!startIsText || !endIsText) {
       // Delete all blocks in the range
+      let deletedVisibleCount = 0;
       for (let i = start.blockIndex; i <= end.blockIndex; i++) {
         const blockToDelete = state.document.page.blocks[i];
         if (!blockToDelete || blockToDelete.deleted) continue;
+        deletedVisibleCount++;
         const blockDeleteOp: Operation = {
           op: "block_delete",
           id: state.CRDTbinding.nextId(),
@@ -1461,10 +1487,14 @@ export function deleteSelectedText(state: EditorState): ActionResult {
         ops.push(blockDeleteOp);
       }
 
-      // Check if we need to create an empty paragraph (all blocks will be deleted)
+      // Check if we need to create an empty paragraph (all blocks will be
+      // deleted). Count the blocks this range actually removes rather than its
+      // index span: `blockIndex` is the raw array index and tombstones are
+      // never spliced out, so on a well-edited page the span runs well ahead of
+      // the visible count and would claim "everything is gone" while blocks —
+      // the title heading above all — are still standing.
       const visibleBlocksCount = state.view.visibleBlocks.length;
-      const deletingAllBlocks =
-        end.blockIndex - start.blockIndex + 1 >= visibleBlocksCount;
+      const deletingAllBlocks = deletedVisibleCount >= visibleBlocksCount;
 
       if (deletingAllBlocks) {
         const emptyParagraphId = state.CRDTbinding.nextId();
@@ -1474,7 +1504,10 @@ export function deleteSelectedText(state: EditorState): ActionResult {
           id: state.CRDTbinding.nextId(),
           clock: state.CRDTbinding.getClock(),
           pageId: state.CRDTbinding.pageId,
-          orderKey: orderKeyAfter(state.document.page.blocks, null),
+          orderKey: replacementParagraphOrderKey(
+            state.document.page,
+            start.blockIndex,
+          ),
           blockId: emptyParagraphId,
           blockType: "paragraph",
         };
