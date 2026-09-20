@@ -337,7 +337,7 @@ export interface MobileToolbarModel {
   layout: MobileToolbarLayout;
 }
 
-interface MobileToolbarState {
+export interface MobileToolbarState {
   visible: boolean;
   bottomInset: number;
   canUndo: boolean;
@@ -701,24 +701,43 @@ export function createMobileToolbarModel(
     { type: "open-math-commands" },
     { enabled: state.canOpenMathCommands },
   );
-  const mathTrigger = button(
-    "math-trigger",
-    "mathcommand",
-    t("editor.math.chooseConstruct", "Choose a math element"),
-    { type: "open-math-commands" },
-    { enabled: state.canOpenMathCommands },
-  );
-  // The matrix control — a grid glyph that opens the consolidated row/column
-  // editor (a dialog on desktop, a drawer on touch). A single button, not a menu
-  // of ops: the host surface owns the whole grid-resize interaction. It lives in
-  // the overflow drawer (see `buildLayout`'s math branch), shown only when the
-  // caret sits in a grid construct (`state.math.matrix`).
-  const matrixButton = button(
-    "matrix-editor",
-    "matrix",
-    t("editor.math.matrix.menu", "Edit matrix"),
-    { type: "open-matrix-editor" },
-  );
+  // The math block control — the equation's counterpart to the block switcher,
+  // in the same slot every context puts its block control (see `buildLayout`).
+  // It carries the two things you can do to the math you are in: start a
+  // construct command (what the `/` trigger used to fire directly) and, when the
+  // caret sits in a grid, open the consolidated row/column editor — a dialog on
+  // desktop, a drawer on touch, with the host surface owning the whole
+  // grid-resize interaction.
+  //
+  // A menu, not a button: every block control opens a menu, so a tap on this
+  // slot means the same thing whatever block you are in. The matrix editor comes
+  // out of the overflow drawer to join it, which leaves `more` empty in math and
+  // gives the row back the width the overflow trigger was taking.
+  const mathOptions: MenuOption[] = [];
+  if (state.canOpenMathCommands) {
+    mathOptions.push({
+      id: "math-commands",
+      icon: "mathcommand",
+      label: t("editor.math.chooseConstruct", "Choose a math element"),
+      action: { type: "open-math-commands" },
+    });
+  }
+  if (state.math?.matrix) {
+    mathOptions.push({
+      id: "matrix-editor",
+      icon: "matrix",
+      label: t("editor.math.matrix.menu", "Edit matrix"),
+      action: { type: "open-matrix-editor" },
+    });
+  }
+  const mathMenu: MobileToolbarItem = {
+    kind: "menu",
+    id: "math-block",
+    icon: "math",
+    label: t("editor.math.title", "Math options"),
+    selected: "",
+    options: mathOptions,
+  };
   // The table control — the same command set the desktop table menu carries,
   // hung off the toolbar as a menu of its own. The commands are relative to the
   // caret's cell, so they belong wherever the caret is being typed; on a phone
@@ -751,25 +770,43 @@ export function createMobileToolbarModel(
       enabled: state.linkActive || state.canCreateLink,
     },
   );
-  const editImage = button(
-    "edit-image",
-    "image",
-    t("editor.image.editImage", "Edit Image"),
-    { type: "edit-image" },
-  );
-  // Disabled rather than hidden once the mode is on: re-entering would re-stamp
-  // the origin Cancel restores to, quietly making the pan so far permanent. The
-  // active state says the mode is running; Done/Cancel are on the image.
-  const repositionImage = button(
-    "reposition-image",
-    "reposition",
-    t("image.reposition", "Reposition"),
-    { type: "reposition-image" },
-    {
-      active: state.repositioningImage,
-      enabled: state.canRepositionImage && !state.repositioningImage,
-    },
-  );
+  // The image block control — an image's counterpart to the block switcher, in
+  // the slot every context puts its block control (see `buildLayout`). A menu,
+  // like every other block control, so a tap on that slot always means "show me
+  // what I can do here" rather than firing an action outright.
+  //
+  // Reposition is listed only for a crop that can actually move, and is dropped
+  // again once the mode is running: re-entering would re-stamp the origin Cancel
+  // restores to, quietly making the pan so far permanent. While the mode runs,
+  // its Done/Cancel live on the image itself. Its on-canvas twin is revealed by
+  // hover, which touch never produces, so this menu and the long-press context
+  // menu are the only ways in.
+  const imageOptions: MenuOption[] = [];
+  if (state.canRepositionImage && !state.repositioningImage) {
+    imageOptions.push({
+      id: "reposition-image",
+      icon: "reposition",
+      label: t("image.reposition", "Reposition"),
+      action: { type: "reposition-image" },
+    });
+  }
+  imageOptions.push({
+    id: "edit-image",
+    icon: "image",
+    label: t("editor.image.editImage", "Edit Image"),
+    action: { type: "edit-image" },
+  });
+  const imageMenu: MobileToolbarItem = {
+    kind: "menu",
+    id: "image-block",
+    icon: "image",
+    label: t("editor.image.title", "Image options"),
+    // Light up the trigger while the reposition mode is running — the mode's own
+    // control has left the menu, so this is what says the mode is on.
+    active: state.repositioningImage,
+    selected: "",
+    options: imageOptions,
+  };
   // Opens the code block's language picker drawer/sheet. Sits in the code
   // context's contextual middle beside the block switcher; it replaces the flat
   // language list that used to hide behind the overflow "more" button.
@@ -804,14 +841,12 @@ export function createMobileToolbarModel(
     inlineCode,
     strikethrough,
     inlineMath,
-    mathTrigger,
-    matrixButton,
+    mathMenu,
     tableMenu,
     blockMenu,
     dismiss,
     link,
-    editImage,
-    repositionImage,
+    imageMenu,
     editCode,
   });
 
@@ -915,15 +950,15 @@ function buildLayout(
     inlineCode: MobileToolbarItem;
     strikethrough: MobileToolbarItem;
     inlineMath: MobileToolbarItem;
-    mathTrigger: MobileToolbarItem;
-    matrixButton: MobileToolbarItem;
+    /** The math block control (construct command + matrix editor). */
+    mathMenu: MobileToolbarItem;
     /** The table menu, or null when the caret is not in a table. */
     tableMenu: MobileToolbarItem | null;
     blockMenu: MobileToolbarItem;
     dismiss: MobileToolbarItem;
     link: MobileToolbarItem;
-    editImage: MobileToolbarItem;
-    repositionImage: MobileToolbarItem;
+    /** The image block control (reposition + replace/remove). */
+    imageMenu: MobileToolbarItem;
     editCode: MobileToolbarItem;
   },
 ): MobileToolbarLayout {
@@ -937,29 +972,22 @@ function buildLayout(
     inlineMath,
     blockMenu,
     link,
-    editImage,
-    repositionImage,
+    imageMenu,
     editCode,
   } = controls;
   const right = [controls.dismiss];
 
-  // An image block has no inline text to format: its whole contextual bar is the
-  // settings controls (reposition, replace/remove), shown beside history. This
-  // is the caret-on-an-image case with the keyboard still up (the bar never
-  // outlives the keyboard); with the keyboard closed the same two actions live
-  // in the long-press context menu. Reposition appears only for a crop that can
-  // actually move — its on-canvas twin is revealed by hover, which touch never
-  // produces.
+  // An image block has no inline text to format, so its whole contextual bar is
+  // the image block control — the settings (reposition, replace/remove) hung off
+  // the same slot every other context puts its block control in. This is the
+  // caret-on-an-image case with the keyboard still up (the bar never outlives the
+  // keyboard); with the keyboard closed the same actions live in the long-press
+  // context menu.
   if (state.blockType === "image") {
     return {
       context: "image",
       left: [undo, redo],
-      middle: {
-        kind: "items",
-        items: state.canRepositionImage
-          ? [repositionImage, editImage]
-          : [editImage],
-      },
+      middle: { kind: "items", items: [imageMenu] },
       more: [],
       right,
     };
@@ -969,7 +997,7 @@ function buildLayout(
   // there are no list/code controls to compete with the chip row.
   if (state.math) {
     const mathRow = buildMathRow(state.math, t)!;
-    // Left/right caret steps, pinned beside the `/` trigger. In math they snap
+    // Left/right caret steps, pinned beside the math block control. In math they snap
     // over whole constructs and out to their edges, so they are the way to leave
     // a `\dot`/script slot/fraction — a mobile keyboard has no arrow keys. They
     // show ONLY while browsing (`query === null`): once a command is being
@@ -998,32 +1026,28 @@ function buildLayout(
     };
     const caretControls: MobileToolbarItem[] =
       mathRow.query === null ? [caretLeft, caretRight] : [];
-    // The matrix editor trigger lives in the overflow drawer ("extra"), behind the
-    // "more" control — not as a standalone bar button. It's a rarely-reached
-    // structural edit, so it sits in the long tail like the drawer marks/link
-    // elsewhere rather than taking permanent width beside the caret controls.
-    // Present only when the caret sits in a grid (`state.math.matrix`).
-    const more: MobileToolbarItem[] = state.math.matrix
-      ? [controls.matrixButton]
-      : [];
-    // Pin the `/` trigger as the first contextual control (right after the
-    // always-leading undo/redo): the math middle is the chip row, so without this
-    // there's no quick way to start a command on a keyboard that hides `/` and
-    // `\` behind a symbol page. It types a literal `/` (see
-    // `open-math-commands`) and the chips then follow what you type after it. On
-    // native the chip row is anchored separately via the `mathCommand` slot, so
-    // both stay visible.
+    // The math block control takes the block-control slot (right after the
+    // always-leading undo/redo), the way every other context does. It carries
+    // both math-specific actions: "Choose a math element", which types a literal
+    // `/` (see `open-math-commands`) so the chips then follow what you type after
+    // it — the only quick route in on a keyboard that hides `/` and `\` behind a
+    // symbol page — and the matrix editor, which used to sit in the overflow
+    // drawer. With it gone from there, `more` is empty in math and the overflow
+    // trigger disappears, giving the row back the width it was taking.
+    //
+    // On native the chip row is anchored separately via the `mathCommand` slot,
+    // so the chips and this control both stay visible.
     return {
       context: "math",
       left: [
         undo,
         redo,
         controlsDivider(),
-        controls.mathTrigger,
+        controls.mathMenu,
         ...caretControls,
       ],
       middle: { kind: "math", ...mathRow },
-      more,
+      more: [],
       right,
     };
   }

@@ -1665,5 +1665,7 @@
   "timeline.memberJoined": "انضمام {{member}} إلى «{{name}}»",
   "timeline.byYou": "أنت",
   "timeline.byUnknown": "شخص ما",
-  "nav.goToTimeline": "الانتقال إلى الخط الزمني"
+  "nav.goToTimeline": "الانتقال إلى الخط الزمني",
+  "editor.image.title": "خيارات الصورة",
+  "editor.math.title": "خيارات المعادلة"
 }

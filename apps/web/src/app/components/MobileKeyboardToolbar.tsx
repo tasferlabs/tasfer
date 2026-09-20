@@ -227,10 +227,20 @@ export function MobileKeyboardToolbar({
           onPress={() => {
             togglePanel(item.id);
           }}
-          active={open}
+          active={open || item.active === true}
           aria-label={item.label}
+          aria-haspopup="menu"
+          aria-expanded={open}
         >
-          {ICONS[item.icon]}
+          {/* A menu trigger and a plain action button are the same glyph in the
+              same row, so the caret is what tells them apart: this one opens
+              something, the ones without it act immediately. Tucked under the
+              icon's bottom-right rather than beside it so the control keeps the
+              same 44px width — the row is already tight on a narrow phone. */}
+          <span className="relative flex items-center justify-center">
+            {ICONS[item.icon]}
+            <MenuCaret />
+          </span>
         </ToolbarButton>
       );
     }
@@ -357,8 +367,16 @@ export function MobileKeyboardToolbar({
                 onPress={() => togglePanel("more")}
                 active={morePanelOpen || moreActive}
                 aria-label={t("editor.more", "More")}
+                aria-haspopup="menu"
+                aria-expanded={morePanelOpen}
               >
-                {ICONS.more}
+                {/* Carries the same caret as the block controls: it opens a
+                    drawer rather than acting, and the whole point of the marker
+                    is that it is on every trigger in the row that does. */}
+                <span className="relative flex items-center justify-center">
+                  {ICONS.more}
+                  <MenuCaret />
+                </span>
               </ToolbarButton>
               <Divider />
             </>
@@ -488,6 +506,11 @@ interface ToolbarButtonProps {
   disabled?: boolean;
   active?: boolean;
   "aria-label"?: string;
+  // Menu triggers (the block controls, the overflow drawer) announce that they
+  // open something and whether it is currently open — the spoken counterpart of
+  // the caret glyph they carry.
+  "aria-haspopup"?: "menu";
+  "aria-expanded"?: boolean;
   children: React.ReactNode;
 }
 
@@ -527,4 +550,26 @@ function ToolbarButton({
 
 function Divider() {
   return <div className="w-px h-6 bg-border mx-0.5 shrink-0" />;
+}
+
+/**
+ * The "this opens a menu" marker on a block control. Decorative — the trigger
+ * already announces itself through `aria-haspopup`, so this is hidden from
+ * assistive tech rather than read out a second time.
+ */
+function MenuCaret() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="absolute -bottom-1 -right-1.5 size-2.5"
+      viewBox="0 0 10 10"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m1.5 3.5 3.5 3.5 3.5-3.5" />
+    </svg>
+  );
 }

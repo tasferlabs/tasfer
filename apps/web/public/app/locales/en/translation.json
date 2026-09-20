@@ -1541,5 +1541,7 @@
   "timeline.memberJoined": "{{member}} joined “{{name}}”",
   "timeline.byYou": "You",
   "timeline.byUnknown": "Someone",
-  "nav.goToTimeline": "Go to Timeline"
+  "nav.goToTimeline": "Go to Timeline",
+  "editor.image.title": "Image options",
+  "editor.math.title": "Math options"
 }
