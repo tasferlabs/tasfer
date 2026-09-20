@@ -223,6 +223,8 @@ export const PLATFORM_SCHEMA: Record<string, Record<string, MethodDesc>> = {
     trust: { kind: "request" },
     untrust: { kind: "request" },
     remove: { kind: "request" },
+    setSyncPaused: { kind: "request" },
+    syncStatus: { kind: "request" },
   },
   spaces: {
     list: { kind: "request" },

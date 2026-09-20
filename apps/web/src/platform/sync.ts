@@ -208,8 +208,19 @@ export interface ReplicatorHost {
   ): Promise<{ ops: Operation[]; versionVector: Record<string, number> }>;
   /** Get or derive the shared encryption key for a peer. Returns null for an unknown peer. */
   getPeerSharedKey(publicKey: string): Promise<string | null>;
-  /** Update the last-seen timestamp for a peer to now */
-  updatePeerLastSeen(publicKey: string): Promise<void>;
+  /**
+   * Update the last-seen timestamp for a peer to now.
+   *
+   * `versions` is the vector that peer just advertised, flattened across every
+   * scope in the pull (see {@link unionPullVersions}). It is recorded only when
+   * they tell us, because that is the only moment we learn it: a peer that is
+   * away advertises nothing, so without keeping the last one there is no way to
+   * say whether it left holding changes this device never received.
+   */
+  updatePeerLastSeen(
+    publicKey: string,
+    versions?: Record<string, number>,
+  ): Promise<void>;
 }
 
 // =============================================================================
@@ -234,6 +245,28 @@ interface SyncPullMsg {
   spaceId: string;
   spaceVV: Record<string, number>;
   pageVVs: Record<string, Record<string, number>>;
+}
+
+/**
+ * Flatten a pull's per-scope vectors into one vector per replica.
+ *
+ * A pull says what the sender holds, scope by scope; the highest clock per
+ * replica across all of them is what "everything they have" means. Scope is
+ * dropped deliberately — the question this answers later is whether that peer
+ * holds operations nobody else does, and which page they belong to does not
+ * change the answer.
+ */
+export function unionPullVersions(msg: {
+  spaceVV: Record<string, number>;
+  pageVVs: Record<string, Record<string, number>>;
+}): Record<string, number> {
+  const merged: Record<string, number> = { ...msg.spaceVV };
+  for (const pageVV of Object.values(msg.pageVVs)) {
+    for (const [replica, clock] of Object.entries(pageVV)) {
+      if (clock > (merged[replica] ?? -1)) merged[replica] = clock;
+    }
+  }
+  return merged;
 }
 /** Response to a sync-pull. Contains every space-level op and every page-level op the requesting peer had not yet seen, as determined by comparing version vectors. */
 interface SyncDataMsg {
@@ -761,6 +794,15 @@ export class Replicator {
         .map((peer) => peer.publicKey),
     );
 
+    // A record that names US is this person pausing this machine from another
+    // of their own (the register replicates to every device, the paused one
+    // included). Honour it from this end too: the sibling that decided it is
+    // already refusing us, so dialing it would be a connection that can only
+    // be declined, retried, and declined again. Co-members are untouched —
+    // this says which of the person's machines talk to each other, not who we
+    // are allowed to know.
+    const pausedHere = revoked.has(this.localPublicKey);
+
     const memberLists = await Promise.all(
       spaceIds.map((spaceId) => this.host.getSpaceMembers(spaceId)),
     );
@@ -778,6 +820,10 @@ export class Replicator {
         admitted.add(member.publicKey);
       }
     }
+    // Applied after the lists, not inside them: a sibling is usually a member
+    // of our spaces as well, so dropping it from the own-devices list alone
+    // would leave it admitted by every space we share with it.
+    if (pausedHere) for (const publicKey of ownDevices) admitted.delete(publicKey);
     return admitted;
   }
 
@@ -1880,6 +1926,10 @@ export class Replicator {
   private async handleSyncPull(fromPubKey: string, msg: SyncPullMsg) {
     const conn = this.peers.get(fromPubKey);
     if (!conn) return;
+
+    // Recorded before the admission checks below: what they hold is true
+    // whether or not we end up answering them.
+    await this.host.updatePeerLastSeen(fromPubKey, unionPullVersions(msg));
     if (!(await this.ensureSharedSpace(conn, msg.spaceId))) {
       // Nothing to answer with — but if our own device is asking about a space
       // we have never seen, it has one we are missing. Ask for it instead of

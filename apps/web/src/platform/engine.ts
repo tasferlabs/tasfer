@@ -25,6 +25,8 @@ import type {
   Identity,
   DeviceInfo,
   Peer,
+  PeerSyncStatus,
+  PeerTarget,
   Asset,
   Space,
   ArchivedSpaceItem,
@@ -135,6 +137,77 @@ const DEVICE_NOTE_PREFIX = "device.note.";
 
 function deviceNoteKey(publicKey: string): string {
   return `${DEVICE_NOTE_PREFIX}${publicKey}`;
+}
+
+/**
+ * Preference keys holding a sync pause — one register per peer.
+ *
+ * Two prefixes because the person pauses two different things. One of their own
+ * machines is a device key: that machine, not the person, since the person is
+ * them. A co-member is a root key: the human, not whichever of their devices
+ * happens to be listed, and a root register also covers a device they link
+ * later — admission expands the root at connection time instead of freezing
+ * today's device list into the preference.
+ *
+ * One key per peer, for the reason the personal dictionary keeps one key per
+ * word: a register is last-writer-wins per key and cannot delete, so a single
+ * list would let two devices overwrite each other's decisions and could never
+ * shrink. Resuming writes `null` over the register, which reads back as "not
+ * paused" without the key ever going away.
+ */
+const SYNC_PAUSE_DEVICE_PREFIX = "sync.paused.device.";
+const SYNC_PAUSE_PERSON_PREFIX = "sync.paused.person.";
+
+function syncPauseKey(target: PeerTarget): string {
+  return "publicKey" in target
+    ? `${SYNC_PAUSE_DEVICE_PREFIX}${target.publicKey}`
+    : `${SYNC_PAUSE_PERSON_PREFIX}${target.rootKey}`;
+}
+
+function isSyncPauseKey(key: string): boolean {
+  return (
+    key.startsWith(SYNC_PAUSE_DEVICE_PREFIX) ||
+    key.startsWith(SYNC_PAUSE_PERSON_PREFIX)
+  );
+}
+
+/**
+ * Fold several version vectors into one, the highest clock per replica winning.
+ *
+ * A person's devices hold overlapping logs, so counting each of their vectors
+ * separately would count the same missing operation once per device. Merging
+ * first asks the only question worth asking: across everything they have
+ * between them, what has not reached us?
+ */
+export function mergeVersions(
+  vectors: Iterable<Record<string, number>>,
+): Record<string, number> {
+  const merged: Record<string, number> = {};
+  for (const vector of vectors) {
+    for (const [replica, clock] of Object.entries(vector)) {
+      if (clock > (merged[replica] ?? -1)) merged[replica] = clock;
+    }
+  }
+  return merged;
+}
+
+/**
+ * How many operations `theirs` claims that `ours` does not hold.
+ *
+ * Clocks count from 0 and an absent replica is -1 — the same reading
+ * `buildSpaceSyncResponse` uses to decide what to send, so this counts exactly
+ * the operations a sync with that peer would deliver.
+ */
+export function countUnsyncedOps(
+  theirs: Record<string, number>,
+  ours: Record<string, number>,
+): number {
+  let missing = 0;
+  for (const [replica, clock] of Object.entries(theirs)) {
+    const known = ours[replica] ?? -1;
+    if (clock > known) missing += clock - known;
+  }
+  return missing;
 }
 
 /**
@@ -261,7 +334,12 @@ const SCHEMA_SQL = `
     name       TEXT,
     trusted    INTEGER NOT NULL DEFAULT 0,
     last_seen  INTEGER,
-    shared_key TEXT
+    shared_key TEXT,
+    -- The version vector this peer last advertised, and when. Vectors only
+    -- cross the wire during a handshake, so without this there is no way to
+    -- say whether a peer that is now away still holds changes we never got.
+    last_vv    TEXT,
+    last_vv_at INTEGER
   );
 
   CREATE TABLE IF NOT EXISTS spaces (
@@ -547,6 +625,23 @@ export class Engine implements Platform {
         "ALTER TABLE spaces ADD COLUMN archive_by TEXT",
       );
     }
+
+    // peers.last_vv / last_vv_at — the last version vector a peer advertised.
+    // Null on every existing row and backfilled by nothing: it is the record of
+    // a handshake, and the handshakes that already happened left no trace to
+    // reconstruct it from. `syncStatus` reads null as "never exchanged", which
+    // is the honest answer for a peer we only ever met before this column.
+    const peerCols = await this.driver.db.query<{ name: string }>(
+      "PRAGMA table_info(peers)",
+    );
+    if (!peerCols.some((c) => c.name === "last_vv")) {
+      await this.driver.db.exec("ALTER TABLE peers ADD COLUMN last_vv TEXT");
+    }
+    if (!peerCols.some((c) => c.name === "last_vv_at")) {
+      await this.driver.db.exec(
+        "ALTER TABLE peers ADD COLUMN last_vv_at INTEGER",
+      );
+    }
   }
 
   /**
@@ -766,7 +861,7 @@ export class Engine implements Platform {
       getIdentity: () => this.identity.get(),
       getPrivateKey: () => this.getPrivateKey(),
       getCrypto: (): CryptoDriver => this.driver.crypto,
-      getPeerRecords: () => this.peers.list(),
+      getPeerRecords: () => this.peerRecordsForTransport(),
       getSpaceIds: async () => {
         const spaces = await this.spaces.list();
         return spaces.map((s) => s.id);
@@ -871,10 +966,21 @@ export class Engine implements Platform {
           publicKey,
         );
       },
-      updatePeerLastSeen: async (publicKey: string): Promise<void> => {
+      updatePeerLastSeen: async (
+        publicKey: string,
+        versions?: Record<string, number>,
+      ): Promise<void> => {
+        const now = Date.now();
+        if (versions) {
+          await this.driver.db.mutate(
+            "UPDATE peers SET last_seen = ?, last_vv = ?, last_vv_at = ? WHERE public_key = ?",
+            [now, JSON.stringify(versions), now, publicKey],
+          );
+          return;
+        }
         await this.driver.db.mutate(
           "UPDATE peers SET last_seen = ? WHERE public_key = ?",
-          [Date.now(), publicKey],
+          [now, publicKey],
         );
       },
     };
@@ -1459,12 +1565,26 @@ export class Engine implements Platform {
       const identity = await this.identity.get();
       const certs = await this.getOwnDeviceCerts();
       const notes = await this.getDeviceNotes();
-      return certs.map((cert) => ({
-        publicKey: cert.deviceKey,
-        note: notes.get(cert.deviceKey) ?? "",
-        linkedAt: new Date(cert.issuedAt).toISOString(),
-        current: cert.deviceKey === identity.publicKey,
-      }));
+      const paused = await this.getPausedPeerKeys();
+      const contact = await this.getPeerContact(
+        certs.map((cert) => cert.deviceKey),
+      );
+      return certs.map((cert) => {
+        const seen = contact.get(cert.deviceKey);
+        return {
+          publicKey: cert.deviceKey,
+          note: notes.get(cert.deviceKey) ?? "",
+          linkedAt: new Date(cert.issuedAt).toISOString(),
+          current: cert.deviceKey === identity.publicKey,
+          // Reported for the device answering too: a register naming it was
+          // written by another of this person's machines, and that machine is
+          // refusing it right now — which is worth saying plainly rather than
+          // leaving this device to look broken.
+          syncPaused: paused.has(cert.deviceKey),
+          lastSeen: seen?.lastSeen ?? null,
+          lastSyncedAt: seen?.lastSyncedAt ?? null,
+        };
+      });
     },
 
     setNote: async (publicKey: string, note: string): Promise<void> => {
@@ -1596,7 +1716,200 @@ export class Engine implements Platform {
         publicKey,
       ]);
     },
+
+    setSyncPaused: async (
+      target: PeerTarget,
+      paused: boolean,
+    ): Promise<void> => {
+      await this.refuseSelfPause(target);
+      // Through `prefs.set`: that is what stamps the decision and pushes the
+      // register to this person's other devices, so pausing a peer on the
+      // laptop pauses it on the phone rather than only here.
+      await this.prefs.set(
+        syncPauseKey(target),
+        paused ? { pausedAt: Date.now() } : null,
+      );
+      this.notifyDevicesChange();
+      // Admission is read, not polled: without this the live connection
+      // survives until the next reconcile.
+      await this.replicator?.refreshSpaces();
+    },
+
+    syncStatus: async (target: PeerTarget): Promise<PeerSyncStatus> => {
+      const keys = await this.resolveTargetKeys(target);
+      if (keys.length === 0) return { lastSyncedAt: null, unsyncedOps: null };
+
+      const placeholders = keys.map(() => "?").join(",");
+      const rows = await this.driver.db.query<{
+        last_vv: string | null;
+        last_vv_at: number | null;
+      }>(
+        `SELECT last_vv, last_vv_at FROM peers WHERE public_key IN (${placeholders})`,
+        keys,
+      );
+
+      const vectors: Record<string, number>[] = [];
+      let lastSyncedAt = 0;
+      for (const row of rows) {
+        if (!row.last_vv || !row.last_vv_at) continue;
+        const parsed = parseJson(row.last_vv);
+        if (!parsed || typeof parsed !== "object") continue;
+        vectors.push(parsed as Record<string, number>);
+        lastSyncedAt = Math.max(lastSyncedAt, row.last_vv_at);
+      }
+      if (vectors.length === 0) return { lastSyncedAt: null, unsyncedOps: null };
+
+      return {
+        lastSyncedAt: new Date(lastSyncedAt).toISOString(),
+        unsyncedOps: countUnsyncedOps(
+          mergeVersions(vectors),
+          await this.localVersions(),
+        ),
+      };
+    },
   };
+
+  /**
+   * The peer records the replicator admits from, with this person's sync pauses
+   * folded in as `trusted: false`.
+   *
+   * Folded here rather than in `admittedPeers` so the transport keeps one
+   * admission rule — membership grants the connection, a peer record only ever
+   * takes it away — and so a pause reaches every path that rule already covers,
+   * including the incoming one. A paused key with no record of its own gets a
+   * synthetic record: a peer this device never had reason to name locally is
+   * still a peer it can be told to stop dialing.
+   */
+  private async peerRecordsForTransport(): Promise<Peer[]> {
+    const records = await this.peers.list();
+    const paused = await this.getPausedPeerKeys();
+    if (paused.size === 0) return records;
+
+    const named = new Set<string>();
+    const out = records.map((peer) => {
+      named.add(peer.publicKey);
+      return paused.has(peer.publicKey) ? { ...peer, trusted: false } : peer;
+    });
+    for (const publicKey of paused) {
+      if (named.has(publicKey)) continue;
+      out.push({ publicKey, name: "", trusted: false, lastSeen: null });
+    }
+    return out;
+  }
+
+  /**
+   * Every device key this person has paused, with each paused root expanded to
+   * the devices certified under it — including ones certified since the pause,
+   * which is the point of holding a person by their root.
+   */
+  private async getPausedPeerKeys(): Promise<Set<string>> {
+    const rows = await this.driver.db.query<{ key: string; value: string }>(
+      "SELECT key, value FROM own_prefs WHERE key LIKE ? OR key LIKE ?",
+      [`${SYNC_PAUSE_DEVICE_PREFIX}%`, `${SYNC_PAUSE_PERSON_PREFIX}%`],
+    );
+
+    const keys = new Set<string>();
+    const roots: string[] = [];
+    for (const row of rows) {
+      // Resuming writes null over the register rather than deleting it.
+      const value = parseJson(row.value);
+      if (value === null || value === undefined) continue;
+      if (row.key.startsWith(SYNC_PAUSE_DEVICE_PREFIX)) {
+        keys.add(row.key.slice(SYNC_PAUSE_DEVICE_PREFIX.length));
+      } else {
+        roots.push(row.key.slice(SYNC_PAUSE_PERSON_PREFIX.length));
+      }
+    }
+
+    if (roots.length > 0) {
+      const placeholders = roots.map(() => "?").join(",");
+      const deviceRows = await this.driver.db.query<{ public_key: string }>(
+        `SELECT public_key FROM devices WHERE root_key IN (${placeholders})`,
+        roots,
+      );
+      for (const row of deviceRows) keys.add(row.public_key);
+    }
+    return keys;
+  }
+
+  /** The device keys a {@link PeerTarget} names, as far as this replica knows. */
+  private async resolveTargetKeys(target: PeerTarget): Promise<string[]> {
+    if ("publicKey" in target) return [target.publicKey];
+    const rows = await this.driver.db.query<{ public_key: string }>(
+      "SELECT public_key FROM devices WHERE root_key = ?",
+      [target.rootKey],
+    );
+    return rows.map((r) => r.public_key);
+  }
+
+  /** Last contact and last version exchange, for the given device keys. */
+  private async getPeerContact(
+    publicKeys: string[],
+  ): Promise<Map<string, { lastSeen: string | null; lastSyncedAt: string | null }>> {
+    const out = new Map<
+      string,
+      { lastSeen: string | null; lastSyncedAt: string | null }
+    >();
+    if (publicKeys.length === 0) return out;
+    const placeholders = publicKeys.map(() => "?").join(",");
+    const rows = await this.driver.db.query<{
+      public_key: string;
+      last_seen: number | null;
+      last_vv_at: number | null;
+    }>(
+      `SELECT public_key, last_seen, last_vv_at FROM peers WHERE public_key IN (${placeholders})`,
+      publicKeys,
+    );
+    for (const row of rows) {
+      out.set(row.public_key, {
+        lastSeen: row.last_seen ? new Date(row.last_seen).toISOString() : null,
+        lastSyncedAt: row.last_vv_at
+          ? new Date(row.last_vv_at).toISOString()
+          : null,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * This replica's version vector across every scope it holds — the counterpart
+   * to the vectors a peer advertises, flattened the same way (see
+   * {@link mergeVersions}).
+   */
+  private async localVersions(): Promise<Record<string, number>> {
+    const rows = await this.driver.db.query<{
+      peer_id: string;
+      max_clock: number;
+    }>("SELECT peer_id, MAX(clock) as max_clock FROM ops GROUP BY peer_id");
+    const vv: Record<string, number> = {};
+    for (const row of rows) vv[row.peer_id] = row.max_clock;
+    return vv;
+  }
+
+  /**
+   * Refuse a pause that would name this device or this person's own root.
+   *
+   * Pausing yourself is not a smaller version of pausing a peer: the register
+   * replicates to the devices it would silence, so the device that made the
+   * decision would be the only one able to undo it.
+   */
+  private async refuseSelfPause(target: PeerTarget): Promise<void> {
+    const identity = await this.identity.get();
+    if ("publicKey" in target) {
+      if (target.publicKey === identity.publicKey) {
+        throw new Error("A device cannot pause syncing with itself");
+      }
+      return;
+    }
+    const [row] = await this.driver.db.query<{
+      root_public_key: string | null;
+    }>("SELECT root_public_key FROM identity WHERE id = 1");
+    if (row?.root_public_key && row.root_public_key === target.rootKey) {
+      throw new Error(
+        "That root key is your own: pausing it would silence every device you have",
+      );
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Spaces
@@ -1747,6 +2060,7 @@ export class Engine implements Platform {
       const rootKeys = await this.getMemberRootKeys(
         memberRows.map((m) => m.public_key),
       );
+      const paused = await this.getPausedPeerKeys();
 
       return {
         id: s.id,
@@ -1760,6 +2074,7 @@ export class Engine implements Platform {
           avatar: m.avatar,
           addedAt: m.added_at,
           rootKey: rootKeys.get(m.public_key) ?? null,
+          syncPaused: paused.has(m.public_key),
         })),
       };
     },
@@ -2180,10 +2495,21 @@ export class Engine implements Platform {
       }
     }
     if (Object.keys(changed).length > 0) this.notifyPrefsChange(changed);
+    const keys = Object.keys(changed);
     if (
-      Object.keys(changed).some((key) => key.startsWith(DEVICE_NOTE_PREFIX))
+      keys.some((key) => key.startsWith(DEVICE_NOTE_PREFIX)) ||
+      keys.some(isSyncPauseKey)
     ) {
       this.notifyDevicesChange();
+    }
+    // A pause decided on another of this person's devices is a decision about
+    // who this one connects to, so it has to reach the transport on arrival —
+    // the same follow-up a locally made pause does (see peers.setSyncPaused).
+    if (keys.some(isSyncPauseKey)) {
+      await this.replicator?.refreshSpaces().catch((e: unknown) => {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`[Engine] refreshSpaces after sync pause failed: ${msg}`);
+      });
     }
   }
 
