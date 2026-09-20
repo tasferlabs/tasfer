@@ -51,14 +51,11 @@ jobs:
   ios:
     # "closed" has no iOS counterpart — TestFlight is already closed testing.
     if: inputs.platform != 'android' && inputs.track != 'closed'
-    # Pinned off macos-latest, same as native-release.yml. On the macos-26
-    # image (Xcode 26.6) `-exportArchive` timed out reaching Apple's
-    # provisioning service and then reported "No profiles for 'app.tasfer'
-    # were found", even though the archive itself signed fine. Nothing here
-    # needs the iOS 26 SDK — the deployment target is 15.0 and the newest
-    # availability guard in the Swift sources is iOS 16.4. Move back once a
-    # newer image exports again.
-    runs-on: macos-15
+    # Must stay on an image with Xcode 26+. App Store Connect rejects the
+    # upload otherwise: "This app was built with the iOS 18.5 SDK. All iOS and
+    # iPadOS apps must be built with the iOS 26 SDK or later." So unlike
+    # native-release.yml, this job cannot be pinned back to macos-15.
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
 
