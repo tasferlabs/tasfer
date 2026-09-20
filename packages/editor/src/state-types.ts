@@ -1227,9 +1227,19 @@ export interface CodeBlockStyle extends TextStyle {
   readonly marginBottom: number;
   readonly backgroundColor: string;
   readonly borderRadius: number;
-  /** Internal padding above the first line / below the last line. */
+  /**
+   * Internal padding above the first line. Doubles as the language band: the
+   * strip between the box top and the first line is exactly the rectangle
+   * `CodeNode.overlays` hands the host to draw the language label in, so the
+   * label can never sit on code. Size it to fit that label.
+   */
   readonly paddingTop: number;
-  /** Internal padding on the left and right of the text area. */
+  /** Internal padding below the last line. */
+  readonly paddingBottom: number;
+  /**
+   * Internal padding on the left and right of the text area. The language band
+   * is inset by this too, so the label aligns with the text column.
+   */
   readonly paddingX: number;
   /** Per-token-kind colors for syntax highlighting. */
   readonly syntax: CodeSyntaxStyle;

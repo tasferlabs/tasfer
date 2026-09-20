@@ -15,4 +15,10 @@ export {
   type CodeTokenKind,
   highlightLine,
 } from "./code-highlight";
-export { CodeNode, INDENT_CODE, OUTDENT_CODE } from "./CodeNode";
+export {
+  CODE_LANGUAGE_OVERLAY,
+  type CodeLanguageOverlayData,
+  CodeNode,
+  INDENT_CODE,
+  OUTDENT_CODE,
+} from "./CodeNode";

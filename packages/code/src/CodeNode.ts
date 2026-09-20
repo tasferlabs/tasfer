@@ -242,6 +242,27 @@ export const OUTDENT_CODE = stateAction("outdent-code", (state) =>
   reindentCodeBlock(state, "outdent"),
 );
 
+/** Overlay key for the code block's language label / picker. */
+export const CODE_LANGUAGE_OVERLAY = "code-language";
+
+/** What the host component needs to render the language band. */
+export interface CodeLanguageOverlayData {
+  /**
+   * Mirrors `state.ui.isReadonlyBase`. The slot is emitted in a readonly
+   * document too — the band is reserved in the layout regardless and the
+   * language is worth reading — so the host gates the *picker* on this and
+   * renders a static label instead. Selecting a language commits a `language`
+   * block_set op, which must stay unreachable there.
+   */
+  readonly readonly: boolean;
+  /**
+   * Set by a host that drives the picker from its own chrome rather than the
+   * band (the app's mobile keyboard toolbar opens it as a drawer). Absent from
+   * the engine's own payload; see `TasferCodeNode` in the web app.
+   */
+  readonly open?: boolean;
+}
+
 export class CodeNode extends TextNode {
   readonly type = "code" as const;
   readonly types: readonly string[] = ["code"];
@@ -445,29 +466,53 @@ export class CodeNode extends TextNode {
   // ── Overlays (host chrome) ────────────────────────────────────────────────
 
   /**
-   * Declare the language-picker chrome as a host overlay slot, anchored at the
-   * block's top-right corner (the right edge of the background box). The engine
-   * stays framework-free — it only locates the slot; the host maps the
+   * @see {@link CodeLanguageOverlayData} for the payload this emits.
+   *
+   * Declare the language-label chrome as a host overlay slot. The engine stays
+   * framework-free — it only locates the slot; the host maps the
    * `"code-language"` key to a React component (see `NODE_OVERLAYS` in
    * MountedEditor) that reads the block's `language` live and writes it back via
    * `setBlock`. Emitted for every visible code block so the tag is always
    * available, not just while editing.
    *
-   * Suppressed entirely in a readonly document: the chip is a mutating
-   * affordance (selecting a language commits a `language` block_set op), so it
-   * must stay hidden like the math hover backdrop and image resize handles. The
-   * gate is `isReadonlyBase` (not `mode === "readonly"`) so it also holds in the
-   * `select` mode a readonly editor enters for copy.
+   * The rect is the *language band*: the strip between the top of the painted
+   * box and the first line of code, inset horizontally to the text column. That
+   * strip is exactly `paddingTop` tall (see `contentInsetY`), so a label drawn
+   * inside this rect cannot overlap code — the reserved space and the space
+   * handed to the host are the same number, and neither can drift from the other.
+   * The host needs no inset constants of its own: it fills the rect.
+   *
+   * Anchored off the *painted box* top (`origin.y + margins.top`), not the flow
+   * origin. `cardFlowMargins` zeroes the top margin when this block tiles under
+   * another card, so the two differ exactly when cards stack; measuring from the
+   * box keeps the band on the padding in both cases.
+   *
+   * Still emitted in a readonly document, unlike the mutating affordances
+   * (math hover backdrop, image resize handles) that suppress themselves there:
+   * the language is information about the block, not only a control, and the
+   * band is reserved in the layout regardless of mode — suppressing the label
+   * would leave a bare strip of padding rather than remove anything. The host
+   * reads `readonly` and renders a static label with no picker attached, so the
+   * `language` block_set op stays unreachable. `isReadonlyBase` (not
+   * `mode === "readonly"`) so it also covers the `select` mode a readonly editor
+   * enters for copy.
    */
   overlays(c: NodeRegionCtx): readonly NodeOverlay[] {
-    if (c.state.ui.isReadonlyBase) return [];
+    const cs = c.styles.blocks.code;
+    const margins = cardFlowMargins(c.block, cs);
     return [
       {
-        key: "code-language",
+        key: CODE_LANGUAGE_OVERLAY,
         blockId: c.block.id,
-        // Point anchor at the box's top-right corner; the host chip positions
-        // itself inward from here (it needs no width/height box).
-        rect: { x: c.origin.x + c.maxWidth, y: c.origin.y },
+        rect: {
+          x: c.origin.x + cs.paddingX,
+          y: c.origin.y + margins.top,
+          width: Math.max(0, c.maxWidth - cs.paddingX * 2),
+          height: cs.paddingTop,
+        },
+        data: {
+          readonly: c.state.ui.isReadonlyBase,
+        } satisfies CodeLanguageOverlayData,
       },
     ];
   }
