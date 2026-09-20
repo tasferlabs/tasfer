@@ -127,7 +127,9 @@ One term, one rendering. Deviations are bugs.
 | Checkbox | خانة اختيار |
 | Bold / Italic / Strikethrough | غامق / مائل / يتوسطه خط |
 | Indent / Outdent | زيادة / تقليل المسافة البادئة (not `الإزاحة` = offset) |
-| Plain Text (code language) | نص عادي |
+| Plain Text (code language — un-tagged) | بلا لغة (names the *choice*, like `بلا صفحة أم`; **never `نص عادي`**, which is the export format) |
+| Plain Text (export format) | نص عادي (`export.plainText`, beside PDF / Markdown) |
+| Programming language | لغة البرمجة (qualified — bare `اللغة` is the interface language) |
 | Commit (VCS) | إيداع (**never `التزام`** = obligation) |
 | Dependency | تبعية |
 | op-log | سجل العمليات |
