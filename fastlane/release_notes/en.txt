@@ -1,2 +1,5 @@
-- Spelling check to the languages your speak.
+- Pause syncing with one of your devices, or with someone you share a space with.
+- The Archive is now the Timeline: it also shows what changed in each space, and who did it.
+- Copy and paste tables like a spreadsheet.
+- A code block now shows its language, and empty ones hint what to write.
 - Bug fixes and improvements.
