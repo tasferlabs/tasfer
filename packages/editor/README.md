@@ -1,5 +1,9 @@
 # @tasfer/editor
 
+> [!WARNING]
+> **Preview release.** This package is still in early development. Its API may
+> change, and future versions may include breaking changes.
+
 The headless, framework-agnostic **canvas editor engine** behind
 [Tasfer](https://www.tasfer.app). It paints text directly onto an HTML5
 `<canvas>` instead of the DOM, runs with no backend at all, and stores the

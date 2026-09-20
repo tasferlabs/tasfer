@@ -17,7 +17,7 @@ import {
 } from "../action-bus";
 import {
   convertBlockAtCursor,
-  deleteSelectedText,
+  deleteSelectionThroughOwner,
   insertText,
 } from "../actions/actions";
 import {
@@ -217,7 +217,7 @@ import {
 } from "../sync/structured-content";
 import { getVisibleBlocks } from "../sync/sync";
 import { blockTextFields, type TextFieldInfo } from "../text-fields";
-import { normalizeLinkUrl } from "../url-safety";
+import { openLinkUrl } from "../url-safety";
 import type { CanvasLayers } from "./layers";
 
 // ── Per-block style: write-API expansion ─────────────────────────────────────
@@ -1328,15 +1328,14 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // as-is.
     //
     // The url is document data, so the default refuses any scheme outside the
-    // allowlist rather than handing it to `window.open` (a `javascript:` link
-    // would run in the host's origin). It claims the action either way, so a
-    // rejected link is silently dropped instead of falling through. Hosts that
-    // override this own the same check plus whatever confirmation they show.
+    // allowlist rather than opening it blind (a `javascript:` link would run in
+    // the host's origin). It claims the action either way, so a rejected link
+    // is silently dropped instead of falling through. Hosts that override this
+    // own the same check plus whatever confirmation they show.
     this._state.actionBus.register(
       OPEN_LINK,
       ({ url }) => {
-        const safe = normalizeLinkUrl(url);
-        if (safe) window.open(safe, "_blank", "noopener,noreferrer");
+        openLinkUrl(url);
         return true;
       },
       DEFAULT_ACTION_PRIORITY,
@@ -4770,14 +4769,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       },
       deleteRange: (range) => {
         if (range === undefined || range === "selection") {
-          apply((s) =>
-            s.document.contentSelection ||
-            (s.document.selection &&
-              !s.document.selection.isCollapsed &&
-              s.schema.ownsInput("before-insert", s, ""))
-              ? insertText(s, "")
-              : deleteSelectedText(s),
-          );
+          apply(deleteSelectionThroughOwner);
         } else {
           apply((s) => {
             const r = resolveInlineRange(s, range);

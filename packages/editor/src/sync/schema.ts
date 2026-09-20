@@ -34,6 +34,8 @@
 
 import type { ActionBus, StateResult } from "../action-bus";
 import {
+  type ContentSelectionPaste,
+  type ContentSelectionPasteCtx,
   type ContentSelectionResolver,
   type ContentSelectionSerializer,
   type ContentSelectionSlice,
@@ -149,6 +151,8 @@ export interface StructuredKindSpec {
   readonly contentSelection?: ContentSelectionSerializer;
   /** Snaps a nested range to this kind's structural discipline. */
   readonly resolveSelection?: ContentSelectionResolver;
+  /** Takes a paste that lands in a nested range inside this kind's documents. */
+  readonly paste?: ContentSelectionPaste;
   /** Re-addressing adapter for snapshot/import clones of this kind. */
   readonly clone?: StructuredContentClone;
   /** Canonical source text of one of this kind's documents (math's LaTeX). */
@@ -174,6 +178,7 @@ export interface StructuredTextFieldRef {
 export interface StructuredKindAdapters {
   contentSelection?: ContentSelectionSerializer;
   resolveSelection?: ContentSelectionResolver;
+  paste?: ContentSelectionPaste;
   clone?: StructuredContentClone;
   source?: (document: StructuredDocument) => string | undefined;
   textFields?: (
@@ -413,6 +418,14 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
           entry.kind,
         );
         merged.resolveSelection = entry.resolveSelection;
+      }
+      if (entry.paste) {
+        invariant(
+          !merged.paste,
+          'Structured kind "%s" registers two paste adapters. Each kind has exactly one; entries for a kind may only contribute disjoint adapters.',
+          entry.kind,
+        );
+        merged.paste = entry.paste;
       }
       if (entry.clone) {
         invariant(
@@ -680,6 +693,16 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
       document,
       selection,
     });
+  }
+
+  /**
+   * Offer a paste into one nested range to the kind that owns it. `undefined`
+   * means the kind has no paste adapter or declined this payload.
+   */
+  pasteContentSelection(
+    ctx: ContentSelectionPasteCtx,
+  ): ReturnType<ContentSelectionPaste> {
+    return this.kinds.get(ctx.document.kind)?.paste?.(ctx);
   }
 
   /** Let the kind's adapter adjust one nested range before it becomes active. */

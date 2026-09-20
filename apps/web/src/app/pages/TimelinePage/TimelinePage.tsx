@@ -2,12 +2,24 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { DateTime } from "luxon";
 import {
-  Archive,
   ChevronRight,
   FileText,
   Folder,
+  FolderPlus,
+  Lock,
+  PencilLine,
   RotateCcw,
+  UserPlus,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { TimelineIcon } from "../../components/TimelineIcon";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { getPlatform } from "@/platform";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { TopActionBarPortal } from "../../layout/TopActionBarSlot";
@@ -22,19 +34,84 @@ import {
 } from "../../api/pages.api";
 import {
   useGetArchivedSpaces,
+  useGetSpaceHistory,
   useUnarchiveSpace,
   type ArchivedSpaceItem,
+  type SpaceHistoryEntry,
 } from "../../api/spaces.api";
-import ArchivePreview from "./ArchivePreview";
+import TimelinePreview from "./TimelinePreview";
 import clsx from "clsx";
-import style from "./ArchivePage.module.css";
+import type { TFunction } from "i18next";
+import style from "./TimelinePage.module.css";
 
-/** A single Archive row: either an archived space or an archived page. */
-type ArchiveEntry =
-  | { kind: "space"; archivedAt: string; space: ArchivedSpaceItem }
-  | { kind: "page"; archivedAt: string; page: ArchivedPageItem };
+/**
+ * A single Timeline row: an archived space or page, which can be restored, or
+ * a change to a space's settings, which is only a record.
+ */
+type TimelineEntry =
+  | { kind: "space"; at: string; space: ArchivedSpaceItem }
+  | { kind: "page"; at: string; page: ArchivedPageItem }
+  | { kind: "setting"; at: string; change: SpaceHistoryEntry };
 
-export default function ArchivePage() {
+const settingIcons = {
+  created: FolderPlus,
+  renamed: PencilLine,
+  madePersonal: Lock,
+  memberJoined: UserPlus,
+} satisfies Record<SpaceHistoryEntry["kind"], unknown>;
+
+/** What a settings change did, as one line. */
+function describeChange(t: TFunction, change: SpaceHistoryEntry): string {
+  // The starter space is created without a name.
+  const named = (name: string) => name || t("space.untitled", "Untitled space");
+  switch (change.kind) {
+    case "created":
+      return change.personal
+        ? t("timeline.createdPersonal", "Created personal space “{{name}}”", {
+            name: named(change.name),
+          })
+        : t("timeline.created", "Created space “{{name}}”", {
+            name: named(change.name),
+          });
+    case "renamed":
+      return t("timeline.renamed", "Renamed “{{from}}” to “{{to}}”", {
+        from: named(change.from),
+        to: named(change.to),
+      });
+    case "madePersonal":
+      return t("timeline.madePersonal", "Made “{{name}}” personal", {
+        name: named(change.name),
+      });
+    case "memberJoined":
+      return t("timeline.memberJoined", "{{member}} joined “{{name}}”", {
+        member: change.memberName,
+        name: named(change.name),
+      });
+  }
+}
+
+/**
+ * Which of this person's devices joined. Many devices share a person's name, so
+ * the note they wrote is what tells them apart.
+ */
+function joinedDeviceNote(change: SpaceHistoryEntry): string | null {
+  return change.kind === "memberJoined" ? change.memberNote : null;
+}
+
+/**
+ * Who made a settings change. A join already names the person, so it gets no
+ * author line.
+ */
+function describeAuthor(
+  t: TFunction,
+  change: SpaceHistoryEntry,
+): string | null {
+  if (change.kind === "memberJoined") return null;
+  if (change.byYou) return t("timeline.byYou", "You");
+  return change.byName ?? t("timeline.byUnknown", "Someone");
+}
+
+export default function TimelinePage() {
   const { t, i18n } = useTranslation();
   const { spaces } = useSpaces();
   const isMobile = useResponsive("(max-width: 768px)");
@@ -43,6 +120,18 @@ export default function ArchivePage() {
   const { data: archived, isLoading } = useGetArchivedPages();
   const { data: archivedSpaces, isLoading: spacesLoading } =
     useGetArchivedSpaces();
+  const { data: history, isLoading: historyLoading } = useGetSpaceHistory();
+  const queryClient = useQueryClient();
+
+  // A device note shows on join rows, and can be edited on any of this
+  // person's devices, so re-read the history when one changes.
+  useEffect(
+    () =>
+      getPlatform().devices.onChange(() => {
+        queryClient.invalidateQueries({ queryKey: ["spaces", "history"] });
+      }),
+    [queryClient],
+  );
   const { mutate: restorePage, isPending } = useRestorePage();
   const { mutate: unarchiveSpace, isPending: isRestoringSpace } =
     useUnarchiveSpace();
@@ -93,20 +182,24 @@ export default function ArchivePage() {
     [spaces],
   );
 
-  // The Archive is one chronological stream: archived spaces and pages are
-  // interleaved purely by when they were removed, newest first. ISO-8601
-  // timestamps compare correctly as strings, so no Date parsing is needed.
-  const entries = useMemo<ArchiveEntry[]>(() => {
-    const out: ArchiveEntry[] = [];
+  // The Timeline is one chronological stream: archived spaces and pages and
+  // space settings changes are interleaved purely by when they happened,
+  // newest first. ISO-8601 timestamps compare correctly as strings, so no Date
+  // parsing is needed.
+  const entries = useMemo<TimelineEntry[]>(() => {
+    const out: TimelineEntry[] = [];
     for (const space of archivedSpaces ?? []) {
-      out.push({ kind: "space", archivedAt: space.archivedAt, space });
+      out.push({ kind: "space", at: space.archivedAt, space });
     }
     for (const page of archived ?? []) {
-      out.push({ kind: "page", archivedAt: page.archivedAt, page });
+      out.push({ kind: "page", at: page.archivedAt, page });
     }
-    out.sort((a, b) => b.archivedAt.localeCompare(a.archivedAt));
+    for (const change of history ?? []) {
+      out.push({ kind: "setting", at: change.at, change });
+    }
+    out.sort((a, b) => b.at.localeCompare(a.at));
     return out;
-  }, [archived, archivedSpaces]);
+  }, [archived, archivedSpaces, history]);
 
   const selected = useMemo(
     () => archived?.find((p) => p.id === selectedId) ?? null,
@@ -127,7 +220,7 @@ export default function ArchivePage() {
     }
   }, [isMobile, selectedId, archived]);
 
-  // Drop the selection if its page leaves the archive (restored here or by a peer).
+  // Drop the selection if its page is no longer archived (restored here or by a peer).
   useEffect(() => {
     if (selectedId && archived && !archived.some((p) => p.id === selectedId)) {
       setSelectedId(null);
@@ -145,8 +238,10 @@ export default function ArchivePage() {
     }
   }, [archivedSpaces, selectedSpaceId]);
 
-  const isEmpty = !isLoading && !spacesLoading && entries.length === 0;
-  const totalCount = entries.length;
+  const isEmpty =
+    !isLoading && !spacesLoading && !historyLoading && entries.length === 0;
+  const relative = (iso: string) =>
+    DateTime.fromISO(iso).toRelative({ locale: i18n.language }) ?? "";
 
   function handleRestore(id: string) {
     restorePage({ id });
@@ -154,112 +249,193 @@ export default function ArchivePage() {
   }
 
   const list = (
-    <div
-      className={style.list}
-      role="listbox"
-      aria-label={t("archive.title", "Archive")}
-    >
-      {entries.map((entry) => {
-        if (entry.kind === "space") {
-          const { space } = entry;
+    <TooltipProvider delayDuration={300}>
+      <div
+        className={style.list}
+        role="listbox"
+        aria-label={t("timeline.title", "Timeline")}
+      >
+        {entries.map((entry) => {
+          if (entry.kind === "setting") {
+            const { change } = entry;
+            const Icon = settingIcons[change.kind];
+            const author = describeAuthor(t, change);
+            const note = joinedDeviceNote(change);
+            return (
+              <div
+                key={`setting-${change.spaceId}-${change.id}`}
+                className={clsx(style.row, style.settingRow)}
+              >
+                <div className={style.rowMain}>
+                  <Icon className={style.settingIcon} aria-hidden />
+                  <span className={style.settingText}>
+                    {note ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span
+                            className={clsx(style.settingTitle, style.hasNote)}
+                          >
+                            {describeChange(t, change)}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>{note}</TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <span className={style.settingTitle}>
+                        {describeChange(t, change)}
+                      </span>
+                    )}
+                    <span className={style.rowMeta}>
+                      {author && (
+                        <>
+                          {author}
+                          <span className={style.mobileDot} aria-hidden>
+                            {" · "}
+                          </span>
+                        </>
+                      )}
+                      {relative(change.at)}
+                    </span>
+                  </span>
+                </div>
+              </div>
+            );
+          }
+
+          if (entry.kind === "space") {
+            const { space } = entry;
+            return (
+              <div
+                key={`space-${space.id}`}
+                className={clsx(style.row, style.spaceRow)}
+              >
+                <div className={style.rowMain}>
+                  <Folder className={style.spaceIcon} aria-hidden />
+                  <span className={style.rowTitle}>
+                    {space.name || t("space.untitled", "Untitled space")}
+                  </span>
+                  <span className={style.rowMeta}>
+                    {relative(space.archivedAt)}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className={style.restore}
+                  onClick={() => unarchiveSpace(space.id)}
+                  disabled={isRestoringSpace}
+                  title={t("archive.restoreSpace", "Restore space")}
+                  aria-label={t("archive.restoreSpace", "Restore space")}
+                >
+                  <RotateCcw className={style.restoreIcon} aria-hidden />
+                </button>
+              </div>
+            );
+          }
+
+          const { page } = entry;
+          const isActive = page.id === selectedId;
+          const space = page.spaceId
+            ? (spaceName.get(page.spaceId) ?? null)
+            : null;
+          // The row itself is the selection target (opens the preview); only the
+          // Restore icon is a nested button. A clickable row keeps a single
+          // control per action without nesting a button inside a button.
           return (
             <div
-              key={`space-${space.id}`}
-              className={clsx(style.row, style.spaceRow)}
+              key={`page-${page.id}`}
+              role="option"
+              aria-selected={isActive}
+              tabIndex={0}
+              className={clsx(
+                style.row,
+                style.pageRow,
+                isActive && style.rowActive,
+              )}
+              style={
+                page.color
+                  ? ({ "--row-accent": page.color } as React.CSSProperties)
+                  : undefined
+              }
+              onClick={() => setSelectedId(page.id)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setSelectedId(page.id);
+                }
+              }}
             >
               <div className={style.rowMain}>
-                <Folder className={style.spaceIcon} aria-hidden />
+                <FileText className={style.pageIcon} aria-hidden />
                 <span className={style.rowTitle}>
-                  {space.name || t("space.untitled", "Untitled space")}
+                  <TitlePreview title={page.title} titleMd={page.titleMd} />
                 </span>
+                {space && <span className={style.rowSpace}>{space}</span>}
                 <span className={style.rowMeta}>
-                  {DateTime.fromISO(space.archivedAt).toRelative({
-                    locale: i18n.language,
-                  }) ?? ""}
+                  {relative(page.archivedAt)}
                 </span>
               </div>
               <button
                 type="button"
                 className={style.restore}
-                onClick={() => unarchiveSpace(space.id)}
-                disabled={isRestoringSpace}
-                title={t("archive.restoreSpace", "Restore space")}
-                aria-label={t("archive.restoreSpace", "Restore space")}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRestore(page.id);
+                }}
+                disabled={isPending}
+                title={t("archive.restorePage", "Restore page")}
+                aria-label={t("archive.restorePage", "Restore page")}
               >
                 <RotateCcw className={style.restoreIcon} aria-hidden />
               </button>
             </div>
           );
-        }
-
-        const { page } = entry;
-        const isActive = page.id === selectedId;
-        const space = page.spaceId
-          ? (spaceName.get(page.spaceId) ?? null)
-          : null;
-        // The row itself is the selection target (opens the preview); only the
-        // Restore icon is a nested button. A clickable row keeps a single
-        // control per action without nesting a button inside a button.
-        return (
-          <div
-            key={`page-${page.id}`}
-            role="option"
-            aria-selected={isActive}
-            tabIndex={0}
-            className={clsx(
-              style.row,
-              style.pageRow,
-              isActive && style.rowActive,
-            )}
-            style={
-              page.color
-                ? ({ "--row-accent": page.color } as React.CSSProperties)
-                : undefined
-            }
-            onClick={() => setSelectedId(page.id)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                setSelectedId(page.id);
-              }
-            }}
-          >
-            <div className={style.rowMain}>
-              <FileText className={style.pageIcon} aria-hidden />
-              <span className={style.rowTitle}>
-                <TitlePreview title={page.title} titleMd={page.titleMd} />
-              </span>
-              {space && <span className={style.rowSpace}>{space}</span>}
-              <span className={style.rowMeta}>
-                {DateTime.fromISO(page.archivedAt).toRelative({
-                  locale: i18n.language,
-                }) ?? ""}
-              </span>
-            </div>
-            <button
-              type="button"
-              className={style.restore}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleRestore(page.id);
-              }}
-              disabled={isPending}
-              title={t("archive.restorePage", "Restore page")}
-              aria-label={t("archive.restorePage", "Restore page")}
-            >
-              <RotateCcw className={style.restoreIcon} aria-hidden />
-            </button>
-          </div>
-        );
-      })}
-    </div>
+        })}
+      </div>
+    </TooltipProvider>
   );
 
   // Touch-first list. Each row's single job is to open the item; restore is a
   // deliberate action inside the drawer, so there is no inline button to mis-tap.
   const mobileList = (
-    <ul className={style.mobileList} aria-label={t("archive.title", "Archive")}>
+    <ul
+      className={style.mobileList}
+      aria-label={t("timeline.title", "Timeline")}
+    >
       {entries.map((entry) => {
+        if (entry.kind === "setting") {
+          const { change } = entry;
+          const Icon = settingIcons[change.kind];
+          // Touch has no hover, so the device note sits in the sub line.
+          const author = describeAuthor(t, change) ?? joinedDeviceNote(change);
+          return (
+            <li key={`setting-${change.spaceId}-${change.id}`}>
+              <div className={clsx(style.mobileRow, style.mobileRowStatic)}>
+                <Icon className={style.mobileIcon} aria-hidden />
+                <span className={style.mobileText}>
+                  <span
+                    className={clsx(style.mobileTitle, style.mobileTitleWrap)}
+                  >
+                    {describeChange(t, change)}
+                  </span>
+                  <span className={style.mobileSub}>
+                    {author && (
+                      <>
+                        <span className={style.mobileSubLabel}>{author}</span>
+                        <span className={style.mobileDot} aria-hidden>
+                          ·
+                        </span>
+                      </>
+                    )}
+                    <span className={style.mobileTime}>
+                      {relative(change.at)}
+                    </span>
+                  </span>
+                </span>
+              </div>
+            </li>
+          );
+        }
+
         const isSpace = entry.kind === "space";
         const accent = entry.kind === "page" ? entry.page.color : undefined;
         const title = isSpace ? (
@@ -274,10 +450,9 @@ export default function ArchivePage() {
               ? (spaceName.get(entry.page.spaceId) ?? null)
               : null
             : t("archive.typeSpace", "Space");
-        const time =
-          DateTime.fromISO(entry.archivedAt).toRelative({
-            locale: i18n.language,
-          }) ?? "";
+        const time = t("archive.archivedAgo", "Archived {{time}}", {
+          time: relative(entry.at),
+        });
         return (
           <li key={`${entry.kind}-${isSpace ? entry.space.id : entry.page.id}`}>
             <button
@@ -325,13 +500,8 @@ export default function ArchivePage() {
     <div className={style.container}>
       <TopActionBarPortal>
         <span className={style.headerTitle} data-window-drag>
-          {t("archive.title", "Archive")}
+          {t("timeline.title", "Timeline")}
         </span>
-        {!isEmpty && totalCount > 0 && (
-          <span className={style.headerCount} data-window-drag>
-            {totalCount}
-          </span>
-        )}
         {!isMobile && selected && (
           <div className={style.headerPreview}>
             <span className={style.headerSelMeta}>
@@ -357,15 +527,15 @@ export default function ArchivePage() {
       {isEmpty ? (
         <div className={style.empty}>
           <span className={style.emptyIcon}>
-            <Archive width={28} height={28} />
+            <TimelineIcon width={28} height={28} />
           </span>
           <p className={style.emptyTitle}>
-            {t("archive.empty", "No archived pages or spaces")}
+            {t("timeline.empty", "Nothing here yet")}
           </p>
           <p className={style.emptyHint}>
             {t(
-              "archive.emptyHint",
-              "Pages and spaces you archive appear here and can be restored.",
+              "timeline.emptyHint",
+              "Changes to your spaces show up here. So do pages and spaces you archive, and you can restore them.",
             )}
           </p>
         </div>
@@ -381,7 +551,7 @@ export default function ArchivePage() {
                 {selected?.title || t("common.untitled", "Untitled")}
               </DrawerTitle>
               {selected && (
-                <ArchivePreview
+                <TimelinePreview
                   item={selected}
                   restoring={isPending}
                   onRestore={() => handleRestore(selected.id)}
@@ -452,11 +622,11 @@ export default function ArchivePage() {
                 onMouseDown={startResizing}
                 role="separator"
                 aria-orientation="vertical"
-                aria-label={t("archive.resizeList", "Resize list")}
+                aria-label={t("timeline.resizeList", "Resize list")}
               />
             )}
             {selected ? (
-              <ArchivePreview
+              <TimelinePreview
                 item={selected}
                 restoring={isPending}
                 onRestore={() => handleRestore(selected.id)}
@@ -465,10 +635,13 @@ export default function ArchivePage() {
             ) : (
               <div className={style.previewEmpty}>
                 <span className={style.emptyIcon}>
-                  <Archive width={24} height={24} />
+                  <TimelineIcon width={24} height={24} />
                 </span>
                 <p>
-                  {t("archive.selectPrompt", "Select a page to preview it")}
+                  {t(
+                    "timeline.selectPrompt",
+                    "Select an archived page to preview it",
+                  )}
                 </p>
               </div>
             )}

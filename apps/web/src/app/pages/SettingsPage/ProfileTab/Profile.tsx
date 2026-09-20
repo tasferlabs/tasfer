@@ -13,7 +13,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { getDisplayName } from "@tasfer/provider-core/cursors";
 import { LinkDeviceDialog } from "@/app/components/LinkDeviceDialog";
-import { Camera, MonitorSmartphone, Trash } from "lucide-react";
+import { DeviceList } from "./DeviceList";
+import { Camera, Trash } from "lucide-react";
 import React from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./Profile.module.css";
@@ -231,24 +232,7 @@ export function Profile() {
       </div>
 
       <div className={styles.section}>
-        <div className={styles.row}>
-          <div className={styles.column}>
-            <p className={cn("text-sm", styles.title)}>
-              {t("device.sectionTitle", "Your devices")}
-            </p>
-            <p className="text-sm opacity-75">
-              {t(
-                "device.sectionDescription",
-                "Link another device to this identity so it shares all your spaces and appears as you, not as someone else.",
-              )}
-            </p>
-          </div>
-
-          <Button variant="outline" onClick={() => setLinkDeviceOpen(true)}>
-            <MonitorSmartphone size={16} />
-            {t("device.title", "Link a device")}
-          </Button>
-        </div>
+        <DeviceList onLinkDevice={() => setLinkDeviceOpen(true)} />
       </div>
 
       <div className={styles.actions}>

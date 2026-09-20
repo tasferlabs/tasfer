@@ -1,5 +1,6 @@
 import {
   deleteSelectedText,
+  deleteSelectionThroughOwner,
   getSelectionRange,
   insertText,
 } from "../actions/actions";
@@ -662,6 +663,45 @@ function getStructuredSelectionSlice(
 }
 
 /**
+ * Offer a paste landing in a nested selection to the structured kind that owns
+ * it (see `ContentSelectionPaste`). `undefined` when there is no nested range,
+ * or its kind declines — the caller then inserts the plain text through the
+ * input rules, as typing would.
+ */
+function pasteIntoContentSelection(
+  state: EditorState,
+  text: string,
+  html: string,
+): ActionResult | undefined {
+  const selection = state.document.contentSelection;
+  if (!selection || selection.anchor.blockId !== selection.focus.blockId) {
+    return undefined;
+  }
+  if (selection.anchor.contentId !== selection.focus.contentId) {
+    return undefined;
+  }
+  const block = findBlock(state.document.page, selection.focus.blockId);
+  const document = block?.structuredContent?.[selection.focus.contentId];
+  if (!block || block.deleted || !document) return undefined;
+  const marker = html ? TASFER_CLIPBOARD_MARKER_RE.exec(html) : null;
+  let markdown: string | undefined;
+  if (marker) {
+    try {
+      markdown = decodeClipboardMarkdown(marker[1]);
+    } catch {
+      markdown = undefined;
+    }
+  }
+  return state.schema.pasteContentSelection({
+    state,
+    document,
+    selection,
+    text,
+    markdown,
+  });
+}
+
+/**
  * Build the clipboard representations of the current selection synchronously.
  * Returns `null` when there is no (non-empty) selection. Used both by the async
  * clipboard writers below and by the native `copy`/`cut` ClipboardEvent
@@ -672,13 +712,28 @@ export function buildClipboardPayload(
 ): ClipboardPayload | null {
   const structured = getStructuredSelectionSlice(state);
   if (structured) {
-    const markdown = structured.markdown ?? structured.plainText;
+    // A slice that hands back blocks gets the rich flavors those blocks
+    // serialize to — the same path a flat selection takes — unless it spells a
+    // flavor out itself.
+    const blocks =
+      structured.blocks && structured.blocks.length > 0
+        ? [...structured.blocks]
+        : undefined;
+    const markdown =
+      structured.markdown ??
+      (blocks ? blocksToMarkdown(blocks, state.schema) : structured.plainText);
+    const html =
+      structured.html ??
+      (blocks
+        ? serializeToHTMLFragment(blocks, {
+            preferSource: true,
+            schema: state.schema,
+          })
+        : `<span>${escapeHtml(structured.plainText)}</span>`);
     return {
       plainText: structured.plainText,
       markdown,
-      html:
-        encodeClipboardMarkdown(markdown) +
-        (structured.html ?? `<span>${escapeHtml(structured.plainText)}</span>`),
+      html: encodeClipboardMarkdown(markdown) + html,
     };
   }
 
@@ -774,13 +829,7 @@ export async function cutSelectionToClipboard(
     let success = await copySelectionToClipboard(state, clipboard);
 
     if (success) {
-      const stateWithUndo = state;
-
-      const result =
-        stateWithUndo.document.contentSelection ||
-        stateWithUndo.schema.ownsInput("before-insert", stateWithUndo, "")
-          ? insertText(stateWithUndo, "")
-          : deleteSelectedText(stateWithUndo);
+      const result = deleteSelectionThroughOwner(state);
       return { success: true, result };
     }
 
@@ -2303,6 +2352,8 @@ export function pasteFromClipboardEvent(
     state.document.contentSelection ||
     state.schema.ownsInput("before-insert", state, text)
   ) {
+    const owned = pasteIntoContentSelection(state, text, html);
+    if (owned) return owned;
     return text ? insertText(state, text) : null;
   }
 
@@ -2380,6 +2431,12 @@ export function insertClipboardPayload(
     state.document.contentSelection ||
     state.schema.ownsInput("before-insert", state, payload.plainText)
   ) {
+    const owned = pasteIntoContentSelection(
+      state,
+      payload.plainText,
+      payload.html,
+    );
+    if (owned) return owned;
     return payload.plainText ? insertText(state, payload.plainText) : null;
   }
 
@@ -2446,7 +2503,11 @@ export function pasteFromClipboardEventAsPlainText(
         state.document.contentSelection ||
         state.schema.ownsInput("before-insert", state, text)
       ) {
-        resolve(insertText(state, text));
+        // Plain-text paste: offered to the owning kind without the rich
+        // flavor, so a grid still spreads across cells but carries no marks.
+        resolve(
+          pasteIntoContentSelection(state, text, "") ?? insertText(state, text),
+        );
         return;
       }
 
@@ -2523,6 +2584,8 @@ export async function pasteFromSystemClipboard(
         state.document.contentSelection ||
         state.schema.ownsInput("before-insert", state, text)
       ) {
+        const owned = pasteIntoContentSelection(state, text, html);
+        if (owned) return owned;
         return text ? insertText(state, text) : null;
       }
       if (text) {
@@ -2592,6 +2655,8 @@ export async function pasteFromSystemClipboard(
       state.document.contentSelection ||
       state.schema.ownsInput("before-insert", state, text)
     ) {
+      const owned = pasteIntoContentSelection(state, text, html);
+      if (owned) return owned;
       return text ? insertText(state, text) : null;
     }
 

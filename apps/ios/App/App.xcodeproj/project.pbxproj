@@ -16,6 +16,7 @@
 		A100000300000000000000B1 /* Settings.bundle in Resources */ = {isa = PBXBuildFile; fileRef = A100000400000000000000B1 /* Settings.bundle */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
+		A1000001TASFER000000000016 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002TASFER000000000016 /* SceneDelegate.swift */; };
 		A1000001TASFER000000000001 /* TasferViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002TASFER000000000001 /* TasferViewController.swift */; };
 		A1000001TASFER000000000002 /* ClipboardBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002TASFER000000000002 /* ClipboardBridge.swift */; };
 		A1000001TASFER000000000003 /* StorageBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002TASFER000000000003 /* StorageBridge.swift */; };
@@ -43,6 +44,7 @@
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		A1000007RELEASECFG000001 /* release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = release.xcconfig; path = ../release.xcconfig; sourceTree = SOURCE_ROOT; };
+		A1000002TASFER000000000016 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		A1000002TASFER000000000001 /* TasferViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TasferViewController.swift; sourceTree = "<group>"; };
 		A1000002TASFER000000000002 /* ClipboardBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardBridge.swift; sourceTree = "<group>"; };
 		A1000002TASFER000000000003 /* StorageBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageBridge.swift; sourceTree = "<group>"; };
@@ -92,6 +94,7 @@
 			children = (
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
+				A1000002TASFER000000000016 /* SceneDelegate.swift */,
 				A1000002TASFER000000000001 /* TasferViewController.swift */,
 				A1000002TASFER000000000002 /* ClipboardBridge.swift */,
 				A1000002TASFER000000000003 /* StorageBridge.swift */,
@@ -219,6 +222,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
+				A1000001TASFER000000000016 /* SceneDelegate.swift in Sources */,
 				A1000001TASFER000000000001 /* TasferViewController.swift in Sources */,
 				A1000001TASFER000000000002 /* ClipboardBridge.swift in Sources */,
 				A1000001TASFER000000000003 /* StorageBridge.swift in Sources */,

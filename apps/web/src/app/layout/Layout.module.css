@@ -6,6 +6,20 @@
   overscroll-behavior-x: none;
   height: calc(100dvh - var(--devtool-height, 0px));
   transition: height 0.05s ease-out;
+  /* One baseline for everything that sits at the top of the docked layout.
+     Both columns start from this, so the sidebar's first row and the document
+     header clear the notch by the same amount instead of each picking its own
+     number. Android exposes the inset as a custom property, iOS as env(). */
+  --chrome-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  /* Height of the top chrome band, below the inset: the document header, and
+     the sidebar row facing it. The tallest thing in either is a 40px account
+     row (32px avatar + its 4px padding), so 48px is that plus 4px of air.
+     Lower this to start the document higher; both columns follow together. */
+  --chrome-band: 48px;
+  /* Vertically centers a 32px control — a nav row, the overlay close button —
+     in the band, so a sidebar row and the document header share a centre line
+     instead of merely landing near each other. */
+  --chrome-top-row: calc(var(--chrome-top) + (var(--chrome-band) - 32px) / 2);
   /* In landscape the notch sits on a side edge, so the docked layout — sidebar
      and content alike — has to clear it. Physical left/right, not inline
      start/end: the insets describe the device, not the writing direction. */
@@ -108,11 +122,8 @@
   gap: 0.5rem;
   padding-block: 0;
   padding-inline: 0.5rem 0.25rem;
-  /* Support both Android (--safe-area-inset-top) and iOS (env()) */
-  padding-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
-  height: calc(
-    60px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))
-  );
+  padding-top: var(--chrome-top);
+  height: calc(var(--chrome-band) + var(--chrome-top));
   /* background-color: var(--editor-background); */
   color: var(--muted-foreground);
   z-index: 1;
@@ -123,12 +134,12 @@
     opacity 0.16s ease-out;
 }
 
-/* Landscape phone: 60px of chrome over a ~150px-tall document is too much. */
+/* Landscape phone: even 48px of chrome over a ~150px-tall document is too much.
+   Shrinking the band rather than the header alone keeps the sidebar row that
+   faces it on the same centre line. */
 @media (max-height: 600px) and (pointer: coarse) {
-  .appHeader {
-    height: calc(
-      44px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))
-    );
+  .appContainer {
+    --chrome-band: 44px;
   }
 }
 
@@ -277,8 +288,12 @@
   margin-bottom: 1rem;
 }
 
+/* In this state the sidebar has no header row, so the nav list is the first
+   thing in the column and owns clearing the notch for it. Without this the
+   Search row sits 4px from the top edge — under the status bar on a full-screen
+   phone or tablet, and visibly cramped even where the inset is 0. */
 .appNavigationLinksWithClose {
-  padding-block-start: 0.25rem;
+  padding-block-start: var(--chrome-top-row);
 }
 
 .appNavigationLinksWithClose > :first-child {
@@ -395,7 +410,7 @@
   color: var(--primary);
 }
 
-/* Live drop target while a page is dragged over the Archive link. */
+/* Live drop target while a page is dragged over the Timeline link. */
 .appNavigationLink.archiveDropTarget {
   background-color: color-mix(in srgb, var(--destructive), transparent 85%);
   color: var(--destructive);
@@ -424,14 +439,18 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  flex: 0 0 60px;
+  flex: 0 0 auto;
+  min-height: var(--chrome-band);
   padding-block: 0;
   padding-inline: 1rem 0.25rem;
 }
 
+/* Absolutely positioned, so it can't ride along with the nav list it sits
+   beside — it has to repeat the same offset or the two stop lining up. Both are
+   32px tall, so one shared value puts them on the same row. */
 .appSidebarCloseOverlay {
   position: absolute;
-  inset-block-start: 0.25rem;
+  inset-block-start: var(--chrome-top-row);
   inset-inline-end: 0.5rem;
   z-index: 1;
 }
@@ -497,8 +516,12 @@
 @media (min-width: 769px) {
   .appSidebarHeader {
     flex: 0 0 auto;
-    min-height: 60px;
-    padding-block: 0.25rem;
+    /* The band sits below the inset, so the avatar clears a notch the way the
+       document header beside it always has. Padding, not basis: with
+       border-box a fixed basis would let the inset eat the row instead of
+       pushing it down. */
+    min-height: calc(var(--chrome-band) + var(--chrome-top));
+    padding-block: calc(var(--chrome-top) + 0.25rem) 0.25rem;
     /* Matches .appNavigationLinks so the avatar lines up with the nav icons. */
     padding-inline: 1rem 0.25rem;
   }

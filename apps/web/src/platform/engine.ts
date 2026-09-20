@@ -25,9 +25,12 @@ import type {
   Identity,
   DeviceInfo,
   Peer,
+  PeerSyncStatus,
+  PeerTarget,
   Asset,
   Space,
   ArchivedSpaceItem,
+  SpaceHistoryEntry,
   SpaceMember,
   SpaceOperation,
   MemberSet,
@@ -35,6 +38,7 @@ import type {
   PairCallbacks,
 } from "./types";
 import { DEVICE_LINK_SCOPE } from "./types";
+import { buildSpaceHistory, type StoredSpaceOp } from "./space-history";
 import { deriveIdentitySharedSignalingKey } from "./peer-shared-key";
 import {
   type DeviceCert,
@@ -133,6 +137,77 @@ const DEVICE_NOTE_PREFIX = "device.note.";
 
 function deviceNoteKey(publicKey: string): string {
   return `${DEVICE_NOTE_PREFIX}${publicKey}`;
+}
+
+/**
+ * Preference keys holding a sync pause — one register per peer.
+ *
+ * Two prefixes because the person pauses two different things. One of their own
+ * machines is a device key: that machine, not the person, since the person is
+ * them. A co-member is a root key: the human, not whichever of their devices
+ * happens to be listed, and a root register also covers a device they link
+ * later — admission expands the root at connection time instead of freezing
+ * today's device list into the preference.
+ *
+ * One key per peer, for the reason the personal dictionary keeps one key per
+ * word: a register is last-writer-wins per key and cannot delete, so a single
+ * list would let two devices overwrite each other's decisions and could never
+ * shrink. Resuming writes `null` over the register, which reads back as "not
+ * paused" without the key ever going away.
+ */
+const SYNC_PAUSE_DEVICE_PREFIX = "sync.paused.device.";
+const SYNC_PAUSE_PERSON_PREFIX = "sync.paused.person.";
+
+function syncPauseKey(target: PeerTarget): string {
+  return "publicKey" in target
+    ? `${SYNC_PAUSE_DEVICE_PREFIX}${target.publicKey}`
+    : `${SYNC_PAUSE_PERSON_PREFIX}${target.rootKey}`;
+}
+
+function isSyncPauseKey(key: string): boolean {
+  return (
+    key.startsWith(SYNC_PAUSE_DEVICE_PREFIX) ||
+    key.startsWith(SYNC_PAUSE_PERSON_PREFIX)
+  );
+}
+
+/**
+ * Fold several version vectors into one, the highest clock per replica winning.
+ *
+ * A person's devices hold overlapping logs, so counting each of their vectors
+ * separately would count the same missing operation once per device. Merging
+ * first asks the only question worth asking: across everything they have
+ * between them, what has not reached us?
+ */
+export function mergeVersions(
+  vectors: Iterable<Record<string, number>>,
+): Record<string, number> {
+  const merged: Record<string, number> = {};
+  for (const vector of vectors) {
+    for (const [replica, clock] of Object.entries(vector)) {
+      if (clock > (merged[replica] ?? -1)) merged[replica] = clock;
+    }
+  }
+  return merged;
+}
+
+/**
+ * How many operations `theirs` claims that `ours` does not hold.
+ *
+ * Clocks count from 0 and an absent replica is -1 — the same reading
+ * `buildSpaceSyncResponse` uses to decide what to send, so this counts exactly
+ * the operations a sync with that peer would deliver.
+ */
+export function countUnsyncedOps(
+  theirs: Record<string, number>,
+  ours: Record<string, number>,
+): number {
+  let missing = 0;
+  for (const [replica, clock] of Object.entries(theirs)) {
+    const known = ours[replica] ?? -1;
+    if (clock > known) missing += clock - known;
+  }
+  return missing;
 }
 
 /**
@@ -259,7 +334,12 @@ const SCHEMA_SQL = `
     name       TEXT,
     trusted    INTEGER NOT NULL DEFAULT 0,
     last_seen  INTEGER,
-    shared_key TEXT
+    shared_key TEXT,
+    -- The version vector this peer last advertised, and when. Vectors only
+    -- cross the wire during a handshake, so without this there is no way to
+    -- say whether a peer that is now away still holds changes we never got.
+    last_vv    TEXT,
+    last_vv_at INTEGER
   );
 
   CREATE TABLE IF NOT EXISTS spaces (
@@ -545,6 +625,23 @@ export class Engine implements Platform {
         "ALTER TABLE spaces ADD COLUMN archive_by TEXT",
       );
     }
+
+    // peers.last_vv / last_vv_at — the last version vector a peer advertised.
+    // Null on every existing row and backfilled by nothing: it is the record of
+    // a handshake, and the handshakes that already happened left no trace to
+    // reconstruct it from. `syncStatus` reads null as "never exchanged", which
+    // is the honest answer for a peer we only ever met before this column.
+    const peerCols = await this.driver.db.query<{ name: string }>(
+      "PRAGMA table_info(peers)",
+    );
+    if (!peerCols.some((c) => c.name === "last_vv")) {
+      await this.driver.db.exec("ALTER TABLE peers ADD COLUMN last_vv TEXT");
+    }
+    if (!peerCols.some((c) => c.name === "last_vv_at")) {
+      await this.driver.db.exec(
+        "ALTER TABLE peers ADD COLUMN last_vv_at INTEGER",
+      );
+    }
   }
 
   /**
@@ -764,7 +861,7 @@ export class Engine implements Platform {
       getIdentity: () => this.identity.get(),
       getPrivateKey: () => this.getPrivateKey(),
       getCrypto: (): CryptoDriver => this.driver.crypto,
-      getPeerRecords: () => this.peers.list(),
+      getPeerRecords: () => this.peerRecordsForTransport(),
       getSpaceIds: async () => {
         const spaces = await this.spaces.list();
         return spaces.map((s) => s.id);
@@ -869,10 +966,21 @@ export class Engine implements Platform {
           publicKey,
         );
       },
-      updatePeerLastSeen: async (publicKey: string): Promise<void> => {
+      updatePeerLastSeen: async (
+        publicKey: string,
+        versions?: Record<string, number>,
+      ): Promise<void> => {
+        const now = Date.now();
+        if (versions) {
+          await this.driver.db.mutate(
+            "UPDATE peers SET last_seen = ?, last_vv = ?, last_vv_at = ? WHERE public_key = ?",
+            [now, JSON.stringify(versions), now, publicKey],
+          );
+          return;
+        }
         await this.driver.db.mutate(
           "UPDATE peers SET last_seen = ? WHERE public_key = ?",
-          [Date.now(), publicKey],
+          [now, publicKey],
         );
       },
     };
@@ -1457,12 +1565,26 @@ export class Engine implements Platform {
       const identity = await this.identity.get();
       const certs = await this.getOwnDeviceCerts();
       const notes = await this.getDeviceNotes();
-      return certs.map((cert) => ({
-        publicKey: cert.deviceKey,
-        note: notes.get(cert.deviceKey) ?? "",
-        linkedAt: new Date(cert.issuedAt).toISOString(),
-        current: cert.deviceKey === identity.publicKey,
-      }));
+      const paused = await this.getPausedPeerKeys();
+      const contact = await this.getPeerContact(
+        certs.map((cert) => cert.deviceKey),
+      );
+      return certs.map((cert) => {
+        const seen = contact.get(cert.deviceKey);
+        return {
+          publicKey: cert.deviceKey,
+          note: notes.get(cert.deviceKey) ?? "",
+          linkedAt: new Date(cert.issuedAt).toISOString(),
+          current: cert.deviceKey === identity.publicKey,
+          // Reported for the device answering too: a register naming it was
+          // written by another of this person's machines, and that machine is
+          // refusing it right now — which is worth saying plainly rather than
+          // leaving this device to look broken.
+          syncPaused: paused.has(cert.deviceKey),
+          lastSeen: seen?.lastSeen ?? null,
+          lastSyncedAt: seen?.lastSyncedAt ?? null,
+        };
+      });
     },
 
     setNote: async (publicKey: string, note: string): Promise<void> => {
@@ -1594,7 +1716,200 @@ export class Engine implements Platform {
         publicKey,
       ]);
     },
+
+    setSyncPaused: async (
+      target: PeerTarget,
+      paused: boolean,
+    ): Promise<void> => {
+      await this.refuseSelfPause(target);
+      // Through `prefs.set`: that is what stamps the decision and pushes the
+      // register to this person's other devices, so pausing a peer on the
+      // laptop pauses it on the phone rather than only here.
+      await this.prefs.set(
+        syncPauseKey(target),
+        paused ? { pausedAt: Date.now() } : null,
+      );
+      this.notifyDevicesChange();
+      // Admission is read, not polled: without this the live connection
+      // survives until the next reconcile.
+      await this.replicator?.refreshSpaces();
+    },
+
+    syncStatus: async (target: PeerTarget): Promise<PeerSyncStatus> => {
+      const keys = await this.resolveTargetKeys(target);
+      if (keys.length === 0) return { lastSyncedAt: null, unsyncedOps: null };
+
+      const placeholders = keys.map(() => "?").join(",");
+      const rows = await this.driver.db.query<{
+        last_vv: string | null;
+        last_vv_at: number | null;
+      }>(
+        `SELECT last_vv, last_vv_at FROM peers WHERE public_key IN (${placeholders})`,
+        keys,
+      );
+
+      const vectors: Record<string, number>[] = [];
+      let lastSyncedAt = 0;
+      for (const row of rows) {
+        if (!row.last_vv || !row.last_vv_at) continue;
+        const parsed = parseJson(row.last_vv);
+        if (!parsed || typeof parsed !== "object") continue;
+        vectors.push(parsed as Record<string, number>);
+        lastSyncedAt = Math.max(lastSyncedAt, row.last_vv_at);
+      }
+      if (vectors.length === 0) return { lastSyncedAt: null, unsyncedOps: null };
+
+      return {
+        lastSyncedAt: new Date(lastSyncedAt).toISOString(),
+        unsyncedOps: countUnsyncedOps(
+          mergeVersions(vectors),
+          await this.localVersions(),
+        ),
+      };
+    },
   };
+
+  /**
+   * The peer records the replicator admits from, with this person's sync pauses
+   * folded in as `trusted: false`.
+   *
+   * Folded here rather than in `admittedPeers` so the transport keeps one
+   * admission rule — membership grants the connection, a peer record only ever
+   * takes it away — and so a pause reaches every path that rule already covers,
+   * including the incoming one. A paused key with no record of its own gets a
+   * synthetic record: a peer this device never had reason to name locally is
+   * still a peer it can be told to stop dialing.
+   */
+  private async peerRecordsForTransport(): Promise<Peer[]> {
+    const records = await this.peers.list();
+    const paused = await this.getPausedPeerKeys();
+    if (paused.size === 0) return records;
+
+    const named = new Set<string>();
+    const out = records.map((peer) => {
+      named.add(peer.publicKey);
+      return paused.has(peer.publicKey) ? { ...peer, trusted: false } : peer;
+    });
+    for (const publicKey of paused) {
+      if (named.has(publicKey)) continue;
+      out.push({ publicKey, name: "", trusted: false, lastSeen: null });
+    }
+    return out;
+  }
+
+  /**
+   * Every device key this person has paused, with each paused root expanded to
+   * the devices certified under it — including ones certified since the pause,
+   * which is the point of holding a person by their root.
+   */
+  private async getPausedPeerKeys(): Promise<Set<string>> {
+    const rows = await this.driver.db.query<{ key: string; value: string }>(
+      "SELECT key, value FROM own_prefs WHERE key LIKE ? OR key LIKE ?",
+      [`${SYNC_PAUSE_DEVICE_PREFIX}%`, `${SYNC_PAUSE_PERSON_PREFIX}%`],
+    );
+
+    const keys = new Set<string>();
+    const roots: string[] = [];
+    for (const row of rows) {
+      // Resuming writes null over the register rather than deleting it.
+      const value = parseJson(row.value);
+      if (value === null || value === undefined) continue;
+      if (row.key.startsWith(SYNC_PAUSE_DEVICE_PREFIX)) {
+        keys.add(row.key.slice(SYNC_PAUSE_DEVICE_PREFIX.length));
+      } else {
+        roots.push(row.key.slice(SYNC_PAUSE_PERSON_PREFIX.length));
+      }
+    }
+
+    if (roots.length > 0) {
+      const placeholders = roots.map(() => "?").join(",");
+      const deviceRows = await this.driver.db.query<{ public_key: string }>(
+        `SELECT public_key FROM devices WHERE root_key IN (${placeholders})`,
+        roots,
+      );
+      for (const row of deviceRows) keys.add(row.public_key);
+    }
+    return keys;
+  }
+
+  /** The device keys a {@link PeerTarget} names, as far as this replica knows. */
+  private async resolveTargetKeys(target: PeerTarget): Promise<string[]> {
+    if ("publicKey" in target) return [target.publicKey];
+    const rows = await this.driver.db.query<{ public_key: string }>(
+      "SELECT public_key FROM devices WHERE root_key = ?",
+      [target.rootKey],
+    );
+    return rows.map((r) => r.public_key);
+  }
+
+  /** Last contact and last version exchange, for the given device keys. */
+  private async getPeerContact(
+    publicKeys: string[],
+  ): Promise<Map<string, { lastSeen: string | null; lastSyncedAt: string | null }>> {
+    const out = new Map<
+      string,
+      { lastSeen: string | null; lastSyncedAt: string | null }
+    >();
+    if (publicKeys.length === 0) return out;
+    const placeholders = publicKeys.map(() => "?").join(",");
+    const rows = await this.driver.db.query<{
+      public_key: string;
+      last_seen: number | null;
+      last_vv_at: number | null;
+    }>(
+      `SELECT public_key, last_seen, last_vv_at FROM peers WHERE public_key IN (${placeholders})`,
+      publicKeys,
+    );
+    for (const row of rows) {
+      out.set(row.public_key, {
+        lastSeen: row.last_seen ? new Date(row.last_seen).toISOString() : null,
+        lastSyncedAt: row.last_vv_at
+          ? new Date(row.last_vv_at).toISOString()
+          : null,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * This replica's version vector across every scope it holds — the counterpart
+   * to the vectors a peer advertises, flattened the same way (see
+   * {@link mergeVersions}).
+   */
+  private async localVersions(): Promise<Record<string, number>> {
+    const rows = await this.driver.db.query<{
+      peer_id: string;
+      max_clock: number;
+    }>("SELECT peer_id, MAX(clock) as max_clock FROM ops GROUP BY peer_id");
+    const vv: Record<string, number> = {};
+    for (const row of rows) vv[row.peer_id] = row.max_clock;
+    return vv;
+  }
+
+  /**
+   * Refuse a pause that would name this device or this person's own root.
+   *
+   * Pausing yourself is not a smaller version of pausing a peer: the register
+   * replicates to the devices it would silence, so the device that made the
+   * decision would be the only one able to undo it.
+   */
+  private async refuseSelfPause(target: PeerTarget): Promise<void> {
+    const identity = await this.identity.get();
+    if ("publicKey" in target) {
+      if (target.publicKey === identity.publicKey) {
+        throw new Error("A device cannot pause syncing with itself");
+      }
+      return;
+    }
+    const [row] = await this.driver.db.query<{
+      root_public_key: string | null;
+    }>("SELECT root_public_key FROM identity WHERE id = 1");
+    if (row?.root_public_key && row.root_public_key === target.rootKey) {
+      throw new Error(
+        "That root key is your own: pausing it would silence every device you have",
+      );
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Spaces
@@ -1643,6 +1958,87 @@ export class Engine implements Platform {
       }));
     },
 
+    listHistory: async (): Promise<SpaceHistoryEntry[]> => {
+      const identity = await this.identity.get();
+      const spaces = await this.driver.db.query<{
+        id: string;
+        personal: number;
+      }>(
+        `SELECT s.id, s.personal FROM spaces s
+         JOIN space_members m ON m.space_id = s.id
+         WHERE m.public_key = ?`,
+        [identity.publicKey],
+      );
+      if (spaces.length === 0) return [];
+
+      const [identityRow] = await this.driver.db.query<{
+        root_public_key: string | null;
+      }>("SELECT root_public_key FROM identity WHERE id = 1");
+      const ownKeys = new Set(
+        (await this.getOwnDeviceCerts()).map((c) => c.deviceKey),
+      );
+      ownKeys.add(identity.publicKey);
+      const deviceRoots = new Map(
+        (
+          await this.driver.db.query<{ public_key: string; root_key: string }>(
+            "SELECT public_key, root_key FROM devices",
+          )
+        ).map((d) => [d.public_key, d.root_key]),
+      );
+
+      const deviceNotes = await this.getDeviceNotes();
+
+      const out: SpaceHistoryEntry[] = [];
+      for (const space of spaces) {
+        // Only the settings op types: a space log is mostly page ops.
+        const rows = await this.driver.db.query<{
+          data: Uint8Array;
+          timestamp: number;
+        }>(
+          `SELECT data, timestamp FROM ops
+           WHERE scope_id = ? AND type IN ('space_set', 'member_add')
+           ORDER BY clock, peer_id`,
+          [`space:${space.id}`],
+        );
+        const ops: StoredSpaceOp[] = [];
+        for (const r of rows) {
+          try {
+            ops.push({
+              op: JSON.parse(new TextDecoder().decode(r.data)),
+              storedAt: r.timestamp,
+            });
+          } catch {
+            /* skip corrupted */
+          }
+        }
+        // Former members too: a change keeps its author after they leave.
+        const members = await this.driver.db.query<{
+          public_key: string;
+          name: string;
+        }>(
+          "SELECT public_key, name FROM space_members WHERE space_id = ?",
+          [space.id],
+        );
+        out.push(
+          ...buildSpaceHistory({
+            spaceId: space.id,
+            personal: space.personal === 1,
+            ops,
+            memberNames: new Map(
+              members
+                .filter((m) => m.name !== "")
+                .map((m) => [m.public_key, m.name]),
+            ),
+            deviceRoots,
+            deviceNotes,
+            ownKeys,
+            ownRoot: identityRow?.root_public_key ?? null,
+          }),
+        );
+      }
+      return out;
+    },
+
     get: async (id: string): Promise<Space & { members: SpaceMember[] }> => {
       const spaceRows = await this.driver.db.query<{
         id: string;
@@ -1664,6 +2060,7 @@ export class Engine implements Platform {
       const rootKeys = await this.getMemberRootKeys(
         memberRows.map((m) => m.public_key),
       );
+      const paused = await this.getPausedPeerKeys();
 
       return {
         id: s.id,
@@ -1677,6 +2074,7 @@ export class Engine implements Platform {
           avatar: m.avatar,
           addedAt: m.added_at,
           rootKey: rootKeys.get(m.public_key) ?? null,
+          syncPaused: paused.has(m.public_key),
         })),
       };
     },
@@ -2097,10 +2495,21 @@ export class Engine implements Platform {
       }
     }
     if (Object.keys(changed).length > 0) this.notifyPrefsChange(changed);
+    const keys = Object.keys(changed);
     if (
-      Object.keys(changed).some((key) => key.startsWith(DEVICE_NOTE_PREFIX))
+      keys.some((key) => key.startsWith(DEVICE_NOTE_PREFIX)) ||
+      keys.some(isSyncPauseKey)
     ) {
       this.notifyDevicesChange();
+    }
+    // A pause decided on another of this person's devices is a decision about
+    // who this one connects to, so it has to reach the transport on arrival —
+    // the same follow-up a locally made pause does (see peers.setSyncPaused).
+    if (keys.some(isSyncPauseKey)) {
+      await this.replicator?.refreshSpaces().catch((e: unknown) => {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`[Engine] refreshSpaces after sync pause failed: ${msg}`);
+      });
     }
   }
 
@@ -3289,7 +3698,7 @@ export class Engine implements Platform {
       // deleted subtree as a separate entry.
       //
       // Pages whose space is archived are excluded: an archived space is hidden
-      // as a whole (see spaces.listArchived in the Archive), and restoring the space
+      // as a whole (see spaces.listArchived in the Timeline), and restoring the space
       // brings its still-live pages back. Listing those pages' individually
       // deleted members here would let them be restored into a hidden space.
       const rows = await this.driver.db.query<{
@@ -3613,7 +4022,9 @@ export class Engine implements Platform {
     search: async (
       query: string,
       spaceId?: string | null,
+      options?: { limit?: number | null },
     ): Promise<PageSearchResult[]> => {
+      const limit = options?.limit === undefined ? 20 : options.limit;
       // Pages in an archived space stay live but are hidden as a whole (see
       // spaces.listArchived), so they must not surface here either.
       const rows = await this.driver.db.query<{
@@ -3633,15 +4044,25 @@ export class Engine implements Platform {
             AND (p.space_id IS NULL OR s.archived_at IS NULL)
             ${spaceId ? "AND p.space_id = ?" : ""}
           ORDER BY p.updated_at DESC
-          LIMIT 20`,
-        spaceId
-          ? [`%${query}%`, `%${query}%`, spaceId]
-          : [`%${query}%`, `%${query}%`],
+          ${limit === null ? "" : "LIMIT ?"}`,
+        [
+          `%${query}%`,
+          `%${query}%`,
+          ...(spaceId ? [spaceId] : []),
+          ...(limit === null ? [] : [limit]),
+        ],
       );
+
+      // An unlimited search can return a whole space; walking each result's
+      // ancestors one query at a time would cost a query per ancestor per
+      // page. Load the space's pages once and resolve paths from memory.
+      const resolvePath = spaceId
+        ? await this.spaceParentChainResolver(spaceId)
+        : (parentId: string | null) => this.buildParentChain(parentId);
 
       const results: PageSearchResult[] = [];
       for (const r of rows) {
-        const path = await this.buildParentChain(r.parent_id);
+        const path = await resolvePath(r.parent_id);
         results.push({
           id: r.id,
           title: r.title,
@@ -4614,7 +5035,13 @@ export class Engine implements Platform {
     const clock: HLC = { counter, peerId: identity.publicKey };
     const id = `${identity.publicKey}:${counter}`;
 
-    const op = { ...partial, id, clock, spaceId } as SpaceOperation;
+    const op = {
+      ...partial,
+      id,
+      clock,
+      spaceId,
+      at: Date.now(),
+    } as SpaceOperation;
     await this.storeSpaceOp(op);
 
     // When we locally add a member, recompute shared spaces so
@@ -4959,6 +5386,48 @@ export class Engine implements Platform {
     }
 
     return chain;
+  }
+
+  /**
+   * Same result as `buildParentChain`, for many pages of one space: loads the
+   * space's live pages in a single query and memoizes each ancestor chain.
+   */
+  private async spaceParentChainResolver(
+    spaceId: string,
+  ): Promise<(parentId: string | null) => PagePathSegment[]> {
+    const rows = await this.driver.db.query<{
+      id: string;
+      title: string;
+      title_md: string;
+      parent_id: string | null;
+      color: string | null;
+    }>(
+      "SELECT id, title, title_md, parent_id, color FROM pages WHERE space_id = ? AND archived_at IS NULL",
+      [spaceId],
+    );
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const chains = new Map<string, PagePathSegment[]>();
+
+    const resolve = (
+      id: string | null,
+      visiting: Set<string>,
+    ): PagePathSegment[] => {
+      if (!id) return [];
+      const cached = chains.get(id);
+      if (cached) return cached;
+      const r = byId.get(id);
+      // A cycle ends the chain where it loops, as buildParentChain does.
+      if (!r || visiting.has(id)) return [];
+      visiting.add(id);
+      const chain = [
+        ...resolve(r.parent_id, visiting),
+        { id: r.id, title: r.title, titleMd: r.title_md, color: r.color },
+      ];
+      chains.set(id, chain);
+      return chain;
+    };
+
+    return (parentId) => resolve(parentId, new Set());
   }
 
   /**

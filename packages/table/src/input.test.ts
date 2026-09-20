@@ -16,6 +16,7 @@ import {
   DELETE_TO_LINE_START,
   DELETE_WORD_BACKWARD,
   DELETE_WORD_FORWARD,
+  EXIT_BLOCK,
   SPLIT_BLOCK,
 } from "@tasfer/editor/actions/edit-actions";
 import { baseSchema } from "@tasfer/editor/schema";
@@ -307,12 +308,32 @@ describe("Enter in a cell", () => {
     expect("nodeId" in focus ? focus.nodeId : null).toBe(cells(state)[2]);
   });
 
-  it("is claimed but inert on the last row", () => {
-    let state = caretIn(stateOf(TABLE), 2, 0);
-    const before = state.document.page.blocks.length;
+  it("adds a row on the last row and lands in the same column", () => {
+    let state = caretIn(stateOf(TABLE), 3, 1);
     state = state.actionBus.dispatchState(SPLIT_BLOCK, state).state;
 
-    expect(state.document.page.blocks).toHaveLength(before);
+    expect(state.document.page.blocks).toHaveLength(1);
+    const document = getTableDocument(state.document.page.blocks[0])!;
+    expect(readTable(document).rows).toHaveLength(3);
+    const focus = state.document.contentSelection!.focus;
+    expect("nodeId" in focus ? focus.nodeId : null).toBe(cells(state)[5]);
+  });
+});
+
+describe("Shift+Enter in a cell", () => {
+  it("leaves the table for a paragraph below", () => {
+    let state = caretIn(stateOf(TABLE), 0, 1);
+    state = state.actionBus.dispatchState(EXIT_BLOCK, state).state;
+
+    expect(state.document.page.blocks.map((block) => block.type)).toEqual([
+      "table",
+      "paragraph",
+    ]);
+    expect(state.document.contentSelection).toBeNull();
+    expect(state.document.cursor?.position).toEqual({
+      blockIndex: 1,
+      textIndex: 0,
+    });
   });
 });
 

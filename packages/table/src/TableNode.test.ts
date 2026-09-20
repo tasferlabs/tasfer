@@ -1347,6 +1347,36 @@ describe("column move", () => {
     expect(header(released.state)).toEqual(["A", "B", "C"]);
   });
 
+  it("selects the column when the grip is clicked rather than dragged", () => {
+    const state = busState(THREE);
+    const layout = layoutOf(state);
+    const region = moveRegion(state);
+    const y = layout.gridTop / 2;
+    const hit = region.hitTest({ x: middleOf(layout, 1), y }, "mouse")!;
+
+    const started = region.drag!.onStart(
+      hit,
+      { x: middleOf(layout, 1), y },
+      ctxOf(state, hit),
+    )!;
+    // A wobble within the slop is still a click.
+    const wobbled = region.drag!.onMove(
+      { x: middleOf(layout, 1) + 2, y },
+      ctxOf(started.state, hit),
+    )!;
+    const released = region.drag!.onEnd(null, ctxOf(wobbled.state, hit))!;
+
+    expect(released.ops ?? []).toHaveLength(0);
+    expect(header(released.state)).toEqual(["A", "B", "C"]);
+    const document = getTableDocument(released.state.document.page.blocks[0])!;
+    const selection = released.state.document.contentSelection!;
+    const ends = [selection.anchor, selection.focus].map((point) =>
+      point.kind === "text" ? point.nodeId : undefined,
+    );
+    const rows = readTable(document).rows;
+    expect(ends).toEqual([rows[0].cells[1]!.id, rows[1].cells[1]!.id]);
+  });
+
   it("drops the drag on cancel without moving anything", () => {
     const state = busState(THREE);
     const layout = layoutOf(state);

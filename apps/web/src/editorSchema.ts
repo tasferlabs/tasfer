@@ -22,7 +22,7 @@ import {
   TextNode,
 } from "@tasfer/editor";
 import type { NodeOverlay } from "@tasfer/editor/internal";
-import { CodeNode } from "@tasfer/code";
+import { CODE_LANGUAGE_OVERLAY, CodeNode } from "@tasfer/code";
 import {
   mathContentSelectionKind,
   mathInputRules,
@@ -295,8 +295,40 @@ export function openLinkEditMenu(
 }
 
 /**
+ * Open the link popover for the live selection: edit (or clear) the link the
+ * selection touches when there is one, otherwise create one from the selected
+ * text. Reads the whole selection, not just the caret, so a range that ends
+ * exactly on a link's last character still finds it. Returns `false` when there
+ * is neither a link nor text to wrap.
+ */
+export function openLinkMenuForSelection(
+  editor: AppEditor,
+  x: number,
+  y: number,
+): boolean {
+  const link = editor.query.marks("selection").find((m) => m.name === "link");
+  if (link) {
+    openLinkEditMenu(editor, {
+      blockId: link.block,
+      startIndex: link.from,
+      endIndex: link.to,
+      url: (link.attrs.url as string | undefined) ?? "",
+      text: link.text,
+      content: link.content,
+      x,
+      y,
+    });
+    return true;
+  }
+  const target = linkFromSelection(editor);
+  if (!target) return false;
+  openLinkEditMenu(editor, { ...target, url: "", text: "", x, y });
+  return true;
+}
+
+/**
  * The app's code node: the built-in {@link CodeNode} plus a menu-driven `open`
- * flag on its `"code-language"` overlay slot. The engine node emits that slot for
+ * flag on its {@link CODE_LANGUAGE_OVERLAY} slot. The engine node emits that slot for
  * every visible code block (the language chip is always available); this override
  * additionally marks it open whenever the active menu targets this block, so the
  * language picker can be opened as a drawer/sheet from the mobile keyboard
@@ -310,13 +342,16 @@ class TasferCodeNode extends CodeNode {
     if (base.length === 0) return base;
     const menu = c.state.ui.activeMenu;
     return base.map((o) =>
-      o.key === "code-language"
+      o.key === CODE_LANGUAGE_OVERLAY
         ? {
             ...o,
+            // Merge, don't replace: the engine slot already carries `readonly`,
+            // and dropping it here would re-arm the picker in a readonly doc.
             data: {
+              ...(o.data as object | undefined),
               open:
                 menu.type === "overlay" &&
-                menu.key === "code-language" &&
+                menu.key === CODE_LANGUAGE_OVERLAY &&
                 menu.blockId === o.blockId,
             },
           }
@@ -333,7 +368,7 @@ class TasferCodeNode extends CodeNode {
  * button.
  */
 export function openCodeLanguageMenu(editor: AppEditor, blockId: string): void {
-  editor.host.openOverlay({ key: "code-language", blockId, x: 0, y: 0 });
+  editor.host.openOverlay({ key: CODE_LANGUAGE_OVERLAY, blockId, x: 0, y: 0 });
 }
 
 /**

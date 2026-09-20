@@ -29,7 +29,7 @@ import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCreatePage, updatePage } from "../api/pages.api";
 import { uploadImage } from "../api/images.api";
-import { useSpaces } from "../contexts/SpaceContext";
+import { useNewPageSpaceId } from "../hooks/useNewPageSpaceId";
 import {
   getVisibleTextFromRuns,
   isTextualBlock,
@@ -92,7 +92,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { activeSpaceId } = useSpaces();
+  const newPageSpaceId = useNewPageSpaceId();
 
   const { mutate: createPage, isPending: isCreating } = useCreatePage({
     onSuccess: async (newPage) => {
@@ -276,14 +276,14 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   }, [pendingBlocks, onRestoreSnapshot, onOpenChange, resetState]);
 
   const handleCreateNew = useCallback(() => {
-    if (pendingBlocks && activeSpaceId) {
+    if (pendingBlocks && newPageSpaceId) {
       createPage({
         ...deriveTitles(pendingBlocks),
         parentId: null,
-        spaceId: activeSpaceId,
+        spaceId: newPageSpaceId,
       });
     }
-  }, [pendingBlocks, createPage, activeSpaceId]);
+  }, [pendingBlocks, createPage, newPageSpaceId]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {

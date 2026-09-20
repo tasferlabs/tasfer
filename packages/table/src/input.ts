@@ -14,6 +14,7 @@
  * `./markdown-shortcuts`.
  */
 
+import { insertRow } from "./commands";
 import {
   activeTableContext,
   type Claimed,
@@ -35,10 +36,11 @@ import {
   cellLength,
   cellPosition,
   cellRuns,
+  coveredCellIds,
   type TableCaret,
   tableCellIds,
 } from "./selection";
-import { cellRunsFromText } from "./structured";
+import { CELL_NODE, cellRunsFromText } from "./structured";
 import type { ActionBus } from "@tasfer/editor/action-bus";
 import {
   DELETE_BACKWARD,
@@ -47,6 +49,8 @@ import {
   DELETE_TO_LINE_START,
   DELETE_WORD_BACKWARD,
   DELETE_WORD_FORWARD,
+  EXIT_BLOCK,
+  insertParagraphBeside,
   REVERT_INPUT_RULE,
   SPLIT_BLOCK,
 } from "@tasfer/editor/actions/edit-actions";
@@ -62,6 +66,7 @@ import type {
   MarkSpan,
 } from "@tasfer/editor/serlization/loadPage";
 import type { EditorState } from "@tasfer/editor/state-types";
+import { updateContentSelection } from "@tasfer/editor/structured-selection";
 import {
   getCharIdsInRangeFromRuns,
   getVisibleTextFromRuns,
@@ -82,7 +87,7 @@ import {
 } from "@tasfer/editor/word-chars";
 
 /** Delete edits clearing every cell a selection covers, plus the landing caret. */
-function clearRange(
+export function clearRange(
   context: TableContext,
 ): { edits: StructuredEdit[]; caret: TableCaret } | undefined {
   const { document, caret, anchor } = context;
@@ -107,13 +112,10 @@ function clearRange(
   // A range spanning cells clears each covered cell whole. A grid has no
   // meaningful "half a cell then half another": the covered cells ARE the
   // selection, which is also the unit the selection band paints.
-  const order = tableCellIds(document);
-  const from = order.indexOf(anchor.cellId);
-  const to = order.indexOf(caret.cellId);
-  if (from < 0 || to < 0) return undefined;
+  const covered = coveredCellIds(document, anchor, caret);
+  if (covered.length === 0) return undefined;
   const edits: StructuredEdit[] = [];
-  for (let at = Math.min(from, to); at <= Math.max(from, to); at++) {
-    const cellId = order[at];
+  for (const cellId of covered) {
     const charIds = getCharIdsInRangeFromRuns(
       cellRuns(document, cellId) ?? [],
       0,
@@ -128,14 +130,14 @@ function clearRange(
       });
     }
   }
-  return { edits, caret: { cellId: order[Math.min(from, to)], offset: 0 } };
+  return { edits, caret: { cellId: covered[0], offset: 0 } };
 }
 
 /**
  * The flat marks on the first character a selection covers, or `undefined`
  * for a bare caret — what text typed over the selection takes.
  */
-function firstSelectedMarks(
+export function firstSelectedMarks(
   state: EditorState,
   context: TableContext,
 ): Mark[] | undefined {
@@ -148,10 +150,7 @@ function firstSelectedMarks(
     from = Math.min(anchor.offset, caret.offset);
   } else {
     // A range across cells clears them whole and types into the first one.
-    const order = tableCellIds(document);
-    const first = order[
-      Math.min(order.indexOf(anchor.cellId), order.indexOf(caret.cellId))
-    ];
+    const first = coveredCellIds(document, anchor, caret)[0];
     if (first === undefined) return undefined;
     cellId = first;
     from = 0;
@@ -181,12 +180,32 @@ function typedMarkEdits(
   inserted: readonly CharRun[],
   wanted: readonly Mark[],
 ): StructuredEdit[] {
-  const charIds = inserted.flatMap((run) =>
-    Array.from(
-      { length: run.text.length },
-      (_unused, at) => `${run.peerId}:${run.startCounter + at}`,
+  return insertedMarkEdits(
+    state,
+    typed,
+    caret,
+    inserted.flatMap((run) =>
+      Array.from(
+        { length: run.text.length },
+        (_unused, at) => `${run.peerId}:${run.startCounter + at}`,
+      ),
     ),
+    wanted,
   );
+}
+
+/**
+ * {@link typedMarkEdits} for characters already addressed by id: `charIds` are
+ * the visible characters starting at `caret`, in order. A paste calls this once
+ * per run of equally-formatted characters.
+ */
+export function insertedMarkEdits(
+  state: EditorState,
+  typed: StructuredDocument,
+  caret: TableCaret,
+  charIds: readonly string[],
+  wanted: readonly Mark[],
+): StructuredEdit[] {
   if (charIds.length === 0) return [];
   const runs = cellRuns(typed, caret.cellId) ?? [];
   const spans = getStructuredMarks(typed, caret.cellId, "text") as MarkSpan[];
@@ -200,7 +219,7 @@ function typedMarkEdits(
       kind: "mark_set",
       nodeId: caret.cellId,
       field: "text",
-      charIds,
+      charIds: [...charIds],
       mark,
       value: true,
     });
@@ -218,7 +237,7 @@ function typedMarkEdits(
       kind: "mark_set",
       nodeId: caret.cellId,
       field: "text",
-      charIds,
+      charIds: [...charIds],
       mark: { type },
       value: false,
     });
@@ -315,7 +334,7 @@ function insertIntoCell(
 }
 
 /** The id of the visible character immediately before `offset`, or null. */
-function charIdBefore(
+export function charIdBefore(
   runs: ReturnType<typeof cellRuns>,
   offset: number,
 ): string | null {
@@ -477,9 +496,9 @@ export function registerTableInputActions(bus: ActionBus): void {
       // Nothing in reach means the caret already sits at that edge of the cell.
       // The key stays claimed and inert rather than carrying on into the
       // neighbour: a word delete must no more merge two cells than Backspace
-      // does. Holding the table whole stays plain Backspace's gesture — a
-      // modified delete never escalates, exactly as it never merges blocks in
-      // prose.
+      // does. Holding the table whole stays plain Backspace's gesture. (In
+      // prose a ⌘-delete on the line edge does fall back to a plain delete and
+      // joins the neighbouring block — a cell has no such join to offer.)
       if (charIds.length === 0) return { state, ops: [], handled: true };
       return commitTableEdits(
         state,
@@ -513,19 +532,60 @@ export function registerTableInputActions(bus: ActionBus): void {
     100,
   );
 
-  // A GFM cell holds one line, so Enter cannot split it. It moves to the cell
-  // below in the same column instead — the spreadsheet convention, and the one
-  // motion the key already suggests. On the last row it is claimed and does
-  // nothing rather than splitting the table's block.
+  // Enter / Shift+Enter in a cell (policy: dev-docs/enter-key.md). A GFM cell
+  // holds one line, so Enter cannot split it. It moves to the cell below in the
+  // same column instead — the spreadsheet convention — and on the last row it
+  // grows the table by a row and lands in that column of it. Shift+Enter
+  // leaves the table for a paragraph below.
   bus.registerState(
     SPLIT_BLOCK,
     (state) => {
       const context = activeTableContext(state);
       if (!context) return undefined;
       const at = cellPosition(context.document, context.caret.cellId);
-      const below = at && cellAt(context.document, at.row + 1, at.column);
-      if (!below) return { state, ops: [], handled: true };
-      return commitTableEdits(state, context, [], { cellId: below, offset: 0 });
+      if (!at) return { state, ops: [], handled: true };
+      const below = cellAt(context.document, at.row + 1, at.column);
+      if (below) {
+        return commitTableEdits(state, context, [], {
+          cellId: below,
+          offset: 0,
+        });
+      }
+      const grown = insertRow(
+        context.document,
+        state.CRDTbinding,
+        at.row,
+        "after",
+      );
+      if (!grown) return { state, ops: [], handled: true };
+      const rowCells = grown.edits.filter(
+        (edit) => edit.kind === "node_insert" && edit.node.type === CELL_NODE,
+      );
+      const landing = rowCells[at.column] ?? rowCells[0];
+      const cellId =
+        landing?.kind === "node_insert" ? landing.node.id : grown.caret?.cellId;
+      if (!cellId) return { state, ops: [], handled: true };
+      return commitTableEdits(state, context, grown.edits, {
+        cellId,
+        offset: 0,
+      });
+    },
+    100,
+  );
+  bus.registerState(
+    EXIT_BLOCK,
+    (state) => {
+      const context = activeTableContext(state);
+      if (!context) return undefined;
+      const exited = insertParagraphBeside(
+        updateContentSelection(state, null),
+        context.blockIndex,
+        "after",
+        "new",
+      );
+      return exited
+        ? { ...exited, handled: true }
+        : { state, ops: [], handled: true };
     },
     100,
   );

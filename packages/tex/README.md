@@ -1,5 +1,9 @@
 # @tasfer/tex
 
+> [!WARNING]
+> **Preview release.** This package is still in early development. Its API may
+> change, and future versions may include breaking changes.
+
 A **canvas-native, live-editable LaTeX math engine**. It parses LaTeX, lays it
 out with TeX's box-and-glue rules, and paints it **directly onto an HTML5
 `<canvas>`** with `fillText` and `fillRect` — no DOM, no SVG, no
@@ -140,6 +144,9 @@ const rects = selectionRects(layout, startOffset, endOffset);
 `layout.items.get(id)` returns an item's bounds, baseline, and caret stops —
 with `mathDocumentCaretStop`, `mathDocumentCaretFromSourceOffset`, and
 `hitTestMathDocument` bridging between stable addresses and source offsets.
+When drawing a caret straight from a stop, use `stop.caretTop ?? stop.top` for
+its top: a few stops (just after an integral with scripts) draw a shorter caret
+than their hit band.
 
 Alongside these, the package exports the editing helpers an input layer needs:
 brace balancing, matrix row/column resizing, LaTeX normalization, unit

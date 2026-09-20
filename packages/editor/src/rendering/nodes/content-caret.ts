@@ -10,9 +10,13 @@
  *
  * Nodes that do not implement the hook return nothing here, and the caller falls
  * through to its existing text-node path unchanged.
+ *
+ * Replacement MARKS own the same kind of geometry for content inside a run (an
+ * inline formula in a paragraph); `TextNode.caretRect` descends into theirs.
+ * {@link markPlacesContentCaret} is the capability gate for that half.
  */
 
-import type { Block } from "../../serlization/loadPage";
+import type { Block, MarkSpan } from "../../serlization/loadPage";
 import type { EditorState, EditorStyles } from "../../state-types";
 import type {
   ContentPoint,
@@ -128,4 +132,31 @@ export function nodePlacesContentCaret(
   state: EditorState,
 ): boolean {
   return Boolean(state.nodes.get(block.type)?.contentCaretRect);
+}
+
+/**
+ * Whether a replacement MARK on `block` can place a caret inside the structured
+ * content `point` names — the mark-side twin of {@link nodePlacesContentCaret}.
+ *
+ * Inline math is a mark, not a node, so the node gate is blind to it: the host
+ * block is an ordinary paragraph whose `TextNode` declares no nested geometry,
+ * even though the formula inside it does (`MarkReplacement.contentCaretRect`,
+ * which `TextNode.caretRect` already descends into). A peer's caret in a formula
+ * was therefore dropped before it reached the code that would have placed it.
+ *
+ * Asking the block's own marks keeps the gate mark-agnostic: a mark passes
+ * because it declares nested caret geometry for the attachment named, never
+ * because core recognizes inline math.
+ */
+export function markPlacesContentCaret(
+  block: Block,
+  state: EditorState,
+  point: ContentPoint,
+): boolean {
+  if (!("formats" in block) || !Array.isArray(block.formats)) return false;
+  return (block.formats as MarkSpan[]).some(
+    (span) =>
+      span.format.attrs?.contentId === point.contentId &&
+      state.marks.get(span.format.type)?.replacement?.contentCaretRect,
+  );
 }

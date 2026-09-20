@@ -9,9 +9,9 @@ import {
   type ArchivedPageItem,
 } from "../../api/pages.api";
 import { TitlePreview } from "../../TitlePreview";
-import style from "./ArchivePage.module.css";
+import style from "./TimelinePage.module.css";
 
-interface ArchivePreviewProps {
+interface TimelinePreviewProps {
   item: ArchivedPageItem;
   onRestore: () => void;
   restoring: boolean;
@@ -27,12 +27,12 @@ interface ArchivePreviewProps {
  * and render it through the editor's static readonly mount
  * (no sync, no offline store), mirroring SnapshotPreview.
  */
-export default function ArchivePreview({
+export default function TimelinePreview({
   item,
   onRestore,
   restoring,
   showHeader = true,
-}: ArchivePreviewProps) {
+}: TimelinePreviewProps) {
   const { t, i18n } = useTranslation();
   const { data: rebuilt, isLoading } = useRebuiltPageBlocks(item.id);
   const blocks = useMemo(() => rebuilt ?? null, [rebuilt]);
@@ -81,7 +81,7 @@ export default function ArchivePreview({
           <MountedEditor
             key={item.id}
             snapshot={blocks}
-            pageId={`archive-preview-${item.id}`}
+            pageId={`timeline-preview-${item.id}`}
             readonly
             className="h-full"
           />

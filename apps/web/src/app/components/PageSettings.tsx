@@ -32,7 +32,6 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useDeletePage, useGetPage, useGetPages } from "../api/pages.api";
 import { MovePageDialog } from "./MovePageDialog";
 import { RenameDialog } from "./RenameDialog";
-import { useSpaces } from "../contexts/SpaceContext";
 import {
   usePageSettings,
   type FontStyle,
@@ -166,8 +165,10 @@ function PageSettingsImpl({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { getConfirmation } = useConfirmation();
-  const { activeSpaceId } = useSpaces();
-  const { data: rootPages } = useGetPages(activeSpaceId, null);
+  // After archiving, land on a page from the same space the archived one
+  // lived in.
+  const { data: currentPage } = useGetPage(currentPageId);
+  const { data: rootPages } = useGetPages(currentPage?.spaceId ?? null, null);
 
   const { mutate: deletePage, isPending: isDeleting } = useDeletePage({
     onSuccess: () => {
@@ -190,7 +191,7 @@ function PageSettingsImpl({
       title: t("page.archivePage", "Archive Page"),
       description: t(
         "page.confirmArchivePage",
-        "Archiving deletes nothing. This page and its subpages move to the Archive, where you can restore them anytime.",
+        "Archiving deletes nothing. This page and its subpages move to the Timeline, where you can restore them anytime.",
       ),
       cancelText: t("common.cancel", "Cancel"),
       confirmText: t("common.archive", "Archive"),

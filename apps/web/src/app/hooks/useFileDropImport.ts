@@ -116,7 +116,7 @@ interface UseFileDropImport {
 export function useFileDropImport(): UseFileDropImport {
   const { t } = useTranslation();
   const { toast } = useToast();
-  const { spaces, activeSpaceId } = useSpaces();
+  const { spaces } = useSpaces();
   const { editor } = useActiveEditor();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -396,8 +396,9 @@ export function useFileDropImport(): UseFileDropImport {
       if (docs.length > 0) {
         if (spaces.length > 1) {
           setPendingSpaceFiles(docs);
-        } else if (activeSpaceId) {
-          void importToSpace(docs, activeSpaceId);
+        } else if (spaces.length === 1) {
+          // Only one place the files can go, so there is nothing to ask.
+          void importToSpace(docs, spaces[0].id);
         }
       }
 
@@ -411,7 +412,6 @@ export function useFileDropImport(): UseFileDropImport {
       }
     },
     [
-      activeSpaceId,
       endDrag,
       importToSpace,
       insertableEditor,

@@ -13,6 +13,9 @@ import type {
 } from "@tasfer/editor/sync/version-history";
 import type { CursorPresence } from "@tasfer/provider-core/cursors";
 import type { DbRow, DbRunResult } from "./driver";
+import type { SpaceHistoryEntry } from "./space-history";
+
+export type { SpaceHistoryEntry };
 
 // =============================================================================
 // Data Types
@@ -56,6 +59,42 @@ export interface DeviceInfo {
   linkedAt: string;
   /** True for the device answering the call. */
   current: boolean;
+  /**
+   * True while this person has paused syncing with this device (see
+   * {@link PlatformApi.peers.setSyncPaused}). The decision is person-private
+   * and replicates to their other devices, so a device paused from the laptop
+   * is paused on the phone too.
+   */
+  syncPaused: boolean;
+  /** Last time this device was connected to this one (ISO), or null. */
+  lastSeen: string | null;
+  /**
+   * Last time this device told us its version vector (ISO), or null if the two
+   * have never exchanged. See {@link PeerSyncStatus}.
+   */
+  lastSyncedAt: string | null;
+}
+
+/**
+ * Who a sync pause is about: one device key, or a whole person by their root
+ * key — which also covers the devices they link later, since admission resolves
+ * the root at connection time rather than expanding it once.
+ */
+export type PeerTarget = { publicKey: string } | { rootKey: string };
+
+/**
+ * What this device knows about how far behind a peer was when they last spoke.
+ *
+ * Version vectors only cross the wire during a handshake, so this is a record
+ * of the last one — not a live reading. `unsyncedOps` counts the operations
+ * that peer advertised and this device still does not hold: above zero, pausing
+ * them strands those changes until they are resumed.
+ */
+export interface PeerSyncStatus {
+  /** When they last advertised their version vector (ISO), or null if never. */
+  lastSyncedAt: string | null;
+  /** Ops they held that this device does not, or null if they never met. */
+  unsyncedOps: number | null;
 }
 
 /** A known peer */
@@ -104,7 +143,7 @@ export interface PagePathSegment {
   color?: string | null;
 }
 
-/** A soft-deleted page surfaced in the Archive (root of an archived subtree) */
+/** A soft-deleted page surfaced in the Timeline (root of an archived subtree) */
 export interface ArchivedPageItem {
   id: string;
   title: string;
@@ -328,7 +367,7 @@ export interface Space {
   personal?: boolean;
 }
 
-/** An archived space surfaced in the Archive */
+/** An archived space surfaced in the Timeline */
 export interface ArchivedSpaceItem {
   id: string;
   name: string;
@@ -351,6 +390,8 @@ export interface SpaceMember {
    * seen — including every member that predates device identity.
    */
   rootKey: string | null;
+  /** True while this person has paused syncing with this member's device. */
+  syncPaused: boolean;
 }
 
 // =============================================================================
@@ -365,6 +406,12 @@ export interface SpaceBaseOp {
   clock: HLC;
   /** Space this operation belongs to */
   spaceId: string;
+  /**
+   * Author's wall clock (unix ms) when the op was made. Display only — the
+   * Timeline shows it; merging never reads it. Absent on ops written before
+   * the Timeline existed.
+   */
+  at?: number;
 }
 
 /** Set a space property (LWW) */
@@ -661,7 +708,10 @@ export interface Platform {
      * theirs: this register is about their own machines, not about peers.
      */
     setNote(publicKey: string, note: string): Promise<void>;
-    /** Fires when a device is linked or any device's note changes. */
+    /**
+     * Fires when a device is linked, renamed, or paused/resumed — anything
+     * that changes a row in {@link list}.
+     */
     onChange(cb: () => void): () => void;
   };
 
@@ -678,6 +728,23 @@ export interface Platform {
     untrust(publicKey: string): Promise<void>;
     /** Remove a peer entirely */
     remove(publicKey: string): Promise<void>;
+    /**
+     * Pause or resume syncing with a device, or with a person and every device
+     * they have.
+     *
+     * Person-private and reversible: it is a register in the own-prefs channel
+     * (never an op), so it replicates to this person's own devices and to no
+     * co-member, and the peer it names is never told. Paused peers are dropped
+     * from the admission set, which closes any live connection to them and
+     * stops this device dialing them again.
+     *
+     * It is not access control. A paused co-member still syncs with everyone
+     * else in the space, so the same changes can reach them by another route;
+     * what it buys is one fewer connection on this person's devices.
+     */
+    setSyncPaused(target: PeerTarget, paused: boolean): Promise<void>;
+    /** What this device last learned about how far behind a peer is. */
+    syncStatus(target: PeerTarget): Promise<PeerSyncStatus>;
   };
 
   // ---------------------------------------------------------------------------
@@ -687,8 +754,14 @@ export interface Platform {
   spaces: {
     /** List all spaces this device is a member of */
     list(): Promise<Space[]>;
-    /** List archived spaces this device is a member of (for the Archive) */
+    /** List archived spaces this device is a member of (for the Timeline) */
     listArchived(): Promise<ArchivedSpaceItem[]>;
+    /**
+     * Settings changes (created, renamed, made personal, member joined) across
+     * every space this device is a member of, archived ones included. Oldest
+     * first within a space; not ordered across spaces.
+     */
+    listHistory(): Promise<SpaceHistoryEntry[]>;
     /** Get a space with its members */
     get(id: string): Promise<Space & { members: SpaceMember[] }>;
     /**
@@ -870,9 +943,14 @@ export interface Platform {
     reorder(id: string, order: number): Promise<void>;
     /**
      * Search live pages by title and body text. Spans every non-archived space
-     * unless `spaceId` names one to restrict to.
+     * unless `spaceId` names one to restrict to. Returns the 20 most recently
+     * updated matches unless `limit` says otherwise; `null` returns every match.
      */
-    search(query: string, spaceId?: string | null): Promise<PageSearchResult[]>;
+    search(
+      query: string,
+      spaceId?: string | null,
+      options?: { limit?: number | null },
+    ): Promise<PageSearchResult[]>;
     /** Get pages in a calendar date range */
     calendar(start: number, end: number): Promise<PageCalendarItem[]>;
     /**

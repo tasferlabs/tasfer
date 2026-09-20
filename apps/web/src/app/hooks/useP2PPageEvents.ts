@@ -80,7 +80,7 @@ export function useP2PPageEventsWithQueryClient(): void {
       queryClient.invalidateQueries({ queryKey: ["pages-archived"] });
       queryClient.invalidateQueries({ queryKey: ["spaces"] });
       // A space archived or restored on another of this person's devices moves
-      // between the sidebar and the Archive, so both lists are stale.
+      // between the sidebar and the Timeline, so both lists are stale.
       queryClient.invalidateQueries({ queryKey: ["spaces-archived"] });
       queryClient.invalidateQueries({ queryKey: ["calendar-pages"] });
     });

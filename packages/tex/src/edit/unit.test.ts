@@ -510,10 +510,19 @@ describe("scriptAttachOffset — the matching script attaches to the same base",
     expect(scriptAttachOffset("x_{n}", 4, "_")).toBeNull();
   });
 
-  it("does not hop from the middle of a slot or an empty slot", () => {
+  it("does not hop from the middle of a slot", () => {
     // "x_{a|b}" — the script belongs to `a`, inside the subscript.
     expect(scriptAttachOffset("x_{ab}", 4, "^")).toBeNull();
-    // "x_{|}" — nothing to script yet; keep the default behavior.
-    expect(scriptAttachOffset("x_{}", 3, "^")).toBeNull();
+  });
+
+  it("an empty script slot pairs the matching script with its own base", () => {
+    // "x^{|}" + `_` means x^{}_{…}, never x^{{}_{…}} (a base-less subscript).
+    expect(scriptAttachOffset("x^{}", 3, "_")).toBe(4);
+    expect(scriptAttachOffset("x_{}", 3, "^")).toBe(4);
+    // Nested: "x^{y^{|}}" + `_` scripts y, not the outer x.
+    expect(scriptAttachOffset("x^{y^{}}", 6, "_")).toBe(7);
+    // The same script, or a matching script that already exists, stays put.
+    expect(scriptAttachOffset("x^{}", 3, "^")).toBeNull();
+    expect(scriptAttachOffset("x_{n}^{}", 7, "_")).toBeNull();
   });
 });

@@ -1,8 +1,9 @@
 /* OnboardingScreen.tsx — Tasfer first-run flow.
  *   1. identity  — the keypair Tasfer already generated; on-device by default
- *   2. profile   — optional name + avatar (collapsed), only matters for sharing
- *   3. space     — create your own (optional name) OR join a peer's
- *                  (paste code / import invite file / scan QR)
+ *   2. profile   — optional name + avatar, only matters for sharing
+ *   3. space     — create your own (optional name). Joining a peer's space
+ *                  waits until inside the app, behind "Add space": the flow
+ *                  is shaped for people starting their own.
  *
  * The steps are shell-agnostic: desktop presents them in a modal dialog over the
  * app shell, mobile keeps them as a full-screen page (see the shells at the
@@ -14,11 +15,8 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  Box,
   Camera,
   Check,
-  ChevronDown,
-  ChevronRight,
   Copy,
   Fingerprint,
   ImagePlus,
@@ -27,11 +25,7 @@ import {
   MonitorSmartphone,
   Plus,
   QrCode,
-  Share2,
-  ShieldCheck,
-  Upload,
   User,
-  Users,
   X,
 } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
@@ -41,7 +35,6 @@ import { uploadImage, useAssetUrl } from "../api/images.api";
 import {
   cancelPairing,
   useAcceptDeviceLink,
-  useAcceptInvite,
   useCreateSpace,
 } from "../api/spaces.api";
 import { useAuth } from "../contexts/AuthContext";
@@ -141,12 +134,17 @@ function CardHead() {
             />
           ))}
         </div>
-        <button className="ob-skip" onClick={skip} disabled={isPending}>
-          {isPending && (
-            <Loader2 size={13} strokeWidth={2} className="ob-spin-icon" />
-          )}
-          {t("onboarding.skipSetup", "Skip setup")}
-        </button>
+        {/* Not on the last step: skipping there does exactly what "Create
+            space" with an empty name does, so it would be a second button for
+            the same thing. */}
+        {step !== "space" && (
+          <button className="ob-skip" onClick={skip} disabled={isPending}>
+            {isPending && (
+              <Loader2 size={13} strokeWidth={2} className="ob-spin-icon" />
+            )}
+            {t("onboarding.skipSetup", "Skip setup")}
+          </button>
+        )}
       </div>
       {error && (
         <p className="ob-error" role="alert">
@@ -158,11 +156,7 @@ function CardHead() {
 }
 
 /* ── 1. identity ───────────────────────────────────────────────────────── */
-/**
- * Linking an existing device belongs here rather than beside "join a space" on
- * step 3: it answers "is this a new you?", not "which space do you want?". The
- * two never appear side by side, so neither reads as a flavour of the other.
- */
+/** Linking an existing device answers "is this a new you?", so it sits here. */
 function IdentityStep({
   onNext,
   onLink,
@@ -185,7 +179,7 @@ function IdentityStep({
       {/* No intro paragraph: the bullets already say it, and shorter wins. */}
       <ul className="ob-bullets">
         <li>
-          <ShieldCheck size={15} strokeWidth={1.5} />
+          <Check size={14} strokeWidth={1.5} />
           {t(
             "onboarding.bulletOnDevice",
             "Everything stays on this device — until you choose to share.",
@@ -226,7 +220,6 @@ function LinkExistingStep({
   code,
   setCode,
   onBack,
-  onSpaceInvite,
   onSetUpSpace,
 }: {
   method: LinkMethod;
@@ -234,18 +227,14 @@ function LinkExistingStep({
   code: string;
   setCode: (v: string) => void;
   onBack: () => void;
-  /** The pasted code turned out to be a space invite — hand it to step 3. */
-  onSpaceInvite: (code: string) => void;
   /** Way out of a link that connected but never delivered anything. */
   onSetUpSpace: () => void;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [camera, setCamera] = useState(false);
-  const [status, setStatus] = useState<JoinStatus>("input");
+  const [status, setStatus] = useState<LinkStatus>("input");
   const [errorMsg, setErrorMsg] = useState("");
-  /** Set when the failure is "wrong kind of code", which has a way out. */
-  const [wrongKind, setWrongKind] = useState("");
   /** The attempt lost its peer and is starting over on its own. */
   const [reconnecting, setReconnecting] = useState(false);
   const activeInviteRef = useRef<SpaceInvite | null>(null);
@@ -321,13 +310,11 @@ function LinkExistingStep({
   function runLink(raw: string) {
     const invite = decodeInvite(raw);
     if (!invite) {
-      setWrongKind("");
       setStatus("error");
       setErrorMsg(t("space.invalidInviteCode", "Invalid invite code"));
       return;
     }
     if (!isDeviceLink(invite)) {
-      setWrongKind(raw.trim());
       setStatus("error");
       setErrorMsg(
         t(
@@ -338,14 +325,12 @@ function LinkExistingStep({
       return;
     }
     if (isInviteExpired(invite)) {
-      setWrongKind("");
       setStatus("error");
       setErrorMsg(
         t("device.codeExpired", "This code has expired. Generate a new one."),
       );
       return;
     }
-    setWrongKind("");
     setStatus("connecting");
     setReconnecting(false);
     retryCount.current = 0;
@@ -422,18 +407,9 @@ function LinkExistingStep({
           <div className="ob-status-error">
             {errorMsg || t("common.error", "An error occurred")}
           </div>
-          {wrongKind && (
-            <button
-              className="ob-btn ob-btn-primary"
-              onClick={() => onSpaceInvite(wrongKind)}
-            >
-              {t("onboarding.useAsSpaceInvite", "Join that space instead")}
-            </button>
-          )}
           <button
             className="ob-btn ob-btn-outline"
             onClick={() => {
-              setWrongKind("");
               setStatus("input");
             }}
           >
@@ -587,14 +563,12 @@ function LinkedCard({ onSetUpSpace }: { onSetUpSpace: () => void }) {
   );
 }
 
-/* ── 2. profile (optional, collapsed) ──────────────────────────────────── */
+/* ── 2. profile (optional) ─────────────────────────────────────────────── */
 function ProfileStep({
   name,
   setName,
   avatarId,
   setAvatarId,
-  open,
-  setOpen,
   onNext,
   onBack,
 }: {
@@ -602,8 +576,6 @@ function ProfileStep({
   setName: (v: string) => void;
   avatarId: string | null;
   setAvatarId: (v: string | null) => void;
-  open: boolean;
-  setOpen: (v: boolean) => void;
   onNext: () => void;
   onBack: () => void;
 }) {
@@ -654,7 +626,7 @@ function ProfileStep({
     <div className="ob-card">
       <CardHead />
       <div className="ob-icon-wrap">
-        <Share2 size={22} strokeWidth={1.5} />
+        <User size={22} strokeWidth={1.5} />
       </div>
       <h2 className="ob-title">
         {t("onboarding.profileTitle", "A face for sharing, if you want one.")}
@@ -666,81 +638,54 @@ function ProfileStep({
         )}
       </p>
 
-      <div className="ob-collapse">
-        <button className="ob-collapse-head" onClick={() => setOpen(!open)}>
-          <User size={18} strokeWidth={1.5} />
-          <div>
-            <div className="ob-collapse-title">
-              {t("onboarding.addNameAvatar", "Add a name & avatar")}
-            </div>
-            <div className="ob-collapse-sub">
-              {name.trim()
-                ? name.trim()
-                : t(
-                    "onboarding.optionalForShared",
-                    "Optional · for shared spaces",
-                  )}
-            </div>
-          </div>
-          <ChevronDown
-            size={18}
-            strokeWidth={1.5}
-            className={`ob-chev${open ? " open" : ""}`}
-          />
-        </button>
-        {open && (
-          <div className="ob-collapse-body">
-            <div className="ob-avatar-row">
-              <div
-                className={`ob-avatar${avatarUrl || initial ? "" : " empty"}`}
-              >
-                {avatarUrl ? (
-                  <img src={avatarUrl} alt="" />
-                ) : initial ? (
-                  initial
-                ) : (
-                  <ImagePlus size={20} strokeWidth={1.5} />
-                )}
-              </div>
-              <div className="ob-avatar-actions">
-                <button
-                  className="ob-avatar-btn"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={uploading}
-                >
-                  <ImagePlus size={14} strokeWidth={1.5} />
-                  {avatarId
-                    ? t("onboarding.replacePhoto", "Replace photo")
-                    : t("onboarding.addPhoto", "Add photo")}
-                </button>
-                <span className="ob-avatar-hint">
-                  {t("onboarding.pngOrJpg", "PNG or JPG")}
-                </span>
-              </div>
-            </div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/gif,image/webp"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) setPendingFile(file);
-                if (fileInputRef.current) fileInputRef.current.value = "";
-              }}
-              hidden
-            />
-            <label className="ob-label">
-              {t("profile.displayName", "Display name")}
-            </label>
-            <input
-              className="ob-input"
-              placeholder={t("onboarding.anonymous", "anonymous")}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </div>
-        )}
+      {/* No accordion: these fields are the whole step, and hiding them left
+          a page with nothing to do. The label says it is optional. */}
+      <div className="ob-avatar-row">
+        <div className={`ob-avatar${avatarUrl || initial ? "" : " empty"}`}>
+          {avatarUrl ? (
+            <img src={avatarUrl} alt="" />
+          ) : initial ? (
+            initial
+          ) : (
+            <ImagePlus size={20} strokeWidth={1.5} />
+          )}
+        </div>
+        <div className="ob-avatar-actions">
+          <button
+            className="ob-avatar-btn"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+          >
+            <ImagePlus size={14} strokeWidth={1.5} />
+            {avatarId
+              ? t("onboarding.replacePhoto", "Replace photo")
+              : t("onboarding.addPhoto", "Add photo")}
+          </button>
+          <span className="ob-avatar-hint">
+            {t("onboarding.pngOrJpg", "PNG or JPG")}
+          </span>
+        </div>
       </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/gif,image/webp"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) setPendingFile(file);
+          if (fileInputRef.current) fileInputRef.current.value = "";
+        }}
+        hidden
+      />
+      <label className="ob-label">
+        {t("onboarding.displayNameOptional", "Display name (optional)")}
+      </label>
+      <input
+        className="ob-input"
+        placeholder={t("onboarding.yourName", "Your name")}
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+      />
 
       <div className="ob-actions">
         <button className="ob-btn ob-btn-ghost" onClick={onBack}>
@@ -767,84 +712,20 @@ function ProfileStep({
   );
 }
 
-/* ── 3a. space — pick ──────────────────────────────────────────────────── */
-function SpacePick({
-  setView,
-  onBack,
-}: {
-  setView: (v: SpaceView) => void;
-  onBack: () => void;
-}) {
-  const { t } = useTranslation();
-
-  return (
-    <div className="ob-card">
-      <CardHead />
-      <div className="ob-icon-wrap">
-        <Box size={22} strokeWidth={1.5} />
-      </div>
-      <h2 className="ob-title">
-        {t("onboarding.spaceTitle", "Set up your first space.")}
-      </h2>
-      <p className="ob-sub">
-        {t(
-          "onboarding.spaceIntro",
-          "A space syncs directly between you and the people you invite.",
-        )}
-      </p>
-
-      <button className="ob-row" onClick={() => setView("create")}>
-        <Plus size={18} strokeWidth={1.5} />
-        <div>
-          <div className="ob-row-title">
-            {t("space.createNewSpace", "Create a new space")}
-          </div>
-          <div className="ob-row-sub">
-            {t(
-              "onboarding.createSpaceSub",
-              "Just for you. Invite others whenever you like.",
-            )}
-          </div>
-        </div>
-        <ChevronRight size={16} strokeWidth={1.5} />
-      </button>
-
-      <button className="ob-row" onClick={() => setView("join")}>
-        <Users size={18} strokeWidth={1.5} />
-        <div>
-          <div className="ob-row-title">
-            {t("onboarding.joinSomeonesSpace", "Join someone's space")}
-          </div>
-          <div className="ob-row-sub">
-            {t(
-              "onboarding.joinSpaceSub",
-              "Paste a code, import an invite, or scan a QR.",
-            )}
-          </div>
-        </div>
-        <ChevronRight size={16} strokeWidth={1.5} />
-      </button>
-
-      {/* The two rows above are the choices here; "Skip setup" in the head is
-          the way out, so this row carries no primary of its own. */}
-      <div className="ob-actions">
-        <button className="ob-btn ob-btn-ghost" onClick={onBack}>
-          {t("common.back", "Back")}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* ── 3b. space — create ────────────────────────────────────────────────── */
-function SpaceCreate({
-  setView,
+/* ── 3. space ──────────────────────────────────────────────────────────── */
+/**
+ * One obvious button. No "join a space" link here: someone with an invite can
+ * still create a space and join theirs from inside, and offering both at once
+ * made the step read as a fork for everyone else.
+ */
+function SpaceStep({
   name,
   setName,
+  onBack,
 }: {
-  setView: (v: SpaceView) => void;
   name: string;
   setName: (v: string) => void;
+  onBack: () => void;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -884,7 +765,6 @@ function SpaceCreate({
         onKeyDown={(e) => {
           if (e.key === "Enter" && !isCreating) handleCreate();
         }}
-        autoFocus
       />
 
       <div className="ob-note">
@@ -906,7 +786,7 @@ function SpaceCreate({
       <div className="ob-actions">
         <button
           className="ob-btn ob-btn-ghost"
-          onClick={() => setView("pick")}
+          onClick={onBack}
           disabled={isCreating}
         >
           {t("common.back", "Back")}
@@ -926,408 +806,8 @@ function SpaceCreate({
   );
 }
 
-/* ── 3c. space — join ──────────────────────────────────────────────────── */
-type JoinMethod = "code" | "file" | "scan";
 type LinkMethod = "scan" | "code";
-type JoinStatus = "input" | "connecting" | "done" | "error";
-
-function SpaceJoin({
-  setView,
-  method,
-  setMethod,
-  code,
-  setCode,
-  fileName,
-  setFileName,
-  onDeviceLink,
-}: {
-  setView: (v: SpaceView) => void;
-  method: JoinMethod;
-  setMethod: (v: JoinMethod) => void;
-  code: string;
-  setCode: (v: string) => void;
-  fileName: string;
-  setFileName: (v: string) => void;
-  /** The code turned out to link a device, not join a space. */
-  onDeviceLink: (code: string) => void;
-}) {
-  const { t } = useTranslation();
-  const queryClient = useQueryClient();
-  const [isDraggingFile, setIsDraggingFile] = useState(false);
-  const [status, setStatus] = useState<JoinStatus>("input");
-  const [camera, setCamera] = useState(false);
-  const [spaceName, setSpaceName] = useState("");
-  const [wasRestored, setWasRestored] = useState(false);
-  const [errorMsg, setErrorMsg] = useState("");
-  /** Set when the failure is "wrong kind of code", which has a way out. */
-  const [wrongKind, setWrongKind] = useState("");
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  /** Invite currently being accepted — cancel target */
-  const activeInviteRef = useRef<SpaceInvite | null>(null);
-
-  const { mutate: acceptInvite } = useAcceptInvite({
-    onSuccess: (result) => {
-      // Space already here, archived: restored outright, so no pairing runs
-      // and no callback below will fire.
-      if (result.status !== "restored") return;
-      activeInviteRef.current = null;
-      setSpaceName(result.spaceName);
-      setWasRestored(true);
-      setStatus("done");
-    },
-    // The accept can reject before pairing starts, and `callbacks.onError` only
-    // covers failures the replicator reports — without this the screen sits on
-    // the connecting spinner for good.
-    onError: (err) => {
-      activeInviteRef.current = null;
-      setStatus("error");
-      setErrorMsg(err.message);
-    },
-  });
-
-  const canJoin =
-    (method === "code" && code.trim().length > 0) ||
-    (method === "file" && Boolean(fileName));
-
-  function runJoin(raw: string) {
-    const invite = decodeInvite(raw);
-    if (!invite) {
-      setWrongKind("");
-      setStatus("error");
-      setErrorMsg(t("space.invalidInviteCode", "Invalid invite code"));
-      return;
-    }
-    // Device codes decode cleanly here and would only fail deep in pairing, so
-    // name the mistake and offer the flow that wants it.
-    if (isDeviceLink(invite)) {
-      setWrongKind(raw.trim());
-      setStatus("error");
-      setErrorMsg(
-        t(
-          "onboarding.notASpaceInvite",
-          "That's a device code, not a space invite.",
-        ),
-      );
-      return;
-    }
-    setWrongKind("");
-    if (isInviteExpired(invite)) {
-      setStatus("error");
-      setErrorMsg(
-        t("space.inviteExpired", "This invite has expired. Ask for a new one."),
-      );
-      return;
-    }
-    setStatus("connecting");
-    setWasRestored(false);
-    activeInviteRef.current = invite;
-    acceptInvite({
-      invite,
-      callbacks: {
-        onConnected: () => {},
-        onComplete: (_peer, name) => {
-          if (name) setSpaceName(name);
-          setStatus("done");
-          queryClient.invalidateQueries({ queryKey: ["spaces"] });
-          queryClient.invalidateQueries({ queryKey: ["pages"] });
-        },
-        onError: (code) => {
-          setStatus("error");
-          setErrorMsg(pairErrorMessage(t, code));
-        },
-      },
-    });
-  }
-
-  async function handleFile(file: File) {
-    setIsDraggingFile(false);
-    setFileName(file.name);
-    try {
-      const text = await file.text();
-      setCode(text.trim());
-      runJoin(text);
-    } catch {
-      setStatus("error");
-      setErrorMsg(t("import.failed", "Import failed"));
-    }
-  }
-
-  function handleFileDrag(event: React.DragEvent<HTMLButtonElement>) {
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "copy";
-    setIsDraggingFile(true);
-  }
-
-  function handleFileDragLeave(event: React.DragEvent<HTMLButtonElement>) {
-    event.preventDefault();
-    const nextTarget = event.relatedTarget;
-    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
-      return;
-    }
-    setIsDraggingFile(false);
-  }
-
-  function handleFileDrop(event: React.DragEvent<HTMLButtonElement>) {
-    event.preventDefault();
-    setIsDraggingFile(false);
-    const file = event.dataTransfer.files[0];
-    if (file) void handleFile(file);
-  }
-
-  function handleScan(data: string) {
-    setCamera(false);
-    runJoin(data);
-  }
-
-  function cancelActiveJoin() {
-    const invite = activeInviteRef.current;
-    if (invite) {
-      activeInviteRef.current = null;
-      cancelPairing(invite);
-    }
-  }
-
-  function handleCancel() {
-    cancelActiveJoin();
-    setStatus("input");
-    setSpaceName("");
-    setErrorMsg("");
-  }
-
-  useEffect(() => {
-    return () => {
-      cancelActiveJoin();
-    };
-  }, []);
-
-  if (status === "connecting") {
-    return (
-      <div className="ob-card">
-        <div className="ob-status">
-          <div className="ob-status-ico spin">
-            <Loader2 size={24} strokeWidth={2} />
-          </div>
-          <div className="ob-status-title">
-            {t("space.connecting", "Connecting…")}
-          </div>
-          <div className="ob-status-sub">
-            {t("space.waitingForPeer", "Waiting for peer to connect…")}
-          </div>
-          <button className="ob-btn ob-btn-outline" onClick={handleCancel}>
-            {t("common.cancel", "Cancel")}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (status === "done") {
-    return (
-      <div className="ob-card">
-        <div className="ob-status">
-          <div className="ob-status-ico">
-            <Check size={24} strokeWidth={2} />
-          </div>
-          <div className="ob-status-title">
-            {!spaceName
-              ? t("space.peerConnected", "Connected!")
-              : wasRestored
-                ? t(
-                    "space.restoredSpace",
-                    'Restored "{{name}}" — you had this space archived.',
-                    { name: spaceName },
-                  )
-                : t("space.joinedSpace", 'Joined "{{name}}" successfully!', {
-                    name: spaceName,
-                  })}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (status === "error") {
-    return (
-      <div className="ob-card">
-        <div className="ob-status">
-          <div className="ob-status-error">
-            {errorMsg || t("common.error", "An error occurred")}
-          </div>
-          {wrongKind && (
-            <button
-              className="ob-btn ob-btn-primary"
-              onClick={() => onDeviceLink(wrongKind)}
-            >
-              {t("onboarding.useAsDeviceCode", "Link this device instead")}
-            </button>
-          )}
-          <button
-            className="ob-btn ob-btn-outline"
-            onClick={() => {
-              setWrongKind("");
-              setStatus("input");
-            }}
-          >
-            {t("common.tryAgain", "Try again")}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="ob-card">
-      <CardHead />
-      <div className="ob-icon-wrap">
-        <Users size={22} strokeWidth={1.5} />
-      </div>
-      <h2 className="ob-title">{t("onboarding.joinTitle", "Join a space.")}</h2>
-      <p className="ob-sub">
-        {t("onboarding.joinIntro", "Use the invite a peer sent you.")}
-      </p>
-
-      <div className="ob-seg" role="tablist">
-        <button
-          role="tab"
-          aria-current={method === "code"}
-          onClick={() => setMethod("code")}
-        >
-          <Copy size={16} strokeWidth={1.5} />
-          {t("onboarding.pasteCode", "Paste code")}
-        </button>
-        <button
-          role="tab"
-          aria-current={method === "file"}
-          onClick={() => setMethod("file")}
-        >
-          <Upload size={16} strokeWidth={1.5} />
-          {t("onboarding.importFile", "Import file")}
-        </button>
-        <button
-          role="tab"
-          aria-current={method === "scan"}
-          onClick={() => setMethod("scan")}
-        >
-          <QrCode size={16} strokeWidth={1.5} />
-          {t("scanner.scanQR", "Scan QR")}
-        </button>
-      </div>
-
-      {method === "code" && (
-        <>
-          <label className="ob-label">
-            {t("space.inviteCode", "Invite code")}
-          </label>
-          <textarea
-            className="ob-input ob-textarea ob-mono"
-            placeholder={t(
-              "onboarding.pasteCodePlaceholder",
-              "paste the base64 invite your peer sent you…",
-            )}
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-          />
-        </>
-      )}
-
-      {method === "file" && (
-        <>
-          <button
-            data-file-drop-scope="local"
-            className={`ob-import${fileName ? " has-file" : ""}${
-              isDraggingFile ? " is-dragging" : ""
-            }`}
-            onDragEnter={handleFileDrag}
-            onDragOver={handleFileDrag}
-            onDragLeave={handleFileDragLeave}
-            onDrop={handleFileDrop}
-            onClick={() => {
-              if (fileName) {
-                setFileName("");
-                setCode("");
-              } else {
-                fileInputRef.current?.click();
-              }
-            }}
-          >
-            <Upload size={22} strokeWidth={1.5} />
-            <span className="ob-import-title">
-              {isDraggingFile
-                ? t("import.dropFile", "Drop file here")
-                : fileName ||
-                  t("onboarding.chooseInviteFile", "Choose an invite file")}
-            </span>
-            <span className="ob-import-sub">
-              {fileName
-                ? t("onboarding.tapToRemove", "Tap to remove")
-                : t(
-                    "onboarding.tasferInviteHint",
-                    "A .tasferinvite file from your peer",
-                  )}
-            </span>
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".tasferinvite,text/plain,application/json"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleFile(file);
-              if (fileInputRef.current) fileInputRef.current.value = "";
-            }}
-            hidden
-          />
-        </>
-      )}
-
-      {method === "scan" && (
-        <div className="ob-scan">
-          <button
-            className="ob-scan-frame"
-            onClick={() => setCamera(true)}
-            aria-label={t("scanner.scanQR", "Scan QR")}
-          >
-            <QrCode size={40} strokeWidth={1.5} />
-          </button>
-          <p className="ob-scan-text">
-            {t(
-              "onboarding.scanHint",
-              "Point your camera at the QR code shown on your peer's device.",
-            )}
-          </p>
-        </div>
-      )}
-
-      <div className="ob-actions">
-        <button className="ob-btn ob-btn-ghost" onClick={() => setView("pick")}>
-          {t("common.back", "Back")}
-        </button>
-        {method === "scan" ? (
-          <button
-            className="ob-btn ob-btn-primary"
-            onClick={() => setCamera(true)}
-          >
-            <Camera size={15} strokeWidth={1.5} />{" "}
-            {t("onboarding.openCamera", "Open camera")}
-          </button>
-        ) : (
-          <button
-            className="ob-btn ob-btn-primary"
-            disabled={!canJoin}
-            onClick={() => runJoin(code)}
-          >
-            {t("space.joinSpace", "Join space")}
-          </button>
-        )}
-      </div>
-
-      {camera && (
-        <CameraDrawer onScan={handleScan} onClose={() => setCamera(false)} />
-      )}
-    </div>
-  );
-}
+type LinkStatus = "input" | "connecting" | "done" | "error";
 
 /* ── camera (bottom sheet on mobile, nested dialog on desktop) ─────────── */
 function CameraDrawer({
@@ -1338,13 +818,13 @@ function CameraDrawer({
 }: {
   onScan: (data: string) => void;
   onClose: () => void;
-  title?: string;
-  hint?: string;
+  title: string;
+  hint: string;
 }) {
   const { t } = useTranslation();
   const { isMobile } = useMobileLayout();
 
-  const heading = title ?? t("onboarding.scanInviteQR", "Scan invite QR");
+  const heading = title;
   const head = (
     <div className="ob-drawer-head">
       {isMobile ? <h3>{heading}</h3> : <DialogTitle>{heading}</DialogTitle>}
@@ -1360,13 +840,7 @@ function CameraDrawer({
 
   const body = (
     <>
-      <p className="ob-drawer-sub">
-        {hint ??
-          t(
-            "onboarding.scanDrawerHint",
-            "Hold your peer's QR code inside the frame. It connects the moment it reads.",
-          )}
-      </p>
+      <p className="ob-drawer-sub">{hint}</p>
       <QRScannerView onScan={onScan} onClose={onClose} hideClose />
       <div className="ob-drawer-foot">
         <button className="ob-btn ob-btn-outline" onClick={onClose}>
@@ -1404,56 +878,6 @@ function CameraDrawer({
       </div>
     </div>
   );
-}
-
-/* ── space router ──────────────────────────────────────────────────────── */
-type SpaceView = "pick" | "create" | "join";
-
-function SpaceStep({
-  view,
-  setView,
-  spaceName,
-  setSpaceName,
-  joinMethod,
-  setJoinMethod,
-  joinCode,
-  setJoinCode,
-  joinFileName,
-  setJoinFileName,
-  onBack,
-  onDeviceLink,
-}: {
-  view: SpaceView;
-  setView: (v: SpaceView) => void;
-  spaceName: string;
-  setSpaceName: (v: string) => void;
-  joinMethod: JoinMethod;
-  setJoinMethod: (v: JoinMethod) => void;
-  joinCode: string;
-  setJoinCode: (v: string) => void;
-  joinFileName: string;
-  setJoinFileName: (v: string) => void;
-  onBack: () => void;
-  onDeviceLink: (code: string) => void;
-}) {
-  if (view === "create")
-    return (
-      <SpaceCreate setView={setView} name={spaceName} setName={setSpaceName} />
-    );
-  if (view === "join")
-    return (
-      <SpaceJoin
-        setView={setView}
-        method={joinMethod}
-        setMethod={setJoinMethod}
-        code={joinCode}
-        setCode={setJoinCode}
-        fileName={joinFileName}
-        setFileName={setJoinFileName}
-        onDeviceLink={onDeviceLink}
-      />
-    );
-  return <SpacePick setView={setView} onBack={onBack} />;
 }
 
 /* ── shell: full-screen page (mobile) ──────────────────────────────────── */
@@ -1623,21 +1047,13 @@ export function OnboardingScreen() {
    * resizing a window — swaps `Shell` below, and a different component type
    * unmounts the whole subtree under it: held one level lower, a half-typed
    * name or a pasted invite code would be gone by the time the other shell
-   * drew. This is also what carries a code between the two flows when the
-   * wrong kind was pasted. Only entries are kept — an in-flight pairing
+   * drew. Only entries are kept — an in-flight pairing
    * attempt still restarts, since its session cannot outlive its step. */
   const [name, setName] = useState(user?.name ?? "");
   const [avatarId, setAvatarId] = useState<string | null>(user?.avatar ?? null);
-  const [profileOpen, setProfileOpen] = useState(
-    Boolean(user?.name || user?.avatar),
-  );
   const [linkMethod, setLinkMethod] = useState<LinkMethod>("scan");
   const [linkCode, setLinkCode] = useState("");
-  const [spaceView, setSpaceView] = useState<SpaceView>("pick");
   const [spaceName, setSpaceName] = useState("");
-  const [joinMethod, setJoinMethod] = useState<JoinMethod>("code");
-  const [joinCode, setJoinCode] = useState("");
-  const [joinFileName, setJoinFileName] = useState("");
 
   const go = (s: Step) => setStep(s);
   const Shell = isMobile ? OnboardingPage : OnboardingDialog;
@@ -1654,17 +1070,7 @@ export function OnboardingScreen() {
             code={linkCode}
             setCode={setLinkCode}
             onBack={() => setLinking(false)}
-            onSpaceInvite={(code) => {
-              // A space invite pasted into the link flow lands straight in the
-              // join view, filled in.
-              setJoinMethod("code");
-              setJoinCode(code);
-              setSpaceView("join");
-              setLinking(false);
-              go("space");
-            }}
             onSetUpSpace={() => {
-              setSpaceView("pick");
               setLinking(false);
               go("space");
             }}
@@ -1683,32 +1089,15 @@ export function OnboardingScreen() {
                 setName={setName}
                 avatarId={avatarId}
                 setAvatarId={setAvatarId}
-                open={profileOpen}
-                setOpen={setProfileOpen}
                 onNext={() => go("space")}
                 onBack={() => go("identity")}
               />
             )}
             {step === "space" && (
               <SpaceStep
-                view={spaceView}
-                setView={setSpaceView}
-                spaceName={spaceName}
-                setSpaceName={setSpaceName}
-                joinMethod={joinMethod}
-                setJoinMethod={setJoinMethod}
-                joinCode={joinCode}
-                setJoinCode={setJoinCode}
-                joinFileName={joinFileName}
-                setJoinFileName={setJoinFileName}
+                name={spaceName}
+                setName={setSpaceName}
                 onBack={() => go("profile")}
-                onDeviceLink={(code) => {
-                  // Same handover the other way: a device code pasted into
-                  // join opens the link flow with it already filled in.
-                  setLinkMethod("code");
-                  setLinkCode(code);
-                  setLinking(true);
-                }}
               />
             )}
           </>

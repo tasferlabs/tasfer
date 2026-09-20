@@ -60,6 +60,9 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  /* The description wraps beside the control, so it needs room to stop short
+     of it rather than run up against its edge. */
+  gap: 1.5rem;
   margin-bottom: 1rem;
 }
 

@@ -1,5 +1,9 @@
 # @tasfer/table
 
+> [!WARNING]
+> **Preview release.** This package is still in early development. Its API may
+> change, and future versions may include breaking changes.
+
 The **opt-in table block** for
 [`@tasfer/editor`](https://www.npmjs.com/package/@tasfer/editor) — a grid of
 rich-text cells stored in a CRDT, with a GitHub-flavored Markdown round-trip.

@@ -24,6 +24,8 @@ import { anchorPoint, charIdsInRuns, type TextFieldAddress } from "./anchor";
 import type { FlagRef } from "./checker";
 import type {
   ChangeApi,
+  ContentPoint,
+  ContentTextPoint,
   Editor,
   MutationAction,
   StoredMark,
@@ -45,6 +47,14 @@ export interface ReplaceWordPayload {
   readonly word?: string;
   /** Marks covering the whole word, re-applied when the diff touches an edge. */
   readonly marks?: readonly StoredMark[];
+  /**
+   * Leave the REPLACEMENT selected instead of collapsing the caret after it.
+   * Set when the old word was selected as the fix was applied (walking the
+   * flags selects each one), so a longer or shorter suggestion ends up fully
+   * selected rather than the old word's span, which would cut the new word
+   * short or reach past it.
+   */
+  readonly keepSelected?: boolean;
   /**
    * Set when the word is in a prose field of the block's structured content (a
    * table cell) rather than in the block's own text. A structured field is
@@ -113,7 +123,12 @@ function replaceWordMutation(c: ChangeApi, p: ReplaceWordPayload): void {
       });
     }
   }
-  c.select({ block, offset: newTo });
+  const head = { block, offset: newTo };
+  c.select(
+    p.keepSelected && newTo > from
+      ? { from: { block, offset: from }, to: head }
+      : head,
+  );
 }
 
 /** {@link replaceWordMutation} for a word inside a structured prose field. */
@@ -204,7 +219,13 @@ function replaceFieldWord(
     word.length > 0 ? word[word.length - 1] : field.afterCharId,
     address,
   );
-  if ("kind" in caret) c.selectContent({ anchor: caret, focus: caret });
+  if (!("kind" in caret)) return;
+  let anchor = caret;
+  if (p.keepSelected && word.length > 0) {
+    const start = anchorPoint(block, field.afterCharId, address);
+    if ("kind" in start) anchor = start;
+  }
+  c.selectContent({ anchor, focus: caret });
 }
 
 /**
@@ -245,6 +266,7 @@ export function replaceWord(
     text,
     word: f.word,
     marks,
+    keepSelected: wordIsSelected(editor, f.blockId, from, to),
   });
   if (changed) checker?.recheck(f.blockId);
   return changed;
@@ -291,10 +313,72 @@ function replaceFieldWordAt(
     text,
     word: f.word,
     marks,
+    keepSelected: fieldWordIsSelected(
+      editor,
+      f.blockId,
+      address,
+      charIds,
+      afterCharId ?? null,
+    ),
     field: { ...address, charIds, afterCharId: afterCharId ?? null },
   });
   if (changed) checker?.recheck(f.blockId);
   return changed;
+}
+
+/**
+ * Whether the selection is exactly the word at `[from, to)` — the state the
+ * flag walk (`next`/`fixOrNext`) and the context menu leave behind. Only an
+ * exact match counts: a wider selection (a sentence, the whole block) keeps
+ * its own edges, which this replacement has no way to re-anchor.
+ */
+function wordIsSelected(
+  editor: Editor,
+  blockId: string,
+  from: number,
+  to: number,
+): boolean {
+  if (to <= from) return false;
+  const range = editor.state.selection.range;
+  if (!range || typeof range !== "object" || !("from" in range)) return false;
+  const a = offsetIn(blockId, range.from);
+  const b = offsetIn(blockId, range.to);
+  if (a === null || b === null) return false;
+  return Math.min(a, b) === from && Math.max(a, b) === to;
+}
+
+/** The visible offset of a selection endpoint sitting in `blockId`, else null. */
+function offsetIn(blockId: string, point: unknown): number | null {
+  if (typeof point !== "object" || point === null) return null;
+  const p = point as { block?: unknown; offset?: unknown };
+  if (p.block !== blockId || typeof p.offset !== "number") return null;
+  return p.offset;
+}
+
+/** {@link wordIsSelected} for a word inside a structured prose field. */
+function fieldWordIsSelected(
+  editor: Editor,
+  blockId: string,
+  address: TextFieldAddress,
+  charIds: readonly string[],
+  afterCharId: string | null,
+): boolean {
+  if (charIds.length === 0) return false;
+  const selection = editor.state.contentSelection;
+  if (!selection) return false;
+  const { anchor, focus } = selection;
+  const inField = (p: ContentPoint): p is ContentTextPoint =>
+    p.kind === "text" &&
+    p.blockId === blockId &&
+    p.contentId === address.contentId &&
+    p.nodeId === address.nodeId &&
+    p.field === address.field;
+  if (!inField(anchor) || !inField(focus)) return false;
+  const last = charIds[charIds.length - 1];
+  return (
+    (anchor.afterCharId === afterCharId && focus.afterCharId === last) ||
+    (anchor.afterCharId === last && focus.afterCharId === afterCharId)
+  );
 }
 
 /**

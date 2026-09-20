@@ -18,7 +18,7 @@
  */
 
 import { type Claimed, commitTableEdits, type TableContext } from "./context";
-import { cellLength, cellRuns, tableCellIds } from "./selection";
+import { cellLength, cellRuns, coveredCellIds } from "./selection";
 import type { ActionBus } from "@tasfer/editor/action-bus";
 import { inheritedMarksInText } from "@tasfer/editor/mark-edge";
 import { TOGGLE_MARK } from "@tasfer/editor/rendering/marks";
@@ -53,19 +53,11 @@ function coveredSpans(context: TableContext): CellSpan[] {
     const to = Math.max(anchor.offset, caret.offset);
     return [{ cellId: caret.cellId, from, to }];
   }
-  const order = tableCellIds(document);
-  const first = order.indexOf(anchor.cellId);
-  const last = order.indexOf(caret.cellId);
-  if (first < 0 || last < 0) return [];
-  const spans: CellSpan[] = [];
-  for (let at = Math.min(first, last); at <= Math.max(first, last); at++) {
-    spans.push({
-      cellId: order[at],
-      from: 0,
-      to: cellLength(document, order[at]),
-    });
-  }
-  return spans;
+  return coveredCellIds(document, anchor, caret).map((cellId) => ({
+    cellId,
+    from: 0,
+    to: cellLength(document, cellId),
+  }));
 }
 
 /**

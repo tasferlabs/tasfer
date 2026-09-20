@@ -11,6 +11,10 @@
   "orientation": "any",
   "background_color": "#ffffff",
   "theme_color": "#ffffff",
+  "color_scheme_dark": {
+    "background_color": "#09090b",
+    "theme_color": "#09090b"
+  },
   "categories": [
     "productivity",
     "utilities"
@@ -93,8 +97,8 @@
       "url": "/calendar"
     },
     {
-      "name": "Archive",
-      "url": "/archive"
+      "name": "Timeline",
+      "url": "/timeline"
     }
   ]
 }

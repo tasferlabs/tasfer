@@ -1,4 +1,5 @@
-import { Archive, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
+import { TimelineIcon } from "./TimelineIcon";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -38,9 +39,9 @@ export function NoSpacesScreen({
           <Plus className="size-4" />
           {t("space.createSpace", "Create space")}
         </Button>
-        <Button variant="outline" onClick={() => navigate("/archive")}>
-          <Archive className="size-4" />
-          {t("archive.open", "Open Archive")}
+        <Button variant="outline" onClick={() => navigate("/timeline")}>
+          <TimelineIcon className="size-4" />
+          {t("timeline.title", "Timeline")}
         </Button>
       </div>
     </div>

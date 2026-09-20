@@ -91,6 +91,8 @@ const LUCIDE = {
   more: "ellipsis",
   matrix: "grid-3x3",
   table: "table",
+  row_select: "rows-3",
+  column_select: "columns-3",
   row_above: "arrow-up-to-line",
   row_below: "arrow-down-to-line",
   column_before: "arrow-left-to-line",

@@ -16,22 +16,6 @@
   padding-inline-start: 0.875rem;
 }
 
-.headerCount {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 1.25rem;
-  height: 1.25rem;
-  padding-inline: 0.4rem;
-  margin-inline-start: 0.5rem;
-  border-radius: 999px;
-  font-size: 0.6875rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted-foreground);
-  background: color-mix(in srgb, var(--muted-foreground), transparent 88%);
-}
-
 /* Selected-page cluster lifted into the top action bar on desktop, so the
    wide empty area isn't wasted. Pushed to the inline-end with auto margin. */
 .headerPreview {
@@ -267,10 +251,55 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Space rows aren't selectable — the Restore button is the only target — so
-   suppress the row-wide hover highlight that page rows use. */
-.spaceRow:hover {
+/* Space rows aren't selectable — the Restore button is the only target — and
+   settings rows are a record with no action at all, so neither takes the
+   row-wide hover highlight that page rows use. */
+.spaceRow:hover,
+.settingRow:hover {
   background: transparent;
+}
+
+/* A settings change is a sentence with names in it, too long for one line in
+   a narrow list, so it wraps above its author and time. */
+.settingRow .rowMain {
+  align-items: flex-start;
+}
+
+/* A join by one of this person's devices has a note on hover; the dotted
+   underline says there is more to read. */
+.hasNote {
+  text-decoration: underline dotted;
+  text-decoration-color: var(--muted-foreground);
+  text-underline-offset: 3px;
+  cursor: default;
+}
+
+.settingIcon {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  /* Center on the first line of the 0.875rem title. */
+  margin-top: 0.125rem;
+  color: var(--muted-foreground);
+}
+
+.settingText {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.settingTitle {
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 
 .spaceIcon {
@@ -374,6 +403,15 @@
   background: color-mix(in srgb, var(--accent), transparent 25%);
 }
 
+/* Settings changes are a record, not a target: no press feedback, no pointer. */
+.mobileRowStatic {
+  cursor: default;
+}
+
+.mobileRowStatic:active {
+  background: transparent;
+}
+
 .mobileRow:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: -2px;
@@ -403,6 +441,16 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* A settings change is a sentence with names in it; let it wrap once rather
+   than cut off the new name. */
+.mobileTitleWrap {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .mobileSub {

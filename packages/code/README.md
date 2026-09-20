@@ -1,5 +1,9 @@
 # @tasfer/code
 
+> [!WARNING]
+> **Preview release.** This package is still in early development. Its API may
+> change, and future versions may include breaking changes.
+
 The **opt-in syntax-highlighted code block** for
 [`@tasfer/editor`](https://www.npmjs.com/package/@tasfer/editor) — on-canvas
 layout, editing behavior, and highlighting.

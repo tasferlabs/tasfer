@@ -1,5 +1,10 @@
-import { isSafeLinkUrl, normalizeLinkUrl, safeLinkHref } from "./url-safety";
-import { describe, expect, it } from "vitest";
+import {
+  isSafeLinkUrl,
+  normalizeLinkUrl,
+  openLinkUrl,
+  safeLinkHref,
+} from "./url-safety";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 describe("normalizeLinkUrl", () => {
   it("accepts the allowed schemes", () => {
@@ -92,5 +97,85 @@ describe("safeLinkHref", () => {
     expect(safeLinkHref("java\nscript:alert(1)")).toBeNull();
     expect(safeLinkHref("")).toBeNull();
     expect(safeLinkHref(null)).toBeNull();
+  });
+});
+
+describe("openLinkUrl", () => {
+  /**
+   * Tests run without a DOM, so stand in a document that records the anchor it
+   * is handed. That anchor *is* the contract: which attributes it carries, and
+   * that it is connected to the document at the moment it is clicked.
+   */
+  function captureAnchor() {
+    const anchor = {
+      href: "",
+      target: "",
+      rel: "",
+      style: {} as Record<string, string>,
+      clicks: 0,
+      connected: false,
+      connectedAtClick: false,
+      click() {
+        this.connectedAtClick = this.connected;
+        this.clicks += 1;
+      },
+      remove() {
+        this.connected = false;
+      },
+    };
+    vi.stubGlobal("document", {
+      createElement: () => anchor,
+      body: {
+        appendChild: () => {
+          anchor.connected = true;
+        },
+      },
+    });
+    return anchor;
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("clicks a connected, severed anchor instead of opening a popup", () => {
+    const anchor = captureAnchor();
+    const open = vi.fn();
+    vi.stubGlobal("window", { open });
+
+    expect(openLinkUrl("example.com/a")).toBe(true);
+    expect(anchor.href).toBe("https://example.com/a");
+    expect(anchor.target).toBe("_blank");
+    expect(anchor.rel).toBe("noopener noreferrer");
+    expect(anchor.clicks).toBe(1);
+    // A detached anchor is not guaranteed to navigate, and a leftover one would
+    // pile up in the host's DOM.
+    expect(anchor.connectedAtClick).toBe(true);
+    expect(anchor.connected).toBe(false);
+    // The feature-string spelling asks for a popup window rather than a tab,
+    // and a popup is refusable in a way a tab is not.
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it("hands mailto: and tel: off in place rather than to a new tab", () => {
+    for (const url of ["mailto:hi@example.com", "tel:+15551234"]) {
+      const anchor = captureAnchor();
+      expect(openLinkUrl(url)).toBe(true);
+      expect(anchor.href).toBe(url);
+      // A target here would strand an empty tab behind the app handoff.
+      expect(anchor.target).toBe("");
+      expect(anchor.rel).toBe("");
+      expect(anchor.clicks).toBe(1);
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("opens nothing for a scheme outside the allowlist", () => {
+    const anchor = captureAnchor();
+    expect(openLinkUrl("javascript:alert(1)")).toBe(false);
+    expect(openLinkUrl("java\nscript:alert(1)")).toBe(false);
+    expect(openLinkUrl("/docs/setup")).toBe(false);
+    expect(openLinkUrl(null)).toBe(false);
+    expect(anchor.clicks).toBe(0);
   });
 });

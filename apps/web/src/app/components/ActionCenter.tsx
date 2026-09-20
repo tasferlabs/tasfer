@@ -9,9 +9,10 @@ import {
   Plus,
   RefreshCw,
   Settings,
+  SpellCheck,
   Sun,
-  Archive,
 } from "lucide-react";
+import { TimelineIcon } from "./TimelineIcon";
 import {
   Fragment,
   useCallback,
@@ -27,6 +28,7 @@ import { useCreatePage, useSearchPages, type ISearchPage } from "../api/pages.ap
 import { TitlePreview } from "../TitlePreview";
 import { useActionCenter } from "../contexts/ActionCenterContext";
 import { useSpaces } from "../contexts/SpaceContext";
+import { useNewPageSpaceId } from "../hooks/useNewPageSpaceId";
 import { useVersion } from "../contexts/VersionContext";
 import { useToast } from "./Toast";
 import { useTheme } from "../hooks/useTheme";
@@ -39,6 +41,8 @@ import {
   scoreMatch,
   type FrecencyEntry,
 } from "@/lib/actionRanking";
+import { SPELL_PREF_KEYS } from "@/spell/personalDictionary";
+import { useSpellService, useSpellSetting } from "@/spell/SpellProvider";
 import { Button } from "@/components/ui/button";
 import { fullscreenChromeBarStyle, NO_DRAG } from "@/lib/fullscreenChrome";
 import { detectAdapter } from "@/platform";
@@ -166,13 +170,21 @@ export function ActionCenter() {
   const [search, setSearch] = useState("");
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { activeSpaceId, spaces } = useSpaces();
+  const { spaces } = useSpaces();
+  const newPageSpaceId = useNewPageSpaceId();
   const { setTheme, effectiveTheme } = useTheme();
   const queryClient = useQueryClient();
   const { isMobile, isShort } = useMobileLayout();
   const keyboardInset = useKeyboardInset();
   const { checkForUpdate } = useVersion();
   const { toast } = useToast();
+
+  // Spelling is the same synced setting the Settings page writes, so the
+  // switch there and this row always agree — on every device. The service is
+  // null where spelling has no prefs store to write to, and then there is no
+  // toggle to offer.
+  const spellService = useSpellService();
+  const spellEnabled = useSpellSetting<boolean>(SPELL_PREF_KEYS.enabled, true);
 
   // Desktop-only action: the web build updates through the service worker and
   // the mobile builds through their app stores, neither of which the user can
@@ -305,11 +317,11 @@ export function ActionCenter() {
         ],
         icon: <Plus size={16} />,
         run: () => {
-          if (activeSpaceId)
+          if (newPageSpaceId)
             createPage.mutate({
               title: "",
               parentId: null,
-              spaceId: activeSpaceId,
+              spaceId: newPageSpaceId,
             });
         },
       },
@@ -328,19 +340,22 @@ export function ActionCenter() {
         run: () => navigate("/calendar"),
       },
       {
-        id: "archive",
-        label: t("nav.goToArchive", "Go to Archive"),
+        id: "timeline",
+        label: t("nav.goToTimeline", "Go to Timeline"),
         keywords: [
+          "timeline",
+          t("timeline.timelineKw", "timeline"),
+          "history",
+          t("timeline.historyKw", "history"),
           "archive",
-          t("archive.archiveKw", "archive"),
           "trash",
           t("common.trashKw", "trash"),
           t("common.archiveKw", "archive"),
           "deleted",
           t("common.deletedKw", "deleted"),
         ],
-        icon: <Archive size={16} />,
-        run: () => navigate("/archive"),
+        icon: <TimelineIcon size={16} />,
+        run: () => navigate("/timeline"),
       },
       {
         id: "settings",
@@ -387,6 +402,33 @@ export function ActionCenter() {
       },
     ];
 
+    if (spellService) {
+      items.push({
+        id: "toggle-spellcheck",
+        label: spellEnabled.value
+          ? t("settings.spelling.turnOff", "Turn Off Spell Check")
+          : t("settings.spelling.turnOn", "Turn On Spell Check"),
+        keywords: [
+          "spelling",
+          t("settings.spelling.spellingKw", "spelling"),
+          "spellcheck",
+          t("settings.spelling.spellcheckKw", "spellcheck"),
+          "typo",
+          t("settings.spelling.typoKw", "typo"),
+          "enable",
+          t("common.enableKw", "enable"),
+          "disable",
+          t("common.disableKw", "disable"),
+          "toggle",
+          t("common.toggleKw", "toggle"),
+        ],
+        icon: <SpellCheck size={16} />,
+        // Through the service, not the pref: switching it back on also has to
+        // wake the worker, which `setEnabled` does and a bare write does not.
+        run: () => spellService.setEnabled(!spellEnabled.value),
+      });
+    }
+
     if (isDesktop) {
       items.push({
         id: "check-updates",
@@ -411,12 +453,14 @@ export function ActionCenter() {
   }, [
     t,
     effectiveTheme,
-    activeSpaceId,
+    newPageSpaceId,
     createPage,
     navigate,
     setTheme,
     isDesktop,
     runUpdateCheck,
+    spellService,
+    spellEnabled,
   ]);
 
   // Rank pages and actions for the current query. With a query, every item is

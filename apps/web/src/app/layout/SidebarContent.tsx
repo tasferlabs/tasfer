@@ -17,7 +17,6 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
 import {
-  Archive,
   ChevronDown,
   ChevronUp,
   FileText,
@@ -26,6 +25,7 @@ import {
   Search,
   User,
 } from "lucide-react";
+import { TimelineIcon } from "../components/TimelineIcon";
 import React, { useState } from "react";
 import { NavLink, useMatch, useNavigate, useParams } from "react-router-dom";
 import { Button } from "../../components/ui/button";
@@ -108,7 +108,7 @@ const pageCollisionDetection: CollisionDetection = (args) => {
     return hits.filter((h) => dataFor(h.id)?.type === "space-drop-zone");
   }
 
-  // The Archive nav link never overlaps a page drop zone, but resolve it first so
+  // The Timeline nav link never overlaps a page drop zone, but resolve it first so
   // a drop on it can't lose to any broader container hit.
   const archive = hits.find((h) => dataFor(h.id)?.type === "archive-drop-zone");
   if (archive) return [archive];
@@ -314,7 +314,7 @@ export function SidebarContent({
     },
   });
 
-  // Cache invalidation (spaces + pages, including the Archive) is handled inside
+  // Cache invalidation (spaces + pages, including the Timeline) is handled inside
   // useArchiveSpace so every caller stays consistent.
   const { mutate: requestArchiveSpace } = useArchiveSpace();
 
@@ -534,8 +534,8 @@ export function SidebarContent({
     // set: a subpage swept along with its parent still disappears from view.
     const count = Math.max(selected.length, 1);
 
-    // Drop on the Archive nav link: soft-delete the pages (restorable from
-    // /archive). Same confirmation and navigate-away behavior as the
+    // Drop on the Timeline nav link: soft-delete the pages (restorable from
+    // /timeline). Same confirmation and navigate-away behavior as the
     // context-menu delete.
     if (overData?.type === "archive-drop-zone") {
       const confirmed = await getConfirmation({
@@ -547,9 +547,9 @@ export function SidebarContent({
         description: t("page.confirmArchivePages", {
           count,
           defaultValue_one:
-            "Archiving deletes nothing. This page and its subpages move to the Archive, where you can restore them anytime.",
+            "Archiving deletes nothing. This page and its subpages move to the Timeline, where you can restore them anytime.",
           defaultValue_other:
-            "Archiving deletes nothing. These {{count, number}} pages and their subpages move to the Archive, where you can restore them anytime.",
+            "Archiving deletes nothing. These {{count, number}} pages and their subpages move to the Timeline, where you can restore them anytime.",
         }),
         cancelText: t("common.cancel", "Cancel"),
         confirmText: t("common.archive", "Archive"),
@@ -828,8 +828,8 @@ export function SidebarContent({
       <DropdownMenuItem onSelect={() => navigate("/settings")}>
         {t("settings.title", "Settings")}
       </DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => navigate("/archive")}>
-        {t("archive.open", "Open Archive")}
+      <DropdownMenuItem onSelect={() => navigate("/timeline")}>
+        {t("timeline.title", "Timeline")}
       </DropdownMenuItem>
     </>
   );
@@ -850,7 +850,7 @@ export function SidebarContent({
         <>
           {isMobile ? (
             /* Mobile collapses the nav list into one toolbar row: the avatar
-               opens a menu holding Settings and Archive, while Search, Calendar
+               opens a menu holding Settings and Timeline, while Search, Calendar
                and Add space stay visible, so spaces start near the top. */
             <div
               className={clsx(
@@ -1033,7 +1033,7 @@ export function SidebarContent({
               </Button>
             </ShortcutTooltip>
           )}
-          {/* The DndContext wraps the nav links too, so the Archive link can act
+          {/* The DndContext wraps the nav links too, so the Timeline link can act
               as a drop target for pages dragged out of the spaces tree. */}
           <DndContext
             sensors={sensors}
@@ -1075,7 +1075,7 @@ export function SidebarContent({
                   </div>
                   {t("calendar.title", "Calendar")}
                 </SidebarNavLink>
-                <ArchiveNavLink />
+                <TimelineNavLink />
 
                 <Button
                   variant="unstyled"
@@ -1331,11 +1331,11 @@ function MobileHeaderNavLink({
 }
 
 /**
- * The Archive nav link doubles as a drop target: dropping a page on it archives
- * the page. Lives in its own component because `useDroppable` must run
+ * The Timeline nav link doubles as a drop target: dropping a page on it archives
+ * the page, which then shows up in the Timeline. Lives in its own component because `useDroppable` must run
  * under the sidebar's DndContext, which SidebarContent itself renders.
  */
-function ArchiveNavLink() {
+function TimelineNavLink() {
   const { t } = useTranslation();
   const { active } = useDndContext();
   const isPageDrag = active?.data.current?.type === "pageLink";
@@ -1347,14 +1347,14 @@ function ArchiveNavLink() {
 
   return (
     <SidebarNavLink
-      to="/archive"
+      to="/timeline"
       ref={setNodeRef}
       className={clsx(isOver && isPageDrag && style.archiveDropTarget)}
     >
       <div className={style.appNavigationLinkIcon}>
-        <Archive width={24} height={24} />
+        <TimelineIcon width={24} height={24} />
       </div>
-      {t("archive.open", "Open Archive")}
+      {t("timeline.title", "Timeline")}
     </SidebarNavLink>
   );
 }

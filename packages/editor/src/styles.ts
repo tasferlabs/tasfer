@@ -322,12 +322,17 @@ export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
         // operators, identifiers). Token kinds override it via `syntax`.
         color: t.foreground,
         lineHeight: 1.5,
-        // Bottom inset INSIDE the background box (mirrors paddingTop). The
-        // block's trailing flow gap is added on top of this by the node.
+        // Bottom inset INSIDE the background box. The block's trailing flow gap
+        // is added on top of this by the node.
         paddingBottom: 12,
         backgroundColor: t.codeBackground,
         borderRadius: 6,
-        paddingTop: 12,
+        // Deliberately larger than paddingBottom: this strip is also the band the
+        // host paints the language label into (CodeNode.overlays emits exactly
+        // this rectangle). 20px holds a ~14px label with a couple of px to spare
+        // and still leaves visible air above the first line. Shrinking it will
+        // crop the label — it is the only thing keeping that chrome off the code.
+        paddingTop: 20,
         paddingX: 14,
         syntax: {
           keyword: t.codeKeyword,

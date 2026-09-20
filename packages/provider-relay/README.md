@@ -1,5 +1,9 @@
 # @tasfer/provider-relay
 
+> [!WARNING]
+> **Preview release.** This package is still in early development. Its API may
+> change, and future versions may include breaking changes.
+
 **Sync through a WebSocket relay** for [`@tasfer/editor`](https://www.npmjs.com/package/@tasfer/editor).
 Peers in the same room exchange document operations through a server that
 blindly forwards frames between them — the network-relay sibling of

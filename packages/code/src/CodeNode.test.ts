@@ -4,6 +4,7 @@ import { createNodeRegistry } from "@tasfer/editor";
 import { insertText } from "@tasfer/editor/actions/actions";
 import {
   DELETE_BACKWARD,
+  EXIT_BLOCK,
   INSERT_TAB,
   SELECT_ALL,
   SPLIT_BLOCK,
@@ -104,32 +105,61 @@ describe("CodeNode layout", () => {
   });
 });
 
-describe("CodeNode language overlay in readonly", () => {
+describe("CodeNode language overlay", () => {
   const node = new CodeNode();
-  // overlays() reads only block.id, origin, maxWidth, and state.ui.isReadonlyBase.
+  // overlays() reads block.id, origin, maxWidth, styles and
+  // state.ui.isReadonlyBase.
+  const overlayStyles = resolveTheme({});
   const overlaysFor = (state: EditorState) =>
     node.overlays({
       block: codeBlock("x"),
       origin: { x: 0, y: 0 },
       maxWidth: 400,
+      styles: overlayStyles,
       state,
     } as unknown as Parameters<CodeNode["overlays"]>[0]);
 
-  it("emits the language slot for an editable document", () => {
-    const overlays = overlaysFor(
-      createInitialState(pageWith(codeBlock("x")), codeStateOptions()),
+  const editableState = () =>
+    createInitialState(pageWith(codeBlock("x")), codeStateOptions());
+  const readonlyState = () =>
+    createInitialState(
+      pageWith(codeBlock("x")),
+      codeStateOptions({ mode: "readonly" }),
     );
-    expect(overlays.map((o) => o.key)).toEqual(["code-language"]);
+
+  it("emits the language slot for an editable document", () => {
+    expect(overlaysFor(editableState()).map((o) => o.key)).toEqual([
+      "code-language",
+    ]);
   });
 
-  it("suppresses the language slot for a readonly document", () => {
-    const overlays = overlaysFor(
-      createInitialState(
-        pageWith(codeBlock("x")),
-        codeStateOptions({ mode: "readonly" }),
-      ),
+  it("still emits the language slot for a readonly document, flagged readonly", () => {
+    // The band is reserved in the layout either way and the language is worth
+    // reading, so the slot survives; the host gates the picker on this flag.
+    const [overlay] = overlaysFor(readonlyState());
+    expect(overlay.key).toBe("code-language");
+    expect(overlay.data).toEqual({ readonly: true });
+    expect(overlaysFor(editableState())[0].data).toEqual({ readonly: false });
+  });
+
+  it("spans exactly the reserved band above the first line", () => {
+    const cs = overlayStyles.blocks.code;
+    const [overlay] = overlaysFor(editableState());
+
+    // The band must be the padding strip the layout reserves, inset to the text
+    // column — if these drift apart the label lands on code.
+    expect(overlay.rect).toEqual({
+      x: cs.paddingX,
+      y: cs.marginTop,
+      width: 400 - cs.paddingX * 2,
+      height: cs.paddingTop,
+    });
+
+    // …and that strip ends exactly where the first line begins.
+    const layout = node.computeLayout(codeBlock("x"), 400, overlayStyles);
+    expect(overlay.rect.y + (overlay.rect.height ?? 0)).toBeCloseTo(
+      layout.insetY,
     );
-    expect(overlays).toEqual([]);
   });
 });
 
@@ -148,6 +178,67 @@ describe("CodeNode editing actions", () => {
     const block = result.state.document.page.blocks[0] as CodeBlock;
     expect(block.type).toBe("code");
     expect(getVisibleTextFromRuns(block.charRuns)).toBe("ab\n");
+  });
+
+  it("Enter inserts a newline at the start, in the middle and in an empty block", () => {
+    for (const [text, at, expected] of [
+      ["ab", 0, "\nab"],
+      ["ab", 1, "a\nb"],
+      ["", 0, "\n"],
+    ] as const) {
+      const state = withCursor(
+        createInitialState(pageWith(codeBlock(text)), codeStateOptions()),
+        cursorAt(0, at),
+      );
+      const result = state.actionBus.dispatchState(SPLIT_BLOCK, state);
+      const block = result.state.document.page.blocks[0] as CodeBlock;
+      expect(result.state.document.page.blocks).toHaveLength(1);
+      expect(getVisibleTextFromRuns(block.charRuns)).toBe(expected);
+    }
+  });
+
+  it("the third Enter at the end drops the two blank lines and leaves the block", () => {
+    const state = withCursor(
+      createInitialState(pageWith(codeBlock("ab\n\n")), codeStateOptions()),
+      cursorAt(0, 4),
+    );
+
+    const result = state.actionBus.dispatchState(SPLIT_BLOCK, state);
+    const live = result.state.document.page.blocks.filter((b) => !b.deleted);
+
+    expect(live.map((b) => b.type)).toEqual(["code", "paragraph"]);
+    expect(getVisibleTextFromRuns((live[0] as CodeBlock).charRuns)).toBe("ab");
+    expect(result.state.document.cursor?.position).toEqual({
+      blockIndex: 1,
+      textIndex: 0,
+    });
+  });
+
+  it("blank lines before the caret's end do not exit", () => {
+    const state = withCursor(
+      createInitialState(pageWith(codeBlock("a\n\nb")), codeStateOptions()),
+      cursorAt(0, 2),
+    );
+
+    const result = state.actionBus.dispatchState(SPLIT_BLOCK, state);
+
+    expect(result.state.document.page.blocks).toHaveLength(1);
+    const block = result.state.document.page.blocks[0] as CodeBlock;
+    expect(getVisibleTextFromRuns(block.charRuns)).toBe("a\n\n\nb");
+  });
+
+  it("Shift+Enter leaves the block from anywhere, text untouched", () => {
+    const state = withCursor(
+      createInitialState(pageWith(codeBlock("ab")), codeStateOptions()),
+      cursorAt(0, 1),
+    );
+
+    const result = state.actionBus.dispatchState(EXIT_BLOCK, state);
+    const live = result.state.document.page.blocks.filter((b) => !b.deleted);
+
+    expect(live.map((b) => b.type)).toEqual(["code", "paragraph"]);
+    expect(getVisibleTextFromRuns((live[0] as CodeBlock).charRuns)).toBe("ab");
+    expect(result.state.document.cursor?.position.blockIndex).toBe(1);
   });
 
   it("Backspace at the start of an empty code block exits to a paragraph", () => {

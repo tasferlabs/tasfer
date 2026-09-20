@@ -14,20 +14,23 @@
  *
  * Editing affordances that the plain text pipeline gets wrong for code are
  * redirected through the action bus in {@link registerActions}: Enter inserts a
- * newline instead of splitting the block. Tab (two spaces) is dispatched from
- * the key handler via {@link INSERT_TAB}. Inline marks never apply — the block's
- * `hasFormats` capability is false (see CODE_CAPS in sync/block-registry).
+ * newline instead of splitting the block, and Shift+Enter or a third Enter on
+ * trailing blank lines leaves it (see `dev-docs/enter-key.md`). Tab (two
+ * spaces) is dispatched from the key handler via {@link INSERT_TAB}. Inline
+ * marks never apply — the block's `hasFormats` capability is false (see
+ * CODE_CAPS in sync/block-registry).
  */
 
 import { type CodeToken, highlightLine } from "./code-highlight";
 import {
   type ActionBus,
-  type ActionHandler,
   stateAction,
   type StateResult,
 } from "@tasfer/editor/action-bus";
 import { insertText } from "@tasfer/editor/actions/actions";
 import {
+  EXIT_BLOCK,
+  insertParagraphBeside,
   registerEmptyBlockBackspaceExit,
   SELECT_ALL,
   SPLIT_BLOCK,
@@ -239,11 +242,37 @@ export const OUTDENT_CODE = stateAction("outdent-code", (state) =>
   reindentCodeBlock(state, "outdent"),
 );
 
+/** Overlay key for the code block's language label / picker. */
+export const CODE_LANGUAGE_OVERLAY = "code-language";
+
+/** What the host component needs to render the language band. */
+export interface CodeLanguageOverlayData {
+  /**
+   * Mirrors `state.ui.isReadonlyBase`. The slot is emitted in a readonly
+   * document too — the band is reserved in the layout regardless and the
+   * language is worth reading — so the host gates the *picker* on this and
+   * renders a static label instead. Selecting a language commits a `language`
+   * block_set op, which must stay unreachable there.
+   */
+  readonly readonly: boolean;
+  /**
+   * Set by a host that drives the picker from its own chrome rather than the
+   * band (the app's mobile keyboard toolbar opens it as a drawer). Absent from
+   * the engine's own payload; see `TasferCodeNode` in the web app.
+   */
+  readonly open?: boolean;
+}
+
 export class CodeNode extends TextNode {
   readonly type = "code" as const;
   readonly types: readonly string[] = ["code"];
   // All card blocks (code, math, quote) tile together when stacked.
   readonly joinGroup = "card";
+  // Ghost hint for an empty block. Without it a fresh code block is a wide,
+  // blank card whose only content is the language label off in the corner; the
+  // hint gives the text column something to anchor to and says what to do.
+  // Host-overridable for i18n via `theme.nodeStrings.code.placeholder`.
+  readonly strings = { placeholder: "Write or paste code…" };
 
   protected estimateLayoutMaxWidth(
     _block: TextualBlock,
@@ -439,32 +468,70 @@ export class CodeNode extends TextNode {
     }
   }
 
+  /**
+   * The empty-block ghost hint. The base class resolves no placeholder for a
+   * code block (it handles paragraph/heading only), so this opts the type in.
+   * Drawn only while the caret is in this block — `placeholder.showUnfocused` is
+   * off — so an unfocused empty card stays quiet, as everywhere else.
+   */
+  protected override placeholderText(
+    _block: TextualBlock,
+    _styles: EditorStyles,
+    state: EditorState,
+  ): string {
+    return this.str(state, "placeholder");
+  }
+
   // ── Overlays (host chrome) ────────────────────────────────────────────────
 
   /**
-   * Declare the language-picker chrome as a host overlay slot, anchored at the
-   * block's top-right corner (the right edge of the background box). The engine
-   * stays framework-free — it only locates the slot; the host maps the
+   * @see {@link CodeLanguageOverlayData} for the payload this emits.
+   *
+   * Declare the language-label chrome as a host overlay slot. The engine stays
+   * framework-free — it only locates the slot; the host maps the
    * `"code-language"` key to a React component (see `NODE_OVERLAYS` in
    * MountedEditor) that reads the block's `language` live and writes it back via
    * `setBlock`. Emitted for every visible code block so the tag is always
    * available, not just while editing.
    *
-   * Suppressed entirely in a readonly document: the chip is a mutating
-   * affordance (selecting a language commits a `language` block_set op), so it
-   * must stay hidden like the math hover backdrop and image resize handles. The
-   * gate is `isReadonlyBase` (not `mode === "readonly"`) so it also holds in the
-   * `select` mode a readonly editor enters for copy.
+   * The rect is the *language band*: the strip between the top of the painted
+   * box and the first line of code, inset horizontally to the text column. That
+   * strip is exactly `paddingTop` tall (see `contentInsetY`), so a label drawn
+   * inside this rect cannot overlap code — the reserved space and the space
+   * handed to the host are the same number, and neither can drift from the other.
+   * The host needs no inset constants of its own: it fills the rect.
+   *
+   * Anchored off the *painted box* top (`origin.y + margins.top`), not the flow
+   * origin. `cardFlowMargins` zeroes the top margin when this block tiles under
+   * another card, so the two differ exactly when cards stack; measuring from the
+   * box keeps the band on the padding in both cases.
+   *
+   * Still emitted in a readonly document, unlike the mutating affordances
+   * (math hover backdrop, image resize handles) that suppress themselves there:
+   * the language is information about the block, not only a control, and the
+   * band is reserved in the layout regardless of mode — suppressing the label
+   * would leave a bare strip of padding rather than remove anything. The host
+   * reads `readonly` and renders a static label with no picker attached, so the
+   * `language` block_set op stays unreachable. `isReadonlyBase` (not
+   * `mode === "readonly"`) so it also covers the `select` mode a readonly editor
+   * enters for copy.
    */
   overlays(c: NodeRegionCtx): readonly NodeOverlay[] {
-    if (c.state.ui.isReadonlyBase) return [];
+    const cs = c.styles.blocks.code;
+    const margins = cardFlowMargins(c.block, cs);
     return [
       {
-        key: "code-language",
+        key: CODE_LANGUAGE_OVERLAY,
         blockId: c.block.id,
-        // Point anchor at the box's top-right corner; the host chip positions
-        // itself inward from here (it needs no width/height box).
-        rect: { x: c.origin.x + c.maxWidth, y: c.origin.y },
+        rect: {
+          x: c.origin.x + cs.paddingX,
+          y: c.origin.y + margins.top,
+          width: Math.max(0, c.maxWidth - cs.paddingX * 2),
+          height: cs.paddingTop,
+        },
+        data: {
+          readonly: c.state.ui.isReadonlyBase,
+        } satisfies CodeLanguageOverlayData,
       },
     ];
   }
@@ -526,19 +593,45 @@ export class CodeNode extends TextNode {
       50,
     );
 
-    // Enter in a code block inserts a literal newline instead of splitting the
-    // block. Returns `handled: true` only for code blocks; otherwise observes and
-    // passes through to the default block-split transform.
-    bus.register(
+    // Enter / Shift+Enter in a code block (policy: dev-docs/enter-key.md).
+    //   • Enter inserts a literal newline instead of splitting the block —
+    //     at the start, in the middle, at the end and in an empty block alike.
+    //   • The third Enter at the very end — the source already ends in two
+    //     blank lines — removes those two newlines and leaves the block for a
+    //     paragraph below.
+    //   • Shift+Enter leaves the block from anywhere, text untouched.
+    // Both claim only for code blocks; any other block passes through.
+    bus.registerState(
       SPLIT_BLOCK,
-      ((state: EditorState) => {
+      (state) => {
         const cursor = state.document.cursor;
         if (!cursor) return;
-        const block = state.document.page.blocks[cursor.position.blockIndex];
+        const { blockIndex, textIndex } = cursor.position;
+        const block = state.document.page.blocks[blockIndex];
         if (!block || block.deleted || block.type !== "code") return;
+        const text = getVisibleTextFromRuns((block as CodeBlock).charRuns);
+        if (textIndex === text.length && text.endsWith("\n\n")) {
+          const exited = exitCodeBlockTrimmingBlankLines(state, blockIndex);
+          if (exited) return { ...exited, handled: true };
+        }
         const r = insertText(state, "\n");
         return { state: r.state, ops: r.ops, handled: true };
-      }) as unknown as ActionHandler<void>,
+      },
+      0,
+    );
+    bus.registerState(
+      EXIT_BLOCK,
+      (state) => {
+        const cursor = state.document.cursor;
+        if (!cursor) return;
+        const { blockIndex } = cursor.position;
+        const block = state.document.page.blocks[blockIndex];
+        if (!block || block.deleted || block.type !== "code") return;
+        const exited = insertParagraphBeside(state, blockIndex, "after", "new");
+        return exited
+          ? { ...exited, handled: true }
+          : { state, ops: [], handled: true };
+      },
       0,
     );
   }
@@ -547,4 +640,32 @@ export class CodeNode extends TextNode {
   // Raw text round-trip (no inline-mark processing) — code is verbatim source.
 
   readonly codec = codeBlockNodeCodec;
+}
+
+/**
+ * The code block's "third Enter" exit: drop the two trailing newlines the
+ * previous two Enters typed, then start a paragraph below and move into it.
+ * One transaction, so a single undo restores both blank lines and the caret.
+ */
+function exitCodeBlockTrimmingBlankLines(
+  state: EditorState,
+  blockIndex: number,
+): StateResult | undefined {
+  const block = state.document.page.blocks[blockIndex] as CodeBlock;
+  const length = getVisibleTextFromRuns(block.charRuns).length;
+  const { newPage, op } = deleteCharsInRange(
+    state.document.page,
+    block.id,
+    length - 2,
+    length,
+    state.CRDTbinding,
+  );
+  const trimmed = moveCursorToPosition(
+    { ...state, document: { ...state.document, page: newPage } },
+    blockIndex,
+    length - 2,
+  );
+  const exited = insertParagraphBeside(trimmed, blockIndex, "after", "new");
+  if (!exited) return undefined;
+  return { state: exited.state, ops: [op, ...exited.ops] };
 }

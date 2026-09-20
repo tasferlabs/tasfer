@@ -36,10 +36,13 @@ import {
 } from "./context";
 import { layoutTable, type TableLayout } from "./geometry";
 import {
+  cellLength,
+  cellPosition,
   cellRuns,
   cellTextRange,
   cellWordRange,
   moveTableCaretVertically,
+  rowNeighbourCell,
   stepTableCaret,
   type TableCaret,
   type TableCaretStep,
@@ -55,7 +58,6 @@ import {
   prependLeadingParagraph,
   SELECT_ALL,
 } from "@tasfer/editor/actions/edit-actions";
-import { contentCaretMarkEdge, withMarkEdgeSide } from "@tasfer/editor/mark-edge";
 import {
   EXTEND_SELECTION_DOWN,
   EXTEND_SELECTION_END,
@@ -89,6 +91,10 @@ import {
   TAP_SELECT_WORD,
 } from "@tasfer/editor/actions/touch-actions";
 import { currentFontFamily } from "@tasfer/editor/fonts";
+import {
+  contentCaretMarkEdge,
+  withMarkEdgeSide,
+} from "@tasfer/editor/mark-edge";
 import { getTextDirection } from "@tasfer/editor/rtl";
 import {
   clearSelection,
@@ -303,11 +309,7 @@ export function registerTableActions(bus: ActionBus): void {
       if (current && current.side === (forward ? "before" : "after")) {
         return claim(
           withRefreshedBlink(
-            withMarkEdgeSide(
-              state,
-              current.edge,
-              forward ? "after" : "before",
-            ),
+            withMarkEdgeSide(state, current.edge, forward ? "after" : "before"),
           ),
         );
       }
@@ -340,20 +342,46 @@ export function registerTableActions(bus: ActionBus): void {
   // that is already wholly selected — a wide cell swallowing a press per
   // character, the selection visibly frozen for as long as it takes to cross.
   //
-  // `next-cell` lands at the next cell's start and `previous-cell` at the
+  // A cross-cell range covers a rectangle (see `coveredCellIds`), so the cell
+  // step stays in the focus's row: it widens the rectangle by a column, and at
+  // the row's edge it stops rather than wrapping onto the next row — which would
+  // suddenly take in every column between. The grid is laid out left to right
+  // whichever way its text reads, so RIGHT is always the next column.
+  //
+  // Stepping right lands at the next cell's start and stepping left at the
   // previous cell's end, so growing and shrinking are exact inverses: turning
   // back into the anchor's own cell restores the character range that crossed
   // out of it.
-  const extendMotion = (
+  const extendTarget = (
     context: TableContext,
     key: "left" | "right",
     unit: "character" | "word",
-  ): TableCaretStep => {
-    if (context.anchor.cellId === context.caret.cellId) {
-      return horizontal(context, key, unit);
+  ): TableCaret | undefined => {
+    const { document, caret, anchor } = context;
+    if (anchor.cellId === caret.cellId) {
+      const moved = stepTableCaret(
+        document,
+        caret,
+        horizontal(context, key, unit),
+      );
+      // Leaving the anchor's cell is a cell step too, so it may not wrap.
+      if (moved && moved.cellId !== caret.cellId) {
+        const from = cellPosition(document, caret.cellId);
+        const to = cellPosition(document, moved.cellId);
+        if (!from || !to || from.row !== to.row) return undefined;
+      }
+      return moved;
     }
-    const forward = (key === "left") === cellIsRTL(context);
-    return forward ? "next-cell" : "previous-cell";
+    const cellId = rowNeighbourCell(
+      document,
+      caret.cellId,
+      key === "right" ? 1 : -1,
+    );
+    if (!cellId) return undefined;
+    return {
+      cellId,
+      offset: key === "right" ? 0 : cellLength(document, cellId),
+    };
   };
 
   const extendStep =
@@ -361,11 +389,7 @@ export function registerTableActions(bus: ActionBus): void {
     (state: EditorState): Claimed | undefined => {
       const context = activeTableContext(state);
       if (!context) return undefined;
-      const moved = stepTableCaret(
-        context.document,
-        context.caret,
-        extendMotion(context, key, unit),
-      );
+      const moved = extendTarget(context, key, unit);
       // At the grid's first and last stop the range simply stops growing; the
       // key stays claimed so the selection never spills into the flat model.
       return moved

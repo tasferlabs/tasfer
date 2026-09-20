@@ -317,7 +317,9 @@ export function isInsideConstruct(latex: string, offset: number): boolean {
  *    supsub's braced, non-empty script slot redirects past the whole supsub —
  *    but ONLY when the supsub lacks the script being added (typing `^` while a
  *    superscript already exists can't add a second, so it falls through and
- *    stays inside the slot).
+ *    stays inside the slot). An EMPTY script slot (`x^{|}`, where typing `^`
+ *    leaves the caret) pairs the same way with its own supsub, but never
+ *    escalates further.
  *
  * Returns the source offset just past the outermost such construct — nested
  * constructs escalate, so `\hat{\dot{x|}}` resolves to after the whole `\hat{…}`
@@ -332,6 +334,9 @@ export function scriptAttachOffset(
   const root = parse(latex);
   if (root.type !== "ord") return null;
 
+  const paired = emptyScriptSlotHop(root, offset, latex, script);
+  if (paired !== null) return paired;
+
   let target: number | null = null;
   let cursor = offset;
   for (;;) {
@@ -341,6 +346,43 @@ export function scriptAttachOffset(
     cursor = hop;
   }
   return target;
+}
+
+/**
+ * The offset just past a supsub whose EMPTY braced script slot holds the caret
+ * (`x^{|}`) and which still lacks `script`, or `null`. Right after typing `^`
+ * the caret sits in that empty slot, and a `_` there means "x gets a subscript
+ * too" (`x^{}_{…}`), never a base-less subscript nested inside the empty
+ * superscript. Never escalates: the empty slot is the script just opened, so the
+ * pairing belongs to its own base.
+ */
+function emptyScriptSlotHop(
+  node: Node,
+  offset: number,
+  latex: string,
+  script: "^" | "_",
+): number | null {
+  if (node.type === "supsub") {
+    const free = script === "^" ? node.sup === null : node.sub === null;
+    const slot = script === "^" ? node.sub : node.sup;
+    if (
+      free &&
+      slot &&
+      slot.type === "ord" &&
+      slot.body.length === 0 &&
+      offset === slot.span.end - 1 &&
+      latex[offset] === "}"
+    ) {
+      return node.span.end;
+    }
+  }
+  for (const group of childGroups(node)) {
+    for (const child of group) {
+      const hop = emptyScriptSlotHop(child, offset, latex, script);
+      if (hop !== null) return hop;
+    }
+  }
+  return null;
 }
 
 /**

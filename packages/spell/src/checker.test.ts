@@ -295,6 +295,42 @@ describe("SpellChecker", () => {
     expect(words(c.prev("end"))).toBe("ccc");
   });
 
+  it("flagBehind finds the word just typed, not one further back", async () => {
+    const t = fakeTransport(KNOWN);
+    const c = setup("aaa Hello, bbb. Hello world", t);
+    c.start();
+    await settle(10);
+    const b0 = h.editor.query.blocks({ from: "start", to: "end" })[0].id;
+    const words = (f: FlagRef | null) => f?.word;
+    // Inside or at either edge of the word.
+    expect(words(c.flagBehind({ block: b0, offset: 1 }))).toBe("aaa");
+    expect(words(c.flagBehind({ block: b0, offset: 14 }))).toBe("bbb");
+    // Only a space, or punctuation and a space, in between.
+    expect(words(c.flagBehind({ block: b0, offset: 4 }))).toBe("aaa");
+    expect(words(c.flagBehind({ block: b0, offset: 16 }))).toBe("bbb");
+    // A real word in between: not just typed.
+    expect(c.flagBehind({ block: b0, offset: 10 })).toBeNull();
+    expect(c.flagBehind({ block: b0, offset: 27 })).toBeNull();
+  });
+
+  it("checkNow flags the word being typed without waiting out the debounce", async () => {
+    const t = fakeTransport(KNOWN);
+    const c = setup("Hello wrold here", t);
+    c.start();
+    await settle(10);
+    h.editor.setCaret({ block: h.blockIds[0], offset: 16 });
+    type(" smthng"); // no boundary char after it, so no eager flush
+    // Mid-word the block is only queued: nothing knows about it yet.
+    expect(c.flagAt("caret")).toBeNull();
+    expect(c.flagBehind("caret")).toBeNull();
+    await c.checkNow("caret");
+    expect(c.flagAt("caret")?.word).toBe("smthng");
+    // The queued debounce was consumed, not left to fire a second time.
+    const calls = t.calls.length;
+    await settle(300);
+    expect(t.calls.length).toBe(calls);
+  });
+
   it("sends link/code/math runs as skip spans and never flags inside them", async () => {
     const t = fakeTransport(KNOWN);
     const c = setup(

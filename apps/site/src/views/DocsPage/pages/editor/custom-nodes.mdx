@@ -171,6 +171,26 @@ const edge = appendTrailingParagraph(state, block);
 if (edge.kind === "break") return { state: edge.state, ops: edge.ops };
 ```
 
+<h3 id="enter">Enter and Shift+Enter</h3>
+
+Enter dispatches `SPLIT_BLOCK` and Shift+Enter dispatches `EXIT_BLOCK`. A text node gets the paragraph behavior for free: Enter splits the block, and `EXIT_BLOCK` falls back to the same split. A node that holds several lines of its own should keep Enter for those lines and claim `EXIT_BLOCK` to leave. Either way, start the paragraph with `insertParagraphBeside`, which picks the order key, clamps to the schema's `content` expression and moves the caret:
+
+```ts
+import { EXIT_BLOCK, insertParagraphBeside } from "@tasfer/editor";
+
+bus.registerState(EXIT_BLOCK, (state) => {
+  const blockIndex = state.document.cursor?.position.blockIndex ?? -1;
+  if (state.document.page.blocks[blockIndex]?.type !== "callout") return;
+  // side: "after" | "before"; caret: "new" moves into the paragraph, "keep" stays
+  const result = insertParagraphBeside(state, blockIndex, "after", "new");
+  return result
+    ? { ...result, handled: true }
+    : { state, ops: [], handled: true }; // the schema allows no paragraph here
+});
+```
+
+A selected text range has already been deleted by the time your handler runs, so it only ever sees a caret.
+
 <h2 id="strings">Localized strings live on the node</h2>
 
 A node owns the canvas strings it paints — status labels, prompts — as a `strings` catalog of English defaults. The editor ships no i18n library; a localized host overrides per type via `theme.nodeStrings`. Read them inside `draw` with the protected `str(state, key)` helper. (The core image node and the opt-in math node own their labels exactly this way — they're no longer in a global string table.)

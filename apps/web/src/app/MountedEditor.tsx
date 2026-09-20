@@ -58,7 +58,9 @@ import {
   mathSourceAtEdge,
 } from "@tasfer/math";
 import {
+  CODE_LANGUAGE_OVERLAY,
   CODE_LANGUAGES,
+  type CodeLanguageOverlayData,
   codeLanguageLabel,
   INDENT_CODE,
   OUTDENT_CODE,
@@ -118,6 +120,7 @@ import {
   useRef,
   useState,
   type ComponentType,
+  type CSSProperties,
 } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -131,6 +134,8 @@ import {
   TABLE_INSERT_COLUMN,
   TABLE_INSERT_ROW,
   TABLE_MOVE_COLUMN,
+  TABLE_SELECT_COLUMN,
+  TABLE_SELECT_ROW,
   TABLE_SET_COLUMN_ALIGN,
   TABLE_TOOLS_OVERLAY,
   type TableToolsOverlayData,
@@ -174,6 +179,7 @@ import {
   openImageUploadMenu,
   linkFromSelection,
   openLinkEditMenu,
+  openLinkMenuForSelection,
   type LinkEditOverlayData,
   type AppMountedEditor as MountedEditorInstance,
 } from "../editorSchema";
@@ -860,7 +866,8 @@ const LinkEditOverlay: ComponentType<NodeOverlayProps> = ({
 };
 
 /**
- * Renders the language picker for a `CodeNode`-declared `"code-language"` slot.
+ * Renders the language band for a `CodeNode`-declared {@link CODE_LANGUAGE_OVERLAY}
+ * slot.
  * The descriptor anchors a 1×1 point at the block box's top-right corner; the
  * chip insets itself from there. The current language is read live off the block
  * and a selection is written back via `setBlock` (a `language` block_set op),
@@ -880,7 +887,12 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
   // the descriptor's `data.open` by TasferCodeNode), so the picker can be opened
   // from the floating chip or the keyboard toolbar's "code language" button
   // through one source of truth. Closing clears the menu.
-  const drawerOpen = Boolean((overlay.data as { open?: boolean })?.open);
+  const overlayData = overlay.data as CodeLanguageOverlayData | undefined;
+  const drawerOpen = Boolean(overlayData?.open);
+  // Set by CodeNode.overlays from `state.ui.isReadonlyBase`. The slot is emitted
+  // in a readonly document too (the band is reserved either way, and the
+  // language is worth reading), so the picker is gated here instead.
+  const isReadonly = Boolean(overlayData?.readonly);
   const closeDrawer = () => {
     editor.host.closeActiveMenu();
     setSearch("");
@@ -891,14 +903,34 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
   if (block?.type !== "code") return null;
 
   const language = block.attrs.language;
-  const currentLabel = codeLanguageLabel(
+
+  // Language *names* stay as written: "JavaScript" is JavaScript in every
+  // locale. The un-tagged default (`id: ""`) is the one catalog entry that is a
+  // description rather than a proper noun, so it is the one that gets a key.
+  // Translating at this boundary — rather than in the engine's `CODE_LANGUAGES`
+  // — keeps `packages/code` free of an i18n dependency.
+  const optionLabel = (option: (typeof CODE_LANGUAGES)[number]): string =>
+    option.id === "" ? t("code.plainText", "Plain Text") : option.label;
+
+  const rawLabel = codeLanguageLabel(
     typeof language === "string" ? language : undefined,
   );
-  const items = CODE_LANGUAGES.map((l) => l.label);
+  // `codeLanguageLabel` returns the plain-text fallback only for an empty tag,
+  // so this matches it exactly (an unknown non-empty tag is shown verbatim).
+  const isPlainText = !(typeof language === "string" ? language : "").trim();
+  const currentLabel = isPlainText
+    ? t("code.plainText", "Plain Text")
+    : rawLabel;
+  // Items, value and the change handler all speak *translated* labels, so the
+  // combobox's `value` renders in-locale and the round-trip back to an id still
+  // matches. Previously `value` was the untranslated catalog label and
+  // `code.plainText` sat unreachable behind the combobox's empty-value
+  // placeholder, so the Arabic string never rendered.
+  const items = CODE_LANGUAGES.map(optionLabel);
 
   const handleChange = (label: string | null) => {
     const nextLanguage =
-      CODE_LANGUAGES.find((l) => l.label === label)?.id ?? "";
+      CODE_LANGUAGES.find((l) => optionLabel(l) === label)?.id ?? "";
     const b = editor.query.block({ block: blockId });
     if (b && b.type === "code") {
       editor.change((c) =>
@@ -910,123 +942,182 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
   const normalizedSearch = search.trim().toLowerCase();
   const filteredLanguages = CODE_LANGUAGES.filter((option) => {
     if (!normalizedSearch) return true;
-    return [option.label, option.id, ...(option.aliases ?? [])].some((value) =>
-      value.toLowerCase().includes(normalizedSearch),
-    );
+    // The translated label joins the haystack so an Arabic reader can search
+    // the term they can actually see.
+    return [
+      optionLabel(option),
+      option.label,
+      option.id,
+      ...(option.aliases ?? []),
+    ].some((value) => value.toLowerCase().includes(normalizedSearch));
   });
 
-  const triggerClassName =
-    "h-7 w-auto gap-1 rounded-md border-border/60 bg-background/80 px-2 shadow-none backdrop-blur-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors";
+  // The overlay rect IS the language band (CodeNode.overlays) — the reserved
+  // strip between the box top and the first line — so the label fills it rather
+  // than insetting itself by numbers the engine would have to be kept in sync
+  // with. `direction: ltr` pins the label to the *visual* right in an Arabic UI
+  // too, matching the code beneath it, which CodeNode paints LTR regardless of
+  // document direction.
+  const bandStyle: CSSProperties = {
+    position: "absolute",
+    inset: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    direction: "ltr",
+    pointerEvents: "none",
+  };
+  // Resting state is a caption, not a control: no border, no background. The
+  // chevron stays put, though — it is the only thing that says the language can
+  // be changed at all, and a label that only reveals itself on hover is a
+  // control nobody finds. Hover just promotes the text to foreground. The
+  // `[&>…]` overrides retune the shared combobox trigger (h-9, full width, 14px
+  // text, bordered) to band scale.
+  const triggerClassName = cn(
+    // `dark:bg-transparent` is load-bearing: the shared trigger carries
+    // `dark:bg-input/30`, and an unprefixed `bg-transparent` does not override a
+    // dark-variant class in tailwind-merge — they are different groups. Without
+    // it the caption renders as a filled pill in dark mode, which is the chip
+    // this replaced.
+    "h-auto w-auto cursor-pointer justify-end gap-0.5 rounded border-0 bg-transparent dark:bg-transparent px-1 py-0 shadow-none",
+    "text-muted-foreground transition-colors hover:text-foreground focus-within:ring-0",
+    "[&>span]:flex-none [&>span]:text-[11px] [&>span]:leading-none",
+    "[&>svg]:size-3",
+  );
+
+  // Shown wherever the picker is not reachable: a readonly document, and mobile
+  // (where editing lives in the keyboard toolbar's drawer, so a second on-canvas
+  // control would only compete with it). Informative, not interactive — and it
+  // keeps the reserved band from reading as a gap.
+  const staticLabel = (
+    <div style={bandStyle}>
+      <span className="truncate px-1 text-[11px] leading-none text-muted-foreground">
+        {currentLabel}
+      </span>
+    </div>
+  );
+
+  if (isReadonly) return staticLabel;
 
   if (isMobile) {
-    // No floating chip on mobile: the code block's language is edited entirely
-    // from the keyboard toolbar's "code language" button, which opens this
-    // drawer via the `code-language` menu (see `openCodeLanguageMenu`). The
-    // component still mounts for every visible code block (the always-on overlay
-    // slot), but renders nothing until that menu targets this block.
+    // No floating *control* on mobile: the code block's language is edited
+    // entirely from the keyboard toolbar's "code language" button, which opens
+    // this drawer via the `code-language` menu (see `openCodeLanguageMenu`), so
+    // a tappable chip here would only compete with it. The band still shows the
+    // read-only label — it is reserved in the layout regardless, and leaving it
+    // blank would read as a gap. The drawer itself renders nothing until the
+    // menu targets this block.
     return (
-      <Drawer
-        open={drawerOpen}
-        onOpenChange={(open) => {
-          if (!open) closeDrawer();
-        }}
-        modal={true}
-        dismissible={true}
-        shouldScaleBackground={false}
-      >
-        <DrawerContent
-          data-editor-overlay
-          className="md:h-[min(72vh,560px)] overflow-hidden"
-          // Focus the search field as the drawer opens (Radix would otherwise
-          // land focus on the first list item), so typing filters immediately
-          // and the soft keyboard comes up ready for the query.
-          onOpenAutoFocus={(event) => {
-            event.preventDefault();
-            searchInputRef.current?.focus();
+      <>
+        {staticLabel}
+        <Drawer
+          open={drawerOpen}
+          onOpenChange={(open) => {
+            if (!open) closeDrawer();
           }}
+          modal={true}
+          dismissible={true}
+          shouldScaleBackground={false}
         >
-          <div className="mx-auto flex h-full w-full max-w-lg flex-col">
-            <DrawerHeader className="pb-2">
-              <DrawerTitle>
-                {t("code.selectLanguage", "Select language")}
-              </DrawerTitle>
-            </DrawerHeader>
-            <div className="relative px-4 pb-3">
-              <Search
-                aria-hidden="true"
-                className="absolute start-7 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-              />
-              <Input
-                ref={searchInputRef}
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder={t("editor.search", "Search...")}
-                aria-label={t("editor.search", "Search...")}
-                className="h-11 ps-10"
-              />
+          <DrawerContent
+            data-editor-overlay
+            className="md:h-[min(72vh,560px)] overflow-hidden"
+            // Focus the search field as the drawer opens (Radix would otherwise
+            // land focus on the first list item), so typing filters immediately
+            // and the soft keyboard comes up ready for the query.
+            onOpenAutoFocus={(event) => {
+              event.preventDefault();
+              searchInputRef.current?.focus();
+            }}
+          >
+            <div className="mx-auto flex h-full w-full max-w-lg flex-col">
+              <DrawerHeader className="pb-2">
+                <DrawerTitle>
+                  {t("code.selectLanguage", "Select language")}
+                </DrawerTitle>
+              </DrawerHeader>
+              <div className="relative px-4 pb-3">
+                <Search
+                  aria-hidden="true"
+                  className="absolute start-7 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                />
+                <Input
+                  ref={searchInputRef}
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder={t("editor.search", "Search...")}
+                  aria-label={t("editor.search", "Search...")}
+                  className="h-11 ps-10"
+                />
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto border-t border-border/50 p-2">
+                {filteredLanguages.length > 0 ? (
+                  filteredLanguages.map((option) => (
+                    <Button
+                      key={option.id}
+                      type="button"
+                      variant="ghost"
+                      className="h-11 w-full justify-start gap-3 px-3"
+                      onClick={() => {
+                        handleChange(optionLabel(option));
+                        closeDrawer();
+                      }}
+                    >
+                      <Check
+                        className={cn(
+                          "size-4 shrink-0",
+                          currentLabel === optionLabel(option)
+                            ? "opacity-100"
+                            : "opacity-0",
+                        )}
+                      />
+                      <span>{optionLabel(option)}</span>
+                    </Button>
+                  ))
+                ) : (
+                  <div className="px-4 py-10 text-center text-sm text-muted-foreground">
+                    {t("common.noResults", "No results")}
+                  </div>
+                )}
+              </div>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto border-t border-border/50 p-2">
-              {filteredLanguages.length > 0 ? (
-                filteredLanguages.map((option) => (
-                  <Button
-                    key={option.id}
-                    type="button"
-                    variant="ghost"
-                    className="h-11 w-full justify-start gap-3 px-3"
-                    onClick={() => {
-                      handleChange(option.label);
-                      closeDrawer();
-                    }}
-                  >
-                    <Check
-                      className={cn(
-                        "size-4 shrink-0",
-                        currentLabel === option.label
-                          ? "opacity-100"
-                          : "opacity-0",
-                      )}
-                    />
-                    <span>{option.label}</span>
-                  </Button>
-                ))
-              ) : (
-                <div className="px-4 py-10 text-center text-sm text-muted-foreground">
-                  {t("common.noResults", "No results")}
-                </div>
-              )}
-            </div>
-          </div>
-        </DrawerContent>
-      </Drawer>
+          </DrawerContent>
+        </Drawer>
+      </>
     );
   }
 
   return (
-    <div
-      style={{
-        position: "absolute",
-        right: "8px",
-        top: "8px",
-        pointerEvents: "auto",
-      }}
-    >
-      <Combobox items={items} value={currentLabel} onValueChange={handleChange}>
-        <ComboboxInput
-          className={triggerClassName}
-          placeholder={t("code.plainText", "Plain Text")}
-          aria-label={t("code.selectLanguage", "Select language")}
-          title={t("code.selectLanguage", "Select language")}
-        />
-        <ComboboxContent className="w-44">
-          <ComboboxList>
-            {(item) => (
-              <ComboboxItem key={item} value={item}>
-                {item}
-              </ComboboxItem>
-            )}
-          </ComboboxList>
-        </ComboboxContent>
-      </Combobox>
+    <div style={bandStyle}>
+      <div style={{ pointerEvents: "auto", maxWidth: "100%" }}>
+        {/* Non-modal, like every other surface anchored to the canvas (the
+            table tools, the image popover): a modal backdrop would swallow the
+            press that dismisses it, so clicking away would cost a click before
+            the caret could move. The combobox dismisses itself on an outside
+            press instead — see the capture-phase handler in ui/combobox.tsx. */}
+        <Combobox
+          items={items}
+          value={currentLabel}
+          onValueChange={handleChange}
+          modal={false}
+        >
+          <ComboboxInput
+            className={triggerClassName}
+            placeholder={t("code.plainText", "Plain Text")}
+            aria-label={t("code.selectLanguage", "Select language")}
+            title={t("code.selectLanguage", "Select language")}
+          />
+          <ComboboxContent className="w-44">
+            <ComboboxList>
+              {(item) => (
+                <ComboboxItem key={item} value={item}>
+                  {item}
+                </ComboboxItem>
+              )}
+            </ComboboxList>
+          </ComboboxContent>
+        </Combobox>
+      </div>
     </div>
   );
 };
@@ -1069,6 +1160,8 @@ const TableToolsOverlay: ComponentType<NodeOverlayProps> = ({
       onDeleteColumn={() => editor.dispatch(TABLE_DELETE_COLUMN, {})}
       onMoveColumn={(to) => editor.dispatch(TABLE_MOVE_COLUMN, { to })}
       onAlign={(align) => editor.dispatch(TABLE_SET_COLUMN_ALIGN, { align })}
+      onSelectRow={() => editor.dispatch(TABLE_SELECT_ROW, {})}
+      onSelectColumn={() => editor.dispatch(TABLE_SELECT_COLUMN, {})}
     />
   );
 };
@@ -1078,7 +1171,7 @@ const NODE_OVERLAYS: Record<string, ComponentType<NodeOverlayProps>> = {
   "image-hover": ImageHoverOverlay,
   "link-tooltip": LinkTooltipOverlay,
   "link-edit": LinkEditOverlay,
-  "code-language": CodeLanguageOverlay,
+  [CODE_LANGUAGE_OVERLAY]: CodeLanguageOverlay,
   [TABLE_TOOLS_OVERLAY]: TableToolsOverlay,
 };
 
@@ -2098,32 +2191,7 @@ function PageEditor({
           // link. Mirrors the native accessory's link button
           // (handleFormatButtonClick). Rendered as a drawer on mobile by the
           // TasferLinkMark "link-edit" overlay.
-          const link = editor.query.marks().find((m) => m.name === "link");
-          if (link) {
-            openLinkEditMenu(editor, {
-              blockId: link.block,
-              startIndex: link.from,
-              endIndex: link.to,
-              url: (link.attrs.url as string | undefined) ?? "",
-              text: link.text,
-              content: link.content,
-              x: 0,
-              y: 0,
-            });
-            break;
-          }
-          // Create from a non-empty text selection: the chosen text becomes the
-          // link's text and the drawer collects the URL.
-          const target = linkFromSelection(editor);
-          if (target) {
-            openLinkEditMenu(editor, {
-              ...target,
-              url: "",
-              text: "",
-              x: 0,
-              y: 0,
-            });
-          }
+          openLinkMenuForSelection(editor, 0, 0);
           break;
         }
         case "edit-image": {
@@ -2164,6 +2232,12 @@ function PageEditor({
           break;
         case "table-align":
           editor.dispatch(TABLE_SET_COLUMN_ALIGN, { align: action.align });
+          break;
+        case "table-select-row":
+          editor.dispatch(TABLE_SELECT_ROW, {});
+          break;
+        case "table-select-column":
+          editor.dispatch(TABLE_SELECT_COLUMN, {});
           break;
         case "dismiss":
           dismissMobileKeyboard();
@@ -2999,36 +3073,7 @@ function PageEditor({
       } else if (iconType === "link") {
         // Open the link edit/create menu — rendered as a drawer on mobile by the
         // TasferLinkMark "link-edit" overlay.
-
-        // Editing an existing link under the caret.
-        const link = editorApi.query.marks().find((m) => m.name === "link");
-        if (link) {
-          openLinkEditMenu(editorApi, {
-            blockId: link.block,
-            startIndex: link.from,
-            endIndex: link.to,
-            url: (link.attrs.url as string | undefined) ?? "",
-            text: link.text,
-            content: link.content,
-            x: menuX,
-            y: menuY,
-          });
-          return true;
-        }
-
-        // Creating a new link from a selection.
-        const target = linkFromSelection(editorApi);
-        if (target) {
-          openLinkEditMenu(editorApi, {
-            ...target,
-            url: "",
-            text: "",
-            x: menuX,
-            y: menuY,
-          });
-          return true;
-        }
-        return false;
+        return openLinkMenuForSelection(editorApi, menuX, menuY);
       }
 
       // For "format" icon type, let native handle it (open block menu)
@@ -3350,6 +3395,9 @@ function PageEditor({
       offSelectionChange();
       offChangeAwareness();
       disconnectAwareness();
+      // The avatar list lives above this editor and only changes on presence
+      // events, so a page nobody else is on would keep the last page's peers.
+      onAwarenessChange?.([]);
       menuIconThemeObserver.disconnect();
 
       // The editor (useEditor) is destroyed in the commit phase; the doc + its
@@ -3778,6 +3826,7 @@ function PageEditor({
       const isCode = marks?.has("code") ?? false;
       const isStrikethrough = marks?.has("strike") ?? false;
       const isMath = marks?.has("math") ?? false;
+      const isLink = marks?.has("link") ?? false;
 
       items.push({
         id: "format",
@@ -3844,21 +3893,18 @@ function PageEditor({
             action: () => {
               const mountedEditor = mountedRef.current?.editor;
               if (!mountedEditor) return;
-              // A text range, or a range inside one table cell.
-              const target = linkFromSelection(mountedEditor);
-              if (!target) return;
               const containerRect = wrapperRef.current?.getBoundingClientRect();
               if (!containerRect) return;
-              // Open the link create menu — rendered as a drawer on mobile by
-              // the TasferLinkMark "link-edit" overlay.
-              openLinkEditMenu(mountedEditor, {
-                ...target,
-                url: "",
-                text: "",
-                x: containerRect.width / 2,
-                y: 100,
-              });
+              // Edit the link the selection already carries, so it can be
+              // changed or removed; otherwise create one from the selection
+              // (a text range, or a range inside one table cell).
+              openLinkMenuForSelection(
+                mountedEditor,
+                containerRect.width / 2,
+                100,
+              );
             },
+            active: isLink,
           },
         ],
       });

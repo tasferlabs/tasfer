@@ -200,7 +200,11 @@ const inlineMathReplacement: MarkReplacement = {
       return null;
     }
     if (isWholeSourceRange(range, source.length)) {
-      return { x: stop.x, top: stop.top, bottom: stop.bottom };
+      return {
+        x: stop.x,
+        top: stop.caretTop ?? stop.top,
+        bottom: stop.bottom,
+      };
     }
     return getInlineMathCaretRect(
       text,

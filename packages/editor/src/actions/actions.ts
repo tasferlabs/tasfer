@@ -110,7 +110,7 @@ import {
   selectionAbsorbsStructuredMarks,
   selectionIntersectsStructuredMark,
   selectionPartiallyIntersectsStructuredMark,
-  structuredMarkAttachmentCleanupOps,
+  structuredMarkCleanupOps,
   structuredMarkClonesComplete,
   structuredMarkContentIdsFrom,
   withAdoptedMarkAttachments,
@@ -1102,6 +1102,53 @@ function applyDeleteUnit(
   };
 }
 
+/**
+ * Delete what is selected, routing through whichever layer owns it.
+ *
+ * A nested content selection, or a flat range a feature claims, belongs to that
+ * feature's tree — the deletion has to go through `insertText(state, "")` so the
+ * tree rewrites its own attachment, rather than through the flat char path which
+ * would edit the compatibility projection underneath it. Everything else is
+ * ordinary flat text.
+ *
+ * The `!isCollapsed` guard is load-bearing: `ownsInput` answers "does a feature
+ * claim input here", which a bare caret parked in a chip also satisfies. Without
+ * it a cut with a collapsed selection routes into the tree, which has no range
+ * to delete, and emits nothing — the clipboard gets the copy and the document
+ * keeps the text.
+ *
+ * This is the one definition. Cmd+X (the {@link CUT} action), the async
+ * `editor.cut()` clipboard path, and the SDK's `deleteRange("selection")` all
+ * call it, because three hand-copied versions of this branch had already drifted
+ * apart once.
+ */
+export function deleteSelectionThroughOwner(state: EditorState): ActionResult {
+  return state.document.contentSelection ||
+    (state.document.selection &&
+      !state.document.selection.isCollapsed &&
+      state.schema.ownsInput("before-insert", state, ""))
+    ? insertText(state, "")
+    : deleteSelectedText(state);
+}
+
+/**
+ * Order key for the empty paragraph a deletion leaves behind when it wipes out
+ * every block it touched. The replacement has to land *where the deleted
+ * content was*, so it is anchored after the nearest block still alive above the
+ * range. `orderKeyAfter(blocks, null)` is NOT "append" — it mints a key before
+ * every existing block (that is how {@link prependLeadingParagraph} puts a
+ * paragraph at the head of the document), so passing null here would float the
+ * replacement above the surviving content, most visibly above the document's
+ * title heading. Only a deletion with nothing left above it falls back to that.
+ */
+function replacementParagraphOrderKey(page: Page, beforeIndex: number): string {
+  for (let i = beforeIndex - 1; i >= 0; i--) {
+    const above = page.blocks[i];
+    if (above && !above.deleted) return orderKeyAfter(page.blocks, above.id);
+  }
+  return orderKeyAfter(page.blocks, null);
+}
+
 // Helper function to delete selected text
 /**
  * Delete selected text.
@@ -1158,9 +1205,15 @@ export function deleteSelectedText(state: EditorState): ActionResult {
       let cursorBlockIndex = start.blockIndex;
 
       if (wasOnlyVisibleBlock) {
-        // Append a new empty paragraph (the tombstone stays in place)
+        // Put a new empty paragraph where the block was (the tombstone stays
+        // in place). Nothing else is visible here, so this resolves to the head
+        // of the document — but go through the helper so the intent is "in the
+        // deleted block's place", not "before everything".
         const emptyParagraphId = state.CRDTbinding.nextId();
-        const orderKey = orderKeyAfter(state.document.page.blocks, null);
+        const orderKey = replacementParagraphOrderKey(
+          state.document.page,
+          start.blockIndex,
+        );
         const emptyParagraph: Block = {
           id: emptyParagraphId,
           orderKey,
@@ -1237,7 +1290,7 @@ export function deleteSelectedText(state: EditorState): ActionResult {
     // A structured mark wholly inside the range dies with its chars; delete
     // the attachments it referenced in the same transaction (computed against
     // the pre-delete block, whose runs are still resolvable).
-    const attachmentCleanupOps = structuredMarkAttachmentCleanupOps(
+    const attachmentCleanupOps = structuredMarkCleanupOps(
       block,
       start.textIndex,
       end.textIndex,
@@ -1325,7 +1378,7 @@ export function deleteSelectedText(state: EditorState): ActionResult {
             startLength,
             state.CRDTbinding,
           );
-          const cleanup = structuredMarkAttachmentCleanupOps(
+          const cleanup = structuredMarkCleanupOps(
             startBlock,
             start.textIndex,
             startLength,
@@ -1346,7 +1399,7 @@ export function deleteSelectedText(state: EditorState): ActionResult {
             end.textIndex,
             state.CRDTbinding,
           );
-          const cleanup = structuredMarkAttachmentCleanupOps(
+          const cleanup = structuredMarkCleanupOps(
             endBlock,
             0,
             end.textIndex,
@@ -1387,7 +1440,7 @@ export function deleteSelectedText(state: EditorState): ActionResult {
           id: state.CRDTbinding.nextId(),
           clock: state.CRDTbinding.getClock(),
           pageId: state.CRDTbinding.pageId,
-          orderKey: orderKeyAfter(page.blocks, null),
+          orderKey: replacementParagraphOrderKey(page, start.blockIndex),
           blockId,
           blockType: "paragraph",
         };
@@ -1419,9 +1472,11 @@ export function deleteSelectedText(state: EditorState): ActionResult {
     // and at least one endpoint is a non-text block, we need special handling
     if (!startIsText || !endIsText) {
       // Delete all blocks in the range
+      let deletedVisibleCount = 0;
       for (let i = start.blockIndex; i <= end.blockIndex; i++) {
         const blockToDelete = state.document.page.blocks[i];
         if (!blockToDelete || blockToDelete.deleted) continue;
+        deletedVisibleCount++;
         const blockDeleteOp: Operation = {
           op: "block_delete",
           id: state.CRDTbinding.nextId(),
@@ -1432,10 +1487,14 @@ export function deleteSelectedText(state: EditorState): ActionResult {
         ops.push(blockDeleteOp);
       }
 
-      // Check if we need to create an empty paragraph (all blocks will be deleted)
+      // Check if we need to create an empty paragraph (all blocks will be
+      // deleted). Count the blocks this range actually removes rather than its
+      // index span: `blockIndex` is the raw array index and tombstones are
+      // never spliced out, so on a well-edited page the span runs well ahead of
+      // the visible count and would claim "everything is gone" while blocks —
+      // the title heading above all — are still standing.
       const visibleBlocksCount = state.view.visibleBlocks.length;
-      const deletingAllBlocks =
-        end.blockIndex - start.blockIndex + 1 >= visibleBlocksCount;
+      const deletingAllBlocks = deletedVisibleCount >= visibleBlocksCount;
 
       if (deletingAllBlocks) {
         const emptyParagraphId = state.CRDTbinding.nextId();
@@ -1445,7 +1504,10 @@ export function deleteSelectedText(state: EditorState): ActionResult {
           id: state.CRDTbinding.nextId(),
           clock: state.CRDTbinding.getClock(),
           pageId: state.CRDTbinding.pageId,
-          orderKey: orderKeyAfter(state.document.page.blocks, null),
+          orderKey: replacementParagraphOrderKey(
+            state.document.page,
+            start.blockIndex,
+          ),
           blockId: emptyParagraphId,
           blockType: "paragraph",
         };
@@ -1507,7 +1569,7 @@ export function deleteSelectedText(state: EditorState): ActionResult {
         state.CRDTbinding,
       );
     ops.push(startDeleteOp);
-    const startCleanupOps = structuredMarkAttachmentCleanupOps(
+    const startCleanupOps = structuredMarkCleanupOps(
       startBlock,
       start.textIndex,
       startBlockLen,
@@ -3114,9 +3176,10 @@ export function deleteWordBackward(state: EditorState): ActionResult {
  * {@link moveToLineEnd} — logical in both writing directions, so an RTL block
  * behaves the same as an LTR one.
  *
- * Unlike a word delete this never merges blocks: at the edge already, it is a
- * no-op rather than a join, so a stray ⌘⌫ can't silently swallow a paragraph
- * break.
+ * This never merges blocks itself: with the caret already on the edge there is
+ * no range to remove and it is a no-op. The key binding is what escalates — it
+ * routes a modified delete on the edge to the plain ⌫ / ⌦ action instead, so
+ * the join runs through every handler a plain delete has.
  */
 function deleteToLineEdge(
   state: EditorState,
@@ -3641,10 +3704,20 @@ export function splitBlock(state: EditorState): ActionResult {
   let blockCopy1Type: Block["type"];
   let blockCopy2Type: Block["type"];
 
+  // Enter on an EMPTY heading turns it into a paragraph in place, the same way
+  // an empty list item or quote leaves its type (dev-docs/enter-key.md). A
+  // schema that refuses the conversion falls back to the split below.
+  if (originalType.startsWith("heading") && isEmpty) {
+    const converted = convertBlockAtCursor(stateBeforeSplit, {
+      type: "paragraph",
+    });
+    if (converted.ops.length > 0) return converted;
+  }
+
   if (originalType.startsWith("heading")) {
     const headingType = originalType as "heading1" | "heading2" | "heading3";
     if (isEmpty) {
-      // Empty heading: keep heading above, create paragraph below
+      // Empty heading the schema would not convert: keep it, paragraph below
       blockCopy1Type = headingType;
       blockCopy2Type = "paragraph";
     } else if (isAtStart) {
@@ -3724,7 +3797,7 @@ export function splitBlock(state: EditorState): ActionResult {
     ops.push(deleteOp);
     // Stamp cleanup after the deletion because that is also the order in
     // which the transaction returns and applies these operations.
-    const attachmentCleanupOps = structuredMarkAttachmentCleanupOps(
+    const attachmentCleanupOps = structuredMarkCleanupOps(
       currentBlock,
       textIndex,
       oldText.length,

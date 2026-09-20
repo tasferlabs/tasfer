@@ -37,12 +37,21 @@ function Combobox({
   value,
   onValueChange,
   disabled,
+  modal = true,
   children,
 }: {
   items: string[]
   value: string | null
   onValueChange: (value: string | null) => void
   disabled?: boolean
+  /**
+   * Modal by default, per the layered-surface contract in
+   * components/ui/popover.tsx. Pass `false` for a dropdown anchored over the
+   * editor canvas, where the dismissing press has to reach the canvas and land
+   * its caret rather than being swallowed by an inert backdrop; the effect
+   * below then dismisses by hand, because Radix cannot.
+   */
+  modal?: boolean
   children: React.ReactNode
 }) {
   const [open, setOpen] = React.useState(false)
@@ -57,6 +66,34 @@ function Combobox({
     [],
   )
 
+  // Outside-press dismissal for the non-modal case, which Radix cannot do for
+  // us over the canvas: it defers an outside press to that press's `click`, and
+  // the editor's focus hack fires a synthetic click on its hidden input *during*
+  // the canvas `mousedown` — which Radix reads as an intercepted interaction and
+  // then skips the dismissal. (`handleMouseDown` closes the context menu by hand
+  // for the same reason, and TableTools carries the same effect.) Close in the
+  // capture phase, ahead of that hack; nothing is prevented, so the press still
+  // lands its caret. The modal case keeps Radix's own dismissal untouched.
+  React.useEffect(() => {
+    if (modal || !open) return
+    const dismiss = (event: MouseEvent) => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      // The trigger is left to Radix so a press on it toggles rather than
+      // closing and immediately reopening.
+      if (
+        target.closest(
+          '[data-slot="combobox-trigger"],[data-slot="combobox-content"]',
+        )
+      ) {
+        return
+      }
+      handleOpenChange(false)
+    }
+    document.addEventListener("mousedown", dismiss, true)
+    return () => document.removeEventListener("mousedown", dismiss, true)
+  }, [modal, open, handleOpenChange])
+
   const ctx = React.useMemo<ComboboxContextValue>(
     () => ({ items, value, onValueChange, open, setOpen: handleOpenChange, search, setSearch, disabled }),
     [items, value, onValueChange, open, handleOpenChange, search, disabled],
@@ -64,9 +101,7 @@ function Combobox({
 
   return (
     <ComboboxContext.Provider value={ctx}>
-      {/* Modal per the layered-surface contract in components/ui/popover.tsx:
-          the background stays inert while the dropdown is open. */}
-      <Popover.Root modal open={open} onOpenChange={handleOpenChange}>
+      <Popover.Root modal={modal} open={open} onOpenChange={handleOpenChange}>
         {children}
       </Popover.Root>
     </ComboboxContext.Provider>

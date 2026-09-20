@@ -1,5 +1,9 @@
 # @tasfer/math
 
+> [!WARNING]
+> **Preview release.** This package is still in early development. Its API may
+> change, and future versions may include breaking changes.
+
 The **opt-in math feature** for [`@tasfer/editor`](https://www.npmjs.com/package/@tasfer/editor):
 a display math block and an inline math mark, both rendered directly onto the
 canvas by the [`@tasfer/tex`](https://www.npmjs.com/package/@tasfer/tex) layout

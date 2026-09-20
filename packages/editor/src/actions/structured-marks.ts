@@ -23,7 +23,10 @@ import {
 } from "../structured-selection";
 import { findBlock, findBlockIndex } from "../sync/block-lookup";
 import { isTextualBlock } from "../sync/block-registry";
-import { getVisibleTextFromRuns } from "../sync/char-runs";
+import {
+  getCharIdsInRangeFromRuns,
+  getVisibleTextFromRuns,
+} from "../sync/char-runs";
 import {
   deleteCharsInRange,
   insertCharsAtPosition,
@@ -673,50 +676,93 @@ export function flatDeleteTouchesStructuredMark(
 }
 
 /**
- * Attachment cleanup for deleting `[startIndex, endIndex)` from `block`.
+ * Cleanup for deleting `[startIndex, endIndex)` from `block`: the ops that
+ * retire a structured mark whose characters are all going away.
  *
- * A structured mark wholly inside the deleted range dies with its characters:
- * its span stops resolving once every covered char is tombstoned. Deleting the
- * chars alone would strand the attachments it references as unreachable
- * structured content, so the same transaction deletes those documents. An
- * attachment still referenced by a run outside the range is kept, and runs
+ * A structured mark wholly inside the deleted range dies with its characters,
+ * and BOTH halves of it have to die in the same transaction:
+ *
+ * - its attachments, which the chars were the only route to. Deleting the
+ *   chars alone would strand them as unreachable structured content.
+ * - its format span, which `text_delete` never touches. Left behind, the span
+ *   outlives the document it addresses, and anything that brings those char ids
+ *   back by another route (a concurrent remote edit, a merge or clone that
+ *   re-adopts by id) resolves a run again and paints a chip with a dangling
+ *   reference — the blank-chip shape `adoptAttachmentsFromPage` has to heal.
+ *
+ * The span removals are emitted BEFORE the document deletes so the undo
+ * inverses — which replay in reverse — put the attachment back before the mark
+ * that references it. They resolve over tombstoned chars (span matching walks
+ * document-order ordinals, not visible text), so emitting them after the
+ * caller's `text_delete` is fine.
+ *
+ * An attachment still referenced by a run outside the range is kept, and runs
  * merely clipped by the range keep everything — callers expand clipped edges
  * to whole projections before deleting.
  */
-export function structuredMarkAttachmentCleanupOps(
+export function structuredMarkCleanupOps(
   block: Block,
   startIndex: number,
   endIndex: number,
   binding: CRDTbinding,
   schema: DataSchema,
-): ContentEdit[] {
+): Operation[] {
   if (endIndex <= startIndex || !isTextualBlock(block)) return [];
   const attachments = block.structuredContent;
   if (!attachments || Object.keys(attachments).length === 0) return [];
+
+  const markOf = (run: {
+    readonly name: string;
+    readonly attrs: Record<string, unknown>;
+  }): Mark => ({
+    type: run.name,
+    ...(Object.keys(run.attrs).length > 0 ? { attrs: run.attrs } : {}),
+  });
 
   const references = (run: {
     readonly name: string;
     readonly attrs: Record<string, unknown>;
   }): readonly string[] =>
     schema.structuredMarkReferences(run.name, {
-      mark: {
-        type: run.name,
-        ...(Object.keys(run.attrs).length > 0 ? { attrs: run.attrs } : {}),
-      },
+      mark: markOf(run),
       attachments,
     });
 
   const dying = new Set<string>();
   const surviving = new Set<string>();
+  const dyingRuns: MarkRunData[] = [];
   for (const run of resolveMarkRuns(block)) {
+    const runReferences = references(run);
+    // A mark that owns no attachment is a plain mark; its span over tombstones
+    // is ordinary CRDT bookkeeping, not a dangling reference. Leave it alone.
+    if (runReferences.length === 0) continue;
     const wholeRunDies =
       run.startIndex >= startIndex && run.endIndex <= endIndex;
-    for (const contentId of references(run)) {
+    if (wholeRunDies) dyingRuns.push(run);
+    for (const contentId of runReferences) {
       (wholeRunDies ? dying : surviving).add(contentId);
     }
   }
 
-  const ops: ContentEdit[] = [];
+  const ops: Operation[] = [];
+  for (const run of dyingRuns) {
+    const charIds = getCharIdsInRangeFromRuns(
+      block.charRuns,
+      run.startIndex,
+      run.endIndex,
+    );
+    if (charIds.length === 0) continue;
+    ops.push({
+      op: "mark_set",
+      id: binding.nextId(),
+      clock: binding.getClock(),
+      pageId: binding.pageId,
+      blockId: block.id,
+      charIds,
+      format: markOf(run),
+      value: false,
+    });
+  }
   for (const contentId of [...dying].sort()) {
     if (surviving.has(contentId) || !attachments[contentId]) continue;
     ops.push({
@@ -861,7 +907,7 @@ export function createFeatureMarkInRange(
   // Any projection the new source absorbed is about to lose its anchor char,
   // so its attachment dies with it — same transaction, or the block keeps
   // unreachable structured content.
-  for (const cleanup of structuredMarkAttachmentCleanupOps(
+  for (const cleanup of structuredMarkCleanupOps(
     block,
     startIndex,
     endIndex,

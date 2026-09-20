@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from "react";
 import { getPlatform } from "@/platform";
-import type { DeviceInfo } from "@/platform";
+import type { DeviceInfo, PeerSyncStatus } from "@/platform";
 
 /** Label one of this person's devices, here or from across the link. */
 export async function setDeviceNote(
@@ -16,6 +16,31 @@ export async function setDeviceNote(
   note: string,
 ): Promise<void> {
   await getPlatform().devices.setNote(publicKey, note);
+}
+
+/**
+ * Pause or resume syncing with one of this person's devices.
+ *
+ * The decision travels with the person, so a device paused here is paused on
+ * their other machines too. It is reversible and tells the device nothing: it
+ * simply stops being dialed, and picks up where it left off when resumed.
+ */
+export async function setDeviceSyncPaused(
+  publicKey: string,
+  paused: boolean,
+): Promise<void> {
+  await getPlatform().peers.setSyncPaused({ publicKey }, paused);
+}
+
+/**
+ * What this device last learned about how far behind another one is — read
+ * before pausing, because a device that left holding changes nobody else has
+ * keeps them until it is resumed.
+ */
+export function getDeviceSyncStatus(
+  publicKey: string,
+): Promise<PeerSyncStatus> {
+  return getPlatform().peers.syncStatus({ publicKey });
 }
 
 /**

@@ -46,10 +46,10 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  /* Center with auto margins (see .ob-card) rather than
-     justify-content: center, which clips the top and blocks scrolling when
-     the card is taller than the viewport. */
-  padding: 32px 16px;
+  /* Content starts at the top and the action row sits at the bottom, in thumb
+     reach — see the `.ob-wrap .ob-card` rules below. */
+  padding: calc(16px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px)))
+    16px calc(16px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
   background: var(--background);
   overflow-y: auto;
 }
@@ -81,9 +81,6 @@
   box-shadow: none;
   overflow-y: auto;
 }
-.ob-dialog .ob-card {
-  margin-block: 0;
-}
 
 /* The QR scanner's own dialog keeps the primitive's surface. */
 .ob-cam-dialog {
@@ -96,6 +93,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  /* The height "Skip setup" gives the row, kept on the last step where it is
+     hidden, so the page doesn't shift up between steps. */
+  min-height: 18px;
   margin-bottom: 16px;
 }
 .ob-skip {
@@ -147,8 +147,6 @@
 .ob-card {
   width: 100%;
   max-width: 420px;
-  /* Centers the card in the full-screen shell; see the note on `.ob-wrap`. */
-  margin-block: auto;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -165,6 +163,40 @@
   background: transparent;
   border-color: transparent;
   box-shadow: none;
+}
+
+/* The card fills the page (but may still grow past it and scroll), and the
+   action row's auto margin takes the gap, which pins it to the bottom. */
+.ob-wrap .ob-card {
+  flex: 1 0 auto;
+}
+.ob-wrap .ob-actions {
+  margin-top: auto;
+  padding-top: 18px;
+}
+.ob-wrap .ob-actions .ob-btn {
+  flex: 1;
+  justify-content: center;
+  height: 44px;
+  white-space: nowrap;
+}
+/* Back takes only its own width; the primary gets the rest. */
+.ob-wrap .ob-actions .ob-btn-ghost {
+  flex: none;
+}
+/* Identity step: the alternate-path line ("Already using Tasfer?") goes above
+   the buttons instead of beside them. */
+.ob-wrap .ob-actions-split {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+.ob-wrap .ob-actions-split .ob-alt {
+  text-align: center;
+}
+.ob-wrap .ob-actions-split > .ob-btn-primary {
+  flex: none;
+  margin-inline-start: 0;
 }
 
 .ob-icon-wrap {
@@ -185,6 +217,8 @@
   font-weight: 600;
   color: var(--foreground);
   letter-spacing: -0.01em;
+  /* Keeps a short last line ("you.") from sitting alone. */
+  text-wrap: balance;
 }
 
 .ob-sub {
@@ -246,7 +280,7 @@
 .ob-actions .ob-btn-primary {
   margin-inline-start: auto;
 }
-/* Identity step puts the alternate path on the action row itself. */
+/* The identity step puts the alternate path on the action row itself. */
 .ob-actions-split {
   gap: 16px;
   flex-wrap: wrap;
@@ -305,62 +339,18 @@
 }
 .ob-bullets li {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   font-size: 13px;
+  line-height: 1.5;
+  text-wrap: pretty;
   color: var(--muted-foreground);
 }
+/* Sits on the first line when a bullet wraps (13px × 1.5 line, 14px icon). */
 .ob-bullets li svg {
   color: var(--primary);
   flex-shrink: 0;
-}
-
-/* ── option rows (space pick) ──────────────────────────────────────────── */
-.ob-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  background: var(--background);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 12px 14px;
-  margin-top: 8px;
-  cursor: pointer;
-  font: inherit;
-  text-align: start;
-  color: var(--foreground);
-  transition: border-color var(--ob-dur-fast), background var(--ob-dur-fast);
-}
-.ob-row:hover {
-  border-color: var(--primary);
-  background: oklch(from var(--primary) l c h / 0.04);
-}
-.ob-row > svg:first-child {
-  color: var(--muted-foreground);
-  flex-shrink: 0;
-}
-.ob-row > svg:last-child {
-  color: var(--muted-foreground);
-  margin-inline-start: auto;
-  flex-shrink: 0;
-}
-[dir="rtl"] .ob-row > svg:last-child {
-  transform: scaleX(-1);
-}
-.ob-row > div {
-  flex: 1;
-  min-width: 0;
-}
-.ob-row-title {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--foreground);
-}
-.ob-row-sub {
-  font-size: 12.5px;
-  color: var(--muted-foreground);
-  margin-top: 2px;
+  margin-top: 2.75px;
 }
 
 .ob-note {
@@ -376,62 +366,6 @@
   color: var(--primary);
   flex-shrink: 0;
   margin-top: 1px;
-}
-
-/* ── collapsible (optional profile) ────────────────────────────────────── */
-.ob-collapse {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  margin-top: 6px;
-  overflow: hidden;
-}
-.ob-collapse-head {
-  width: 100%;
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
-  background: var(--background);
-  border: none;
-  cursor: pointer;
-  font: inherit;
-  text-align: start;
-  color: var(--foreground);
-  transition: background var(--ob-dur-fast);
-}
-.ob-collapse-head:hover {
-  background: var(--muted);
-}
-.ob-collapse-head > svg:first-child {
-  color: var(--muted-foreground);
-  flex-shrink: 0;
-}
-.ob-collapse-head > div {
-  flex: 1;
-  min-width: 0;
-}
-.ob-collapse-title {
-  font-size: 14px;
-  font-weight: 500;
-}
-.ob-collapse-sub {
-  font-size: 12px;
-  color: var(--muted-foreground);
-  margin-top: 1px;
-}
-.ob-chev {
-  color: var(--muted-foreground);
-  flex-shrink: 0;
-  transition: transform var(--ob-dur-base) var(--ob-ease);
-}
-.ob-chev.open {
-  transform: rotate(180deg);
-}
-.ob-collapse-body {
-  padding: 4px 14px 16px;
-  border-top: 1px solid var(--border);
-  background: var(--background);
 }
 
 /* ── avatar ────────────────────────────────────────────────────────────── */
@@ -491,7 +425,7 @@
   color: var(--muted-foreground);
 }
 
-/* ── join: segmented method switch ─────────────────────────────────────── */
+/* ── link: segmented method switch ─────────────────────────────────────── */
 .ob-seg {
   display: flex;
   gap: 4px;
@@ -531,89 +465,7 @@
   color: var(--foreground);
 }
 
-/* ── join: import file ─────────────────────────────────────────────────── */
-.ob-import {
-  width: 100%;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 22px 16px;
-  margin-top: 4px;
-  background: var(--background);
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
-  color: var(--muted-foreground);
-  cursor: pointer;
-  font: inherit;
-  transition: border-color var(--ob-dur-fast), background var(--ob-dur-fast);
-}
-.ob-import:hover,
-.ob-import.is-dragging {
-  border-color: var(--primary);
-  background: oklch(from var(--primary) l c h / 0.04);
-}
-.ob-import svg {
-  color: var(--muted-foreground);
-}
-.ob-import:hover svg,
-.ob-import.is-dragging svg {
-  color: var(--primary);
-}
-.ob-import-title {
-  font-size: 13.5px;
-  font-weight: 500;
-  color: var(--foreground);
-}
-.ob-import-sub {
-  font-size: 12px;
-}
-.ob-import.has-file {
-  border-style: solid;
-  border-color: oklch(from var(--primary) l c h / 0.35);
-  background: oklch(from var(--primary) l c h / 0.06);
-}
-.ob-import.has-file svg,
-.ob-import.has-file .ob-import-sub {
-  color: var(--primary);
-}
-
-/* ── join: scan tab ────────────────────────────────────────────────────── */
-.ob-scan {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 0 2px;
-  margin-top: 4px;
-  text-align: center;
-}
-.ob-scan-frame {
-  width: 132px;
-  height: 132px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  cursor: pointer;
-  border-radius: var(--radius-xl);
-  background: var(--muted);
-  color: var(--muted-foreground);
-  transition: color var(--ob-dur-fast), background var(--ob-dur-fast);
-}
-.ob-scan-frame:hover {
-  color: var(--primary);
-  background: oklch(from var(--primary) l c h / 0.06);
-}
-.ob-scan-text {
-  font-size: 12.5px;
-  color: var(--muted-foreground);
-  line-height: 1.5;
-  max-width: 240px;
-}
-
-/* ── join: connecting / done / error states ────────────────────────────── */
+/* ── link: connecting / done / error states ────────────────────────────── */
 .ob-status {
   display: flex;
   flex-direction: column;
@@ -758,7 +610,7 @@
   border-radius: 3px;
 }
 
-/* Standalone hint line — .ob-scan-text is centred and narrow by its wrapper. */
+/* Standalone hint line under the link step's method switch. */
 .ob-hint {
   margin: 4px 0 0;
   font-size: 12.5px;

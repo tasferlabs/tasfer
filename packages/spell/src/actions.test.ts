@@ -135,6 +135,58 @@ describe("replaceWord", () => {
     expect(text()).toBe("Hello world here");
   });
 
+  /** Select exactly `word`, the way walking to a flag does. */
+  function selectWord(word: string) {
+    const from = text().indexOf(word);
+    h.editor.setSelection({
+      from: { block: h.blockIds[0], offset: from },
+      to: { block: h.blockIds[0], offset: from + word.length },
+    });
+  }
+  const span = (from: number, to: number) => ({
+    from: { block: h.blockIds[0], offset: from },
+    to: { block: h.blockIds[0], offset: to },
+  });
+
+  it("keeps a selected word selected when the fix is longer", () => {
+    h = createHarness("Hello wrold here");
+    selectWord("wrold");
+    expect(replaceWord(h.editor, flag("wrold"), "worldly")).toBe(true);
+    expect(text()).toBe("Hello worldly here");
+    expect(caret()).toMatchObject(span(6, 13));
+  });
+
+  it("keeps a selected word selected when the fix is shorter", () => {
+    h = createHarness("Hello wrold here");
+    selectWord("wrold");
+    expect(replaceWord(h.editor, flag("wrold"), "word")).toBe(true);
+    expect(text()).toBe("Hello word here");
+    expect(caret()).toMatchObject(span(6, 10));
+  });
+
+  it("keeps a backwards selection over the word", () => {
+    h = createHarness("هذا كتب هنا");
+    h.editor.setSelection({
+      from: { block: h.blockIds[0], offset: 7 },
+      to: { block: h.blockIds[0], offset: 4 },
+    });
+    expect(replaceWord(h.editor, flag("كتب"), "كتاب")).toBe(true);
+    expect(text()).toBe("هذا كتاب هنا");
+    expect(caret()).toMatchObject(span(4, 8));
+  });
+
+  it("leaves a selection wider than the word alone", () => {
+    h = createHarness("Hello wrold here");
+    h.editor.setSelection(span(0, 16));
+    expect(replaceWord(h.editor, flag("wrold"), "worldly")).toBe(true);
+    expect(text()).toBe("Hello worldly here");
+    // Not narrowed to the new word: a sentence-wide selection keeps its own
+    // edges, which this replacement cannot re-anchor.
+    expect(caret()).toMatchObject({
+      from: { block: h.blockIds[0], offset: 0 },
+    });
+  });
+
   it("is dispatchable by reference with a bare payload", () => {
     h = createHarness("Hello wrold here");
     const changed = h.editor.dispatch(REPLACE_WORD, {

@@ -316,7 +316,9 @@ export function DraftTagPicker({
     if (!keyNavRef.current) return;
     keyNavRef.current = false;
     const el = buttonsRef.current.get(`${row}:${col}`);
-    el?.focus();
+    // focus() on its own scrolls an off-screen tag to the center in Chromium,
+    // so leave the scrolling to scrollIntoView, which moves it just enough.
+    el?.focus({ preventScroll: true });
     el?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [row, col]);
 
@@ -629,6 +631,17 @@ export function DraftParentSearch({
     : allResults;
   // Results shrink as the query narrows; keep the highlight on a real row.
   const active = Math.min(activeIndex, (results?.length ?? 0) - 1);
+  const listRef = useRef<HTMLDivElement>(null);
+  // Only the arrow keys drag the scroller along: hovering a row also moves the
+  // highlight, and scrolling then would pull the list out from under the mouse.
+  const keyNavRef = useRef(false);
+  const pointerRef = useRef<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    if (!keyNavRef.current) return;
+    keyNavRef.current = false;
+    listRef.current?.children[active]?.scrollIntoView({ block: "nearest" });
+  }, [active]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
@@ -639,9 +652,11 @@ export function DraftParentSearch({
       onCancel();
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
+      keyNavRef.current = true;
       setActiveIndex(Math.min(active + 1, (results?.length ?? 0) - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
+      keyNavRef.current = true;
       setActiveIndex(Math.max(active - 1, 0));
     } else if (e.key === "Enter" && !e.metaKey && !e.ctrlKey) {
       // Plain Enter picks the highlighted result; Ctrl/Cmd+Enter stays the
@@ -682,7 +697,11 @@ export function DraftParentSearch({
             {t("page.noPagesFound", "No pages found")}
           </div>
         ) : (
-          <div className={style.parentSearchResults} role="listbox">
+          <div
+            ref={listRef}
+            className={style.parentSearchResults}
+            role="listbox"
+          >
             {results.map((page, i) => {
               const resolvedColor =
                 page.color ??
@@ -699,7 +718,16 @@ export function DraftParentSearch({
                     style.parentSearchItem,
                     i === active && style.parentSearchItemActive,
                   )}
-                  onMouseEnter={() => setActiveIndex(i)}
+                  onMouseMove={(e) => {
+                    // A still pointer doesn't count: when the arrow keys
+                    // scroll the list, rows slide under it and would drag the
+                    // highlight back to wherever it rests.
+                    const last = pointerRef.current;
+                    pointerRef.current = { x: e.clientX, y: e.clientY };
+                    if (last && last.x === e.clientX && last.y === e.clientY)
+                      return;
+                    if (i !== active) setActiveIndex(i);
+                  }}
                   onClick={() => onSelect(page)}
                 >
                   <span

@@ -6,7 +6,7 @@
  * {@link SpellTransport} (a worker, usually), anchors the returned flags to
  * CRDT character ids and publishes them as wavy-underline range decorations
  * on one layer. It also answers the UI's questions: the flag under a point,
- * next/previous flag, suggestions (cached), ignore-once, and a live count.
+ * flag just behind a point, next/previous flag, suggestions (cached), ignore-once, and a live count.
  *
  * Nothing here touches the DOM or React and there is no module-level state:
  * timers, caches, versions and flags all live on the instance, so several
@@ -139,6 +139,8 @@ const SUGGEST_CACHE_SIZE = 500;
 const DEFAULT_SUGGEST_LIMIT = 5;
 /** Typing one of these after a word means the word is finished. */
 const BOUNDARY_CHAR = /[\s\p{P}]$/u;
+/** Any letter, mark or digit: a gap containing one is not "just after" a word. */
+const WORDLIKE_RE = /[\p{L}\p{M}\p{N}]/u;
 
 interface CaretPos {
   readonly block: string;
@@ -345,6 +347,21 @@ export class SpellChecker {
     void this.checkBlocks([blockId], "caret");
   }
 
+  /**
+   * Check the block holding `p` without waiting out the typing debounce, and
+   * resolve once its flags have landed. The word someone just typed is not
+   * flagged yet when they reach for the spelling shortcut; awaiting this first
+   * lets the shortcut see it instead of jumping off to another word.
+   */
+  async checkNow(p: DocPoint): Promise<void> {
+    if (!this.running) return;
+    const pos = this.resolvePoint(p);
+    if (!pos) return;
+    this.dirty.delete(pos.block);
+    this.armFlushTimer();
+    await this.checkBlocks([pos.block], "caret");
+  }
+
   // ── reads ─────────────────────────────────────────────────────────────────
 
   /** The visible flag whose word contains `p` (inclusive at both ends), or `null`. */
@@ -376,6 +393,25 @@ export class SpellChecker {
           (e.fieldIndex > fi || (e.fieldIndex === fi && e.from > pos.offset))),
     );
     return hit?.flag ?? (wrap ? all[0].flag : null);
+  }
+
+  /**
+   * The flag that ends just before `from` with only spaces or punctuation in
+   * between (the word just typed), or `null`. A flag containing `from` counts.
+   */
+  flagBehind(from: DocPoint): FlagRef | null {
+    const pos = this.resolvePoint(from);
+    if (!pos) return null;
+    const text = this.unitText(pos.block, pos.field);
+    if (text === null) return null;
+    let best: { flag: FlagRef; to: number } | null = null;
+    for (const e of this.liveFlags(unitKey(pos.block, pos.field))) {
+      if (e.from > pos.offset) continue;
+      if (e.to >= pos.offset) return e.flag;
+      if (!best || e.to > best.to) best = e;
+    }
+    if (!best) return null;
+    return WORDLIKE_RE.test(text.slice(best.to, pos.offset)) ? null : best.flag;
   }
 
   prev(from: DocPoint, wrap = false): FlagRef | null {
@@ -994,6 +1030,17 @@ export class SpellChecker {
     return this.o.editor.query
       .textFields(blockId)
       .findIndex((candidate) => sameField(candidate, field));
+  }
+
+  /** The plain text of a block, or of one prose field inside it. */
+  private unitText(blockId: string, field?: TextFieldAddress): string | null {
+    const { query } = this.o.editor;
+    if (field) {
+      return (
+        query.textFields(blockId).find((f) => sameField(f, field))?.text ?? null
+      );
+    }
+    return query.block({ block: blockId })?.text ?? null;
   }
 
   private resolvePoint(p: DocPoint): CaretPos | null {

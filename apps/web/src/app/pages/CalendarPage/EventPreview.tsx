@@ -241,7 +241,7 @@ export function EventPreview({
   const queryClient = useQueryClient();
   const popoverRef = useRef<HTMLDivElement>(null);
   const { panelRef, setHasPanel, slotMounted } = useSidebarPanel();
-  const { activeSpaceId, spaces } = useSpaces();
+  const { firstSpaceId, spaces } = useSpaces();
   const { getConfirmation } = useConfirmation();
   const calendarInteractionActiveRef = useRef(calendarInteractionActive);
   calendarInteractionActiveRef.current = calendarInteractionActive;
@@ -256,9 +256,7 @@ export function EventPreview({
   // against the live rows. See the pre-fill block further down.
   const [prefillParent, setPrefillParent] = useState<RecentParent | null>(null);
   const [draftIsTask, setDraftIsTask] = useState(true);
-  const [draftSpaceId, setDraftSpaceId] = useState<string | null>(
-    activeSpaceId,
-  );
+  const [draftSpaceId, setDraftSpaceId] = useState<string | null>(firstSpaceId);
   // Desktop draft parent picker: search mode swaps in for the drill-down rows.
   const [parentSearchOpen, setParentSearchOpen] = useState(false);
 
@@ -362,7 +360,7 @@ export function EventPreview({
       // whichever space the sidebar happens to be showing.
       const targetSpaceId =
         rememberedSpaceId(REMEMBER_KEYS.eventSpace, spacesRef.current) ??
-        activeSpaceId;
+        firstSpaceId;
       setDraftSpaceId(targetSpaceId);
       // Read the pre-fill candidate here, as the draft opens, rather than
       // deriving it: every draft in a run has to ask again, and only a draft
@@ -371,7 +369,7 @@ export function EventPreview({
       setParentSearchOpen(false);
       setDetailsOpen(false);
     }
-  }, [pageId, draftActive, activeSpaceId]);
+  }, [pageId, draftActive, firstSpaceId]);
 
   // Compute initial position from anchor (only when pos is null)
   const computed = useMemo(
@@ -617,14 +615,12 @@ export function EventPreview({
   });
 
   const isDraft = !!draft && !pageId;
-  const draftTargetSpaceId = draftSpaceId ?? activeSpaceId;
-  // The calendar draws every space's events, not only the active one, so the
-  // previewed page may well live somewhere else. Everything space-scoped here —
-  // the parent candidates above all — has to follow the page's own space; the
-  // active space's pages are not parents this page could have.
+  const draftTargetSpaceId = draftSpaceId ?? firstSpaceId;
+  // The calendar draws every space's events, so everything space-scoped here —
+  // the parent candidates above all — has to follow the page's own space.
   const eventSpaceId = isDraft
     ? draftTargetSpaceId
-    : (previewPage?.spaceId ?? activeSpaceId);
+    : (previewPage?.spaceId ?? firstSpaceId);
   const eventSpaceName = eventSpaceId
     ? spaces.find((space) => space.id === eventSpaceId)?.name?.trim() ||
       t("space.untitled", "Untitled space")
@@ -935,11 +931,11 @@ export function EventPreview({
       description: previewPage.hasChildren
         ? t(
             "calendar.eventHasSubPagesArchive",
-            "This page has sub-pages. Archiving it moves them to the Archive too, where you can restore them anytime.",
+            "This page has sub-pages. Archiving it moves them to the Timeline too, where you can restore them anytime.",
           )
         : t(
             "calendar.confirmArchiveEvent",
-            "Archiving deletes nothing. This page moves to the Archive, where you can restore it anytime.",
+            "Archiving deletes nothing. This page moves to the Timeline, where you can restore it anytime.",
           ),
       cancelText: t("common.cancel", "Cancel"),
       confirmText: t("common.archive", "Archive"),
@@ -1228,13 +1224,22 @@ export function EventPreview({
       </button>
     ) : null;
 
+  // A task has no page of its own to open — its body lives in this preview —
+  // so the full-page link belongs to events only. It waits for the fetched
+  // page, or it would flash before `task` arrives on a freshly created task.
+  // The empty span keeps the header's space-between from pulling the actions
+  // to the start.
+  const canOpenPage = Boolean(pageId) && Boolean(previewPage) && !isTask;
+
   const mobileHeader = (
     <div className={`${style.previewPopoverHeader} shrink-0`}>
-      {pageId && (
+      {canOpenPage ? (
         <Link to={`/page/${pageId}`} className={style.previewOpenLink}>
           <Maximize2 size={14} />
           {t("page.openPage", "Open page")}
         </Link>
+      ) : (
+        <span />
       )}
       <div className={style.previewHeaderActions}>
         {duplicateButton}
@@ -1570,7 +1575,7 @@ export function EventPreview({
       {spaceRow}
       {renderParentPicker(14)}
       {taskEventRow}
-      {pageId && (
+      {canOpenPage && (
         <div className={style.previewRow}>
           <Maximize2 size={14} className={style.previewRowIcon} />
           <Link to={`/page/${pageId}`} className={style.previewOpenLink}>

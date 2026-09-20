@@ -23,8 +23,9 @@ import type { ContentPoint, ContentSelection } from "../structured-selection";
 import { defaultStyles } from "../styles";
 import { BlockHeightIndex } from "./block-height-index";
 import type { DecorationLayers } from "./decorations";
-import { MarkRegistry } from "./marks";
+import { Mark, MarkRegistry } from "./marks";
 import { AtomicNode } from "./nodes/AtomicNode";
+import { markPlacesContentCaret } from "./nodes/content-caret";
 import type { NodeCaretRect } from "./nodes/Node";
 import { NodeRegistry } from "./nodes/Node";
 import { getIndexedCursorViewportCoords, renderCursorLayer } from "./renderer";
@@ -317,5 +318,110 @@ describe("cursor layer — a peer's caret the node owns", () => {
 
     expect(hitAreas).toHaveLength(1);
     expect(hitAreas[0].contentPoint).toEqual(peerPoint);
+  });
+});
+
+/**
+ * The same capability question asked of a replacement MARK instead of a node.
+ *
+ * Inline math is a mark on an ordinary paragraph, so the node gate above never
+ * sees it and a peer's caret in a formula was dropped before geometry ran. The
+ * gate consults the block's own marks as well — and, as with nodes, what lets
+ * one past is that it declares nested caret geometry for the attachment the
+ * point names, never that core recognizes the mark's type.
+ */
+describe("the gate — a caret a replacement mark owns", () => {
+  const CONTENT_ID = "b1:content";
+
+  /** A mark whose replacement places carets inside its own rendered content. */
+  class NestedCaretMark extends Mark {
+    readonly type = "nested-caret-mark" as const;
+    style() {
+      return {};
+    }
+    readonly replacement = {
+      contentCaretRect: () => ({ x: 0, top: 0, bottom: 10 }),
+    } as unknown as Mark["replacement"];
+  }
+
+  /** A replacement mark that declares no nested caret geometry. */
+  class PlainReplacementMark extends Mark {
+    readonly type = "plain-replacement-mark" as const;
+    style() {
+      return {};
+    }
+    readonly replacement = {} as unknown as Mark["replacement"];
+  }
+
+  /** A textual block carrying one span of `markType` over `contentId`. */
+  function blockWithMark(markType: string, contentId: string) {
+    return {
+      type: "paragraph",
+      id: "b1",
+      charRuns: [{ peerId: "p", startCounter: 0, text: "x" }],
+      formats: [
+        {
+          startCharId: "p:0",
+          endCharId: "p:0",
+          format: { type: markType, attrs: { contentId } },
+          clock: { counter: 0, peerId: "p" },
+        },
+      ],
+    } as unknown as Block;
+  }
+
+  function stateWithMark(mark: Mark): EditorState {
+    return {
+      nodes: new NodeRegistry(),
+      marks: new MarkRegistry().register(mark),
+    } as unknown as EditorState;
+  }
+
+  it("lets a point past when a mark on the block places its caret", () => {
+    const mark = new NestedCaretMark();
+
+    expect(
+      markPlacesContentCaret(
+        blockWithMark(mark.type, CONTENT_ID),
+        stateWithMark(mark),
+        pointIn("b1", null),
+      ),
+    ).toBe(true);
+  });
+
+  it("refuses a mark that declares no nested caret geometry", () => {
+    const mark = new PlainReplacementMark();
+
+    expect(
+      markPlacesContentCaret(
+        blockWithMark(mark.type, CONTENT_ID),
+        stateWithMark(mark),
+        pointIn("b1", null),
+      ),
+    ).toBe(false);
+  });
+
+  it("refuses a mark over a different attachment", () => {
+    const mark = new NestedCaretMark();
+
+    expect(
+      markPlacesContentCaret(
+        blockWithMark(mark.type, "b1:other-content"),
+        stateWithMark(mark),
+        pointIn("b1", null),
+      ),
+    ).toBe(false);
+  });
+
+  it("refuses a block that carries no marks at all", () => {
+    const mark = new NestedCaretMark();
+
+    expect(
+      markPlacesContentCaret(
+        blockOf("plain-atomic", "b1", 0),
+        stateWithMark(mark),
+        pointIn("b1", null),
+      ),
+    ).toBe(false);
   });
 });

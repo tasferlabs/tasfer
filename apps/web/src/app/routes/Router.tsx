@@ -16,8 +16,8 @@ const CalendarPage = React.lazy(
 const SettingsPage = React.lazy(
   () => import("../pages/SettingsPage/SettingsPage"),
 );
-const ArchivePage = React.lazy(
-  () => import("../pages/ArchivePage/ArchivePage"),
+const TimelinePage = React.lazy(
+  () => import("../pages/TimelinePage/TimelinePage"),
 );
 
 const createRouter =
@@ -60,8 +60,14 @@ export const router = createRouter(
           element: <SettingsPage />,
         },
         {
+          path: "timeline",
+          element: <TimelinePage />,
+        },
+        {
+          // The Timeline was the Archive; keep saved links and the stored
+          // last route working.
           path: "archive",
-          element: <ArchivePage />,
+          element: <Navigate to="/timeline" replace />,
         },
       ],
     },

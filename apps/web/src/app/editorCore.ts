@@ -73,6 +73,9 @@ export function editorNodeStrings(): Record<string, Record<string, string>> {
         "Write something worth remembering…",
       ),
     },
+    code: {
+      placeholder: i18next.t("blocks.codePlaceholder", "Write or paste code…"),
+    },
   };
 }
 

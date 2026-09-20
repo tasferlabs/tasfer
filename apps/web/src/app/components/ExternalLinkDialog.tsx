@@ -17,7 +17,7 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
-import { normalizeLinkUrl } from "@tasfer/editor";
+import { normalizeLinkUrl, openLinkUrl } from "@tasfer/editor";
 import { Globe, Mail, Phone } from "lucide-react";
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -172,11 +172,15 @@ export function ExternalLinkProvider({
     if (!pending) return;
     // Native shells route through their own scheme check and hand off to the OS
     // browser; plain web and Electron open a new tab, severed from this window.
+    // `openLinkUrl` opens it the way a clicked anchor would rather than through
+    // `window.open` — see its comment: an installed PWA window is free to
+    // refuse the popup that spelling actually asks for, and `pending` is
+    // already normalized, so the allowlist run it repeats is a no-op.
     const bridge = getBridge();
     if (bridge) {
       void bridge.navigation.openUrl(pending);
     } else {
-      window.open(pending, "_blank", "noopener,noreferrer");
+      openLinkUrl(pending);
     }
   }, [pending]);
 

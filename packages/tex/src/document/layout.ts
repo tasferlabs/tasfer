@@ -712,7 +712,7 @@ function caretGeometryDistance(
 ): number {
   return (
     Math.abs(stop.x - rect.x) +
-    Math.abs(stop.top - rect.top) +
+    Math.abs((stop.caretTop ?? stop.top) - rect.top) +
     Math.abs(stop.bottom - rect.bottom)
   );
 }
