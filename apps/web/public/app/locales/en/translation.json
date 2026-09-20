@@ -39,6 +39,7 @@
   "blocks.quote": "Quote",
   "blocks.quoteKw": "quote",
   "blocks.quotePlaceholder": "Write something worth remembering…",
+  "blocks.codePlaceholder": "Write or paste code…",
   "blocks.photoKw": "photo",
   "blocks.pictureKw": "picture",
   "blocks.separatorKw": "separator",

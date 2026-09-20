@@ -268,6 +268,11 @@ export class CodeNode extends TextNode {
   readonly types: readonly string[] = ["code"];
   // All card blocks (code, math, quote) tile together when stacked.
   readonly joinGroup = "card";
+  // Ghost hint for an empty block. Without it a fresh code block is a wide,
+  // blank card whose only content is the language label off in the corner; the
+  // hint gives the text column something to anchor to and says what to do.
+  // Host-overridable for i18n via `theme.nodeStrings.code.placeholder`.
+  readonly strings = { placeholder: "Write or paste code…" };
 
   protected estimateLayoutMaxWidth(
     _block: TextualBlock,
@@ -461,6 +466,20 @@ export class CodeNode extends TextNode {
       ctx.fillText(tok.text, x, p.baselineY);
       x += ctx.measureText(tok.text).width;
     }
+  }
+
+  /**
+   * The empty-block ghost hint. The base class resolves no placeholder for a
+   * code block (it handles paragraph/heading only), so this opts the type in.
+   * Drawn only while the caret is in this block — `placeholder.showUnfocused` is
+   * off — so an unfocused empty card stays quiet, as everywhere else.
+   */
+  protected override placeholderText(
+    _block: TextualBlock,
+    _styles: EditorStyles,
+    state: EditorState,
+  ): string {
+    return this.str(state, "placeholder");
   }
 
   // ── Overlays (host chrome) ────────────────────────────────────────────────
