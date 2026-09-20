@@ -16,6 +16,8 @@ import type {
   SpaceMember,
   SpaceInvite,
   PairCallbacks,
+  PeerSyncStatus,
+  PeerTarget,
   ArchivedSpaceItem,
   SpaceHistoryEntry,
 } from "@/platform/types";
@@ -63,6 +65,8 @@ export interface ISpaceMember {
    * before device identity existed.
    */
   rootKey: string | null;
+  /** True while this person has paused syncing with this device. */
+  syncPaused: boolean;
 }
 
 function memberToLegacy(
@@ -78,6 +82,7 @@ function memberToLegacy(
     userAvatar: m.avatar,
     lastSeen,
     rootKey: m.rootKey,
+    syncPaused: m.syncPaused,
   };
 }
 
@@ -128,7 +133,14 @@ export function groupMembersByPerson(members: ISpaceMember[]): ISpacePerson[] {
   return groups.map((group) => {
     // Stable sort keeps devices seen at the same time (or never) in join order.
     const devices = [...group].sort((a, b) => lastSeenTime(b) - lastSeenTime(a));
-    return { ...devices[0], devices };
+    // A person counts as paused only while every device of theirs is, so a
+    // half-applied pause — one device held by its own key, or a device linked
+    // since — reads as "syncing" and the toggle offers to pause the person.
+    return {
+      ...devices[0],
+      syncPaused: devices.every((device) => device.syncPaused),
+      devices,
+    };
   });
 }
 
@@ -355,6 +367,45 @@ export function useGetSpaceMembers(spaceId?: string) {
     queryKey: ["space-members", spaceId],
     queryFn: () => getSpaceMembers(spaceId!),
     enabled: !!spaceId,
+  });
+}
+
+/**
+ * Who a pause is about: the person when their certificate is known, otherwise
+ * the one device key we can name. Holding the person by their root is what
+ * keeps a pause from leaking the next time they link a device.
+ */
+function memberTarget(member: ISpaceMember): PeerTarget {
+  return member.rootKey ? { rootKey: member.rootKey } : { publicKey: member.id };
+}
+
+/** What this device last learned about how far behind a member is. */
+export function getMemberSyncStatus(
+  member: ISpaceMember,
+): Promise<PeerSyncStatus> {
+  return getPlatform().peers.syncStatus(memberTarget(member));
+}
+
+export async function setMemberSyncPaused(input: {
+  spaceId: string;
+  member: ISpaceMember;
+  paused: boolean;
+}): Promise<void> {
+  await getPlatform().peers.setSyncPaused(
+    memberTarget(input.member),
+    input.paused,
+  );
+}
+
+export function useSetMemberSyncPaused() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: setMemberSyncPaused,
+    onSuccess: (_result, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["space-members", variables.spaceId],
+      });
+    },
   });
 }
 

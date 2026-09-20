@@ -1,6 +1,6 @@
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, MoreVertical, Pause, Play } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useForm } from "react-hook-form";
@@ -27,6 +27,12 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   useUpdateSpace,
@@ -42,9 +48,11 @@ import { useAssetUrl } from "../api/images.api";
 import { useAuth } from "../contexts/AuthContext";
 import { AvatarPreviewDialog } from "./AvatarPreviewDialog";
 import { RelativeDate } from "@/components/ui/relative-date";
+import { getDisplayName } from "@tasfer/provider-core/cursors";
 import { cn } from "@/lib/utils";
 import { DeviceCountBadge } from "./DeviceCountBadge";
 import type { ISpaceMember, ISpacePerson } from "../api/spaces.api";
+import { getMemberSyncStatus, useSetMemberSyncPaused } from "../api/spaces.api";
 import useMobileLayout from "../hooks/useMobileLayout";
 
 interface EditGroupDialogProps {
@@ -321,13 +329,109 @@ function DeviceRow({
   );
 }
 
+/**
+ * Pause or resume syncing with one member — every device of theirs at once,
+ * since the register holds the person rather than the machine they happened to
+ * join from.
+ *
+ * Person-private, reversible, and not access control: they keep their place in
+ * the space, they are never told, and in a space with other members the same
+ * changes can still reach them by another route. What it buys is one fewer
+ * connection for this person's devices to keep alive — worth spending on a
+ * member who is never coming back, not on one who is merely quiet.
+ */
+function MemberSyncButton({
+  spaceId,
+  member,
+}: {
+  spaceId: string;
+  member: ISpacePerson;
+}) {
+  const { t } = useTranslation();
+  const { getConfirmation } = useConfirmation();
+  const { mutate, isPending } = useSetMemberSyncPaused();
+  // A member who never set a name still has to be nameable in a question about
+  // them, which a row showing an empty string does not have to be.
+  const name = getDisplayName(
+    { name: member.userName },
+    t("collaboration.anonymous", "Anonymous"),
+  );
+
+  async function handleChange(paused: boolean) {
+    if (paused) {
+      // What they were last known to hold and we never got: the one part of
+      // this decision the person cannot see for themselves.
+      const status = await getMemberSyncStatus(member);
+      const stranded = status.unsyncedOps ?? 0;
+      const confirmed = await getConfirmation({
+        title: t("space.pauseSyncTitle", "Pause syncing with {{name}}?", {
+          name,
+        }),
+        description:
+          stranded > 0
+            ? t("space.pauseSyncBodyPending", {
+                count: stranded,
+                defaultValue_one:
+                  "Your devices stop connecting to theirs until you resume. They stay in the space, and they last reported {{count, number}} change this device never received — paused, it can only reach you through another member.",
+                defaultValue_other:
+                  "Your devices stop connecting to theirs until you resume. They stay in the space, and they last reported {{count, number}} changes this device never received — paused, those can only reach you through another member.",
+              })
+            : t(
+                "space.pauseSyncBody",
+                "Your devices stop connecting to theirs until you resume. They stay in the space, and in a shared space your changes can still reach them through another member.",
+              ),
+        confirmText: t("space.pauseSyncConfirm", "Pause"),
+        cancelText: t("common.cancel", "Cancel"),
+      });
+      if (!confirmed) return;
+    }
+    mutate({ spaceId, member, paused });
+  }
+
+  // A menu rather than a switch: pausing is a decision that opens a question and
+  // takes effect once answered, not a setting that flips under the finger. It
+  // hides behind the dots because it is the rare errand on a row whose ordinary
+  // job is to show who is here — and because a row carrying its own verb reads
+  // as if that verb were the point of the row.
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          disabled={isPending}
+          aria-label={t("space.memberActions", "Actions for {{name}}", { name })}
+        >
+          <MoreVertical className="size-4" aria-hidden />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {member.syncPaused ? (
+          <DropdownMenuItem onSelect={() => handleChange(false)}>
+            <Play className="size-4" aria-hidden />
+            {t("space.resume", "Resume")}
+          </DropdownMenuItem>
+        ) : (
+          <DropdownMenuItem onSelect={() => handleChange(true)}>
+            <Pause className="size-4" aria-hidden />
+            {t("space.pauseSyncConfirm", "Pause")}
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function MemberRow({
   member,
+  spaceId,
   dimmed,
   onPreview,
   selfDeviceId,
 }: {
   member: ISpacePerson;
+  spaceId: string;
   dimmed?: boolean;
   onPreview: (avatar: string, name: string | null) => void;
   /** Public key of the device this app runs on, when known. */
@@ -336,7 +440,24 @@ function MemberRow({
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const presence = getPresence(member.lastSeen);
-  const deviceCount = member.devices.length;
+  // Paused devices are left out here. This list answers where in the space a
+  // person is reachable, and a device this person has set aside is not one of
+  // those places — listed, it would read as somewhere their changes can still
+  // arrive from, and its ageing timestamp would tell that story more loudly
+  // every day. Resuming one is Settings → Profile's job, which is where they
+  // are kept to hand.
+  //
+  // Pausing a whole person marks every device of theirs, so their row folds
+  // down to nothing here — which is right: they are already sitting in the
+  // Paused group, where the row itself is the thing to act on.
+  const devices = useMemo(
+    () => member.devices.filter((device) => !device.syncPaused),
+    [member.devices],
+  );
+
+  // Counted the same way for the same reason: a count is a count of what the
+  // list shows, or opening it makes a liar of one of the two.
+  const deviceCount = devices.length;
   // One device is the row itself — there is no tree to open under it.
   const expandable = deviceCount > 1;
   const devicesId = `member-devices-${member.id}`;
@@ -380,26 +501,38 @@ function MemberRow({
     </>
   );
 
-  const rowClass = cn(
-    "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-muted/50",
-    dimmed && "opacity-60",
+  // The card is the wrapper, so the dots sit inside it rather than stranded
+  // beside it. What the card holds still splits in two: a button covering the
+  // whole summary, and the menu alongside — an expandable row is itself a
+  // button, and a button cannot nest in one.
+  const cardClass = cn(
+    "flex w-full min-w-0 items-center gap-1 rounded-lg px-2 py-1.5 transition-colors hover:bg-muted/50",
+    (dimmed || member.syncPaused) && "opacity-60",
   );
+  const summaryClass = "flex min-w-0 flex-1 items-center gap-3 text-start";
+
+  // This person's own row has nothing to pause here: their devices are theirs,
+  // and Settings → Profile is where those are paused.
+  const isSelf = member.devices.some((device) => device.id === selfDeviceId);
 
   return (
     <div>
-      {expandable ? (
-        <button
-          type="button"
-          className={rowClass}
-          onClick={() => setExpanded((v) => !v)}
-          aria-expanded={expanded}
-          aria-controls={devicesId}
-        >
-          {summary}
-        </button>
-      ) : (
-        <div className={rowClass}>{summary}</div>
-      )}
+      <div className={cardClass}>
+        {expandable ? (
+          <button
+            type="button"
+            className={summaryClass}
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            aria-controls={devicesId}
+          >
+            {summary}
+          </button>
+        ) : (
+          <div className={summaryClass}>{summary}</div>
+        )}
+        {!isSelf && <MemberSyncButton spaceId={spaceId} member={member} />}
+      </div>
 
       {expandable && (
         // Grid rows animate from nothing to content height without the height
@@ -418,7 +551,7 @@ function MemberRow({
             className="overflow-hidden ms-6 border-s border-border/70 ps-3.5"
             aria-label={t("space.devicesHeading", "Devices")}
           >
-            {member.devices.map((device) => (
+            {devices.map((device) => (
               <DeviceRow
                 key={device.id}
                 device={device}
@@ -494,6 +627,7 @@ function MembersTab({
 
   const [showActive, setShowActive] = useState(true);
   const [showInactive, setShowInactive] = useState(false);
+  const [showPaused, setShowPaused] = useState(false);
   // Naming the device this app runs on beats fingerprinting it.
   const { user: self } = useAuth();
 
@@ -538,7 +672,7 @@ function MembersTab({
 
   // Split by activity tier so stale / never-seen members can be folded away
   // instead of bloating the list. Each group is sorted most-recent-first.
-  const { active, inactive } = useMemo(() => {
+  const { active, inactive, paused } = useMemo(() => {
     const byRecent = (a: ISpaceMember, b: ISpaceMember) => {
       if (!a.lastSeen && !b.lastSeen) return 0;
       if (!a.lastSeen) return 1;
@@ -547,19 +681,29 @@ function MembersTab({
     };
     const active: ISpacePerson[] = [];
     const inactive: ISpacePerson[] = [];
+    const paused: ISpacePerson[] = [];
     for (const member of members ?? []) {
-      if (getPresence(member.lastSeen) === "inactive") inactive.push(member);
+      // Paused takes the member out of the activity tiers entirely. It is a
+      // decision this person made rather than something the member did, and
+      // this is the group they will come back to when they want it undone —
+      // so it must not depend on how recently that member happened to be seen.
+      if (member.syncPaused) paused.push(member);
+      else if (getPresence(member.lastSeen) === "inactive") inactive.push(member);
       else active.push(member);
     }
     return {
       active: active.sort(byRecent),
       inactive: inactive.sort(byRecent),
+      paused: paused.sort(byRecent),
     };
   }, [members]);
 
-  const hasMembers = active.length > 0 || inactive.length > 0;
-  // With nobody active, keep the inactive group open so the panel isn't empty.
+  const hasMembers =
+    active.length > 0 || inactive.length > 0 || paused.length > 0;
+  // With nobody active, keep the folded groups open so the panel isn't empty.
   const inactiveExpanded = showInactive || active.length === 0;
+  const pausedExpanded =
+    showPaused || (active.length === 0 && inactive.length === 0);
 
   return (
     <div className="space-y-4 pt-4">
@@ -589,6 +733,7 @@ function MembersTab({
                 <MemberRow
                   key={member.id}
                   member={member}
+                  spaceId={spaceId}
                   onPreview={handlePreview}
                   selfDeviceId={self?.id}
                 />
@@ -614,7 +759,36 @@ function MembersTab({
                 <MemberRow
                   key={member.id}
                   member={member}
+                  spaceId={spaceId}
                   dimmed
+                  onPreview={handlePreview}
+                  selfDeviceId={self?.id}
+                />
+              ))}
+          </div>
+        </div>
+      )}
+
+      {paused.length > 0 && (
+        <div className="space-y-0.5">
+          <GroupHeader
+            label={t("space.pausedGroup", "Paused")}
+            count={paused.length}
+            expanded={pausedExpanded}
+            onToggle={
+              active.length > 0 || inactive.length > 0
+                ? () => setShowPaused((v) => !v)
+                : undefined
+            }
+            controls="space-members-paused"
+          />
+          <div id="space-members-paused" className="space-y-0.5">
+            {pausedExpanded &&
+              paused.map((member) => (
+                <MemberRow
+                  key={member.id}
+                  member={member}
+                  spaceId={spaceId}
                   onPreview={handlePreview}
                   selfDeviceId={self?.id}
                 />

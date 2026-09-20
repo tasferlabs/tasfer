@@ -6,6 +6,7 @@ function member(
   id: string,
   rootKey: string | null,
   lastSeen: string | null = null,
+  syncPaused = false,
 ): ISpaceMember {
   return {
     id,
@@ -16,6 +17,7 @@ function member(
     userAvatar: null,
     lastSeen,
     rootKey,
+    syncPaused,
   };
 }
 
@@ -84,5 +86,17 @@ describe("grouping space members by person", () => {
 
     expect(grouped).toHaveLength(2);
     expect(grouped.every((m) => m.devices.length === 1)).toBe(true);
+  });
+
+  it("counts a person as paused only once every device of theirs is", () => {
+    const [halfPaused, allPaused] = groupMembersByPerson([
+      member("laptop", "root-a", null, true),
+      member("phone", "root-a", null, false),
+      member("their-laptop", "root-b", null, true),
+      member("their-phone", "root-b", null, true),
+    ]);
+
+    expect(halfPaused.syncPaused).toBe(false);
+    expect(allPaused.syncPaused).toBe(true);
   });
 });
