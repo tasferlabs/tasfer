@@ -174,6 +174,79 @@ describe("createDoc", () => {
     ).toBe(contentId);
   });
 
+  it("keeps a local op listed after one minted later than it", () => {
+    // The shape a paste emitted: the attachment is minted before the anchor
+    // text that carries it, but listed after it. The version vector is max-only
+    // per peer, so judging each op against the vector the previous op advanced
+    // skipped the attachment — it reached the log but never the doc's state.
+    const pageId = "page-order";
+    const peer = "p-order";
+    const blockId = `${peer}:1`;
+    const contentId = `${peer}:3`;
+    const blockInsert: Operation = {
+      op: "block_insert",
+      id: `${peer}:2`,
+      clock: { counter: 1, peerId: peer },
+      pageId,
+      orderKey: "a0",
+      blockId,
+      blockType: "paragraph",
+    };
+    const contentInit: Operation = {
+      op: "content_edit",
+      id: `${peer}:4`,
+      clock: { counter: 2, peerId: peer },
+      pageId,
+      blockId,
+      contentId,
+      edit: {
+        kind: "document_init",
+        document: {
+          version: 1,
+          kind: "math",
+          rootId: contentId,
+          nodes: {
+            [contentId]: {
+              id: contentId,
+              type: "root",
+              placement: { parentId: null, slot: "", orderKey: "" },
+              attrs: {},
+              textFields: {},
+            },
+          },
+        },
+      },
+    };
+    const textInsert: Operation = {
+      op: "text_insert",
+      id: `${peer}:6`,
+      clock: { counter: 3, peerId: peer },
+      pageId,
+      blockId,
+      afterCharId: null,
+      charRuns: [{ peerId: peer, startCounter: 5, text: "￼" }],
+    };
+    const markSet: Operation = {
+      op: "mark_set",
+      id: `${peer}:7`,
+      clock: { counter: 4, peerId: peer },
+      pageId,
+      blockId,
+      charIds: [`${peer}:5`],
+      format: { type: "math", attrs: { contentId } },
+      value: true,
+    };
+    const doc = createDoc({ pageId, ops: [] });
+    doc._ingestLocal([blockInsert], "editor");
+    doc._ingestLocal([textInsert, contentInit, markSet], "editor");
+
+    expect(doc.getOperations()).toHaveLength(4);
+    expect(doc.getRawBlocks()[0]?.structuredContent?.[contentId]).toBeDefined();
+    expect(doc.getRawBlocks()).toEqual(
+      rebuildState(pageId, doc.getOperations()).blocks,
+    );
+  });
+
   it("round-trips through encodeState / createDoc(bytes)", () => {
     const [batch] = makePeerBatches("p-eee", ["persisted"]);
     const original = createDoc({ pageId: "page-9", ops: [] });

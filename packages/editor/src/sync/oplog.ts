@@ -116,6 +116,11 @@ export function appendOp(
     return log;
   }
 
+  return appendFreshOp(log, op, schema);
+}
+
+/** {@link appendOp} for an op the caller already knows is not in the log. */
+function appendFreshOp(log: OpLog, op: Operation, schema: DataSchema): OpLog {
   // Insert operation in HLC order
   const newOps = [...log.operations];
   let insertIndex = newOps.length;
@@ -146,10 +151,20 @@ export function appendOp(
 }
 
 /**
- * Append operations produced by this replica. Local edits are already ordered
- * and fresh, so the normal path stays incremental. The only local transaction
- * that needs mergeOps' dependency replay is one that creates structured
- * content before inserting its host block.
+ * Append operations produced by this replica. Local edits are fresh, so the
+ * normal path stays incremental. The only local transaction that needs
+ * mergeOps' dependency replay is one that creates structured content before
+ * inserting its host block.
+ *
+ * A transaction is not guaranteed to list its ops in the order it minted them
+ * (a paste mints an equation's `document_init` before the text that carries
+ * it, then emits the text first). Deciding "already known" op by op would let
+ * the later-minted op raise the max-only version vector past the earlier one,
+ * which would then be skipped: it still reaches disk and peers, but never this
+ * replica's state — the equation renders blank, and so does every snapshot
+ * saved from this state. So freshness is judged against the version vector
+ * from before the batch, and the batch is applied in HLC order, the order
+ * every other replica and a rebuild from the log replay it in.
  */
 export function appendLocalOps(
   log: OpLog,
@@ -158,20 +173,24 @@ export function appendLocalOps(
 ): OpLog {
   if (ops.length === 0) return log;
 
+  const fresh = ops
+    .filter((op) => !isOpKnown(log.versionVector, op))
+    .sort((a, b) => compareHLC(a.clock, b.clock));
+
   const pendingContentBlocks = new Set<string>();
-  for (const op of ops) {
+  for (const op of fresh) {
     if (op.op === "content_edit") {
       pendingContentBlocks.add(op.blockId);
     } else if (
       op.op === "block_insert" &&
       pendingContentBlocks.has(op.blockId)
     ) {
-      return mergeOps(log, ops, schema);
+      return mergeOps(log, fresh, schema);
     }
   }
 
   let next = log;
-  for (const op of ops) next = appendOp(next, op, schema);
+  for (const op of fresh) next = appendFreshOp(next, op, schema);
   return next;
 }
 
