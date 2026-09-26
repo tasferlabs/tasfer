@@ -289,8 +289,11 @@ export function normalizeInitOp<T>(op: T): T {
 
 // Bump whenever the materialized Block projection gains persisted semantics
 // that an older snapshot writer could have omitted while still sharing the same
-// op-log frontier (v2 adds generic structured-content attachments).
-const PAGE_SNAPSHOT_FORMAT = 2;
+// op-log frontier (v2 adds generic structured-content attachments). Also bump
+// to force a one-time rebuild when snapshots were written from a wrong live
+// state: v3 discards snapshots saved while a pasted equation's attachment was
+// missing from the live doc though present in the log.
+const PAGE_SNAPSHOT_FORMAT = 3;
 
 // Android reaches SQLite through a bridge that splits multi-statement blocks
 // itself, and builds already installed split naively — keep `;` out of the SQL
