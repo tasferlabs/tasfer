@@ -1320,6 +1320,14 @@ function insertBlocksAtCursor(
         newState.document.page.blocks,
         currentBlock.id,
       );
+      // The block's own ops are minted before its attachments and emitted in
+      // that same order (see `pushAtomicBlockOps`).
+      const blockOps = atomicBlockInsertOps(
+        atomicBlock,
+        newBlockId,
+        orderKey,
+        state.CRDTbinding,
+      );
       const adopted = adoptPastedStructuredContent(
         atomicBlock,
         newBlockId,
@@ -1336,15 +1344,7 @@ function insertBlocksAtCursor(
       };
       invalidateBlockCache(newAtomicBlock);
 
-      ops.push(
-        ...atomicBlockInsertOps(
-          atomicBlock,
-          newBlockId,
-          orderKey,
-          state.CRDTbinding,
-        ),
-        ...adopted.ops,
-      );
+      ops.push(...blockOps, ...adopted.ops);
 
       // Insert the block at its canonical sorted position — `blocks` keeps
       // tombstones, and a tombstone tied on the current block's orderKey means
@@ -1401,6 +1401,8 @@ function insertBlocksAtCursor(
       state,
     );
     if (!adoptedPasted) return { state, ops: [] };
+    // Emitted in the order they were minted: ahead of the text insert below.
+    ops.push(...adoptedPasted.ops);
 
     // Insert the pasted text at cursor position
     const { newPage: pageAfterInsert, op: insertOp } = insertCharsAtPosition(
@@ -1417,7 +1419,6 @@ function insertBlocksAtCursor(
     // not from index ranges).
     let pageAcc = pageAfterInsert;
     if (adoptedPasted.ops.length > 0) {
-      ops.push(...adoptedPasted.ops);
       pageAcc = applyOps(pageAcc, [...adoptedPasted.ops], state.schema);
     }
     const pasteChars: Char[] = [];
@@ -1728,6 +1729,8 @@ function insertBlocksAtCursor(
         state,
       );
       if (!adoptedFirst) return { state, ops: [] };
+      // Emitted in the order they were minted: ahead of the text insert below.
+      ops.push(...adoptedFirst.ops);
       // Skip the insert when the first pasted block contributes no visible chars
       // (e.g. an empty source block) — inserting an empty run would throw in the
       // CRDT layer. The current block then just keeps its before-cursor content,
@@ -1746,7 +1749,6 @@ function insertBlocksAtCursor(
         ops.push(firstInsertOp);
         firstInsertedCharRuns = firstInsertOp.charRuns;
       }
-      ops.push(...adoptedFirst.ops);
       const firstBlockInPage = pasteWorkPage.blocks.find(
         (b) => b.id === currentBlock.id,
       );
@@ -2144,7 +2146,9 @@ function insertBlocksAtCursor(
         invalidateBlockCache(lastBlock);
 
         ops.push(lastBlockInsertOp);
-        ops.push(...adoptedLast.ops, ...clonedContent.ops);
+        // In minting order: the tail's clones were minted before the pasted
+        // block's own attachments.
+        ops.push(...clonedContent.ops, ...adoptedLast.ops);
 
         // Add text_insert operation for the block's content
         if (allNewChars.length > 0) {
