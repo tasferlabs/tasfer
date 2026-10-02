@@ -39,7 +39,6 @@ import {
   REGION_DRAG_START,
   SCROLL,
   TEXT_INPUT,
-  isApplePlatform,
   mergeRegister,
   type Block,
   type ContentPoint,
@@ -125,6 +124,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { useShortcuts } from "@/shortcuts/ShortcutsContext";
 import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
 import { TableTools } from "../editor/TableTools";
 import { TableToolsContext, useTableTools } from "../editor/tableContext";
@@ -1616,6 +1616,7 @@ function PageEditor({
   const { setOnOpenFind, fontStyle, editorWidth, density } = usePageSettings();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { t } = useTranslation();
+  const shortcuts = useShortcuts();
   const mountedRef = useRef<MountedEditorInstance | null>(null);
   // The shared doc is owned above us by useCollaborativeDoc; we're a view over it.
   const doc = collab.doc;
@@ -3452,14 +3453,13 @@ function PageEditor({
       // Don't intercept when a dialog or drawer is open
       if (document.querySelector('[role="dialog"]')) return;
 
-      // ⌘F on Apple, Ctrl+F elsewhere — not either-or: bare ⌃F is the caret's
-      // forward-character move on macOS, which the editor now honors. Matched on
-      // `code` so a non-Latin layout still reaches find.
-      const isCmd = isApplePlatform() ? e.metaKey : e.ctrlKey;
-      if (isCmd && e.code === "KeyF") {
+      // ⌘F on Apple, Ctrl+F elsewhere by default — not either-or: bare ⌃F is
+      // the caret's forward-character move on macOS, which the editor honors.
+      // Matched on the physical key, so a non-Latin layout still reaches find.
+      if (shortcuts.matches("editor.find", e)) {
         e.preventDefault();
         setFindBarOpen(true);
-      } else if (isCmd && e.code === "KeyS" && !e.shiftKey && !e.altKey) {
+      } else if (shortcuts.matches("editor.saveMarkdown", e)) {
         // ⌘S downloads the page as Markdown. The engine lets the chord
         // through — what saving means is the host's call — and the browser's
         // own "save page" dialog is never what was meant here. Held down, it
@@ -3485,7 +3485,7 @@ function PageEditor({
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [shortcuts]);
 
   // Search logic — compute matches when the find query changes.
   const performSearch = useCallback((text: string) => {

@@ -8,7 +8,6 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  isApplePlatform,
   type ContentPoint,
   type Doc,
   type DocPoint,
@@ -24,7 +23,7 @@ import {
 import { useDocumentIgnores } from "./documentIgnores";
 import { SPELL_PREF_KEYS } from "./personalDictionary";
 import { useSpellService, useSpellSetting } from "./SpellProvider";
-import { spellShortcutFor } from "./spellShortcut";
+import { useShortcuts } from "@/shortcuts/ShortcutsContext";
 import { SuggestionBar, useSuggestionBarSlot } from "./SuggestionBar";
 import { SuggestionPopover } from "./SuggestionPopover";
 
@@ -143,6 +142,7 @@ export const SpellcheckLayer = forwardRef<
   const { t } = useTranslation();
   const service = useSpellService();
   const slot = useSuggestionBarSlot();
+  const shortcuts = useShortcuts();
   const enabled = useSpellSetting<boolean>(SPELL_PREF_KEYS.enabled, true).value;
   const lenientArabic = useSpellSetting<boolean>(
     SPELL_PREF_KEYS.lenientArabic,
@@ -576,7 +576,13 @@ export const SpellcheckLayer = forwardRef<
   useEffect(() => {
     if (!active) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      const which = spellShortcutFor(e, isApplePlatform());
+      // ⌘. fixes the word at the caret or jumps to the next mistake; ⌘⇧. goes
+      // back to the previous one. Rebindable in Settings → Shortcuts.
+      const which = shortcuts.matches("editor.spellFixOrNext", e)
+        ? "fixOrNext"
+        : shortcuts.matches("editor.spellPrevious", e)
+          ? "prev"
+          : null;
       if (!which) return;
       // Same guards as the find chord: never over a dialog, never when another
       // text field owns the keyboard.
@@ -601,7 +607,7 @@ export const SpellcheckLayer = forwardRef<
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [active, editor, prev, fixOrNext]);
+  }, [active, editor, prev, fixOrNext, shortcuts]);
 
   // The footer's "Spelling: n" pill.
   useEffect(() => {

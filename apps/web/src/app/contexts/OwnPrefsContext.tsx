@@ -128,6 +128,13 @@ export const OWN_PREF_KEYS = {
    * `IGNORES_PREF_PREFIX` in `src/spell/documentIgnores.ts`.
    */
   spellIgnorePrefix: "spell.ignore.",
+  /**
+   * Key PREFIX: `shortcut.<commandId>` → `string[]`, the chords that command
+   * answers in place of its defaults (`[]` for none); `null` puts it back on
+   * the defaults. One key per command, so two devices changing different
+   * shortcuts never overwrite each other. Read through `@/shortcuts`.
+   */
+  shortcutPrefix: "shortcut.",
 } as const;
 
 /**

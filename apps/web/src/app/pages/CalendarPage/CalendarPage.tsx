@@ -13,6 +13,7 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { useTranslation } from "react-i18next";
+import { useShortcuts } from "@/shortcuts/ShortcutsContext";
 import i18next from "i18next";
 import { useSpaces } from "../../contexts/SpaceContext";
 import useLocalStorage from "../../hooks/useLocalStorage";
@@ -123,6 +124,7 @@ interface ResizeState {
 
 export default function CalendarPage() {
   const { t } = useTranslation();
+  const shortcuts = useShortcuts();
   // Re-render when this person changes a date or time setting on any device.
   useDateTimePrefs();
   const isRtl = i18next.dir() === "rtl";
@@ -2139,57 +2141,46 @@ export default function CalendarPage() {
       )
         return;
 
-      const mod = e.metaKey || e.ctrlKey;
-      if (mod && (e.key === "z" || e.key === "Z")) {
+      // Each on the chords the person bound in Settings → Shortcuts. Undo and
+      // redo share the editor's bindings, so one change covers both.
+      if (shortcuts.matches("undo", e)) {
         e.preventDefault();
-        void (e.shiftKey ? runRedo() : runUndo());
+        void runUndo();
         return;
       }
-      if (mod && (e.key === "y" || e.key === "Y")) {
+      if (shortcuts.matches("redo", e)) {
         e.preventDefault();
         void runRedo();
         return;
       }
-      // The single-letter shortcuts below must not swallow the browser's own
-      // modifier combos (⌘P, ⌘T).
-      if (mod || e.altKey) return;
-
-      switch (e.key) {
-        case "p":
-          e.preventDefault();
-          goToDay(-1);
-          break;
-        case "n":
-          e.preventDefault();
-          goToDay(1);
-          break;
-        case "t":
-          e.preventDefault();
-          goToToday();
-          break;
-        case "c": {
-          e.preventDefault();
-          // Land where the user is looking: the next quarter-hour when today is
-          // on screen, the start of the working day otherwise. The draft opens
-          // with the title focused, so a whole event is "c", type, ⌘↵ — no
-          // pointer, and no drag to place a card the fields can restate.
-          const start = isToday
-            ? Math.ceil(nowMinutes / SNAP_MINUTES) * SNAP_MINUTES
-            : KEYBOARD_CREATE_START_MINUTES;
-          createPageAtTime(
-            Math.min(start, TOTAL_HOURS * 60 - KEYBOARD_CREATE_MINUTES),
-            KEYBOARD_CREATE_MINUTES,
-          );
-          break;
-        }
-        case "1":
-          e.preventDefault();
-          setViewMode("day");
-          break;
-        case "2":
-          e.preventDefault();
-          setViewMode("week");
-          break;
+      if (shortcuts.matches("calendar.previous", e)) {
+        e.preventDefault();
+        goToDay(-1);
+      } else if (shortcuts.matches("calendar.next", e)) {
+        e.preventDefault();
+        goToDay(1);
+      } else if (shortcuts.matches("calendar.today", e)) {
+        e.preventDefault();
+        goToToday();
+      } else if (shortcuts.matches("calendar.newEvent", e)) {
+        e.preventDefault();
+        // Land where the user is looking: the next quarter-hour when today is
+        // on screen, the start of the working day otherwise. The draft opens
+        // with the title focused, so a whole event is "c", type, ⌘↵ — no
+        // pointer, and no drag to place a card the fields can restate.
+        const start = isToday
+          ? Math.ceil(nowMinutes / SNAP_MINUTES) * SNAP_MINUTES
+          : KEYBOARD_CREATE_START_MINUTES;
+        createPageAtTime(
+          Math.min(start, TOTAL_HOURS * 60 - KEYBOARD_CREATE_MINUTES),
+          KEYBOARD_CREATE_MINUTES,
+        );
+      } else if (shortcuts.matches("calendar.dayView", e)) {
+        e.preventDefault();
+        setViewMode("day");
+      } else if (shortcuts.matches("calendar.weekView", e)) {
+        e.preventDefault();
+        setViewMode("week");
       }
     }
 
@@ -2204,6 +2195,7 @@ export default function CalendarPage() {
     nowMinutes,
     runUndo,
     runRedo,
+    shortcuts,
   ]);
 
   const noopHandler = useCallback(() => {}, []);

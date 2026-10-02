@@ -1,5 +1,5 @@
-import { isApplePlatform } from "@tasfer/editor";
 import { ShortcutKeys } from "./ShortcutKeys";
+import { useShortcuts } from "@/shortcuts/ShortcutsContext";
 import { Command } from "cmdk";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -161,6 +161,7 @@ export function ActionCenter() {
   const { setTheme, effectiveTheme } = useTheme();
   const queryClient = useQueryClient();
   const { isMobile, isShort } = useMobileLayout();
+  const shortcuts = useShortcuts();
   const keyboardInset = useKeyboardInset();
   const { checkForUpdate } = useVersion();
   const { toast } = useToast();
@@ -492,13 +493,12 @@ export function ActionCenter() {
     };
   }, [search, pages, actions, frecency]);
 
-  // Global keyboard shortcut. Matched on the command modifier the platform
-  // actually uses (⌘ on Apple, Ctrl elsewhere) and on `code`, so it survives a
-  // non-Latin layout — `e.key` is "لا" for this key on an Arabic keyboard.
+  // Global keyboard shortcut, on whatever chord the person bound it to. The
+  // match is on the physical key, so it survives a non-Latin layout — `e.key`
+  // is "لا" for ⌘K on an Arabic keyboard.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const isCmd = isApplePlatform() ? e.metaKey : e.ctrlKey;
-      if (isCmd && e.code === "KeyK") {
+      if (shortcuts.matches("app.commandPalette", e)) {
         e.preventDefault();
         e.stopPropagation();
         setOpen((prev) => !prev);
@@ -506,7 +506,7 @@ export function ActionCenter() {
     };
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
-  }, []);
+  }, [shortcuts]);
 
   // Reset search when closing
   useEffect(() => {

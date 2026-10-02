@@ -1,7 +1,6 @@
 import { MoreVertical, Plus } from "lucide-react";
 import { useEffect, useId, useMemo, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
-import { isApplePlatform } from "@tasfer/editor";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -13,7 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import { useConfirmation } from "@/app/components/ConfirmationDialog";
-import { ShortcutKeys } from "@/app/components/ShortcutKeys";
+import { CommandKeys } from "@/app/components/ShortcutKeys";
 import useResponsive from "@/app/hooks/useResponsive";
 import { cn } from "@/lib/utils";
 import {
@@ -27,7 +26,7 @@ import { SPELL_PREF_KEYS } from "@/spell/personalDictionary";
 import type { ImportBytes } from "@/spell/userDictionaries";
 import type { SpellService } from "@/spell/SpellService";
 import { useSpellService, useSpellSetting } from "@/spell/SpellProvider";
-import { spellShortcutKeys } from "@/spell/spellShortcut";
+import { useShortcutChords } from "@/shortcuts/ShortcutsContext";
 import { AddDictionaryDialog } from "./AddDictionaryDialog";
 import { AddLanguageDialog } from "./AddLanguageDialog";
 import { PersonalDictionaryDialog } from "./PersonalDictionaryDialog";
@@ -57,6 +56,7 @@ export function Spelling() {
   // Right-click and the chord are both mouse-and-keyboard affordances; a
   // touch-only device gets the suggestion bar above the keyboard instead.
   const isFine = useResponsive("(pointer: fine)");
+  const hasSpellChord = useShortcutChords("editor.spellFixOrNext").length > 0;
   const [dictionaryOpen, setDictionaryOpen] = useState(false);
   const [addLanguageOpen, setAddLanguageOpen] = useState(false);
   const [addFileOpen, setAddFileOpen] = useState(false);
@@ -96,16 +96,19 @@ export function Spelling() {
       <Section
         title={t("settings.spelling.title", "Spelling")}
         description={
-          isFine ? (
+          isFine && hasSpellChord ? (
             <Trans
               i18nKey="settings.spelling.description"
               defaults="Misspelled words get a red underline as you type. Use the right-click menu on an underlined word or <shortcut /> to fix it."
               components={{
-                shortcut: (
-                  <ShortcutKeys keys={spellShortcutKeys(isApplePlatform())} />
-                ),
+                shortcut: <CommandKeys id="editor.spellFixOrNext" />,
               }}
             />
+          ) : isFine ? (
+            t(
+              "settings.spelling.descriptionNoShortcut",
+              "Misspelled words get a red underline as you type. Use the right-click menu on an underlined word to fix it.",
+            )
           ) : (
             t(
               "settings.spelling.descriptionTouch",
