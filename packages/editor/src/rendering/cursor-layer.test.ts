@@ -319,6 +319,49 @@ describe("cursor layer — a peer's caret the node owns", () => {
     expect(hitAreas).toHaveLength(1);
     expect(hitAreas[0].contentPoint).toEqual(peerPoint);
   });
+
+  describe("the top padding a host reserves for its own chrome", () => {
+    const padded: EditorStyles = {
+      ...styles,
+      canvas: { ...styles.canvas, paddingTop: 48 },
+    };
+    const caretX = padded.canvas.paddingLeft + STUB_RECT.x;
+    const labelY = (rec: ReturnType<typeof recordingCtx>) =>
+      rec.named("roundRect")[0]?.args[1];
+
+    it("keeps the label out of the padding while it is on screen", () => {
+      const state = stateWith(new NestedCaretNode(), null, {
+        decorations: peerCaretLayer(peerPoint),
+      });
+      const rec = recordingCtx();
+
+      renderCursorLayer(rec.ctx, peerSession(), state, viewport, padded);
+
+      expect(labelY(rec)).toBe(48);
+    });
+
+    it("lets the label sit above its caret once the padding scrolled away", () => {
+      // Scrolled 50px: the caret lands 10px from the viewport top, inside the
+      // band the padding used to occupy. It must still paint, with its label
+      // above it rather than pushed down onto it.
+      const state = stateWith(new NestedCaretNode(), null, {
+        decorations: peerCaretLayer(peerPoint),
+      });
+      const rec = recordingCtx();
+
+      renderCursorLayer(
+        rec.ctx,
+        peerSession(),
+        state,
+        { ...viewport, scrollY: 50 },
+        padded,
+      );
+
+      const caret = rec.named("fillRect").find((c) => c.args[0] === caretX);
+      expect(caret?.args[1]).toBe(10);
+      expect(labelY(rec)).toBe(0);
+    });
+  });
 });
 
 /**

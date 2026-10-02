@@ -958,6 +958,10 @@ function renderCaretDecorations(
   heightIndex?: BlockHeightIndex,
 ) {
   const outOfViewPeers: OutOfViewPeer[] = [];
+  // Where document content starts on screen. The top padding is document
+  // space (hosts reserve it for chrome that scrolls with the page, like a tag
+  // row), so once scrolled past it the whole viewport is free for carets.
+  const contentTop = Math.max(0, styles.canvas.paddingTop - viewport.scrollY);
 
   for (const caret of carets) {
     const { position, block, decoration } = caret;
@@ -990,8 +994,8 @@ function renderCaretDecorations(
     );
     if (!cursorPos) continue;
 
-    // Check if cursor is out of viewport (account for top padding where tags may overlay)
-    if (cursorPos.y + cursorPos.height < styles.canvas.paddingTop) {
+    // Check if cursor is out of viewport (above the content's on-screen top)
+    if (cursorPos.y + cursorPos.height < contentTop) {
       outOfViewPeers.push({
         caret,
         direction: "above",
@@ -1066,9 +1070,10 @@ function renderCaretDecorations(
       if (labelX < 0) {
         labelX = 0;
       }
-      // Prevent going into the top padding area (where tags overlay)
-      if (labelY < styles.canvas.paddingTop) {
-        labelY = styles.canvas.paddingTop;
+      // Keep out of the top padding while it is on screen (host chrome may
+      // overlay it); scrolled past it, only the viewport edge stops the label
+      if (labelY < contentTop) {
+        labelY = contentTop;
       }
 
       // Draw label background
