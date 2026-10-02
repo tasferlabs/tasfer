@@ -23,8 +23,12 @@ import {
 import { deriveTitles } from "@/lib/pageTitle";
 import { getResolvedTimezone } from "@/lib/dateTimePreferences";
 import { useDateTimePrefs } from "@/app/contexts/DateTimePrefsContext";
-import { REMEMBER_KEYS } from "@/lib/rememberedChoice";
 import {
+  OWN_PREF_KEYS,
+  useOwnPrefsStore,
+} from "@/app/contexts/OwnPrefsContext";
+import {
+  forgetParent,
   getLastParent,
   recordParentUse,
   type RecentParent,
@@ -63,7 +67,7 @@ import {
   useUpdatePage,
   type ISearchPage,
 } from "../../api/pages.api";
-import { SpaceSelect, rememberedSpaceId } from "../../components/SpaceSelect";
+import { SpaceSelect } from "../../components/SpaceSelect";
 import { useSidebarPanel } from "../../contexts/SidebarPanelContext";
 import { useSpaces } from "../../contexts/SpaceContext";
 import { useDebouncedSave } from "../../hooks/useDebouncedSave";
@@ -243,6 +247,7 @@ export function EventPreview({
   const { panelRef, setHasPanel, slotMounted } = useSidebarPanel();
   const { firstSpaceId, spaces } = useSpaces();
   const { getConfirmation } = useConfirmation();
+  const ownPrefs = useOwnPrefsStore();
   const calendarInteractionActiveRef = useRef(calendarInteractionActive);
   calendarInteractionActiveRef.current = calendarInteractionActive;
 
@@ -255,6 +260,11 @@ export function EventPreview({
   // The parent a new draft opens tagged with, before it has been checked
   // against the live rows. See the pre-fill block further down.
   const [prefillParent, setPrefillParent] = useState<RecentParent | null>(null);
+  // Pre-fill candidates found to point at a deleted page. This device can only
+  // drop them from its own stats; another device may still list them.
+  const prefillGoneRef = useRef(new Set<string>());
+  // Whether the user has picked this draft's space themselves.
+  const draftSpaceTouchedRef = useRef(false);
   const [draftIsTask, setDraftIsTask] = useState(true);
   const [draftSpaceId, setDraftSpaceId] = useState<string | null>(firstSpaceId);
   // Desktop draft parent picker: search mode swaps in for the drill-down rows.
@@ -356,20 +366,56 @@ export function EventPreview({
       setDraftParent(null);
       draftParentTouchedRef.current = false;
       setDraftIsTask(true);
-      // A draft opens in the space the last one was filed under, not in
-      // whichever space the sidebar happens to be showing.
-      const targetSpaceId =
-        rememberedSpaceId(REMEMBER_KEYS.eventSpace, spacesRef.current) ??
-        firstSpaceId;
-      setDraftSpaceId(targetSpaceId);
-      // Read the pre-fill candidate here, as the draft opens, rather than
-      // deriving it: every draft in a run has to ask again, and only a draft
-      // asks at all.
-      setPrefillParent(pageId ? null : getLastParent(targetSpaceId));
+      draftSpaceTouchedRef.current = false;
+      const pickSpace = () => {
+        // A draft opens in the space the last one was filed under — on any of
+        // the person's devices — not in whichever space the sidebar happens
+        // to be showing. A space since deleted or left falls back to the
+        // first.
+        const remembered = ownPrefs.get<string | null>(
+          OWN_PREF_KEYS.calendarEventSpace,
+          null,
+        );
+        const targetSpaceId =
+          remembered && spacesRef.current.some((sp) => sp.id === remembered)
+            ? remembered
+            : firstSpaceId;
+        setDraftSpaceId(targetSpaceId);
+        // Read the pre-fill candidate here, as the draft opens, rather than
+        // deriving it: every draft in a run has to ask again, and only a draft
+        // asks at all.
+        setPrefillParent(
+          pageId
+            ? null
+            : getLastParent(ownPrefs, targetSpaceId, {
+                skip: prefillGoneRef.current,
+              }),
+        );
+      };
+      pickSpace();
       setParentSearchOpen(false);
       setDetailsOpen(false);
+      // Right after launch the preferences may not have been read yet, and
+      // the remembered space and stats read as absent until they are. Choose
+      // again once they land, unless the person has already chosen.
+      if (!ownPrefs.getSnapshot().loaded) {
+        let cancelled = false;
+        void ownPrefs.whenLoaded().then(() => {
+          if (
+            cancelled ||
+            draftSpaceTouchedRef.current ||
+            draftParentTouchedRef.current
+          ) {
+            return;
+          }
+          pickSpace();
+        });
+        return () => {
+          cancelled = true;
+        };
+      }
     }
-  }, [pageId, draftActive, firstSpaceId]);
+  }, [pageId, draftActive, firstSpaceId, ownPrefs]);
 
   // Compute initial position from anchor (only when pos is null)
   const computed = useMemo(
@@ -631,15 +677,22 @@ export function EventPreview({
   const { data: rootPages } = useGetPages(eventSpaceId, null);
   const hasParentCandidates = !!rootPages?.some((p) => p.id !== pageId);
 
-  const handleDraftSpaceChange = useCallback((spaceId: string) => {
-    setDraftSpaceId(spaceId);
-    // Parent pages cannot cross space boundaries, so the choice — and the
-    // pre-fill that would have made it — starts over in the new space.
-    setDraftParent(null);
-    draftParentTouchedRef.current = false;
-    setPrefillParent(getLastParent(spaceId));
-    setParentSearchOpen(false);
-  }, []);
+  const handleDraftSpaceChange = useCallback(
+    (spaceId: string) => {
+      setDraftSpaceId(spaceId);
+      draftSpaceTouchedRef.current = true;
+      ownPrefs.set(OWN_PREF_KEYS.calendarEventSpace, spaceId);
+      // Parent pages cannot cross space boundaries, so the choice — and the
+      // pre-fill that would have made it — starts over in the new space.
+      setDraftParent(null);
+      draftParentTouchedRef.current = false;
+      setPrefillParent(
+        getLastParent(ownPrefs, spaceId, { skip: prefillGoneRef.current }),
+      );
+      setParentSearchOpen(false);
+    },
+    [ownPrefs],
+  );
 
   const handleTaskToggle = useCallback(() => {
     if (isDraft) {
@@ -668,7 +721,7 @@ export function EventPreview({
       if (!pageId) return;
       // Filing an existing page under a parent counts as using that parent,
       // same as drafting an event under it.
-      if (page) recordParentUse(eventSpaceId, page);
+      if (page) recordParentUse(ownPrefs, eventSpaceId, page);
       // The picker keeps the chosen tag lit from `previewPage`, so paint the
       // move into the cache now rather than waiting out the round trip.
       queryClient.setQueryData(["page", pageId], (old: any) =>
@@ -692,7 +745,7 @@ export function EventPreview({
       );
       movePage({ id: pageId, parentId: page?.id ?? null });
     },
-    [isDraft, pageId, eventSpaceId, movePage, queryClient],
+    [isDraft, pageId, eventSpaceId, movePage, queryClient, ownPrefs],
   );
 
   // ── Pre-filling the parent of a new draft ──
@@ -711,8 +764,20 @@ export function EventPreview({
   );
   useEffect(() => {
     if (!isDraft || !prefillParent || draftParentTouchedRef.current) return;
-    const live = prefillSiblings?.find((p) => p.id === prefillParent.id);
-    if (!live) return;
+    if (!prefillSiblings) return;
+    const live = prefillSiblings.find((p) => p.id === prefillParent.id);
+    if (!live) {
+      // Its row has loaded and it is not there: deleted since. Another device
+      // may still list it as the latest, so fall back to the one used before.
+      prefillGoneRef.current.add(prefillParent.id);
+      forgetParent(ownPrefs, draftTargetSpaceId, prefillParent.id);
+      setPrefillParent(
+        getLastParent(ownPrefs, draftTargetSpaceId, {
+          skip: prefillGoneRef.current,
+        }),
+      );
+      return;
+    }
     setDraftParent({
       id: live.id,
       title: live.title,
@@ -722,7 +787,7 @@ export function EventPreview({
       color: live.color ?? null,
       path: prefillParent.path,
     });
-  }, [isDraft, prefillParent, prefillSiblings]);
+  }, [isDraft, prefillParent, prefillSiblings, ownPrefs, draftTargetSpaceId]);
 
   // Derive current parent for existing pages. `parents` is the page's own
   // ancestor chain, root first, so everything above the parent is the parent's
@@ -1107,7 +1172,7 @@ export function EventPreview({
     // Record the filing, not the browsing: the ranking that feeds the picker's
     // shortcut row (and the pre-fill above) counts events actually saved under
     // a parent, so tapping through tags to look around doesn't skew it.
-    if (draftParent) recordParentUse(draftTargetSpaceId, draftParent);
+    if (draftParent) recordParentUse(ownPrefs, draftTargetSpaceId, draftParent);
     onDraftSave?.(
       content?.blocks,
       null,
@@ -1115,7 +1180,7 @@ export function EventPreview({
       draftIsTask,
       draftTargetSpaceId,
     );
-  }, [onDraftSave, draftParent, draftIsTask, draftTargetSpaceId]);
+  }, [onDraftSave, draftParent, draftIsTask, draftTargetSpaceId, ownPrefs]);
 
   // Desktop: Ctrl/Cmd+Enter saves a draft. Existing events already autosave, so
   // there is nothing to commit for them. Capture phase so the shortcut wins over
@@ -1330,7 +1395,6 @@ export function EventPreview({
           <SpaceSelect
             value={eventSpaceId}
             onChange={handleDraftSpaceChange}
-            remember={REMEMBER_KEYS.eventSpace}
             size="sm"
             className="flex-1"
             aria-label={t("space.selectSpace", "Select space")}

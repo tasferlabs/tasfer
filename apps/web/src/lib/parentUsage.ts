@@ -1,5 +1,5 @@
 /**
- * Which pages this device files calendar events under, ranked by use.
+ * Which pages this person files calendar events under, ranked by use.
  *
  * Tagging an event onto a parent means drilling the picker's rows from the top
  * every time, which punishes exactly the case that matters — a run of events
@@ -11,9 +11,11 @@
  * the same thing in both places: often-chosen beats rarely-chosen, and a stale
  * favourite decays behind what the user reaches for now.
  *
- * Like a remembered picker choice this is a per-device convenience rather than
- * a preference the user set, so it lives in `localStorage`, is never
- * replicated, and is keyed by space — a parent cannot cross a space boundary.
+ * The stats live in the own-prefs register, so they follow the person to their
+ * other devices (never to a co-member): a run of events started on the laptop
+ * carries on pre-tagged on the phone. Each device keeps its own tally per
+ * space and a read adds them up (see `./deviceTally`), so two devices filing
+ * at once never cost each other a count.
  *
  * Only ids and the ancestor chain are stored. Titles and colors are read back
  * from the live page rows at render time, so a renamed or deleted parent can
@@ -21,10 +23,31 @@
  */
 
 import { frecencyValue, type FrecencyEntry } from "./actionRanking";
+import {
+  readTally,
+  trimTally,
+  updateOwnTally,
+  type Tally,
+  type TallyPrefs,
+} from "./deviceTally";
 
-const KEY = "tasfer:calendar:parent-usage";
+/**
+ * Key PREFIX: `calendar.parentUsage.<spaceId>.<deviceKey>` → that device's
+ * usage in that space. Mirrored in `OWN_PREF_KEYS` so this module stays
+ * importable without the React context module.
+ */
+export const PARENT_USAGE_PREF_PREFIX = "calendar.parentUsage.";
 
-/** Kept per space: enough to rank honestly, small enough to stay cheap. */
+/** Where this device kept the stats before they moved to the register. */
+export const LEGACY_PARENT_USAGE_KEY = "tasfer:calendar:parent-usage";
+
+/** The slice of the own-prefs store the stats are read from and written to. */
+export type ParentUsagePrefs = TallyPrefs;
+
+/**
+ * Kept per space and device: enough to rank honestly, small enough to stay
+ * cheap to send between devices.
+ */
 const MAX_PER_SPACE = 24;
 
 /**
@@ -61,39 +84,37 @@ export interface ParentChoice {
   path?: ParentPathSegment[] | null;
 }
 
-type SpaceStore = Record<string, ParentUse>;
-type Store = Record<string, SpaceStore>;
-
-function storage(): Storage | null {
-  try {
-    return typeof localStorage !== "undefined" ? localStorage : null;
-  } catch {
-    // Unavailable (private mode) — nothing is remembered, nothing breaks.
-    return null;
-  }
+function spacePrefix(spaceId: string): string {
+  return `${PARENT_USAGE_PREF_PREFIX}${spaceId}.`;
 }
 
-function load(): Store {
-  const store = storage();
-  if (!store) return {};
-  try {
-    const raw = store.getItem(KEY);
-    const parsed = raw ? (JSON.parse(raw) as unknown) : null;
-    return parsed && typeof parsed === "object" ? (parsed as Store) : {};
-  } catch {
-    // Corrupt or unreadable: start over rather than break the picker.
-    return {};
-  }
+function isParentUse(
+  entry: FrecencyEntry & Record<string, unknown>,
+): entry is ParentUse & Record<string, unknown> {
+  return (
+    (entry.parentId === null || typeof entry.parentId === "string") &&
+    Array.isArray(entry.path)
+  );
 }
 
-function save(store: Store): void {
-  const target = storage();
-  if (!target) return;
-  try {
-    target.setItem(KEY, JSON.stringify(store));
-  } catch {
-    // A stat that cannot be stored simply isn't remembered.
-  }
+function byScore(now: number) {
+  return (a: ParentUse, b: ParentUse) =>
+    frecencyValue(b, now) - frecencyValue(a, now) || b.last - a.last;
+}
+
+/**
+ * The stats this device kept in `localStorage`, as this device's tally in
+ * each space, for `OwnPrefsStore` to adopt on first run.
+ */
+export function readLegacyParentUsage(
+  raw: string,
+  deviceKey: string,
+): Array<[string, unknown]> {
+  const parsed = JSON.parse(raw) as unknown;
+  if (!parsed || typeof parsed !== "object") return [];
+  return Object.entries(parsed as Record<string, unknown>)
+    .filter(([, space]) => space && typeof space === "object")
+    .map(([spaceId, space]) => [spacePrefix(spaceId) + deviceKey, space]);
 }
 
 /**
@@ -102,62 +123,54 @@ function save(store: Store): void {
  * so browsing the picker doesn't skew the ranking.
  */
 export function recordParentUse(
+  prefs: ParentUsagePrefs,
   spaceId: string | null | undefined,
   page: ParentChoice,
   now: number = Date.now(),
 ): void {
   if (!spaceId) return;
-  const store = load();
-  const space: SpaceStore = { ...(store[spaceId] ?? {}) };
-  const prev = space[page.id];
-  space[page.id] = {
-    count: (prev?.count ?? 0) + 1,
-    last: now,
-    parentId: page.parentId,
-    path: page.path ?? [],
-  };
-
-  // Trim the tail by score so an unbounded history can't grow in storage.
-  const ids = Object.keys(space);
-  if (ids.length > MAX_PER_SPACE) {
-    const ranked = ids
-      .sort(
-        (a, b) =>
-          frecencyValue(space[b]!, now) - frecencyValue(space[a]!, now) ||
-          space[b]!.last - space[a]!.last,
-      )
-      .slice(0, MAX_PER_SPACE);
-    const trimmed: SpaceStore = {};
-    for (const id of ranked) trimmed[id] = space[id]!;
-    store[spaceId] = trimmed;
-  } else {
-    store[spaceId] = space;
-  }
-  save(store);
+  updateOwnTally(
+    prefs,
+    spacePrefix(spaceId),
+    (own) => {
+      own[page.id] = {
+        count: (own[page.id]?.count ?? 0) + 1,
+        last: now,
+        parentId: page.parentId,
+        path: page.path ?? [],
+      };
+      return trimTally(own, MAX_PER_SPACE, byScore(now));
+    },
+    isParentUse,
+  );
 }
 
 /**
- * The space's most-used parents, best first. Callers resolve each id against
- * the live page rows and drop the ones that no longer exist.
+ * The space's most-used parents across all of the person's devices, best
+ * first. Callers resolve each id against the live page rows and drop the ones
+ * that no longer exist; `skip` leaves out ids already known to be gone, so
+ * their slots go to live pages.
  *
  * The last-used parent is always among them, even when its score doesn't earn a
  * slot: it is the one a new draft opens pre-tagged with, and a selection the
  * picker can't show anywhere is worse than a shortcut nobody presses.
  */
 export function getRecentParents(
+  prefs: ParentUsagePrefs,
   spaceId: string | null | undefined,
-  options?: { limit?: number; now?: number },
+  options?: { limit?: number; now?: number; skip?: ReadonlySet<string> },
 ): RecentParent[] {
   if (!spaceId) return [];
   const now = options?.now ?? Date.now();
-  const space = load()[spaceId];
-  if (!space) return [];
-  const ranked = Object.entries(space)
-    .map(([id, entry]) => ({ id, ...entry }))
-    .sort(
-      (a, b) =>
-        frecencyValue(b, now) - frecencyValue(a, now) || b.last - a.last,
-    );
+  const tally: Tally<ParentUse> = readTally(
+    prefs,
+    spacePrefix(spaceId),
+    isParentUse,
+  );
+  const ranked = Object.entries(tally)
+    .filter(([id]) => !options?.skip?.has(id))
+    .map(([id, entry]) => ({ ...entry, id }))
+    .sort(byScore(now));
   const limit = options?.limit ?? 6;
   const top = ranked.slice(0, limit);
   if (ranked.length > limit) {
@@ -169,35 +182,48 @@ export function getRecentParents(
 
 /**
  * The parent to pre-tag a new draft with: the one most recently used in this
- * space, and only while that choice is still fresh (see PREFILL_FRESH_MS).
- * Returns null otherwise, leaving the draft unparented.
+ * space on any of the person's devices, and only while that choice is still
+ * fresh (see PREFILL_FRESH_MS). Returns null otherwise, leaving the draft
+ * unparented. `skip` leaves out ids already known to be gone: another device
+ * may still list a page deleted since, and the one used before it should
+ * pre-fill instead.
  */
 export function getLastParent(
+  prefs: ParentUsagePrefs,
   spaceId: string | null | undefined,
-  now: number = Date.now(),
+  options?: { now?: number; skip?: ReadonlySet<string> },
 ): RecentParent | null {
   if (!spaceId) return null;
-  const space = load()[spaceId];
-  if (!space) return null;
+  const now = options?.now ?? Date.now();
+  const tally = readTally(prefs, spacePrefix(spaceId), isParentUse);
   let best: RecentParent | null = null;
-  for (const [id, entry] of Object.entries(space)) {
-    if (!best || entry.last > best.last) best = { id, ...entry };
+  for (const [id, entry] of Object.entries(tally)) {
+    if (options?.skip?.has(id)) continue;
+    if (!best || entry.last > best.last) best = { ...entry, id };
   }
   if (!best || now - best.last > PREFILL_FRESH_MS) return null;
   return best;
 }
 
-/** Drop a parent that no longer exists, so its slot goes to a live page. */
+/**
+ * Drop a parent that no longer exists from this device's tally. Other
+ * devices' copies go when they notice too; until then, pass the id in
+ * `getRecentParents`' `skip`.
+ */
 export function forgetParent(
+  prefs: ParentUsagePrefs,
   spaceId: string | null | undefined,
   pageId: string,
 ): void {
   if (!spaceId) return;
-  const store = load();
-  const space = store[spaceId];
-  if (!space || !space[pageId]) return;
-  const next = { ...space };
-  delete next[pageId];
-  store[spaceId] = next;
-  save(store);
+  updateOwnTally(
+    prefs,
+    spacePrefix(spaceId),
+    (own) => {
+      if (!own[pageId]) return null;
+      delete own[pageId];
+      return own;
+    },
+    isParentUse,
+  );
 }
