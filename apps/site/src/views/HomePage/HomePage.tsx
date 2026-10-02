@@ -102,6 +102,22 @@ const Icons = {
       <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07L12.5 19.5" />
     </svg>
   ),
+  Asterisk: (p: SVGProps<SVGSVGElement>) => (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={24}
+      height={24}
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      className="lucide lucide-asterisk preview-icon"
+      {...p}
+    >
+      <path d="M12 5v14M18.065 8.496l-12.125 7M5.94 8.504l12.125 7" />
+    </svg>
+  ),
 };
 
 /* ── Animated stateless relay diagram ── */
@@ -637,19 +653,8 @@ export default function HomePage() {
               </a>
             </div>
 
-            <div className="lp-hero-meta">
-              <span className="lp-hero-tagline">
-                {t("home.lp.hero.metaTailOpenSource", "Open source project")}
-              </span>
-              <span>
-                {t(
-                  "home.lp.hero.metaTail",
-                  "0 accounts · 0 trackers · you choose what to share",
-                )}
-              </span>
-            </div>
             <p className="lp-hero-beta">
-              <span className="lp-hero-beta-dot" aria-hidden="true" />
+              <Icons.Asterisk className="lp-hero-beta-dot" aria-hidden="true" />
               <span>
                 <strong>{t("home.lp.hero.betaTitle", "Public beta.")}</strong>{" "}
                 {t(
@@ -681,9 +686,6 @@ export default function HomePage() {
                 "An app you write in. Notes, drafts, journals stored on your device, encrypted end-to-end in transit, synced device-to-device with no central server and no account.",
               )}
             </p>
-            <blockquote className="lp-pullquote">
-              {t("home.lp.define.pull", "The place to write your thoughts")}
-            </blockquote>
             <dl className="lp-define-facts">
               <div className="lp-define-fact">
                 <dt>{t("home.lp.define.fact.storageK", "storage")}</dt>
@@ -769,7 +771,7 @@ export default function HomePage() {
                 </strong>
                 {t(
                   "home.lp.mechanism.p1",
-                  ' Every keystroke lands in your own storage, instantly — no round-trip, no "saving" spinner reporting back to a server somewhere. Tasfer works on a plane, in a basement, in a Faraday cage.',
+                  " Every keystroke lands in your own storage, instantly — no round-trip to a server somewhere. Tasfer works on a plane, in a basement, in a Faraday cage.",
                 )}
               </p>
               <p>
@@ -956,9 +958,7 @@ export default function HomePage() {
               {t("home.lp.footer.manifesto", "manifesto")}
             </Link>
             <Link to="/docs">{t("home.lp.footer.docs", "docs")}</Link>
-            <Link to="/download">
-              {t("home.lp.nav.download", "download")}
-            </Link>
+            <Link to="/download">{t("home.lp.nav.download", "download")}</Link>
             <a href={REPO_URL} target="_blank" rel="noreferrer">
               {t("home.lp.footer.source", "source")}
             </a>

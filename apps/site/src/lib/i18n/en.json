@@ -713,14 +713,12 @@
   "home.lp.hero.open": "open tasfer",
   "home.lp.hero.install": "install app",
   "home.lp.hero.readSource": "read the source",
-  "home.lp.hero.metaTail": "0 accounts · 0 trackers · you choose what to share",
   "home.lp.define.titleA": "Tasfer is a ",
   "home.lp.define.titleBeforeMarkdown": "",
   "home.lp.define.titleMarkdown": "markdown",
   "home.lp.define.titleAfterMarkdown": "-based editor",
   "home.lp.define.titleB": ".",
   "home.lp.define.lede": "An app you write in. Notes, drafts, journals stored on your device, encrypted end-to-end in transit, synced device-to-device with no central server and no account.",
-  "home.lp.define.pull": "The place to write your thoughts",
   "home.lp.define.fact.storageK": "storage",
   "home.lp.define.fact.storageV": "your device",
   "home.lp.define.fact.syncK": "sync",
@@ -739,7 +737,7 @@
   "home.lp.mechanism.titleA": "Three places.",
   "home.lp.mechanism.titleEm": "None of them ours.",
   "home.lp.mechanism.p1strong": "On your device.",
-  "home.lp.mechanism.p1": " Every keystroke lands in your own storage, instantly — no round-trip, no \"saving\" spinner reporting back to a server somewhere. Tasfer works on a plane, in a basement, in a Faraday cage.",
+  "home.lp.mechanism.p1": " Every keystroke lands in your own storage, instantly — no round-trip to a server somewhere. Tasfer works on a plane, in a basement, in a Faraday cage.",
   "home.lp.mechanism.p2strong": "Between your devices.",
   "home.lp.mechanism.p2": " When you sync, traffic flows peer-to-peer, encrypted with keys that never leave your hardware. Your laptop talks to your phone the way two friends meet — in person, with no third party in the room.",
   "home.lp.mechanism.p3strong": "Through a stateless relay — only when a direct path can't be made.",
@@ -857,6 +855,5 @@
   "onboarding.scanHint": "Point your camera at the QR code shown on your peer's device.",
   "onboarding.openCamera": "Open camera",
   "onboarding.scanInviteQR": "Scan invite QR",
-  "onboarding.scanDrawerHint": "Hold your peer's QR code inside the frame. It connects the moment it reads.",
-  "home.lp.hero.metaTailOpenSource": "Open source project"
+  "onboarding.scanDrawerHint": "Hold your peer's QR code inside the frame. It connects the moment it reads."
 }

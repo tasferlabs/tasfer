@@ -705,14 +705,12 @@
   "home.lp.hero.open": "افتح تصفير",
   "home.lp.hero.install": "تثبيت التطبيق",
   "home.lp.hero.readSource": "اقرأ المصدر",
-  "home.lp.hero.metaTail": "AGPL-3.0 للتطبيق · MIT للمحرّك · 0 حسابات · 0 متعقّبات · أنت تختار ما تشاركه",
   "home.lp.define.titleA": "تصفير ",
   "home.lp.define.titleBeforeMarkdown": "محرّر قائم على ",
   "home.lp.define.titleMarkdown": "Markdown",
   "home.lp.define.titleAfterMarkdown": "",
   "home.lp.define.titleB": ".",
   "home.lp.define.lede": "تطبيق تكتب فيه. ملاحظاتك ومسوداتك ويومياتك محفوظة على جهازك، ومشفّرة من طرف إلى طرف أثناء نقلها، ومتزامنة مباشرةً من جهاز إلى جهاز من دون خادم مركزي أو حساب.",
-  "home.lp.define.pull": "المكان الذي تكتب فيه أفكارك.",
   "home.lp.define.fact.storageK": "التخزين",
   "home.lp.define.fact.storageV": "جهازك",
   "home.lp.define.fact.syncK": "المزامنة",
@@ -731,7 +729,7 @@
   "home.lp.mechanism.titleA": "ثلاثة أماكن.",
   "home.lp.mechanism.titleEm": "ولا واحد منها يخصّنا.",
   "home.lp.mechanism.p1strong": "على جهازك.",
-  "home.lp.mechanism.p1": " كل ضغطة مفتاح تستقر في تخزينك الخاص، فورًا — بلا رحلة ذهاب وإياب، بلا مؤشّر «حفظ» يبلّغ خادمًا في مكان ما. تصفير يعمل على متن طائرة، في قبو، داخل قفص فاراداي.",
+  "home.lp.mechanism.p1": " كل ضغطة مفتاح تستقر في تخزينك الخاص، فورًا — بلا رحلة ذهاب وإياب إلى خادم في مكان ما. تصفير يعمل على متن طائرة، في قبو، داخل قفص فاراداي.",
   "home.lp.mechanism.p2strong": "بين أجهزتك.",
   "home.lp.mechanism.p2": " حين تُجري المزامنة، تتدفّق البيانات مباشرةً بين الأقران، مشفّرة بمفاتيح لا تغادر عتادك أبدًا. حاسوبك يتحدّث إلى هاتفك كما يلتقي صديقان — وجهًا لوجه، بلا طرف ثالث في الغرفة.",
   "home.lp.mechanism.p3strong": "عبر مُرحِّل عديم الحالة — ولا يحدث ذلك إلا حين يتعذّر إنشاء مسار مباشر.",
@@ -849,6 +847,5 @@
   "onboarding.scanHint": "وجّه كاميرتك نحو رمز QR المعروض على جهاز نظيرك.",
   "onboarding.openCamera": "فتح الكاميرا",
   "onboarding.scanInviteQR": "مسح رمز QR للدعوة",
-  "onboarding.scanDrawerHint": "ثبّت رمز QR الخاص بنظيرك داخل الإطار. يبدأ الاتصال فور قراءته.",
-  "home.lp.hero.metaTailOpenSource": "مشروع مفتوح المصدر"
+  "onboarding.scanDrawerHint": "ثبّت رمز QR الخاص بنظيرك داخل الإطار. يبدأ الاتصال فور قراءته."
 }
