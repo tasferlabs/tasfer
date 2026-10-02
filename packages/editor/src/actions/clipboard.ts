@@ -51,6 +51,7 @@ import { sortBlocksByOrder } from "../sync/block-order";
 import {
   getBlockDescriptor,
   getBlockFieldNames,
+  isPreformattedType,
   isTextualBlock,
 } from "../sync/block-registry";
 import {
@@ -699,6 +700,45 @@ function pasteIntoContentSelection(
     text,
     markdown,
   });
+}
+
+/**
+ * Paste into a preformatted block (code) as verbatim source. Its text is raw
+ * source, not Markdown, so the clipboard must not be parsed into blocks — a
+ * pasted file would otherwise break out of the block as headings, lists and
+ * paragraphs. Applies only when the whole range sits inside one such block; a
+ * node selection (the block held whole) or a range reaching another block takes
+ * the normal block paste. `undefined` when the paste doesn't land there.
+ */
+function pasteIntoPreformattedBlock(
+  state: EditorState,
+  text: string,
+): ActionResult | undefined {
+  const cursor = state.document.cursor;
+  if (!cursor || !text) return undefined;
+  const { blockIndex } = cursor.position;
+  const block = state.document.page.blocks[blockIndex];
+  if (
+    !block ||
+    block.deleted ||
+    !isTextualBlock(block) ||
+    !isPreformattedType(block.type)
+  ) {
+    return undefined;
+  }
+  const selection = state.document.selection;
+  if (selection && !selection.isCollapsed) {
+    const { anchor, focus } = selection;
+    if (
+      anchor.blockIndex !== blockIndex ||
+      focus.blockIndex !== blockIndex ||
+      anchor.textIndex === focus.textIndex
+    ) {
+      return undefined;
+    }
+  }
+  // Source copied on Windows carries CRLF; the block's line break is "\n".
+  return insertText(state, text.replace(/\r\n?/g, "\n"));
 }
 
 /**
@@ -2361,6 +2401,9 @@ export function pasteFromClipboardEvent(
     return text ? insertText(state, text) : null;
   }
 
+  const verbatim = pasteIntoPreformattedBlock(state, text);
+  if (verbatim) return verbatim;
+
   // Collects the blocks whose type the source never declared — see the empty-host
   // retype in `insertBlocksAtCursor`. One set per paste; only one branch fills it.
   const untypedBlockIds = new Set<string>();
@@ -2444,6 +2487,9 @@ export function insertClipboardPayload(
     return payload.plainText ? insertText(state, payload.plainText) : null;
   }
 
+  const verbatim = pasteIntoPreformattedBlock(state, payload.plainText);
+  if (verbatim) return verbatim;
+
   // See the empty-host retype in `insertBlocksAtCursor`.
   const untypedBlockIds = new Set<string>();
 
@@ -2512,6 +2558,12 @@ export function pasteFromClipboardEventAsPlainText(
         resolve(
           pasteIntoContentSelection(state, text, "") ?? insertText(state, text),
         );
+        return;
+      }
+
+      const verbatim = pasteIntoPreformattedBlock(state, text);
+      if (verbatim) {
+        resolve(verbatim);
         return;
       }
 
@@ -2592,6 +2644,8 @@ export async function pasteFromSystemClipboard(
         if (owned) return owned;
         return text ? insertText(state, text) : null;
       }
+      const verbatim = pasteIntoPreformattedBlock(state, text);
+      if (verbatim) return verbatim;
       if (text) {
         const blocks = parseRecognizedPlainTextToBlocks(
           text,
@@ -2663,6 +2717,9 @@ export async function pasteFromSystemClipboard(
       if (owned) return owned;
       return text ? insertText(state, text) : null;
     }
+
+    const verbatim = pasteIntoPreformattedBlock(state, text);
+    if (verbatim) return verbatim;
 
     if (text) {
       const blocks = parseRecognizedPlainTextToBlocks(
