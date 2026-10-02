@@ -42,6 +42,7 @@ import {
   selectFlatRange,
 } from "@tasfer/editor/actions/selection-expansion";
 import {
+  expandTabs,
   type FontFamily,
   getFontStack,
   type WrappedLine,
@@ -469,8 +470,9 @@ export class CodeNode extends TextNode {
     let x = p.x;
     for (const tok of tokens) {
       ctx.fillStyle = syntaxColor(tok.kind, cs);
-      ctx.fillText(tok.text, x, p.baselineY);
-      x += ctx.measureText(tok.text).width;
+      const drawn = expandTabs(tok.text);
+      ctx.fillText(drawn, x, p.baselineY);
+      x += ctx.measureText(drawn).width;
     }
   }
 

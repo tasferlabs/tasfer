@@ -334,6 +334,19 @@ export function getFontMetrics(
 // eslint-disable-next-line local/no-global-mutable-state -- pure per-char width cache keyed by resolved CSS font-stack; instance-independent, so two instances can't collide.
 let charWidthCache = new Map<string, number>();
 
+/**
+ * How many spaces wide a tab draws. Canvas text drawing turns a tab into one
+ * space, so tab-indented source (Go, Makefiles) looked flat. The stored text
+ * keeps its tabs; only measuring and painting widen them, and both go through
+ * {@link expandTabs} so the caret stays on the drawn glyphs.
+ */
+const TAB_SPACES = "    ";
+
+/** `text` as drawn: each tab widened to {@link TAB_SPACES}. */
+export function expandTabs(text: string): string {
+  return text.includes("\t") ? text.replace(/\t/g, TAB_SPACES) : text;
+}
+
 // Measure character
 export function measureCtxText(
   text: string,
@@ -351,14 +364,14 @@ export function measureCtxText(
     let width = charWidthCache.get(cacheKey);
     if (width === undefined) {
       applyFont(ctx, fontSize, fontWeight, fontFamily, fonts, fontStyle);
-      width = ctx.measureText(text).width;
+      width = ctx.measureText(expandTabs(text)).width;
       charWidthCache.set(cacheKey, width);
     }
     return width;
   }
 
   applyFont(ctx, fontSize, fontWeight, fontFamily, fonts, fontStyle);
-  return ctx.measureText(text).width;
+  return ctx.measureText(expandTabs(text)).width;
 }
 
 // Em metrics for @tasfer/tex's `\text{…}` fallback, keyed by
