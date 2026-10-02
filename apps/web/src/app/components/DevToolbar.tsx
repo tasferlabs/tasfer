@@ -200,10 +200,27 @@ interface LogEntry {
 
 const LOG_LEVELS: LogLevel[] = ["log", "info", "warn", "error", "debug"];
 const LOG_MAX = 500;
+/** Shortest gap between two Logs-tab refreshes. */
+const LOG_NOTIFY_MS = 250;
 
 let _logId = 0;
 let _logs: LogEntry[] = [];
 let _logListeners = new Set<() => void>();
+let _logNotifyTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Tell the Logs tab there is something new — later, and at most once per
+ * LOG_NOTIFY_MS. Never synchronously: React logs its own warnings (a duplicate
+ * key, say) while rendering, and re-rendering the toolbar from inside that call
+ * re-renders the same warning, which logs again — a loop that freezes the page.
+ */
+function notifyLogListeners() {
+  if (_logNotifyTimer) return;
+  _logNotifyTimer = setTimeout(() => {
+    _logNotifyTimer = null;
+    _logListeners.forEach((fn) => fn());
+  }, LOG_NOTIFY_MS);
+}
 
 function pushLog(level: LogLevel, args: unknown[]) {
   const message = args
@@ -218,7 +235,7 @@ function pushLog(level: LogLevel, args: unknown[]) {
     .join(" ");
   _logs.push({ id: ++_logId, level, message, timestamp: Date.now() });
   if (_logs.length > LOG_MAX) _logs = _logs.slice(-LOG_MAX);
-  _logListeners.forEach((fn) => fn());
+  notifyLogListeners();
 }
 
 /**
