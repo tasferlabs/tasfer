@@ -1930,7 +1930,9 @@ export class Engine implements Platform {
         `SELECT s.* FROM spaces s
          JOIN space_members m ON m.space_id = s.id
          WHERE m.public_key = ? AND s.archived_at IS NULL
-         ORDER BY s.name`,
+         -- Arrival order, not name: a rename must not move a space. created_at
+         -- is stamped once, when the space first lands on this device.
+         ORDER BY s.created_at, s.id`,
         [identity.publicKey],
       );
       return rows.map((r) => ({
