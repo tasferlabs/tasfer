@@ -23,6 +23,8 @@ import {
   getNetLogs,
   clearNetLogs,
   onNetLogsChange,
+  getPeerOpBuckets,
+  PEER_OPS_BUCKET_MS,
   type NetDirection,
   type NetLogEntry,
 } from "@/platform/devlog";
@@ -966,6 +968,141 @@ function PeerTraffic({
   );
 }
 
+/** Windows the peer op charts offer, in minutes, and the column width for each. */
+const PEER_OPS_WINDOWS = [3, 60, 360, 1440] as const;
+type PeerOpsWindow = (typeof PEER_OPS_WINDOWS)[number];
+const PEER_OPS_COLUMN_MS: Record<PeerOpsWindow, number> = {
+  3: PEER_OPS_BUCKET_MS,
+  60: 60_000,
+  360: 5 * 60_000,
+  1440: 20 * 60_000,
+};
+/** Redraw interval, so columns slide along even when nothing new arrives. */
+const PEER_OPS_TICK_MS = 1_000;
+
+/** "Last 3 minutes", "Last 6 hours", … for a window of `minutes`. */
+function peerOpsWindowLabel(minutes: PeerOpsWindow, t: TFunction): string {
+  return minutes < 60
+    ? t("devInspector.peers.opsWindowMinutes", "Last {{count}} minutes", { count: minutes })
+    : t("devInspector.peers.opsWindow", "Last {{count}} hours", { count: minutes / 60 });
+}
+
+/**
+ * Ops sent to (↑, sky) and received from (↓, amber) one peer over the last
+ * `minutes`, one column per second (3 minutes) or per few minutes. Counts come
+ * from the dev log's per-peer buckets, so they cover what this tab exchanged,
+ * since it was opened. Redraws every second, and stays up with no traffic
+ * so every peer's chart reads the same way.
+ */
+function PeerOpsChart({
+  peer,
+  minutes,
+  t,
+}: {
+  peer: string;
+  minutes: PeerOpsWindow;
+  t: TFunction;
+}) {
+  const { i18n } = useTranslation();
+  const [hover, setHover] = useState<number | null>(null);
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((n) => n + 1), PEER_OPS_TICK_MS);
+    return () => clearInterval(id);
+  }, []);
+
+  const colMs = PEER_OPS_COLUMN_MS[minutes];
+  const count = (minutes * 60_000) / colMs;
+  const lastStart = Math.floor(Date.now() / colMs) * colMs;
+  const firstStart = lastStart - (count - 1) * colMs;
+  const cols = Array.from({ length: count }, (_, i) => ({
+    t: firstStart + i * colMs,
+    send: 0,
+    recv: 0,
+  }));
+  for (const b of getPeerOpBuckets(peer)) {
+    const i = Math.floor((b.t - firstStart) / colMs);
+    if (i < 0 || i >= count) continue;
+    cols[i].send += b.send;
+    cols[i].recv += b.recv;
+  }
+  let sent = 0;
+  let recv = 0;
+  let max = 1;
+  for (const c of cols) {
+    sent += c.send;
+    recv += c.recv;
+    max = Math.max(max, c.send + c.recv);
+  }
+
+  const time = new Intl.DateTimeFormat(i18n.language, {
+    hour: "2-digit",
+    minute: "2-digit",
+    ...(colMs < 60_000 && { second: "2-digit" }),
+  });
+  const shown = hover === null ? { send: sent, recv } : cols[hover];
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-2 text-[10px]">
+        <span className="text-muted-foreground/70">
+          {t("devInspector.peers.opsLabel", "Operations")}
+        </span>
+        <span className="ms-auto flex items-center gap-2 font-mono tabular-nums">
+          {hover !== null && (
+            <span className="text-muted-foreground/60" dir="ltr">
+              {time.format(cols[hover].t)}–{time.format(cols[hover].t + colMs)}
+            </span>
+          )}
+          <span className="text-sky-400">↑ {shown.send}</span>
+          <span className="text-amber-400">↓ {shown.recv}</span>
+        </span>
+      </div>
+      {/* Time runs left to right in either UI direction. */}
+      <div
+        dir="ltr"
+        role="img"
+        aria-label={t(
+          "devInspector.peers.opsChartLabel",
+          "Operations sent to and received from this device over time",
+        )}
+        className="flex items-end h-9 border-b border-border/60"
+        onPointerLeave={() => setHover(null)}
+      >
+        {cols.map((c, i) => (
+          <div
+            key={c.t}
+            onPointerEnter={() => setHover(i)}
+            className={cn(
+              "flex-1 h-full flex flex-col justify-end",
+              // Per-second columns are too thin to spare a gap.
+              count <= 100 && "px-[0.5px]",
+              hover === i && "bg-muted/60",
+            )}
+          >
+            {c.send > 0 && (
+              <div
+                className={cn("bg-sky-400 min-h-px rounded-t-[2px]", c.recv > 0 && "mb-px")}
+                style={{ height: `${(c.send / max) * 100}%` }}
+              />
+            )}
+            {c.recv > 0 && (
+              <div
+                className={cn("bg-amber-400 min-h-px", c.send === 0 && "rounded-t-[2px]")}
+                style={{ height: `${(c.recv / max) * 100}%` }}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+      <div dir="ltr" className="flex justify-between text-[9px] font-mono text-muted-foreground/50">
+        <span>{time.format(firstStart)}</span>
+        <span>{t("devInspector.peers.now", "now")}</span>
+      </div>
+    </div>
+  );
+}
+
 function PeerTypeChips({
   types,
   limit,
@@ -991,7 +1128,15 @@ function PeerTypeChips({
   );
 }
 
-function PeerDeviceCard({ device, t }: { device: PeerDevice; t: TFunction }) {
+function PeerDeviceCard({
+  device,
+  opsMinutes,
+  t,
+}: {
+  device: PeerDevice;
+  opsMinutes: PeerOpsWindow;
+  t: TFunction;
+}) {
   return (
     <div
       className={cn(
@@ -1054,6 +1199,9 @@ function PeerDeviceCard({ device, t }: { device: PeerDevice; t: TFunction }) {
               {t("devInspector.peers.noMessages", "No messages this session")}
             </span>
           )}
+
+          {/* Keyed by window so a hovered column doesn't carry over. */}
+          <PeerOpsChart key={opsMinutes} peer={device.shortKey} minutes={opsMinutes} t={t} />
         </>
       )}
     </div>
@@ -1065,11 +1213,13 @@ function PeerPersonGroup({
   person,
   open,
   onToggle,
+  opsMinutes,
   t,
 }: {
   person: PeerPerson;
   open: boolean;
   onToggle: () => void;
+  opsMinutes: PeerOpsWindow;
   t: TFunction;
 }) {
   const online = person.connectedCount > 0;
@@ -1137,7 +1287,7 @@ function PeerPersonGroup({
       {open && (
         <div className="px-2.5 pb-2.5 flex flex-col gap-1.5">
           {person.devices.map((device) => (
-            <PeerDeviceCard key={device.shortKey} device={device} t={t} />
+            <PeerDeviceCard key={device.shortKey} device={device} opsMinutes={opsMinutes} t={t} />
           ))}
         </div>
       )}
@@ -1151,12 +1301,14 @@ function PeersList({
   knownPeers,
   netLogs,
   identities,
+  opsMinutes,
 }: {
   connectedPeers: string[];
   connectedPeerNames: string[];
   knownPeers: Peer[];
   netLogs: NetLogEntry[];
   identities: PeerIdentities;
+  opsMinutes: PeerOpsWindow;
 }) {
   const { t } = useTranslation();
   // Only groups the reader has toggled; the rest follow the default below.
@@ -1233,6 +1385,7 @@ function PeersList({
               [person.key]: !(prev[person.key] ?? person.connectedCount > 0),
             }))
           }
+          opsMinutes={opsMinutes}
           t={t}
         />
       ))}
@@ -1263,6 +1416,7 @@ export function DevToolbar() {
     EMPTY_PEER_IDENTITIES,
   );
   const [peersLoading, setPeersLoading] = useState(false);
+  const [peerOpsMinutes, setPeerOpsMinutes] = useState<PeerOpsWindow>(3);
   const [panelHeight, setPanelHeight] = useState(() =>
     Math.min(PANEL_DEFAULT_H, Math.floor(window.innerHeight * (PANEL_MAX_H_VH / 100)))
   );
@@ -2873,6 +3027,18 @@ export function DevToolbar() {
                   )}
                 </span>
                 <div className="flex-1" />
+                <select
+                  value={peerOpsMinutes}
+                  onChange={(e) => setPeerOpsMinutes(Number(e.target.value) as PeerOpsWindow)}
+                  className="h-5 px-1.5 text-[10px] rounded bg-transparent border border-border text-foreground focus:outline-none"
+                  title={t("devInspector.peers.opsLabel", "Operations")}
+                >
+                  {PEER_OPS_WINDOWS.map((m) => (
+                    <option key={m} value={m}>
+                      {peerOpsWindowLabel(m, t)}
+                    </option>
+                  ))}
+                </select>
                 <button
                   onClick={loadPeers}
                   className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
@@ -2889,6 +3055,7 @@ export function DevToolbar() {
                     knownPeers={knownPeers}
                     netLogs={netLogs}
                     identities={peerIdentities}
+                    opsMinutes={peerOpsMinutes}
                   />
                 </div>
               </ScrollArea>
