@@ -87,6 +87,10 @@ import {
   SELECT_WORD_AT_POINT,
 } from "@tasfer/editor/actions/mouse-actions";
 import {
+  EXPAND_SELECTION_STEP,
+  nextEnclosingRange,
+} from "@tasfer/editor/actions/selection-expansion";
+import {
   TAP_SELECT_LINE,
   TAP_SELECT_WORD,
 } from "@tasfer/editor/actions/touch-actions";
@@ -554,6 +558,46 @@ export function registerTableActions(bus: ActionBus): void {
   bus.registerState(TAP_SELECT_WORD, selectAround(cellWordRange), 100);
   bus.registerState(SELECT_LINE_AT_POINT, selectAround(cellTextRange), 100);
   bus.registerState(TAP_SELECT_LINE, selectAround(cellTextRange), 100);
+
+  // Expand selection inside a table: the word, the cell's text, then the table
+  // whole. Holding the table clears the nested caret, so the press after that
+  // finds no table context and the engine's own rung takes the document. A
+  // range already spanning cells is past the cell rungs and takes the table.
+  bus.registerState(
+    EXPAND_SELECTION_STEP,
+    (state) => {
+      const context = activeTableContext(state);
+      if (!context) return undefined;
+      if (context.anchor.cellId !== context.caret.cellId) {
+        return selectTableBlock(state, context);
+      }
+      const current = {
+        from: Math.min(context.anchor.offset, context.caret.offset),
+        to: Math.max(context.anchor.offset, context.caret.offset),
+      };
+      const rungs = [
+        cellWordRange(context.document, {
+          cellId: context.caret.cellId,
+          offset: current.from,
+        }),
+        cellTextRange(context.document, context.caret),
+      ].flatMap((range) =>
+        range ? [{ from: range.anchor.offset, to: range.focus.offset }] : [],
+      );
+      const next = nextEnclosingRange(rungs, current);
+      if (!next) return selectTableBlock(state, context);
+      const cellId = context.caret.cellId;
+      return (
+        placeRange(
+          state,
+          context,
+          { cellId, offset: next.from },
+          { cellId, offset: next.to },
+        ) ?? selectTableBlock(state, context)
+      );
+    },
+    50,
+  );
 
   // Select-all inside a table climbs one rung per press: the cell's own text,
   // then the table whole, then — because holding the table clears the nested

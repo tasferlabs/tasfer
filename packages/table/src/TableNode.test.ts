@@ -27,6 +27,10 @@ import {
   MOVE_CURSOR_UP,
   MOVE_TO_LINE_END,
 } from "@tasfer/editor/actions/keyboard-actions";
+import {
+  EXPAND_SELECTION,
+  SHRINK_SELECTION,
+} from "@tasfer/editor/actions/selection-expansion";
 import { createChromeRegionRegistry } from "@tasfer/editor/events/chromeRegions";
 import { createInteractionSession } from "@tasfer/editor/events/interaction-session";
 import { handleKeyDown } from "@tasfer/editor/events/keysEvents";
@@ -1200,6 +1204,76 @@ describe("select-all inside a table", () => {
     const result = state.actionBus.dispatchState(SELECT_ALL, state);
 
     expect(result.claimed).toBe(false);
+  });
+});
+
+describe("expand / shrink selection inside a table", () => {
+  const WORDS = [
+    "| red apples | 1 |",
+    "| --- | --- |",
+    "| x | 2 |",
+    "",
+    "after",
+  ].join("\n");
+
+  function busState(source: string): EditorState {
+    const state = stateOf(source);
+    const bus = createActionBus();
+    registerTableActions(bus);
+    return { ...state, actionBus: bus };
+  }
+  const expand = (s: EditorState) =>
+    s.actionBus.dispatchState(EXPAND_SELECTION, s).state;
+  const shrink = (s: EditorState) =>
+    s.actionBus.dispatchState(SHRINK_SELECTION, s).state;
+  function selectedOffsets(state: EditorState) {
+    const selection = state.document.contentSelection!;
+    const document = getTableDocument(state.document.page.blocks[0])!;
+    return [
+      tableCaretFromContentPoint(document, selection.anchor)?.offset,
+      tableCaretFromContentPoint(document, selection.focus)?.offset,
+    ];
+  }
+
+  it("climbs word → cell → table → document, and shrinks back", () => {
+    const start = caretIn(busState(WORDS), 0, 0, 6);
+    const word = expand(start);
+    expect(selectedOffsets(word)).toEqual([4, 10]); // "apples"
+    const cell = expand(word);
+    expect(selectedOffsets(cell)).toEqual([0, 10]); // "red apples"
+    const table = expand(cell);
+    expect(table.document.contentSelection).toBeNull();
+    expect(table.document.selection?.isCollapsed).toBe(false);
+    expect(table.document.selection?.anchor.blockIndex).toBe(0);
+    expect(table.document.selection?.focus.blockIndex).toBe(0);
+    const doc = expand(table);
+    expect(doc.document.selection?.focus.blockIndex).toBe(
+      doc.document.page.blocks.length - 1,
+    );
+
+    expect(shrink(doc).document.selection).toEqual(table.document.selection);
+    expect(selectedOffsets(shrink(shrink(doc)))).toEqual([0, 10]);
+    expect(selectedOffsets(shrink(shrink(shrink(doc))))).toEqual([4, 10]);
+  });
+
+  it("takes the table straight away from a range spanning two cells", () => {
+    const state = busState(WORDS);
+    const block = state.document.page.blocks[0];
+    const document = getTableDocument(block)!;
+    const cells = tableCellIds(document);
+    const across = tableRangeToContentSelection(
+      document,
+      block.id,
+      { cellId: cells[0], offset: 0 },
+      { cellId: cells[1], offset: 1 },
+    )!;
+    const spanning = updateContentSelection(state, {
+      ...across,
+      lastUpdate: Date.now(),
+    });
+    const held = expand(spanning);
+    expect(held.document.contentSelection).toBeNull();
+    expect(held.document.selection?.isCollapsed).toBe(false);
   });
 });
 
