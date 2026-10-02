@@ -47,6 +47,7 @@ import {
   contentPointToMathTreeCaret,
   mathContentSelectionFromSourceOffset,
   mathDocumentPositionToContentPoint,
+  mathSourceOffsetFromContentPoint,
   mathSourceRangeFromContentSelection,
   mathTreeCaretToContentSelection,
 } from "./tree-selection";
@@ -81,6 +82,7 @@ import {
   type StateResult,
   TEXT_INPUTTED,
 } from "@tasfer/editor/action-bus";
+import { selectAll } from "@tasfer/editor/actions/actions";
 import {
   DELETE_BACKWARD,
   DELETE_FORWARD,
@@ -118,6 +120,10 @@ import {
   SELECT_WORD_AT_POINT,
 } from "@tasfer/editor/actions/mouse-actions";
 import { POINTER_MOVE } from "@tasfer/editor/actions/pointer-actions";
+import {
+  EXPAND_SELECTION_STEP,
+  nextEnclosingRange,
+} from "@tasfer/editor/actions/selection-expansion";
 import { structuredMarkRunForContentPoint } from "@tasfer/editor/actions/structured-marks";
 import {
   TAP_SELECT_LINE,
@@ -206,6 +212,7 @@ import {
 } from "@tasfer/editor/sync/structured-content";
 import {
   caretRect as texCaretRect,
+  enclosingSelectionRanges,
   hitTest as texHitTest,
   hitTestMathDocument,
   type MathDocumentCaretPosition,
@@ -2320,6 +2327,34 @@ export class MathNode extends TextNode<MathBlock> {
       50,
     );
 
+    // Expand selection climbs the equation's nesting one level per press:
+    // symbol → the slot it sits in (a numerator) → the construct (the whole
+    // fraction) → the slot around that → … → the whole equation. Past that it
+    // takes the document: holding the block as a node would look exactly like
+    // the whole equation already does, so that rung is skipped.
+    bus.registerState(
+      EXPAND_SELECTION_STEP,
+      (state) => {
+        const active = activeMathSourceRange(state);
+        if (!active) return;
+        const { blockIndex, block, from, to } = active;
+        const next = nextEnclosingRange(
+          enclosingSelectionRanges(mathBlockSource(block), from, to).map(
+            (range) => ({ from: range.start, to: range.end }),
+          ),
+          { from, to },
+        );
+        return {
+          state: next
+            ? selectMathRange(state, blockIndex, next.from, next.to)
+            : selectAll(state),
+          ops: [],
+          handled: true,
+        };
+      },
+      50,
+    );
+
     // A pointer double-click (desktop) / double-tap (touch) normally selects a
     // prose "word". LaTeX source words are the wrong abstraction here (`frac`
     // without its slash/arguments, for example), so claim BOTH gestures for block
@@ -2554,6 +2589,64 @@ export class MathNode extends TextNode<MathBlock> {
 
 /** The inline-math mark — re-applied when an edge-typed char joins a legacy chip. */
 const INLINE_MATH_MARK: Mark = { type: "math" };
+
+/**
+ * The display equation the selection is in, and the canonical-source range it
+ * covers there (equal ends for a caret). Reads a nested tree selection or a
+ * flat caret/range inside the block; null for anything reaching outside one
+ * equation, or holding the block whole as a node.
+ */
+function activeMathSourceRange(state: EditorState): {
+  readonly blockIndex: number;
+  readonly block: MathBlock;
+  readonly from: number;
+  readonly to: number;
+} | null {
+  const content = state.document.contentSelection;
+  if (content) {
+    const blockIndex = findBlockIndex(
+      state.document.page,
+      content.focus.blockId,
+    );
+    const block = mathBlockAt(state, blockIndex);
+    const document = block ? getMathStructuredDocument(block) : undefined;
+    if (
+      !block ||
+      !document ||
+      content.focus.contentId !== mathContentIdForBlock(block.id)
+    ) {
+      return null;
+    }
+    const range = mathSourceRangeFromContentSelection(document, content);
+    if (range) return { blockIndex, block, ...range };
+    const at = mathSourceOffsetFromContentPoint(document, content.focus);
+    return at === null ? null : { blockIndex, block, from: at, to: at };
+  }
+
+  const cursor = state.document.cursor;
+  if (!cursor) return null;
+  const blockIndex = cursor.position.blockIndex;
+  const block = mathBlockAt(state, blockIndex);
+  if (!block) return null;
+  const selection = state.document.selection;
+  if (!selection || selection.isCollapsed) {
+    const at = cursor.position.textIndex;
+    return { blockIndex, block, from: at, to: at };
+  }
+  if (
+    selection.anchor.blockIndex !== blockIndex ||
+    selection.focus.blockIndex !== blockIndex ||
+    selection.anchor.textIndex === selection.focus.textIndex
+  ) {
+    return null;
+  }
+  return {
+    blockIndex,
+    block,
+    from: Math.min(selection.anchor.textIndex, selection.focus.textIndex),
+    to: Math.max(selection.anchor.textIndex, selection.focus.textIndex),
+  };
+}
 
 /** Select `[from, to)` within one math block and remember its gesture boundary. */
 function selectMathRange(
