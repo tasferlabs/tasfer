@@ -10,6 +10,7 @@ import {
   LEGACY_PARENT_USAGE_KEY,
   readLegacyParentUsage,
 } from "@/lib/parentUsage";
+import { LEGACY_FRECENCY_KEY, readLegacyFrecency } from "@/lib/paletteUsage";
 
 /**
  * Person-private preferences — the app-layer view of `platform.prefs`.
@@ -99,6 +100,13 @@ export const OWN_PREF_KEYS = {
   calendarParentTreeOpen: "calendar.parentTreeOpen",
   /** `string` — the space a new calendar event is drafted into. */
   calendarEventSpace: "calendar.eventSpace",
+  /**
+   * Key PREFIX: `palette.usage.<deviceKey>` → how often and how lately that
+   * device picked each command palette item, for ranking. Per device for the
+   * same reason as the parent usage. Mirrored as `PALETTE_USAGE_PREF_PREFIX`
+   * in `@/lib/paletteUsage`.
+   */
+  paletteUsagePrefix: "palette.usage.",
 } as const;
 
 /**
@@ -193,6 +201,10 @@ const LEGACY: Array<{
       raw === "open" || raw === "closed"
         ? [[OWN_PREF_KEYS.calendarParentTreeOpen, raw === "open"]]
         : [],
+  },
+  {
+    storageKey: LEGACY_FRECENCY_KEY,
+    read: (raw, ctx) => readLegacyFrecency(raw, requireDevice(ctx)),
   },
 ];
 

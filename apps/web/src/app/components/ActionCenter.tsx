@@ -35,12 +35,14 @@ import { useTheme } from "../hooks/useTheme";
 import { useQueryClient } from "@tanstack/react-query";
 import useMobileLayout from "../hooks/useMobileLayout";
 import useKeyboardInset from "../hooks/useKeyboardInset";
+import { frecencyBoost, frecencyValue, scoreMatch } from "@/lib/actionRanking";
 import {
-  frecencyBoost,
-  frecencyValue,
-  scoreMatch,
-  type FrecencyEntry,
-} from "@/lib/actionRanking";
+  PALETTE_USAGE_PREF_PREFIX,
+  readPaletteUsage,
+  recordPaletteUse,
+} from "@/lib/paletteUsage";
+import { usePrefEntries } from "@/lib/usePrefEntries";
+import { useOwnPrefsStore } from "../contexts/OwnPrefsContext";
 import { SPELL_PREF_KEYS } from "@/spell/personalDictionary";
 import { useSpellService, useSpellSetting } from "@/spell/SpellProvider";
 import { Button } from "@/components/ui/button";
@@ -69,22 +71,6 @@ const iconBoxClass =
 
 /** Most recent pages to surface when the palette opens with no query. */
 const RECENT_LIMIT = 7;
-
-/** localStorage key for per-item usage stats that drive frecency ranking. */
-const FRECENCY_KEY = "tasfer:action-center:frecency";
-type FrecencyStore = Record<string, FrecencyEntry>;
-
-function loadFrecency(): FrecencyStore {
-  try {
-    const raw =
-      typeof localStorage !== "undefined"
-        ? localStorage.getItem(FRECENCY_KEY)
-        : null;
-    return raw ? (JSON.parse(raw) as FrecencyStore) : {};
-  } catch {
-    return {};
-  }
-}
 
 /** A quick-action row, defined as data so it can be ranked alongside pages. */
 interface ActionItem {
@@ -194,9 +180,16 @@ export function ActionCenter() {
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Per-item usage stats. Loaded once and updated on each selection; drives the
-  // frecency component of the ranking so frequently-used items float up.
-  const [frecency, setFrecency] = useState<FrecencyStore>(loadFrecency);
+  // Per-item usage stats, added up across the person's devices and updated on
+  // each selection; drives the frecency component of the ranking so
+  // frequently-used items float up.
+  const ownPrefs = useOwnPrefsStore();
+  const usageEntries = usePrefEntries(ownPrefs, PALETTE_USAGE_PREF_PREFIX);
+  const frecency = useMemo(
+    () => readPaletteUsage(ownPrefs),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `usageEntries` is the trigger
+    [ownPrefs, usageEntries],
+  );
 
   // The palette searches every space, not just the one new pages land in —
   // the sidebar lists all spaces at once, so a page the user can see there
@@ -217,21 +210,10 @@ export function ActionCenter() {
     },
   });
 
-  const bumpFrecency = useCallback((id: string) => {
-    setFrecency((prev) => {
-      const entry = prev[id];
-      const next: FrecencyStore = {
-        ...prev,
-        [id]: { count: (entry?.count ?? 0) + 1, last: Date.now() },
-      };
-      try {
-        localStorage.setItem(FRECENCY_KEY, JSON.stringify(next));
-      } catch {
-        // Ignore storage failures (private mode, quota); ranking still works.
-      }
-      return next;
-    });
-  }, []);
+  const bumpFrecency = useCallback(
+    (id: string) => recordPaletteUse(ownPrefs, id),
+    [ownPrefs],
+  );
 
   const runAction = useCallback(
     (id: string, fn: () => void) => {
