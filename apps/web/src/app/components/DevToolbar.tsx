@@ -195,7 +195,10 @@ interface LogEntry {
   id: number;
   level: LogLevel;
   message: string;
+  /** Last time it was logged. */
   timestamp: number;
+  /** How many times in a row it was logged; repeats fold into one row. */
+  count: number;
 }
 
 const LOG_LEVELS: LogLevel[] = ["log", "info", "warn", "error", "debug"];
@@ -233,8 +236,16 @@ function pushLog(level: LogLevel, args: unknown[]) {
       }
     })
     .join(" ");
-  _logs.push({ id: ++_logId, level, message, timestamp: Date.now() });
-  if (_logs.length > LOG_MAX) _logs = _logs.slice(-LOG_MAX);
+  // A message repeated back to back counts up on its row instead of pushing
+  // the rest of the buffer out.
+  const last = _logs[_logs.length - 1];
+  if (last && last.level === level && last.message === message) {
+    last.count++;
+    last.timestamp = Date.now();
+  } else {
+    _logs.push({ id: ++_logId, level, message, timestamp: Date.now(), count: 1 });
+    if (_logs.length > LOG_MAX) _logs = _logs.slice(-LOG_MAX);
+  }
   notifyLogListeners();
 }
 
@@ -1602,7 +1613,7 @@ export function DevToolbar() {
 
   const copyLogs = useCallback(async () => {
     const text = filteredLogs
-      .map((l) => `[${fmtTime(l.timestamp)}] [${l.level}] ${l.message}`)
+      .map((l) => `[${fmtTime(l.timestamp)}] [${l.level}] ${l.message}${l.count > 1 ? ` (×${l.count})` : ""}`)
       .join("\n");
     await navigator.clipboard.writeText(text);
     setLogsCopied(true);
@@ -1611,7 +1622,7 @@ export function DevToolbar() {
 
   const exportLogs = useCallback(async () => {
     const text = filteredLogs
-      .map((l) => `[${fmtTime(l.timestamp)}] [${l.level}] ${l.message}`)
+      .map((l) => `[${fmtTime(l.timestamp)}] [${l.level}] ${l.message}${l.count > 1 ? ` (×${l.count})` : ""}`)
       .join("\n");
     const blob = new Blob([text], { type: "text/plain" });
     await downloadFile(blob, stampedName("logs", "log"), "text/plain");
@@ -2459,6 +2470,11 @@ export function DevToolbar() {
                       <span className="text-foreground break-all min-w-0">
                         {entry.message}
                       </span>
+                      {entry.count > 1 && (
+                        <span className="ms-auto shrink-0 self-start px-1 rounded-full bg-muted text-[10px] text-muted-foreground tabular-nums">
+                          ×{entry.count}
+                        </span>
+                      )}
                     </div>
                   ))}
                   {filteredLogs.length === 0 && (
