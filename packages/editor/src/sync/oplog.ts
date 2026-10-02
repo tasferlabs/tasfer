@@ -296,7 +296,7 @@ export function mergeOps(
       // Compare CANONICAL state only. The incremental `state` is folded onto the
       // live page a mounted editor renders into, so its blocks carry the
       // transient render cache (`cachedLayout`) and neighbour-type stamps;
-      // `rebuilt` starts from an empty page and never has them. Stripping both
+      // `rebuilt` starts from an empty page and never has them. Stripping them
       // (the same fields persistence drops) keeps this check measuring real CRDT
       // divergence instead of false-positiving on render-only state.
       const canonical = (p: Page) =>
