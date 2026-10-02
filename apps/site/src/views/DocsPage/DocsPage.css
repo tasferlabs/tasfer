@@ -1555,3 +1555,22 @@ body:has(.dx-page) .site-banner-inner {
   width: 14px;
   height: 14px;
 }
+/* On a phone the label pushes the link onto its own row; keep just the icon
+   so it stays on the breadcrumb line. Repeats the prose-link selector's
+   weight to drop its underline. */
+@media (max-width: 620px) {
+  .dx-page .dx-article .dx-breadcrumb a.dx-md-link {
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    margin-block: -7px;
+    border-bottom: 0;
+    border-radius: 6px;
+  }
+  .dx-page .dx-breadcrumb .dx-md-link:hover {
+    background: oklch(from var(--primary) l c h / 0.12);
+  }
+  .dx-page .dx-breadcrumb .dx-md-link-label {
+    display: none;
+  }
+}

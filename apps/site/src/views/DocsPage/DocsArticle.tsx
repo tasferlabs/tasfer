@@ -29,10 +29,16 @@ function MarkdownLink({ route }: { route: string }) {
   const { t } = useTranslation();
   const params = useParams<{ lang?: string }>();
   const lang = params.lang && isLng(params.lang) ? params.lang : DEFAULT_LNG;
+  const label = t("docs.markdown.view", "View as Markdown");
   return (
-    <a className="dx-md-link" href={`/${lang}/docs/${route}.md`}>
+    <a
+      className="dx-md-link"
+      href={`/${lang}/docs/${route}.md`}
+      aria-label={label}
+      title={label}
+    >
       <Icons.Braces />
-      {t("docs.markdown.view", "View as Markdown")}
+      <span className="dx-md-link-label">{label}</span>
     </a>
   );
 }
