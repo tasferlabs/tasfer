@@ -301,9 +301,15 @@ export function mergeOps(
       // divergence instead of false-positiving on render-only state.
       const canonical = (p: Page) =>
         JSON.stringify({ ...p, blocks: cleanSnapshotForSave(p.blocks) });
-      if (canonical(state) !== canonical(rebuilt)) {
+      const incrementalJson = canonical(state);
+      const rebuiltJson = canonical(rebuilt);
+      if (incrementalJson !== rebuiltJson) {
+        const diff = firstJsonDiff(
+          JSON.parse(incrementalJson),
+          JSON.parse(rebuiltJson),
+        );
         console.error(
-          `[mergeOps] incremental state diverged from rebuilt state for page ${log.pageId}; new op ids: ${newOps.map((o) => o.id).join(", ")}`,
+          `[mergeOps] incremental state diverged from rebuilt state for page ${log.pageId}; new ops: ${newOps.map((o) => `${o.op} ${o.id}`).join(", ")}; first difference at ${diff?.path ?? "(unknown)"}: incremental=${previewJson(diff?.incremental)} rebuilt=${previewJson(diff?.rebuilt)}`,
         );
       }
     }
@@ -314,6 +320,51 @@ export function mergeOps(
   const allOps = mergeSortedOps(log.operations, newOps);
   const state = rebuildState(log.pageId, allOps, schema);
   return { ...log, operations: allOps, versionVector: newVV, state };
+}
+
+/**
+ * Dev-only: the first place two parsed JSON values differ, as a readable path.
+ * Array entries that carry an `id` show it (`blocks[3#abc]`), so a block can be
+ * found by id rather than only by its index.
+ */
+function firstJsonDiff(
+  a: unknown,
+  b: unknown,
+  path = "$",
+): { path: string; incremental: unknown; rebuilt: unknown } | null {
+  if (a === b) return null;
+  const bothObjects =
+    typeof a === "object" &&
+    typeof b === "object" &&
+    a !== null &&
+    b !== null &&
+    Array.isArray(a) === Array.isArray(b);
+  if (!bothObjects) return { path, incremental: a, rebuilt: b };
+
+  if (Array.isArray(a) && Array.isArray(b)) {
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+      const id = (a[i] as { id?: unknown } | undefined)?.id;
+      const label = typeof id === "string" ? `${i}#${id}` : `${i}`;
+      const diff = firstJsonDiff(a[i], b[i], `${path}[${label}]`);
+      if (diff) return diff;
+    }
+    return null;
+  }
+
+  const ao = a as Record<string, unknown>;
+  const bo = b as Record<string, unknown>;
+  for (const key of new Set([...Object.keys(ao), ...Object.keys(bo)])) {
+    const diff = firstJsonDiff(ao[key], bo[key], `${path}.${key}`);
+    if (diff) return diff;
+  }
+  return null;
+}
+
+/** Dev-only: a value for a log line, cut short so a whole block can't flood it. */
+function previewJson(value: unknown): string {
+  if (value === undefined) return "(missing)";
+  const json = JSON.stringify(value);
+  return json.length > 300 ? `${json.slice(0, 300)}…` : json;
 }
 
 /**
