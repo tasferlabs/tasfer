@@ -69,6 +69,85 @@ describe("codeSelectionRungs", () => {
     expect(ladder(text, text.indexOf("y"))).toEqual(["y", "b = y'", text]);
   });
 
+  it("climbs Python's indented blocks one level at a time", () => {
+    const text = [
+      "def foo(x):",
+      "    if x:",
+      "        a = 1",
+      "",
+      "        b = 2",
+      "    return x",
+      "",
+      "foo(1)",
+    ].join("\n");
+    expect(ladder(text, text.indexOf("a ="))).toEqual([
+      "a",
+      "a = 1",
+      "        a = 1",
+      "        a = 1\n\n        b = 2",
+      "    if x:\n        a = 1\n\n        b = 2",
+      "    if x:\n        a = 1\n\n        b = 2\n    return x",
+      "def foo(x):\n    if x:\n        a = 1\n\n        b = 2\n    return x",
+      text,
+    ]);
+  });
+
+  it("takes a header line with its body before the header's siblings", () => {
+    const text = "def f():\n    if x:\n        a()\n    b()";
+    expect(ladder(text, text.indexOf("if"))).toEqual([
+      "if",
+      "if x:",
+      "    if x:",
+      "    if x:\n        a()",
+      "    if x:\n        a()\n    b()",
+      text,
+    ]);
+  });
+
+  it("climbs YAML's nesting", () => {
+    const text = "server:\n  tls:\n    cert: a.pem\n    key: a.key\n  port: 80";
+    expect(ladder(text, text.indexOf("key:"))).toEqual([
+      "key",
+      "key: a.key",
+      "    key: a.key",
+      "    cert: a.pem\n    key: a.key",
+      "  tls:\n    cert: a.pem\n    key: a.key",
+      "  tls:\n    cert: a.pem\n    key: a.key\n  port: 80",
+      text,
+    ]);
+  });
+
+  it("takes a braced statement whole, closing brace included", () => {
+    const text =
+      "function f() {\n  if (x) {\n    a();\n    b();\n  }\n  return 1;\n}";
+    expect(ladder(text, text.indexOf("a()"))).toEqual([
+      "a",
+      "a();",
+      "    a();",
+      "    a();\n    b();",
+      "\n    a();\n    b();\n  ",
+      "{\n    a();\n    b();\n  }",
+      "  if (x) {\n    a();\n    b();\n  }",
+      "  if (x) {\n    a();\n    b();\n  }\n  return 1;",
+      "\n  if (x) {\n    a();\n    b();\n  }\n  return 1;\n",
+      "{\n  if (x) {\n    a();\n    b();\n  }\n  return 1;\n}",
+      text,
+    ]);
+  });
+
+  it("grows a selection over several lines from their shallowest indent", () => {
+    const text = "if x:\n    a()\n    if y:\n        b()\nc()";
+    const from = text.indexOf("a()");
+    const to = text.indexOf("b()") + 1;
+    const next = nextEnclosingRange(codeSelectionRungs(text, from, to), {
+      from,
+      to,
+    });
+    expect(text.slice(next!.from, next!.to)).toBe(
+      "    a()\n    if y:\n        b()",
+    );
+  });
+
   it("an empty block has nowhere to go", () => {
     expect(ladder("", 0)).toEqual([]);
   });

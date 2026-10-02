@@ -5,7 +5,17 @@
  * rungs come from the text itself, the same way for every language: the word
  * under the caret, the inside of the nearest quotes, the inside of the nearest
  * bracket pair and then the pair itself (outward, pair by pair), the line
- * without its indentation, the whole line, and finally the whole block.
+ * without its indentation, the whole line, the indented blocks around it, and
+ * finally the whole block.
+ *
+ * Indented blocks are what give Python or YAML any structure at all. At each
+ * indent level two rungs: the body (the run of lines at that indent or deeper,
+ * blank lines included) and the header line above it together with that body.
+ * Then the header's own level, and so on out to the left margin. A closing
+ * bracket line at the header's indent (`}` in JS, `)` after a wrapped call)
+ * joins the header's block, so brace languages get the whole `if (…) { … }`.
+ * Indentation is counted in whitespace characters, so a block mixing tabs and
+ * spaces can nest wrongly.
  *
  * Quotes only pair within one line, and brackets inside a quoted run are
  * skipped, so `f(")")` still pairs its real parentheses. A stray apostrophe in
@@ -58,6 +68,8 @@ export function codeSelectionRungs(
     }
   }
 
+  rungs.push(...indentRungs(text, from, to));
+
   for (const [open, close] of pairs(text)) {
     if (open < from && close >= to) rungs.push({ from: open + 1, to: close });
     if (open <= from && close + 1 >= to) {
@@ -65,6 +77,96 @@ export function codeSelectionRungs(
     }
   }
   return rungs;
+}
+
+interface Line {
+  start: number;
+  end: number;
+  indent: number;
+  blank: boolean;
+}
+
+/** The indented blocks around `[from, to)`, innermost first. */
+function indentRungs(
+  text: string,
+  from: number,
+  to: number,
+): SelectionRungRange[] {
+  const lines: Line[] = [];
+  for (let start = 0; ;) {
+    const newline = text.indexOf("\n", start);
+    const end = newline < 0 ? text.length : newline;
+    const line = text.slice(start, end);
+    const trimmed = line.trimStart();
+    lines.push({
+      start,
+      end,
+      indent: line.length - trimmed.length,
+      blank: trimmed.trimEnd() === "",
+    });
+    if (newline < 0) break;
+    start = newline + 1;
+  }
+  const lineAt = (offset: number) => {
+    let i = lines.length - 1;
+    while (lines[i].start > offset) i--;
+    return i;
+  };
+
+  const first = lineAt(from);
+  // A range ending right after a newline does not reach into the next line.
+  const last =
+    to > from && lines[lineAt(to)].start === to ? lineAt(to) - 1 : lineAt(to);
+  let level = Infinity;
+  let top = -1;
+  for (let i = first; i <= last; i++) {
+    if (lines[i].blank) continue;
+    level = Math.min(level, lines[i].indent);
+    if (top < 0) top = i;
+  }
+  if (top < 0) return [];
+
+  const rungs: SelectionRungRange[] = [];
+  const span = (a: number, b: number) => {
+    while (lines[b].blank) b--;
+    rungs.push({ from: lines[a].start, to: lines[b].end });
+  };
+  // The header line `i` with everything indented under it.
+  const block = (i: number) => {
+    const indent = lines[i].indent;
+    let b = i;
+    while (b + 1 < lines.length) {
+      const next = lines[b + 1];
+      if (!next.blank && next.indent <= indent) {
+        if (next.indent === indent && CLOSERS.has(text[next.start + indent])) {
+          b++;
+        }
+        break;
+      }
+      b++;
+    }
+    span(i, b);
+  };
+
+  block(top);
+  let a = first;
+  let b = last;
+  for (;;) {
+    while (a > 0 && (lines[a - 1].blank || lines[a - 1].indent >= level)) a--;
+    while (
+      b + 1 < lines.length &&
+      (lines[b + 1].blank || lines[b + 1].indent >= level)
+    ) {
+      b++;
+    }
+    const header = a - 1;
+    while (lines[a].blank) a++;
+    span(a, b);
+    if (header < 0) return rungs;
+    block(header);
+    level = lines[header].indent;
+    a = b = header;
+  }
 }
 
 /**
