@@ -970,7 +970,7 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
   // Resting state is a caption, not a control: no border, no background. The
   // chevron stays put, though — it is the only thing that says the language can
   // be changed at all, and a label that only reveals itself on hover is a
-  // control nobody finds. Hover just promotes the text to foreground. The
+  // control nobody finds. Hover promotes text and chevron to foreground. The
   // `[&>…]` overrides retune the shared combobox trigger (h-9, full width, 14px
   // text, bordered) to band scale.
   const triggerClassName = cn(
@@ -982,7 +982,9 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
     "h-auto w-auto cursor-pointer justify-end gap-0.5 rounded border-0 bg-transparent dark:bg-transparent px-1 py-0 shadow-none",
     "text-muted-foreground transition-colors hover:text-foreground focus-within:ring-0",
     "[&>span]:flex-none [&>span]:text-[11px] [&>span]:leading-none",
-    "[&>svg]:size-3",
+    // The shared trigger pins its chevron to `text-muted-foreground`; inherit
+    // instead so the arrow lights up with the label on hover.
+    "[&>svg]:size-3 [&>svg]:text-current",
   );
 
   // Shown wherever the picker is not reachable: a readonly document, and mobile
