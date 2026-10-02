@@ -272,8 +272,6 @@
   "device.invalidCode": "That code isn't valid. Check for missing characters.",
   "device.codeExpired": "This code has expired. Generate a new one.",
   "device.notADeviceCode": "That's an invite to a space, not a device code. Use it under Add space → Join space.",
-  "device.scanInstead": "Scan the QR code instead",
-  "device.typeInstead": "Paste the code instead",
   "device.sectionTitle": "Your devices",
   "device.sectionDescription": "Linked devices share all your spaces and appear as you.",
   "device.unnamed": "Unnamed device",

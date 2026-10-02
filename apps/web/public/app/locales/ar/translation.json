@@ -258,8 +258,6 @@
   "device.invalidCode": "هذا الرمز غير صالح. تحقّق من عدم نقص أي حرف.",
   "device.codeExpired": "انتهت صلاحية هذا الرمز. أنشئ رمزًا جديدًا.",
   "device.notADeviceCode": "هذه دعوة إلى مساحة، لا رمز جهاز. استخدمها من إضافة مساحة ← الانضمام إلى مساحة.",
-  "device.scanInstead": "امسح رمز QR بدلًا من ذلك",
-  "device.typeInstead": "الصق الرمز بدلًا من ذلك",
   "device.sectionTitle": "أجهزتك",
   "device.sectionDescription": "تتشارك الأجهزة المرتبطة جميع مساحاتك وتظهر باسمك.",
   "device.unnamed": "جهاز بلا اسم",
