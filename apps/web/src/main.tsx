@@ -20,10 +20,20 @@ import { loadFonts } from "./fonts";
 import "./i18n";
 import { markVisit } from "./lib/appVisits";
 import { initNativeDevToolsSync } from "./lib/devTools";
+import { installErrorLog } from "./lib/errorLog";
 import { faviconUrl } from "./lib/favicon";
 import { requestPersistentStorage } from "./lib/persistentStorage";
+import { redactRouteParams } from "./lib/reportIssue";
 import { initPlatform } from "./platform";
 import { serviceWorkerBridge } from "./serviceWorkerBridge";
+
+// First, so a failed startup is in Settings → Error log too.
+installErrorLog({
+  routePath: () => {
+    const last = router.state.matches.at(-1);
+    return last ? redactRouteParams(last.pathname, last.params) : "/";
+  },
+});
 
 const initialFavicon = document.getElementById("favicon");
 if (initialFavicon) {

@@ -1,0 +1,130 @@
+.container {
+  max-width: 800px;
+}
+
+/* The entries read as one tinted block, set apart from the settings above. */
+.list {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--muted), transparent 50%);
+  overflow: hidden;
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 0.875rem 1rem;
+  min-width: 0;
+}
+
+.item + .item {
+  border-top: 1px solid var(--border);
+}
+
+.itemHeader {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.name {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--destructive);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.count {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.time {
+  flex-shrink: 0;
+  margin-inline-start: auto;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+/* Messages can be long; three lines is enough to recognise one. */
+.message {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  /* LTR text inside an RTL page still reads from the start of the row. */
+  text-align: start;
+}
+
+.details {
+  font-size: 0.75rem;
+}
+
+.summary {
+  cursor: pointer;
+  color: var(--muted-foreground);
+  width: fit-content;
+}
+
+.summary:hover {
+  color: var(--foreground);
+}
+
+.stack {
+  margin-top: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  max-height: 16rem;
+  overflow: auto;
+  border-radius: var(--radius-md, 6px);
+  /* Sits on the tinted list, so it steps back to the page colour. */
+  background: var(--background);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.6875rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--muted-foreground);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-inline-start: -0.5rem;
+}
+
+.empty {
+  padding-block: 1.5rem;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
+
+/* Pinned to the bottom of the settings sheet on phones. The sheet's own 1rem of
+   bottom padding is pulled in, so list rows don't show through below the bar. */
+.stickyBar {
+  position: sticky;
+  bottom: -1rem;
+  margin-top: 1rem;
+  margin-inline: -1rem;
+  padding: 0.75rem 1rem 1.75rem;
+  border-top: 1px solid var(--border);
+  background: var(--background);
+}
+
+/* See `.container` in InformationTab/Information.module.css. */
+@container settings (max-width: 1232px) {
+  .container {
+    max-width: none;
+  }
+}
