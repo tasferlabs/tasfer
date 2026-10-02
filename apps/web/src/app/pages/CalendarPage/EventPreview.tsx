@@ -76,6 +76,7 @@ import { MountedEditor } from "../../MountedEditor";
 import { TitleEditor } from "../../TitleEditor";
 import { appSchema } from "../../../editorSchema";
 import { DraftParentSearch, DraftTagPicker } from "./DraftTagPicker";
+import type { PageFrontier } from "@/platform/types";
 import type { DraftEvent } from "./CalendarPage";
 import style from "./CalendarPage.module.css";
 
@@ -626,6 +627,7 @@ export function EventPreview({
   // refetch. The editor manages its own state via CRDT ops after the initial
   // mount — we only need the snapshot once per pageId.
   const [pageSnapshot, setPageSnapshot] = useState<Block[] | null>(null);
+  const [pageFrontier, setPageFrontier] = useState<PageFrontier>();
   const snapshotPageIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -642,8 +644,9 @@ export function EventPreview({
       !pageSnapshot
     ) {
       setPageSnapshot(previewPage.blocks);
+      setPageFrontier(previewPage.frontier);
     }
-  }, [previewPage?.blocks, pageId, pageSnapshot]);
+  }, [previewPage?.blocks, previewPage?.frontier, pageId, pageSnapshot]);
 
   const { mutate: updatePage } = useUpdatePage({
     onSuccess: () => {
@@ -1238,6 +1241,7 @@ export function EventPreview({
     <MountedEditor
       key={pageId}
       snapshot={pageSnapshot}
+      frontier={pageFrontier}
       pageId={pageId}
       onContentChange={handleContentChange}
       className="h-full"

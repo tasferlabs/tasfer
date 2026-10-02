@@ -184,11 +184,24 @@ export interface ArchivedPageRef {
 }
 
 /** Full page with content */
+/** See {@link PageFull.frontier}. */
+export interface PageFrontier {
+  clock: number;
+  idCounter: number;
+}
+
 export interface PageFull extends PageListItem {
   blocks: Block[] | null;
   createdAt: string;
   updatedAt: string;
   parents?: PagePathSegment[];
+  /**
+   * The highest clock counter and op-id counter in the page's op log when
+   * `blocks` was read. An editable doc seeded from `blocks` needs both before
+   * its first edit: the log itself loads afterwards, and an edit made sooner
+   * would otherwise reuse an op id or sort before older edits.
+   */
+  frontier: PageFrontier;
   /**
    * ISO timestamp when the page's space was archived, if it was. The page
    * itself is live — an archived space is hidden as a whole rather than
@@ -1087,11 +1100,15 @@ export interface Platform {
      * the blocks are captured, so a remote op persisted (but not yet folded into
      * the blocks) can make a stale snapshot's count match — silently seeding the
      * doc with state that lags its own op log.
+     *
+     * `idCounter` is the highest op-id counter in that same op set, captured
+     * the same way. It comes back as `PageFull.frontier` on the next open.
      */
     save(
       pageId: string,
       blocks: Block[],
       vv: Record<string, number>,
+      idCounter: number,
     ): Promise<void>;
   };
 

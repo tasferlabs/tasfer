@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
 import { getPlatform } from "@/platform";
+import type { PageFrontier } from "@/platform/types";
 import { getBridge } from "@/platform/bridge";
 import {
   CLOSE_CONTEXT_MENU,
@@ -1350,6 +1351,11 @@ function loadCursorPosition(pageId: string): StoredCursorPosition | null {
 
 interface MountedEditorProps {
   snapshot: Block[];
+  /**
+   * The op log's frontier when `snapshot` was read (`PageFull.frontier`).
+   * Editable mounts need it — see `UseCollaborativeDocOptions.frontier`.
+   */
+  frontier?: PageFrontier;
   className?: string;
   /** Called when content changes locally (for saving). */
   onContentChange?: (blocks: Block[]) => void;
@@ -1570,6 +1576,7 @@ function CollaborativeEditor(props: MountedEditorProps) {
     pageId: props.pageId,
     spaceId: props.spaceId,
     snapshot: props.snapshot,
+    frontier: props.frontier,
     readonly: props.readonly ?? false,
     onSyncStateChange: props.onSyncStateChange,
   });

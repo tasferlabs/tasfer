@@ -113,6 +113,7 @@ import { useDebouncedSave } from "../hooks/useDebouncedSave";
 import useLocalStorage from "../hooks/useLocalStorage";
 import { useNavigationPrompt } from "../hooks/useNavigationPrompt";
 import useMobileLayout from "../hooks/useMobileLayout";
+import type { PageFrontier } from "@/platform/types";
 import style from "./EditorPage.module.css";
 
 const SnapshotRestore = lazy(() =>
@@ -159,6 +160,7 @@ export default function EditorPage() {
   );
   // State for loading page blocks once on mount
   const [pageSnapshot, setPageSnapshot] = useState<Block[] | null>(null);
+  const [pageFrontier, setPageFrontier] = useState<PageFrontier>();
   const [isLoading, setIsLoading] = useState(true);
   const [isError, setIsError] = useState(false);
   // Track if page was deleted by another user (via WebSocket)
@@ -401,6 +403,7 @@ export default function EditorPage() {
           if (!hasVisibleBlocks) {
             // Page exists but has no content — mark as corrupted so user can recover from snapshots
             setPageSnapshot(blocks);
+            setPageFrontier(page.frontier);
             setCurrentTitle(page.title || "");
             currentTitleMdRef.current = page.titleMd || "";
             setPageSpaceId(page.spaceId ?? null);
@@ -411,6 +414,7 @@ export default function EditorPage() {
             return;
           }
           setPageSnapshot(blocks);
+          setPageFrontier(page.frontier);
           setCurrentTitle(page.title || "");
           currentTitleMdRef.current = page.titleMd || "";
           // Store the page's actual space ID for P2P sync routing
@@ -739,6 +743,7 @@ export default function EditorPage() {
         </div>
         <MountedEditor
           snapshot={pageSnapshot}
+          frontier={pageFrontier}
           className="w-full h-full"
           onContentChange={readonly ? undefined : handleContentChange}
           onContentUpdate={handleContentUpdate}

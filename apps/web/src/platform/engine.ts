@@ -20,6 +20,7 @@ import type {
   RecreatePageInput,
   PageSearchResult,
   PageCalendarItem,
+  PageFrontier,
   PagePathSegment,
   PageVersion,
   Identity,
@@ -292,8 +293,9 @@ export function normalizeInitOp<T>(op: T): T {
 // op-log frontier (v2 adds generic structured-content attachments). Also bump
 // to force a one-time rebuild when snapshots were written from a wrong live
 // state: v3 discards snapshots saved while a pasted equation's attachment was
-// missing from the live doc though present in the log.
-const PAGE_SNAPSHOT_FORMAT = 3;
+// missing from the live doc though present in the log. v4 adds `idCounter`,
+// the op log's highest op-id counter, which a page open hands to the doc.
+const PAGE_SNAPSHOT_FORMAT = 4;
 
 // Android reaches SQLite through a bridge that splits multi-statement blocks
 // itself, and builds already installed split naively — keep `;` out of the SQL
@@ -3393,8 +3395,17 @@ export class Engine implements Platform {
       const cached = await this.loadSnapshot(id);
       let blocks: import("@tasfer/editor/serlization/loadPage").Block[] | null =
         null;
+      // The doc built from these blocks takes its first local ids and clock
+      // from here, before its op log loads. The clock comes from the same
+      // frontier the snapshot is validated against; the id counter from
+      // whichever source supplied the blocks, which covers the same op set.
+      const frontier: PageFrontier = {
+        clock: Math.max(0, ...Object.values(currentVV)),
+        idCounter: 0,
+      };
       if (cached && vvEqual(cached.vv, currentVV) && cached.blocks.length > 0) {
         blocks = cached.blocks;
+        frontier.idCounter = cached.idCounter;
         // Free (blocks in hand, no op-log replay): reconcile the derived title
         // columns against the doc on every open, not only the slow rebuild path
         // below. A page whose title_md drifted from the doc — e.g. one saved
@@ -3408,9 +3419,12 @@ export class Engine implements Platform {
         // describes the blocks it ships with.
         const rebuilt = await this.rebuildBlocksFromOps(id);
         blocks = rebuilt?.blocks ?? null;
+        if (rebuilt) frontier.idCounter = rebuilt.idCounter;
         if (rebuilt && blocks && blocks.length > 0) {
           // Fire-and-forget — don't block the page open on the write.
-          this.snapshots.save(id, blocks, rebuilt.vv).catch(() => {});
+          this.snapshots
+            .save(id, blocks, rebuilt.vv, rebuilt.idCounter)
+            .catch(() => {});
           // Free (blocks in hand): catch the derived title columns up to the
           // doc if they went stale (e.g. ops applied while the app was closed).
           this.refreshDerivedTitlesFromBlocks(id, blocks).catch(() => {});
@@ -3448,6 +3462,7 @@ export class Engine implements Platform {
         allDay: r.all_day === null ? null : r.all_day === 1,
         recurrenceId: r.recurrence_id,
         blocks,
+        frontier,
         createdAt: r.created_at,
         updatedAt: r.updated_at,
         parents,
@@ -4552,6 +4567,7 @@ export class Engine implements Platform {
       pageId: string,
       blocks: import("@tasfer/editor/serlization/loadPage").Block[],
       vv: Record<string, number>,
+      idCounter: number,
     ): Promise<void> => {
       try {
         // `vv` is supplied by the caller and describes the exact op set these
@@ -4566,6 +4582,7 @@ export class Engine implements Platform {
           JSON.stringify({
             format: PAGE_SNAPSHOT_FORMAT,
             vv,
+            idCounter,
             blocks: cleanBlocks,
           }),
         );
@@ -4578,6 +4595,7 @@ export class Engine implements Platform {
 
   private async loadSnapshot(pageId: string): Promise<{
     vv: Record<string, number>;
+    idCounter: number;
     blocks: import("@tasfer/editor/serlization/loadPage").Block[];
   } | null> {
     try {
@@ -4591,7 +4609,8 @@ export class Engine implements Platform {
         !parsed ||
         parsed.format !== PAGE_SNAPSHOT_FORMAT ||
         typeof parsed.vv !== "object" ||
-        parsed.vv === null
+        parsed.vv === null ||
+        typeof parsed.idCounter !== "number"
       ) {
         return null;
       }
@@ -4829,7 +4848,9 @@ export class Engine implements Platform {
             blocks = rebuilt.blocks;
             // Persist the rebuilt snapshot so the next boot's sweep (and the
             // next page open) take the fast path.
-            this.snapshots.save(id, blocks, rebuilt.vv).catch(() => {});
+            this.snapshots
+              .save(id, blocks, rebuilt.vv, rebuilt.idCounter)
+              .catch(() => {});
           }
         }
         if (blocks) {
@@ -5494,11 +5515,13 @@ export class Engine implements Platform {
   private async rebuildBlocksFromOps(pageId: string): Promise<{
     blocks: import("@tasfer/editor/serlization/loadPage").Block[];
     vv: Record<string, number>;
+    idCounter: number;
   } | null> {
     const ops = await this.loadPageOps(pageId);
     if (ops.length === 0) return null;
 
     const { rebuildState } = await import("@tasfer/editor/sync/reducer");
+    const { maxOpIdCounter } = await import("@tasfer/editor/sync/sync");
     const page = rebuildState(pageId, ops, appDataSchema);
     if (page.blocks.length === 0) return null;
 
@@ -5507,7 +5530,7 @@ export class Engine implements Platform {
       const peer = op.clock.peerId;
       if (op.clock.counter > (vv[peer] ?? -1)) vv[peer] = op.clock.counter;
     }
-    return { blocks: page.blocks, vv };
+    return { blocks: page.blocks, vv, idCounter: maxOpIdCounter(ops) };
   }
 }
 

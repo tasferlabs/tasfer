@@ -484,6 +484,36 @@ describe("createDoc", () => {
     expect(afterCounter).toBeGreaterThan(loadedMax);
   });
 
+  it("frontier keeps edits made before load() unique and causally ahead", () => {
+    // A doc seeded from blocks alone can't see the ids spent on operations
+    // (here the delete) or any clock, so without a frontier its first local
+    // op would reuse an existing id and carry clock 1.
+    const binding = createCRDTbinding("page-1", "p-frontier");
+    const engine = createSyncEngine(binding);
+    const blockInsert = engine.createBlockInsert("a0", "paragraph");
+    engine.emit([blockInsert]);
+    const textInsert = engine.insertText(blockInsert.blockId, 0, "hello");
+    engine.emit([textInsert]);
+    const textDelete = engine.deleteText(blockInsert.blockId, 3, 5);
+    engine.emit([textDelete]);
+    const ops = [blockInsert, textInsert, textDelete];
+
+    const folded = createDoc({ pageId: "page-1", ops });
+    const counterOf = (id: string) => Number(id.split(":")[1]);
+    const maxId = Math.max(...ops.map((o) => counterOf(o.id)));
+    const maxClock = Math.max(...ops.map((o) => o.clock.counter));
+
+    const doc = createDoc({
+      pageId: "page-1",
+      peerId: "p-frontier",
+      blocks: structuredClone(folded.getRawBlocks()),
+      frontier: { clock: maxClock, idCounter: maxId },
+    });
+
+    expect(counterOf(doc._binding.nextId())).toBeGreaterThan(maxId);
+    expect(doc._binding.getClock().counter).toBeGreaterThan(maxClock);
+  });
+
   it("load() keeps every op when storage returns one origin out of id order", () => {
     // Storage sorts by clock, and clock and id counter can disagree: an edit
     // made before the persisted log loaded carries a high id but a low clock,
