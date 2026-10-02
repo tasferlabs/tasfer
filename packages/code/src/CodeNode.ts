@@ -22,6 +22,7 @@
  */
 
 import { type CodeToken, highlightLine } from "./code-highlight";
+import { codeSelectionRungs } from "./code-selection";
 import {
   type ActionBus,
   stateAction,
@@ -35,6 +36,11 @@ import {
   SELECT_ALL,
   SPLIT_BLOCK,
 } from "@tasfer/editor/actions/edit-actions";
+import {
+  EXPAND_SELECTION_STEP,
+  nextEnclosingRange,
+  selectFlatRange,
+} from "@tasfer/editor/actions/selection-expansion";
 import {
   type FontFamily,
   getFontStack,
@@ -586,6 +592,53 @@ export class CodeNode extends TextNode {
         };
         return {
           state: updateMode(next, "select"),
+          ops: [],
+          handled: true,
+        };
+      },
+      50,
+    );
+
+    // Expand selection climbs the code's own structure before the engine's
+    // block → document rungs: word, quotes, brackets (inside, then the pair),
+    // line, block. See `code-selection.ts`. Once the block is held whole the
+    // step goes unclaimed and the engine selects the document.
+    bus.registerState(
+      EXPAND_SELECTION_STEP,
+      (state) => {
+        const cursor = state.document.cursor;
+        if (!cursor || state.document.contentSelection) return;
+        const blockIndex = cursor.position.blockIndex;
+        const block = state.document.page.blocks[blockIndex];
+        if (!block || block.deleted || block.type !== "code") return;
+
+        const selection = state.document.selection;
+        let from = cursor.position.textIndex;
+        let to = from;
+        if (selection && !selection.isCollapsed) {
+          // A range reaching past this block, or one holding it whole as a
+          // node, is past every rung here.
+          if (
+            selection.anchor.blockIndex !== blockIndex ||
+            selection.focus.blockIndex !== blockIndex ||
+            selection.anchor.textIndex === selection.focus.textIndex
+          ) {
+            return;
+          }
+          from = Math.min(
+            selection.anchor.textIndex,
+            selection.focus.textIndex,
+          );
+          to = Math.max(selection.anchor.textIndex, selection.focus.textIndex);
+        }
+        const text = getVisibleTextFromRuns(block.charRuns);
+        const next = nextEnclosingRange(codeSelectionRungs(text, from, to), {
+          from,
+          to,
+        });
+        if (!next) return;
+        return {
+          state: selectFlatRange(state, blockIndex, next.from, next.to),
           ops: [],
           handled: true,
         };
