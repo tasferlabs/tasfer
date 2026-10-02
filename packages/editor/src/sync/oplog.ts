@@ -199,23 +199,31 @@ export function appendLocalOps(
  * state. This is the snapshot hydration path: it updates the operation log and
  * version vector without applying the operations to `state` again.
  *
- * The input must obey the same per-origin ordering invariant as `mergeOps`.
+ * Unlike `mergeOps`, the input may arrive in any per-origin order. Storage
+ * returns ops sorted by clock, and an op's clock and its id counter are
+ * separate sequences that can disagree (an op minted before the persisted log
+ * loaded carries a high id but a low clock). Freshness is therefore judged
+ * against the version vector from before the batch, as in `appendLocalOps`;
+ * deciding op by op would let a high counter hide the lower ones after it, and
+ * they would be missing from the log that later rebuilds this page.
  */
 export function registerAppliedOps(log: OpLog, ops: Operation[]): OpLog {
   if (ops.length === 0) return log;
-  if (IS_DEV) assertPerOriginOrder(ops);
 
   const versionVector = new Map(log.versionVector);
+  const seen = new Set<string>();
   const fresh: Operation[] = [];
 
   for (const op of ops) {
+    if (isOpKnown(log.versionVector, op) || seen.has(op.id)) continue;
+    seen.add(op.id);
+    fresh.push(op);
+
     const peerId = extractPeerId(op.id);
     const counter = extractCounter(op.id);
-    const known = versionVector.get(peerId) ?? -1;
-    if (counter <= known) continue;
-
-    fresh.push(op);
-    versionVector.set(peerId, counter);
+    if (counter > (versionVector.get(peerId) ?? -1)) {
+      versionVector.set(peerId, counter);
+    }
   }
 
   if (fresh.length === 0) return log;

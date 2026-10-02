@@ -483,4 +483,34 @@ describe("createDoc", () => {
     const loadedMax = Math.max(...ops.map((o) => Number(o.id.split(":")[1])));
     expect(afterCounter).toBeGreaterThan(loadedMax);
   });
+
+  it("load() keeps every op when storage returns one origin out of id order", () => {
+    // Storage sorts by clock, and clock and id counter can disagree: an edit
+    // made before the persisted log loaded carries a high id but a low clock,
+    // so it comes back first. The lower-id ops after it must still be logged,
+    // or a later rebuild from the log loses their content.
+    const binding = createCRDTbinding("page-1", "p-order");
+    const engine = createSyncEngine(binding);
+    const blockInsert = engine.createBlockInsert("a0", "paragraph");
+    engine.emit([blockInsert]);
+    const textInsert = engine.insertText(blockInsert.blockId, 0, "early");
+    engine.emit([textInsert]);
+    const late = engine.insertText(blockInsert.blockId, 5, " late");
+    engine.emit([late]);
+    const ops = [blockInsert, textInsert, late];
+
+    const folded = createDoc({ pageId: "page-1", ops });
+    const doc = createDoc({
+      pageId: "page-1",
+      blocks: structuredClone(folded.getRawBlocks()),
+    });
+    doc.load([late, blockInsert, textInsert]);
+
+    expect(doc.getOperations().map((o) => o.id)).toEqual(
+      folded.getOperations().map((o) => o.id),
+    );
+    expect(serializeVV(doc.getVersionVector())).toEqual(
+      serializeVV(folded.getVersionVector()),
+    );
+  });
 });
