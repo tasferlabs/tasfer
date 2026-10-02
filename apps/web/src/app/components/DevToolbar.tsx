@@ -836,11 +836,14 @@ function groupPeersByPerson(args: {
   for (const p of knownPeers) knownByShortKey.set(p.publicKey.slice(0, 8), p);
   const connectedSet = new Set(connectedPeers.map((k) => k.slice(0, 8)));
 
+  // Our own key reaches the peers table too (a space's creator adds itself as
+  // a member), but this replica is appended once below, as the local device.
+  const selfShortKey = identities.selfDevice?.shortKey;
   const shortKeys = [...new Set([
     ...connectedPeers.map((k) => k.slice(0, 8)),
     ...stats.keys(),
     ...knownPeers.map((p) => p.publicKey.slice(0, 8)),
-  ])];
+  ])].filter((k) => k !== selfShortKey);
 
   const groups = new Map<string, PeerPerson>();
   const groupFor = (rootKey: string | null, shortKey: string): PeerPerson => {
