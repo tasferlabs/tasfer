@@ -20,6 +20,7 @@ import {
   type MathTreeEditResult,
   mathTreeMatrixTargetCaret,
   type MathTreeMotion,
+  mathTreeNextRowEdgeCaret,
   type MathTreeRange,
   mathTreeRowEdgeCaret,
   moveMathTreeCaret,
@@ -202,7 +203,10 @@ export function extendActiveMathTreeSelectionByUnit(
     : undefined;
 }
 
-/** Extend an active display-math selection to its current structural row edge. */
+/**
+ * Extend an active display-math selection to the next structural row edge
+ * outward: the caret's own row first, then each enclosing row in turn.
+ */
 export function extendActiveMathTreeSelectionToRowEdge(
   state: EditorState,
   edge: "start" | "end",
@@ -212,7 +216,7 @@ export function extendActiveMathTreeSelectionToRowEdge(
   if (!context || !current) return undefined;
   const continuation = mathTreeSelectionContinuation(context.document, current);
   if (!continuation) return undefined;
-  const caret = mathTreeRowEdgeCaret(
+  const caret = mathTreeNextRowEdgeCaret(
     context.document,
     continuation.caret,
     edge,
