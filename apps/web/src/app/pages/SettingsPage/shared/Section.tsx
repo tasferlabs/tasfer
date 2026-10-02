@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
 import styles from "./Section.module.css";
 
 /**
@@ -9,14 +10,16 @@ import styles from "./Section.module.css";
 export function Section({
   title,
   description,
+  className,
   children,
 }: {
   title?: string;
+  className?: string;
   description?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <section className={styles.section}>
+    <section className={cn(styles.section, className)}>
       {title && <h3 className={styles.heading}>{title}</h3>}
       {description && <p className={styles.description}>{description}</p>}
       {children}

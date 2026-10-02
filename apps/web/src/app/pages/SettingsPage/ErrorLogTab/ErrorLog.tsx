@@ -101,6 +101,7 @@ export function ErrorLog() {
   return (
     <div className={styles.container}>
       <Section
+        className={styles.section}
         // On a phone the sheet's header already says "Error log".
         title={isMobile ? undefined : t("settings.errorLog.title", "Error log")}
         description={t("settings.errorLog.description", {
@@ -145,10 +146,10 @@ export function ErrorLog() {
         )}
       </Section>
 
-      {/* On a phone the list is long and the top of the sheet scrolls away, so
-          clearing lives in a bar pinned to the bottom of the sheet instead. */}
+      {/* On a phone only the list scrolls, so clearing sits in a bar below it
+          that stays in view. */}
       {isMobile && entries.length > 0 && (
-        <div className={styles.stickyBar}>
+        <div className={styles.bottomBar}>
           <Button variant="outline" className="w-full" onClick={clearErrorLog}>
             {t("settings.errorLog.clearAll", "Clear all")}
           </Button>

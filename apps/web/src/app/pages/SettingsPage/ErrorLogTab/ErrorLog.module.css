@@ -110,16 +110,32 @@
   font-size: 0.875rem;
 }
 
-/* Pinned to the bottom of the settings sheet on phones. The sheet's own 1rem of
-   bottom padding is pulled in, so list rows don't show through below the bar. */
-.stickyBar {
-  position: sticky;
-  bottom: -1rem;
+/* Phones: the sheet body is a fixed height, and the list is the only part that
+   scrolls. The description stays on top and the clear bar stays below. */
+@media (max-width: 640px) {
+  .container,
+  .container > .section {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* Out-ranks the shared section's own padding whatever the CSS load order. */
+  .container > .section {
+    padding-bottom: 0;
+  }
+
+  .list {
+    min-height: 0;
+    overflow: hidden auto;
+    overscroll-behavior: contain;
+  }
+}
+
+.bottomBar {
+  flex-shrink: 0;
   margin-top: 1rem;
-  margin-inline: -1rem;
-  padding: 0.75rem 1rem 1.75rem;
-  border-top: 1px solid var(--border);
-  background: var(--background);
 }
 
 /* See `.container` in InformationTab/Information.module.css. */
