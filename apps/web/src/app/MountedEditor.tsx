@@ -1512,6 +1512,23 @@ function postKeyboardToolbar(model: NativeMobileToolbarModel): void {
   ).webkit?.messageHandlers?.KeyboardToolbar?.postMessage(model);
 }
 
+/** Tell the native `KeyboardCaretMoved` handler that the editor moved the caret
+ * or deleted text with JavaScript. WebKit refreshes the keyboard's suggestion
+ * bar only after moves and edits it made itself, so without this a tap or a
+ * Backspace back onto an earlier word keeps the old suggestions. No-op off iOS
+ * / when the handler isn't registered. */
+function postKeyboardCaretMoved(): void {
+  (
+    window as {
+      webkit?: {
+        messageHandlers?: {
+          KeyboardCaretMoved?: { postMessage(m: unknown): void };
+        };
+      };
+    }
+  ).webkit?.messageHandlers?.KeyboardCaretMoved?.postMessage(null);
+}
+
 // The accessory enable flag (`postKeyboardAccessoryFocus`) lives in
 // `mobileToolbarSuppression.ts`, shared with compact surfaces (TitleEditor)
 // that disable the accessory while they hold focus.
@@ -2478,9 +2495,42 @@ function PageEditor({
         setKeyboardOpen(false);
       }
     });
+    // iOS native: the keyboard only re-reads the text around the caret after an
+    // edit or move it made itself, so it never hears of the editor's own: a
+    // caret move with no content change (a canvas tap, an arrow key), or a
+    // Backspace/Delete, which the editor applies itself and then rewrites the
+    // input surface. Backing into the previous word then shows no suggestions
+    // for it. Tell native once the editor has written the new text and caret
+    // into its input surface (two frames, then a task, so WebKit has also
+    // handed them to the native side), coalescing a burst into one notice.
+    let caretNotice = 0;
+    const scheduleCaretNotice = () => {
+      const token = ++caretNotice;
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() =>
+          setTimeout(() => {
+            if (token === caretNotice) postKeyboardCaretMoved();
+          }, 0),
+        ),
+      );
+    };
+    const offCaretMove = IS_IOS_NATIVE
+      ? editor?.on("selectionchange", (s) => {
+          if (s.isFocused && s.selection.empty) scheduleCaretNotice();
+        })
+      : undefined;
+    // Capture phase: the editor stops the key's propagation at its surface.
+    const wrapper = IS_IOS_NATIVE ? wrapperRef.current : null;
+    const onDeleteKey = (e: KeyboardEvent) => {
+      if (e.key === "Backspace" || e.key === "Delete") scheduleCaretNotice();
+    };
+    wrapper?.addEventListener("keydown", onDeleteKey, true);
     return () => {
       offFocus?.();
       offBlur?.();
+      offCaretMove?.();
+      wrapper?.removeEventListener("keydown", onDeleteKey, true);
+      caretNotice++;
       // The editor is going away; never leave the accessory enabled for whatever
       // input gains focus next (e.g. on another page with no editor mounted).
       if (IS_IOS_NATIVE) postKeyboardAccessoryFocus(false);
