@@ -108,6 +108,7 @@ import {
 } from "../contexts/PageSettingsContext";
 import { useSpaces } from "../contexts/SpaceContext";
 import { useTreeExpand } from "../contexts/TreeExpandContext";
+import { useSpacePrefs } from "../contexts/SpacePrefsContext";
 import { useDebouncedSave } from "../hooks/useDebouncedSave";
 import useLocalStorage from "../hooks/useLocalStorage";
 import { useNavigationPrompt } from "../hooks/useNavigationPrompt";
@@ -207,6 +208,7 @@ export default function EditorPage() {
   const navigate = useNavigate();
   const { firstSpaceId } = useSpaces();
   const treeExpand = useTreeExpand();
+  const spacePrefs = useSpacePrefs();
   // Only consulted on the bare /page route, to pick a page to open.
   const { data: pages, isLoading: isLoadingPages } = useGetPages(
     firstSpaceId,
@@ -422,7 +424,9 @@ export default function EditorPage() {
           // debounced update path. Large documents should become interactive
           // before this full-content scan runs.
           debouncedWordCountUpdate(blocks);
-          // Expand all ancestor pages in the sidebar tree
+          // Reveal the page in the sidebar: open its space and every
+          // ancestor page.
+          if (page.spaceId) spacePrefs.expand(page.spaceId);
           if (page.parents && page.parents.length > 0) {
             treeExpand.expandMany(page.parents.map((p) => p.id));
           }
