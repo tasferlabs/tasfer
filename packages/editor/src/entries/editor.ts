@@ -55,7 +55,7 @@ import {
   isInLongPressMode,
   ownsPointerGesture,
 } from "../events/interaction-session";
-import { builtInKeymapClaims } from "../events/keysEvents";
+import { builtInKeymapClaims, keymapCommandIn } from "../events/keysEvents";
 import { pressArmsTextDrag } from "../events/mouseEvents";
 import { touchStartsOwnedGesture } from "../events/touchEvents";
 import { onFontsReady } from "../fonts";
@@ -72,9 +72,10 @@ import {
   stripSentinel,
   SURFACE_SENTINEL,
 } from "../input-diff";
+import { type KeymapOverrides, matchesShortcut } from "../keymap";
 import { resolveMarkRuns } from "../mark-runs";
 import { getBlockTextContent, isAndroid, isIOS } from "../node-shared";
-import { isApplePlatform, supportsHtml5Drag } from "../platform";
+import { supportsHtml5Drag } from "../platform";
 import {
   type BlockData as RuntimeBlockData,
   docMarks,
@@ -220,6 +221,24 @@ import { blockTextFields, type TextFieldInfo } from "../text-fields";
 import { openLinkUrl } from "../url-safety";
 import type { CanvasLayers } from "./layers";
 
+// The special keys the input surface forwards to the keymap itself rather than
+// letting an `input` event commit them, resetting its sentinel text after.
+const SURFACE_RESET_KEYS: readonly string[] = [
+  "Enter",
+  "Tab",
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "Backspace",
+  "Delete",
+  "PageUp",
+  "PageDown",
+  "Home",
+  "End",
+  "Escape",
+];
+
 // ── Per-block style: write-API expansion ─────────────────────────────────────
 // A write-API attr bag may carry a nested `style` object (e.g.
 // `setBlock({ style: { color: "red" } })`). It fans out to one `style.<key>`
@@ -267,18 +286,6 @@ function applyAttrEntries<B extends Block>(
     }
   }
   return { ...block, ...flat, ...(style ? { style } : {}) } as B;
-}
-
-/**
- * The `KeyboardEvent.code` a shortcut token denotes, for the letters and digits
- * whose code is derivable — `"b"` → `"KeyB"`, `"1"` → `"Digit1"`. Returns null
- * for everything else ("enter", "/", …), where the caller falls back to matching
- * `e.key`, since those tokens have no single stable code across layouts.
- */
-function keyCodeFor(token: string): string | null {
-  if (/^[a-z]$/.test(token)) return `Key${token.toUpperCase()}`;
-  if (/^[0-9]$/.test(token)) return `Digit${token}`;
-  return null;
 }
 
 /** Runtime storage guard for schema-declared textual extension blocks. */
@@ -995,6 +1002,13 @@ export interface EditorApi<S extends SchemaDefinition = BaseSchemaDefinition> {
    * dark-mode toggle calls `setTheme({ tokens })`.
    */
   setTheme: (patch: EditorTheme) => void;
+  /**
+   * Replace this instance's changes to the built-in chords. Each listed command
+   * takes the given chords instead of its {@link defaultKeymap} ones (an empty
+   * list unbinds it); every unlisted command goes back to its defaults. Takes
+   * effect on the next keydown.
+   */
+  setKeymap: (overrides: KeymapOverrides) => void;
 }
 
 /**
@@ -3596,15 +3610,13 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         "Home",
         "End",
       ].includes(e.key);
+      const command = keymapCommandIn(this._state, e);
       const isCopy = isShortcut && e.code === "KeyC";
-      const isSelectAll = isShortcut && e.code === "KeyA";
+      const isSelectAll = command === "selectAll";
       const isEscape = e.key === "Escape";
       // The contextual menu is offered on readonly mounts too (Copy, Select
       // All), so the chords that open it are readable-mode keys.
-      const isContextMenuChord =
-        (isShortcut && e.key === "Enter") ||
-        e.key === "ContextMenu" ||
-        (e.key === "F10" && e.shiftKey);
+      const isContextMenuChord = command === "openContextMenu";
 
       if (
         !isNavigationKey &&
@@ -3826,15 +3838,17 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       return;
     }
 
-    // The platform's dedicated contextual-menu chords. Neither is a text key nor
-    // a Ctrl/Cmd shortcut, so they'd otherwise stop at this surface without ever
-    // reaching the keymap — and preventing the default also stops the browser
-    // from synthesizing its own `contextmenu` event for the Menu key.
-    if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
+    // A chord bound to a keymap command goes straight to the keymap. Some are
+    // neither text keys nor Ctrl/Cmd shortcuts — the Menu key, ⇧F10, or any
+    // chord a host rebinds a command to — so they'd otherwise stop at this
+    // surface without ever reaching it; preventing the default also stops the
+    // browser from synthesizing its own `contextmenu` event for the Menu key.
+    if (keymapCommandIn(this._state, e)) {
       e.preventDefault();
       e.stopPropagation();
       this.eventsQueue.push(e);
       this.scheduleRender();
+      if (SURFACE_RESET_KEYS.includes(e.key)) this.resetSentinel();
       return;
     }
 
@@ -3860,23 +3874,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
     // Only forward special keys to avoid duplication with input event
     // Regular text input is handled by hiddenInputHandler
-    if (
-      [
-        "Enter",
-        "Tab",
-        "ArrowUp",
-        "ArrowDown",
-        "ArrowLeft",
-        "ArrowRight",
-        "Backspace",
-        "Delete",
-        "PageUp",
-        "PageDown",
-        "Home",
-        "End",
-        "Escape",
-      ].includes(e.key)
-    ) {
+    if (SURFACE_RESET_KEYS.includes(e.key)) {
       e.preventDefault();
       e.stopPropagation();
       this.eventsQueue.push(e);
@@ -5245,59 +5243,13 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     return named;
   };
 
-  // Match a KeyboardEvent against a combo string like "mod+shift+b" (mod = ⌘
-  // on macOS, Ctrl elsewhere; also ctrl/meta/cmd/alt/opt/shift). The final
-  // token is the key, compared case-insensitively against `event.key` (so
-  // "b"/"enter"/"/" all work). Returns true on an exact modifier+key match.
-  private matchesShortcut = (e: KeyboardEvent, combo: string): boolean => {
-    const parts = combo
-      .toLowerCase()
-      .split("+")
-      .map((p) => p.trim())
-      .filter(Boolean);
-    const key = parts.pop();
-    if (!key) return false;
-    let wantCtrl = false;
-    let wantMeta = false;
-    let wantAlt = false;
-    let wantShift = false;
-    let wantMod = false;
-    for (const mod of parts) {
-      if (mod === "mod") wantMod = true;
-      else if (mod === "ctrl" || mod === "control") wantCtrl = true;
-      else if (mod === "meta" || mod === "cmd" || mod === "action")
-        wantMeta = true;
-      else if (mod === "alt" || mod === "opt" || mod === "option")
-        wantAlt = true;
-      else if (mod === "shift") wantShift = true;
-      else return false; // unknown modifier token
-    }
-    const isMac = isApplePlatform();
-    // `mod` resolves to ⌘ on macOS and Ctrl elsewhere; the platform-native key
-    // must be down and the other must not, so a combo can't double-fire.
-    if (wantMod) {
-      if (isMac ? !(e.metaKey && !e.ctrlKey) : !(e.ctrlKey && !e.metaKey))
-        return false;
-    } else {
-      if (e.ctrlKey !== wantCtrl) return false;
-      if (e.metaKey !== wantMeta) return false;
-    }
-    if (e.altKey !== wantAlt) return false;
-    if (e.shiftKey !== wantShift) return false;
-    // Compare the physical key, not the character it produces. `e.key` would
-    // make every combo layout-dependent — ⌘B is `ب` on an Arabic layout and
-    // `∫` whenever ⌥ is held on macOS — while the built-in keymap has always
-    // matched on `code`. This keeps the two paths agreeing.
-    return keyCodeFor(key) === e.code || e.key.toLowerCase() === key;
-  };
-
   // Run the first schema shortcut whose combo matches this event. Returns true
   // if one matched (so the keydown handler can preventDefault and stop the
   // built-in path). A MutationAction fires through `dispatch` so its observers
   // run; anything else is a raw mutation composed into one change().
   private handleSchemaShortcut = (e: KeyboardEvent): boolean => {
     for (const [combo, target] of Object.entries(this.schemaShortcuts)) {
-      if (!this.matchesShortcut(e, combo)) continue;
+      if (!matchesShortcut(e, combo)) continue;
       const resolved =
         typeof target === "string" ? this.lookupSchemaAction(target) : target;
       if (resolved && isMutationAction(resolved)) this.dispatch(resolved);
@@ -6066,6 +6018,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     this.scheduleRender();
   };
 
+  setKeymap = (overrides: KeymapOverrides): void => {
+    this._state = { ...this._state, keymap: { ...overrides } };
+  };
+
   get state(): EditorStateSnapshot {
     const selection = this._state.document.selection;
     const selectedBlock =
@@ -6157,7 +6113,9 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     options?: { viewportOffsetY?: number },
   ): void => {
     const target = typeof point === "object" && "kind" in point ? point : null;
-    const resolved = target ? null : resolvePoint(this._state, point as DocPoint);
+    const resolved = target
+      ? null
+      : resolvePoint(this._state, point as DocPoint);
     // A point inside content a node owns (a table cell) has no flat offset; it
     // is followed through its content point, anchored to its block.
     const contentPoint =

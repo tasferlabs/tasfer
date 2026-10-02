@@ -1,4 +1,5 @@
 import type { ActionBus } from "./action-bus";
+import type { KeymapOverrides } from "./keymap";
 import type { DecorationLayers } from "./rendering/decorations";
 import type { MarkRegistry } from "./rendering/marks/Mark";
 import type { NodeRegistry } from "./rendering/nodes/Node";
@@ -858,6 +859,13 @@ export interface EditorState {
    * independently.
    */
   readonly resolvedNodeStrings: NodeStringsMap;
+  /**
+   * This instance's changes to the built-in chords (see `defaultKeymap`). Only
+   * the overrides are kept: the defaults are resolved per keydown, so `mod`
+   * follows the platform the event came from. Set at mount (`keymap`) and live
+   * via `setKeymap`.
+   */
+  readonly keymap: KeymapOverrides;
 }
 
 // Action result - all actions return state + operations

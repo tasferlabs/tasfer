@@ -51,6 +51,11 @@ import {
   SHRINK_SELECTION,
 } from "../actions/selection-expansion";
 import { isTextInputKey } from "../code-points";
+import {
+  type KeymapCommand,
+  keymapCommandFor,
+  type ShortcutEvent,
+} from "../keymap";
 import { getBlockTextContent } from "../node-shared";
 import { isApplePlatform } from "../platform";
 import { docSelectionFocus, toDocPoint } from "../positions";
@@ -161,54 +166,57 @@ const MAC_EMACS_CODES = [
   "KeyK",
 ];
 
+// The mark each formatting command toggles, for asking the schema whether the
+// command can run at all.
+const COMMAND_MARKS: Partial<Record<KeymapCommand, string>> = {
+  toggleStrong: "strong",
+  toggleEmphasis: "emphasis",
+  toggleCode: "code",
+  toggleStrike: "strike",
+};
+
 /**
- * Whether the built-in keymap answers this Ctrl/Cmd chord. The input surface
- * asks before it swallows a keydown: a claimed chord is consumed and queued,
- * anything else is left alone so it bubbles to the host — a save, a sidebar
- * toggle, a command palette. Kept beside the keymap so the two cannot drift,
- * and it consults the schema, so an editor whose schema lacks or disallows a
- * mark also frees that mark's chord. Copy, cut and paste are not claimed: they
- * must reach the browser's native clipboard events. A chord with Alt down is
- * never claimed — on Windows that is AltGr, which types a character.
+ * The keymap command this keydown runs in this editor, or null. A formatting
+ * command counts only while the schema registers and allows its mark, so a
+ * title field built with `restrict({ marks: [] })` leaves ⌘B to the host.
+ */
+export function keymapCommandIn(
+  state: EditorState,
+  e: ShortcutEvent,
+): KeymapCommand | null {
+  const command = keymapCommandFor(state.keymap, e);
+  if (!command) return null;
+  const mark = COMMAND_MARKS[command];
+  if (
+    mark &&
+    (state.marks.get(mark) === undefined || !state.schema.isMarkAllowed(mark))
+  ) {
+    return null;
+  }
+  return command;
+}
+
+/**
+ * Whether the built-in keymap answers this chord. The input surface asks before
+ * it swallows a keydown: a claimed chord is consumed and queued, anything else
+ * is left alone so it bubbles to the host — a save, a sidebar toggle, a command
+ * palette. Kept beside the keymap so the two cannot drift, and it consults the
+ * schema, so an editor whose schema lacks or disallows a mark also frees that
+ * mark's chord. Copy, cut and paste are not claimed unless a command was bound
+ * to them: they must reach the browser's native clipboard events. No default
+ * chord holds Alt with Ctrl/Cmd — on Windows that is AltGr, which types a
+ * character.
  */
 export function builtInKeymapClaims(
   state: EditorState,
-  e: Pick<
-    KeyboardEvent,
-    "code" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey"
-  >,
+  e: ShortcutEvent,
 ): boolean {
+  if (keymapCommandIn(state, e)) return true;
   const isApple = isApplePlatform();
   if (isApple && e.ctrlKey && !e.metaKey && !e.altKey) {
     return MAC_EMACS_CODES.includes(e.code);
   }
-  const isCmd = isApple ? e.metaKey : e.ctrlKey;
-  if (!isCmd || e.altKey) return false;
-  const toggles = (name: string) =>
-    !e.shiftKey &&
-    state.marks.get(name) !== undefined &&
-    state.schema.isMarkAllowed(name);
-  switch (e.code) {
-    case "KeyZ":
-    case "KeyY":
-    case "KeyA":
-      return true;
-    case "KeyB":
-      return toggles("strong");
-    case "KeyI":
-      return toggles("emphasis");
-    case "KeyE":
-      return toggles("code");
-    case "KeyX":
-      // ⌘⇧X is strike-through; a plain ⌘X is the native cut and stays free.
-      return (
-        e.shiftKey &&
-        state.marks.get("strike") !== undefined &&
-        state.schema.isMarkAllowed("strike")
-      );
-    default:
-      return false;
-  }
+  return false;
 }
 
 export function handleKeyDown(
@@ -243,12 +251,11 @@ export function handleKeyDown(
   // Only bare Ctrl — with ⌘ or ⌥ also down the chord belongs to something else.
   const isMacEmacs =
     isApple && keyEvent.ctrlKey && !keyEvent.metaKey && !keyEvent.altKey;
+  // The rebindable command this key runs, if any (see `defaultKeymap`).
+  const command = keymapCommandIn(state, keyEvent);
   // Open the contextual menu on the caret: ⌘↩ on Apple (Ctrl+↩ elsewhere), plus
   // the ⇧F10 / Menu-key chord every desktop toolkit answers to.
-  const isContextMenuChord =
-    (isCmd && key === "Enter") ||
-    key === "ContextMenu" ||
-    (keyEvent.shiftKey && key === "F10");
+  const isContextMenuChord = command === "openContextMenu";
   const inputSource =
     keyEvent.inputSource ??
     (keyEvent.isTrusted === true ? "hardware-keyboard" : "input-surface");
@@ -271,7 +278,7 @@ export function handleKeyDown(
       "End",
     ].includes(key);
     const isCopy = isCmd && code === "KeyC";
-    const isSelectAll = isCmd && code === "KeyA";
+    const isSelectAll = command === "selectAll";
     const isEscape = key === "Escape";
     const isFind = isCmd && code === "KeyF";
     // The read-only reader on a Mac navigates with ⌃A/⌃E/⌃B/⌃F/⌃P/⌃N too; the
@@ -333,7 +340,7 @@ export function handleKeyDown(
   // Block most operations during composition - let IME handle input
   if (state.ui.composition?.isComposing) {
     // Block undo/redo
-    if (isCmd && (code === "KeyZ" || code === "KeyY")) {
+    if (command === "undo" || command === "redo") {
       return { state, ops };
     }
     // Block cut operation
@@ -362,8 +369,7 @@ export function handleKeyDown(
   }
 
   // Undo/Redo - handle these first, even if slash action is open
-  // Use code instead of key for keyboard layout independence
-  if (isCmd && code === "KeyZ" && !keyEvent.shiftKey) {
+  if (command === "undo") {
     // A markdown auto-format that just fired takes the first undo: it peels off
     // the promotion and leaves the literal syntax, which is the only way to type
     // "# foo" as text. The undo stack itself is untouched — see
@@ -391,7 +397,7 @@ export function handleKeyDown(
     );
     return { state: result.state, ops: result.ops };
   }
-  if (isCmd && (code === "KeyY" || (keyEvent.shiftKey && code === "KeyZ"))) {
+  if (command === "redo") {
     const result = redoState(state);
     ensureCursorVisible(
       result.state,
@@ -406,8 +412,9 @@ export function handleKeyDown(
   // macOS emacs-style text bindings. Every Cocoa text view answers to these and
   // the browser supplies them for free in a normal text field — but the canvas
   // surface swallows the keydown, so the editor has to provide them itself.
-  // Matched on `code`, so they survive a non-Latin keyboard layout.
-  if (isMacEmacs) {
+  // Matched on `code`, so they survive a non-Latin keyboard layout. A command
+  // rebound onto one of these chords takes it.
+  if (isMacEmacs && !command) {
     const emacs = ((): { state: EditorState; ops: Operation[] } | null => {
       switch (code) {
         case "KeyA":
@@ -465,16 +472,10 @@ export function handleKeyDown(
   // the chords code editors use. Must come before the arrow cases below, which
   // would read ⌘⇧→ as "extend to line end". Fixed to the physical arrow, not
   // the text direction: → always grows, ← always shrinks.
-  const isSelectionLadderChord =
-    (key === "ArrowRight" || key === "ArrowLeft") &&
-    keyEvent.shiftKey &&
-    (isApple
-      ? keyEvent.ctrlKey && keyEvent.metaKey && !keyEvent.altKey
-      : keyEvent.altKey && !keyEvent.ctrlKey && !keyEvent.metaKey);
-  if (isSelectionLadderChord) {
+  if (command === "expandSelection" || command === "shrinkSelection") {
     event.preventDefault();
     const result = state.actionBus.dispatchState(
-      key === "ArrowRight" ? EXPAND_SELECTION : SHRINK_SELECTION,
+      command === "expandSelection" ? EXPAND_SELECTION : SHRINK_SELECTION,
       state,
     );
     ops.push(...result.ops);
@@ -482,7 +483,7 @@ export function handleKeyDown(
   }
 
   // Select All
-  if (isCmd && code === "KeyA") {
+  if (command === "selectAll") {
     const result = state.actionBus.dispatchState(SELECT_ALL, state);
     ops.push(...result.ops);
     return { state: result.state, ops };
@@ -491,23 +492,21 @@ export function handleKeyDown(
   // Inline formatting. The engine stays mark-agnostic about *what* these do —
   // each toggle resolves through the mark registry and no-ops when the schema
   // doesn't include that mark.
-  if (isCmd) {
-    const toggle =
-      code === "KeyB" && !keyEvent.shiftKey
-        ? TOGGLE_STRONG
-        : code === "KeyI" && !keyEvent.shiftKey
-          ? TOGGLE_EMPHASIS
-          : code === "KeyE" && !keyEvent.shiftKey
-            ? TOGGLE_CODE
-            : code === "KeyX" && keyEvent.shiftKey
-              ? TOGGLE_STRIKE
-              : null;
-    if (toggle) {
-      event.preventDefault();
-      const result = state.actionBus.dispatchState(toggle, state);
-      ops.push(...result.ops);
-      return { state: result.state, ops };
-    }
+  const toggle =
+    command === "toggleStrong"
+      ? TOGGLE_STRONG
+      : command === "toggleEmphasis"
+        ? TOGGLE_EMPHASIS
+        : command === "toggleCode"
+          ? TOGGLE_CODE
+          : command === "toggleStrike"
+            ? TOGGLE_STRIKE
+            : null;
+  if (toggle) {
+    event.preventDefault();
+    const result = state.actionBus.dispatchState(toggle, state);
+    ops.push(...result.ops);
+    return { state: result.state, ops };
   }
 
   // Tab - indent/outdent list items

@@ -565,6 +565,24 @@ export { DEFAULT_TOKENS, mergeTheme, resolveTheme } from "./styles";
 // the UI, need the same ⌘-vs-Ctrl answer the built-in keymap uses.
 export { isApplePlatform } from "./platform";
 
+// Keymap — the built-in chords a host can rebind (`keymap` at mount,
+// `editor.setKeymap` live), and the chord syntax hosts share for their own
+// shortcuts: match a keydown, record one, compare two.
+export type {
+  Keymap,
+  KeymapCommand,
+  KeymapOverrides,
+  ShortcutEvent,
+} from "./keymap";
+export {
+  defaultKeymap,
+  KEYMAP_COMMANDS,
+  matchesShortcut,
+  normalizeShortcut,
+  parseShortcut,
+  shortcutFromEvent,
+} from "./keymap";
+
 // Link safety — a host that overrides OPEN_LINK, or renders a link's url in its
 // own chrome, must apply the same protocol allowlist the engine's own sinks do.
 export {

@@ -1,4 +1,5 @@
 import { type Doc } from "../doc";
+import type { KeymapOverrides } from "../keymap";
 import {
   createDefaultMarkRegistry,
   createMarkRegistry,
@@ -179,6 +180,12 @@ export interface MountEditorOptions<
    * folded into a theme for backwards compatibility.
    */
   theme?: EditorTheme;
+  /**
+   * Changes to the built-in chords (bold, undo, select all, …): each listed
+   * command takes these chords instead of its `defaultKeymap` ones, and an
+   * empty list unbinds it. Update later with `editor.setKeymap`.
+   */
+  keymap?: KeymapOverrides;
   /** @deprecated Use `theme.styles.canvas`. */
   padding?: Partial<{
     paddingTop: number;
@@ -544,6 +551,7 @@ export function mountEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
     // The doc's binding is the shared id/clock source when a doc is attached.
     crdtBinding: doc?._binding ?? options?.crdtBinding,
     theme,
+    keymap: options?.keymap,
   });
 
   let baseWidth = initial.width;
