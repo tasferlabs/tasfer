@@ -104,8 +104,15 @@
   margin-inline-start: -0.5rem;
 }
 
+/* The same block as the list, holding a centred note, so the tab keeps its
+   shape when there is nothing to show. */
 .empty {
-  padding-block: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 10rem;
+  padding: 1.5rem 1rem;
+  text-align: center;
   color: var(--muted-foreground);
   font-size: 0.875rem;
 }
@@ -124,6 +131,11 @@
   /* Out-ranks the shared section's own padding whatever the CSS load order. */
   .container > .section {
     padding-bottom: 0;
+  }
+
+  /* With nothing to scroll, the block takes the rest of the sheet. */
+  .empty {
+    flex: 1;
   }
 
   .list {

@@ -134,9 +134,9 @@ export function ErrorLog() {
         )}
 
         {entries.length === 0 ? (
-          <p className={styles.empty}>
+          <div className={cn(styles.list, styles.empty)}>
             {t("settings.errorLog.empty", "No errors recorded.")}
-          </p>
+          </div>
         ) : (
           <ul className={styles.list}>
             {entries.map((entry) => (
