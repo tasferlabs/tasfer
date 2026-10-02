@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type SVGProps } from "react";
+import { withAiDash } from "@/components/AiDash";
 import { Link } from "@/components/Link";
 import BrandMark from "@/components/BrandMark";
 import { REPO_URL, SiteHeader } from "@/components/SiteHeader";
@@ -284,38 +285,38 @@ export default function DownloadPage() {
                       {t("download.latest", "latest release")} · {hero.file}
                     </span>
                     <span className="dl-hero-hint">
-                      {t(
+                      {withAiDash(t(
                         "download.detected",
                         "detected from your browser — everything else is below.",
-                      )}
+                      ))}
                     </span>
                   </>
                 ) : (
                   <span className="dl-hero-hint">
                     {platform === "mac"
-                      ? t(
+                      ? withAiDash(t(
                           "download.macHint",
                           "macOS detected. Both builds are native — the Apple menu, then About This Mac, names your chip.",
-                        )
+                        ))
                       : platform === "ios"
-                        ? t(
+                        ? withAiDash(t(
                             "download.iosHint",
                             "the App Store build is out — or keep this one in Safari, nothing to install.",
-                          )
+                          ))
                         : platform === "windows" || platform === "linux"
-                          ? t(
+                          ? withAiDash(t(
                               "download.desktopHint",
                               "the build for your system is not out yet — this one runs in your browser, nothing to install.",
-                            )
+                            ))
                           : isMobile
-                            ? t(
+                            ? withAiDash(t(
                                 "download.mobileHint",
                                 "the store builds are not out yet — this one runs in your browser and installs to your home screen.",
-                              )
-                            : t(
+                              ))
+                            : withAiDash(t(
                                 "download.allHint",
                                 "macOS, iOS, and the browser — every build is below.",
-                              )}
+                              ))}
                   </span>
                 )}
               </p>

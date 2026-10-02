@@ -1,0 +1,63 @@
+/* Em dash with an "AI was used here" bubble (AiDash.tsx). The dash keeps the
+   surrounding text's look; only the cursor and hover tint give it away. */
+
+.ai-dash {
+  position: relative;
+  cursor: help;
+  transition: color 120ms ease;
+}
+.ai-dash:hover,
+.ai-dash[data-open] {
+  color: var(--primary);
+}
+
+/* Bottom padding is the hover bridge: the pointer crosses it on the way from
+   the dash to the link without leaving the element. */
+.ai-dash-bubble {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  z-index: 90;
+  padding-bottom: 6px;
+  transform: translateX(calc(-50% + var(--ai-dash-shift, 0px)));
+  cursor: auto;
+}
+
+.ai-dash-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: max-content;
+  max-width: calc(100vw - 16px);
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.12);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: normal;
+  text-align: start;
+  text-transform: none;
+  white-space: normal;
+}
+
+.ai-dash-note {
+  color: var(--popover-foreground);
+}
+
+.ai-dash-link {
+  color: var(--primary);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.ai-dash-link:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 2px;
+}

@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { withAiDash } from "@/components/AiDash";
 import { Link } from "@/components/Link";
 import { DirArrow } from "@/components/DirArrow";
 import { PkgMgrProvider } from "@/views/DocsPage/docsComponents";
@@ -83,8 +84,8 @@ export default function InternalsArticle({ slug }: { slug: string }) {
           <article className="dx-article ix-article">
             <header className="ix-hero">
               {/* <hr className="h-2 bg-primary"></hr> */}
-              <h1 className="ix-title">{note.title}</h1>
-              {note.summary ? <p className="ix-lede">{note.summary}</p> : null}
+              <h1 className="ix-title">{withAiDash(note.title)}</h1>
+              {note.summary ? <p className="ix-lede">{withAiDash(note.summary)}</p> : null}
               <div className="ix-byline">
                 <span className="authors">
                   {note.authors.map((author, index) => (
