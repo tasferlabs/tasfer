@@ -451,6 +451,57 @@ export function getFormatKey(formats: Mark[]): string {
   return formats.map(markKey).sort().join("|");
 }
 
+/**
+ * What `batchChars` needs to know about a char array, resolved once per array
+ * rather than once per call: where each visible char sits in the array, and each
+ * format span's array-index range.
+ */
+interface CharIndex {
+  readonly length: number;
+  readonly formats: readonly MarkRange[];
+  /** `visible[v]` is the array index of visible char `v`. */
+  readonly visible: Int32Array;
+  readonly spanRanges: readonly {
+    readonly format: Mark;
+    readonly start: number;
+    readonly end: number;
+  }[];
+}
+
+// A laid-out block is measured line by line — wrap, line boxes, paint, caret,
+// underline — and every call used to rebuild this index from the WHOLE array and
+// walk to the line's start from char 0. That made one layout O(lines × chars):
+// a few hundred ms for a 400-line code block, paid on every relayout. Memoized
+// per array, each call costs only its own range. Char arrays handed to
+// measurement are not mutated afterwards (each layout builds its own); the
+// length and formats checks are a cheap guard on top of that.
+const charIndexCache = new WeakMap<Char[], CharIndex>();
+
+function charIndexFor(chars: Char[], formats: readonly MarkRange[]): CharIndex {
+  const cached = charIndexCache.get(chars);
+  if (cached && cached.length === chars.length && cached.formats === formats) {
+    return cached;
+  }
+  const indexOfId = new Map<string, number>();
+  const visible: number[] = [];
+  for (let i = 0; i < chars.length; i++) {
+    indexOfId.set(chars[i].id, i);
+    if (!chars[i].deleted) visible.push(i);
+  }
+  const index: CharIndex = {
+    length: chars.length,
+    formats,
+    visible: Int32Array.from(visible),
+    spanRanges: formats.map((span) => ({
+      format: span.format,
+      start: indexOfId.get(span.startCharId) ?? -1,
+      end: indexOfId.get(span.endCharId) ?? -1,
+    })),
+  };
+  charIndexCache.set(chars, index);
+  return index;
+}
+
 // Batch CRDT characters by formatting within a visible index range
 // This preserves Arabic ligatures by keeping same-formatted chars together
 export function batchChars(
@@ -462,20 +513,12 @@ export function batchChars(
 ): TextBatch[] {
   const batches: TextBatch[] = [];
   let currentBatch: TextBatch | null = null;
-  let visibleIndex = 0;
+  let currentKey = "";
 
-  // Resolve each span's char-array index range ONCE. The shared
-  // getFormatsAtIndex resolves a span's endpoints with a linear findIndex per
-  // char, so calling it in this per-char loop was O(chars² × spans) — the
-  // dominant hit-test cost on a long single-run line (a matrix's LaTeX source).
-  // An id→index map makes the per-char lookup O(spans).
-  const indexOfId = new Map<string, number>();
-  for (let i = 0; i < chars.length; i++) indexOfId.set(chars[i].id, i);
-  const spanRanges = formats.map((span) => ({
-    format: span.format,
-    start: indexOfId.get(span.startCharId) ?? -1,
-    end: indexOfId.get(span.endCharId) ?? -1,
-  }));
+  // Span endpoints are resolved to array indices once per array (see
+  // charIndexFor); resolving them per char with a linear findIndex, as the shared
+  // getFormatsAtIndex does, was O(chars² × spans).
+  const { visible, spanRanges } = charIndexFor(chars, formats);
   const formatsAtIndex = (i: number): Mark[] => {
     const active: Mark[] = [];
     for (const r of spanRanges) {
@@ -486,26 +529,14 @@ export function batchChars(
     return active;
   };
 
-  for (let i = 0; i < chars.length; i++) {
+  const end = Math.min(endIndex, visible.length);
+  for (let v = Math.max(0, startIndex); v < end; v++) {
+    const i = visible[v];
     const char = chars[i];
-
-    // Skip deleted characters
-    if (char.deleted) continue;
-
-    // Check if this character is in the range
-    if (visibleIndex < startIndex) {
-      visibleIndex++;
-      continue;
-    }
-
-    if (visibleIndex >= endIndex) {
-      break;
-    }
-
     const charFormats = formatsAtIndex(i);
     const formatKey = getFormatKey(charFormats);
 
-    if (currentBatch && getFormatKey(currentBatch.formats) === formatKey) {
+    if (currentBatch && currentKey === formatKey) {
       // Same formatting, append to current batch
       currentBatch.text += char.char;
     } else {
@@ -520,10 +551,9 @@ export function batchChars(
         italic: metrics.italic,
         replacement: replacementFor(charFormats, marks),
       };
+      currentKey = formatKey;
       batches.push(currentBatch);
     }
-
-    visibleIndex++;
   }
 
   return batches;
