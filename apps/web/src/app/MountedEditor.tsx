@@ -3213,15 +3213,20 @@ function PageEditor({
         "offset" in selectionRange
           ? (selectionRange.offset ?? 0)
           : null);
+      // A tree caret is in math by definition — a display equation, or an
+      // inline chip's own formula. Its offset is formula-local, so it must not
+      // be probed against the host block's flat marks: that only matched by
+      // coincidence and lost the math row as the formula grew past one char.
       const inlineMathChip =
-        caretOffset !== null && activeBlock != null
+        treeMath === null && caretOffset !== null && activeBlock != null
           ? inlineMathChipAt(
               mounted.editor.query.marks,
               activeBlock.id,
               caretOffset,
             )
           : undefined;
-      const insideInlineMath = inlineMathChip !== undefined;
+      const insideInlineMath =
+        treeMath !== null || inlineMathChip !== undefined;
       const canOpenMathCommands =
         (snapshot.selection.empty || treeMath !== null) &&
         (rawBlockType === "math" || insideInlineMath);
