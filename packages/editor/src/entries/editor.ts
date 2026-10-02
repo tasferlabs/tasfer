@@ -18,6 +18,7 @@ import {
 import {
   convertBlockAtCursor,
   deleteSelectionThroughOwner,
+  getSelectionRange,
   insertText,
 } from "../actions/actions";
 import {
@@ -3109,13 +3110,26 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         return;
       }
       // No plain text (e.g. an image-only selection) — fall through to caret.
-    } else if (hasRangedSelection) {
-      // Touch device with a live selection: leave the collapsed caret surface in
-      // place so the soft keyboard stays up while text is selected.
-      return;
     }
 
-    const caret = resolvePoint(this._state, "caret");
+    // Touch device with a live selection: keep a COLLAPSED caret surface so the
+    // soft keyboard stays up, but park it at the selection's start, so the
+    // keyboard reads the text that will precede whatever replaces the
+    // selection. Left at the pre-selection caret (on Android, the bare sentinel
+    // after a tap mid-word), the keyboard sees a fresh sentence and capitalizes
+    // the replacement. A nested (table-cell) selection keeps the surface as is.
+    let selectionStart: Position | null = null;
+    if (hasRangedSelection && !mirrorRangedSelection) {
+      selectionStart = getSelectionRange(this._state)?.start ?? null;
+      if (!selectionStart) return;
+    }
+
+    const caret = selectionStart
+      ? {
+          blockIndex: selectionStart.blockIndex,
+          offset: selectionStart.textIndex,
+        }
+      : resolvePoint(this._state, "caret");
     if (!caret) {
       this.resetSentinel();
       return;
@@ -3146,9 +3160,12 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // Only keep a live word when the caret sits at the END of one (the normal
     // typing position). Mid-word — a non-boundary char follows the caret — falls
     // back to the bare sentinel, so the surface never has to represent a caret
-    // inside its text.
+    // inside its text. A selection's start counts as a word end: what follows it
+    // is about to be replaced.
     const atWordEnd =
-      caret.offset >= text.length || isWordBoundaryChar(text[caret.offset]);
+      selectionStart !== null ||
+      caret.offset >= text.length ||
+      isWordBoundaryChar(text[caret.offset]);
     if (!atWordEnd) {
       this.resetSentinel();
       return;
