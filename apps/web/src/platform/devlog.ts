@@ -4,7 +4,7 @@
  * defaults on in staging). No-op otherwise.
  */
 
-import { isDevToolsEnabled } from "@/lib/devToolsFlag";
+import { inSharedWorker, isDevToolsEnabled } from "@/lib/devToolsFlag";
 
 export type NetDirection = "send" | "recv";
 
@@ -27,7 +27,7 @@ function notify() {
   for (const fn of _listeners) fn();
 }
 
-/** Log a network message (send or receive). No-op if not staging. */
+/** Log a network message (send or receive). No-op unless developer tools are on. */
 export function logNet(
   direction: NetDirection,
   peer: string,
@@ -36,20 +36,47 @@ export function logNet(
 ) {
   if (!isDevToolsEnabled()) return;
 
-  const summary = buildSummary(msg as Record<string, unknown>);
-
-  _entries.push({
-    id: ++_id,
+  const record: NetLogRecord = {
     direction,
     type: msg.type,
     peer: peer.slice(0, 8),
-    summary,
+    summary: buildSummary(msg as Record<string, unknown>),
     timestamp: Date.now(),
     size: sizeBytes,
-  });
+  };
+  // No tab can read the worker's memory: hand the entry to the tabs instead.
+  if (netLogChannel && inSharedWorker()) netLogChannel.postMessage(record);
+  else ingest(record);
+}
 
+/** One logged message as it crosses from the engine's worker to a tab. */
+type NetLogRecord = Omit<NetLogEntry, "id">;
+
+function ingest(record: NetLogRecord) {
+  _entries.push({ id: ++_id, ...record });
   if (_entries.length > MAX) _entries = _entries.slice(-MAX);
   notify();
+}
+
+/**
+ * In the browser the Replicator runs in the engine's SharedWorker (see
+ * `adapters/node.sharedworker.ts`), so its `logNet` calls arrive here, in every
+ * open tab. Each tab keeps its own copy while its developer tools are on.
+ */
+const netLogChannel: BroadcastChannel | null = (() => {
+  if (typeof BroadcastChannel === "undefined") return null;
+  if (typeof window === "undefined" && !inSharedWorker()) return null;
+  try {
+    return new BroadcastChannel("tasfer:devtools-netlog");
+  } catch {
+    return null;
+  }
+})();
+
+if (netLogChannel && !inSharedWorker()) {
+  netLogChannel.onmessage = (e: MessageEvent<NetLogRecord>) => {
+    if (isDevToolsEnabled() && e.data?.type) ingest(e.data);
+  };
 }
 
 export function getNetLogs(): NetLogEntry[] {
