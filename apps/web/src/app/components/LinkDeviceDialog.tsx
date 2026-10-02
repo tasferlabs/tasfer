@@ -446,7 +446,12 @@ export function LinkDeviceDialog({ open, onOpenChange }: LinkDeviceDialogProps) 
         <Button className="w-full" onClick={handleShow} loading={isCreating}>
           {t("device.showCode", "Show a code on this device")}
         </Button>
-        <Button variant="outline" className="w-full" onClick={() => setStep("enter")}>
+        <Button variant="outline" className="w-full" onClick={() => {
+            // Phones have a camera to hand; elsewhere the scanner would only
+            // greet the user with a permission prompt or "no camera".
+            setScanning(isMobile);
+            setStep("enter");
+          }}>
           {t("device.enterCode", "Enter a code from another device")}
         </Button>
       </div>
