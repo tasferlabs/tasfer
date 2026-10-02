@@ -17,7 +17,11 @@ import {
 import { isTouchDevice } from "@tasfer/editor/internal";
 import { replaceWord, SpellChecker, type FlagRef } from "@tasfer/spell";
 import type { AppEditor } from "@/editorSchema";
-import { useDocumentIgnores, readDocumentIgnores } from "./documentIgnores";
+import {
+  useOwnPrefsStore,
+  type OwnPrefsStore,
+} from "@/app/contexts/OwnPrefsContext";
+import { useDocumentIgnores } from "./documentIgnores";
 import { SPELL_PREF_KEYS } from "./personalDictionary";
 import { useSpellService, useSpellSetting } from "./SpellProvider";
 import { spellShortcutFor } from "./spellShortcut";
@@ -144,7 +148,11 @@ export const SpellcheckLayer = forwardRef<
     SPELL_PREF_KEYS.lenientArabic,
     false,
   ).value;
-  const ignores = useDocumentIgnores(pageId);
+  // Null in onboarding, which has no own-prefs store; the list is empty there.
+  const ownPrefs = useOwnPrefsStore() as OwnPrefsStore | null;
+  const ignores = useDocumentIgnores(ownPrefs, pageId);
+  const ignoredRef = useRef(ignores.ignored);
+  ignoredRef.current = ignores.ignored;
 
   const active = enabled && !readonly && service !== null;
 
@@ -187,7 +195,7 @@ export const SpellcheckLayer = forwardRef<
       color: () => readRootCssVar(UNDERLINE_VAR, UNDERLINE_FALLBACK),
       style: () => ({ type: "underline", line: "wavy", thickness: 1 }),
       isEnabled: () => settingsRef.current.enabled,
-      ignoredInDocument: () => readDocumentIgnores(pageId),
+      ignoredInDocument: () => ignoredRef.current,
       // ALL-CAPS words are acronyms and codes far more often than typos, so
       // the app never flags them; the option stays on the checker for hosts
       // that want it.

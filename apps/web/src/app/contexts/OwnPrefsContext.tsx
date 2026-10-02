@@ -15,6 +15,10 @@ import {
   LEGACY_RECENT_ZONES_KEY,
   readLegacyRecentZones,
 } from "@/components/timezonepicker/timezoneData";
+import {
+  LEGACY_IGNORES_PREFIX,
+  readLegacyDocumentIgnores,
+} from "@/spell/documentIgnores";
 
 /**
  * Person-private preferences — the app-layer view of `platform.prefs`.
@@ -117,6 +121,13 @@ export const OWN_PREF_KEYS = {
    * Mirrored as `RECENT_ZONES_PREF_PREFIX` in the timezone picker's data.
    */
   timezoneRecentsPrefix: "timezone.recents.",
+  /**
+   * Key PREFIX: `spell.ignore.<pageId>.<word>` → `{ added: ms }` for a word
+   * ignored on that page only. One key per word, removal writes `null` — the
+   * same reason the personal dictionary does it. Mirrored as
+   * `IGNORES_PREF_PREFIX` in `src/spell/documentIgnores.ts`.
+   */
+  spellIgnorePrefix: "spell.ignore.",
 } as const;
 
 /**
@@ -219,6 +230,11 @@ const LEGACY: Array<{
   {
     storageKey: LEGACY_RECENT_ZONES_KEY,
     read: (raw, ctx) => readLegacyRecentZones(raw, requireDevice(ctx)),
+  },
+  {
+    storageKey: LEGACY_IGNORES_PREFIX,
+    prefix: true,
+    read: (raw, ctx) => readLegacyDocumentIgnores(ctx.storageKey, raw),
   },
 ];
 
