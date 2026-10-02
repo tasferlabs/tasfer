@@ -46,6 +46,10 @@ import {
   MOVE_TO_PREVIOUS_WORD,
 } from "../actions/keyboard-actions";
 import { CURSOR_MOVED } from "../actions/pointer-actions";
+import {
+  EXPAND_SELECTION,
+  SHRINK_SELECTION,
+} from "../actions/selection-expansion";
 import { isTextInputKey } from "../code-points";
 import { getBlockTextContent } from "../node-shared";
 import { isApplePlatform } from "../platform";
@@ -455,6 +459,26 @@ export function handleKeyDown(
   if (isContextMenuChord) {
     event.preventDefault();
     return { state: openContextMenuAtCaret(state, viewport, visibility), ops };
+  }
+
+  // Expand / shrink selection: ⌃⇧⌘→ / ← on Apple, Shift+Alt+→ / ← elsewhere —
+  // the chords code editors use. Must come before the arrow cases below, which
+  // would read ⌘⇧→ as "extend to line end". Fixed to the physical arrow, not
+  // the text direction: → always grows, ← always shrinks.
+  const isSelectionLadderChord =
+    (key === "ArrowRight" || key === "ArrowLeft") &&
+    keyEvent.shiftKey &&
+    (isApple
+      ? keyEvent.ctrlKey && keyEvent.metaKey && !keyEvent.altKey
+      : keyEvent.altKey && !keyEvent.ctrlKey && !keyEvent.metaKey);
+  if (isSelectionLadderChord) {
+    event.preventDefault();
+    const result = state.actionBus.dispatchState(
+      key === "ArrowRight" ? EXPAND_SELECTION : SHRINK_SELECTION,
+      state,
+    );
+    ops.push(...result.ops);
+    return { state: result.state, ops };
   }
 
   // Select All

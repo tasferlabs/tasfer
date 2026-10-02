@@ -614,6 +614,30 @@ export interface UIState {
   // by an opaque layer name; never persisted, never in undo. See
   // `rendering/decorations.ts`.
   readonly decorations: DecorationLayers;
+  /**
+   * The rungs expand-selection has climbed, so shrink can walk back down them.
+   * Only trusted while the page and selection are still what the last expand
+   * left (see `actions/selection-expansion.ts`). Never persisted, never in undo.
+   */
+  readonly selectionExpansion?: SelectionExpansionHistory | null;
+}
+
+/** A selection as expand/shrink-selection saves and restores it. */
+export interface SelectionSnapshot {
+  readonly cursor: CursorState | null;
+  readonly selection: SelectionState | null;
+  readonly contentSelection: ContentSelection | null;
+  readonly mode: EditorMode;
+}
+
+/** The ladder expand-selection has climbed in one editor. */
+export interface SelectionExpansionHistory {
+  /** The page the ladder was built on; any edit makes the history stale. */
+  readonly page: Page;
+  /** The selection the last expand produced. */
+  readonly current: SelectionSnapshot;
+  /** Every selection expand grew from, oldest first. */
+  readonly previous: readonly SelectionSnapshot[];
 }
 
 /**

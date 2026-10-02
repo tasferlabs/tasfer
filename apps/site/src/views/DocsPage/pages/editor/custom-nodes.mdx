@@ -191,6 +191,38 @@ bus.registerState(EXIT_BLOCK, (state) => {
 
 A selected text range has already been deleted by the time your handler runs, so it only ever sees a caret.
 
+<h3 id="expand-selection">Expand selection</h3>
+
+Expand selection (⌃⇧⌘→ on Apple, Shift+Alt+→ elsewhere) grows the selection one step per press, and shrink (← with the same modifiers) steps back. The engine's own steps are word → whole block → whole document. A node with structure of its own adds steps in front by claiming `EXPAND_SELECTION_STEP`: list every range it would ever select around the current one, and `nextEnclosingRange` picks the smallest that is wider. Return nothing once your block is selected whole, so the engine's next step takes the document. Shrink needs nothing from you: the engine remembers the steps it took.
+
+```ts
+import {
+  EXPAND_SELECTION_STEP,
+  nextEnclosingRange,
+  selectFlatRange,
+} from "@tasfer/editor";
+
+bus.registerState(
+  EXPAND_SELECTION_STEP,
+  (state) => {
+    const caret = state.document.cursor?.position;
+    const block = caret && state.document.page.blocks[caret.blockIndex];
+    if (block?.type !== "callout") return;
+    const current = { from: caret.textIndex, to: caret.textIndex }; // or the selected range
+    const next = nextEnclosingRange(myRanges(block, current), current);
+    if (!next) return; // selected whole: let the engine take the document
+    return {
+      state: selectFlatRange(state, caret.blockIndex, next.from, next.to),
+      ops: [],
+      handled: true,
+    };
+  },
+  50,
+);
+```
+
+A node with a nested caret selects through its own content selection instead of `selectFlatRange`; the built-in math, code and table nodes are worked examples of each.
+
 <h2 id="strings">Localized strings live on the node</h2>
 
 A node owns the canvas strings it paints — status labels, prompts — as a `strings` catalog of English defaults. The editor ships no i18n library; a localized host overrides per type via `theme.nodeStrings`. Read them inside `draw` with the protected `str(state, key)` helper. (The core image node and the opt-in math node own their labels exactly this way — they're no longer in a global string table.)

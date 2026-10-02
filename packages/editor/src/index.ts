@@ -338,6 +338,15 @@ export {
   SELECT_ALL,
   SPLIT_BLOCK,
 } from "./actions/edit-actions";
+// Expand / shrink selection, and the per-node rung hook behind them.
+export type { SelectionRungRange } from "./actions/selection-expansion";
+export {
+  EXPAND_SELECTION,
+  EXPAND_SELECTION_STEP,
+  nextEnclosingRange,
+  selectFlatRange,
+  SHRINK_SELECTION,
+} from "./actions/selection-expansion";
 // Text-input event-layer actions: IME composition lifecycle + clipboard.
 export {
   COMPOSITION_END,
