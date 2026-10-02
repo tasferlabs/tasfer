@@ -1,10 +1,11 @@
 import { ShortcutKeys } from "./ShortcutKeys";
-import { useShortcuts } from "@/shortcuts/ShortcutsContext";
+import { useShortcuts, useShortcutsDialog } from "@/shortcuts/ShortcutsContext";
 import { Command } from "cmdk";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Calendar,
   ChevronLeft,
+  Keyboard,
   Moon,
   Plus,
   RefreshCw,
@@ -162,6 +163,7 @@ export function ActionCenter() {
   const queryClient = useQueryClient();
   const { isMobile, isShort } = useMobileLayout();
   const shortcuts = useShortcuts();
+  const { setOpen: openShortcuts } = useShortcutsDialog();
   const keyboardInset = useKeyboardInset();
   const { checkForUpdate } = useVersion();
   const { toast } = useToast();
@@ -412,6 +414,25 @@ export function ActionCenter() {
       });
     }
 
+    // A keyboard's settings; a phone has none to set.
+    if (!isMobile) {
+      items.push({
+        id: "keyboard-shortcuts",
+        label: t("shortcuts.openSettings", "Keyboard Shortcuts"),
+        keywords: [
+          "shortcuts",
+          t("shortcuts.shortcutsKw", "shortcuts"),
+          "keyboard",
+          t("shortcuts.keyboardKw", "keyboard"),
+          "keybindings",
+          "hotkeys",
+          t("shortcuts.keysKw", "keys"),
+        ],
+        icon: <Keyboard size={16} />,
+        run: () => openShortcuts(true),
+      });
+    }
+
     if (isDesktop) {
       items.push({
         id: "check-updates",
@@ -444,6 +465,8 @@ export function ActionCenter() {
     runUpdateCheck,
     spellService,
     spellEnabled,
+    isMobile,
+    openShortcuts,
   ]);
 
   // Rank pages and actions for the current query. With a query, every item is

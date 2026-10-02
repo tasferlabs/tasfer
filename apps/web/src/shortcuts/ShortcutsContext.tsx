@@ -10,6 +10,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useState,
   useSyncExternalStore,
   type ReactNode,
 } from "react";
@@ -163,14 +164,37 @@ function dedupe(chords: readonly string[], apple: boolean): string[] {
 
 const ShortcutsContext = createContext<Shortcuts | null>(null);
 
+interface ShortcutsDialogState {
+  open: boolean;
+  setOpen: (open: boolean) => void;
+}
+
+const ShortcutsDialogContext = createContext<ShortcutsDialogState>({
+  open: false,
+  setOpen: () => {},
+});
+
 export function ShortcutsProvider({ children }: { children: ReactNode }) {
   const store = useOwnPrefsStore();
   const shortcuts = useMemo(() => new Shortcuts(store ?? null), [store]);
+  const [open, setOpen] = useState(false);
+  const dialog = useMemo(() => ({ open, setOpen }), [open]);
   return (
     <ShortcutsContext.Provider value={shortcuts}>
-      {children}
+      <ShortcutsDialogContext.Provider value={dialog}>
+        {children}
+      </ShortcutsDialogContext.Provider>
     </ShortcutsContext.Provider>
   );
+}
+
+/**
+ * Whether the shortcuts dialog is open, and the way to open it from anywhere —
+ * the command palette, Settings. The dialog itself is mounted once by the
+ * layout, desktop only.
+ */
+export function useShortcutsDialog(): ShortcutsDialogState {
+  return useContext(ShortcutsDialogContext);
 }
 
 /**

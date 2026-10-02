@@ -1,6 +1,7 @@
 import React from "react";
 import { Outlet, useLocation, useMatch, useNavigate } from "react-router-dom";
 import { ActionCenter } from "../components/ActionCenter";
+import { ShortcutsDialog } from "../components/ShortcutsDialog";
 import { AddSpaceDialog } from "../components/AddSpaceDialog";
 import { BottomToolDock } from "../components/BottomToolDock";
 import { ConfirmationDialogProvider } from "../components/ConfirmationDialog";
@@ -347,6 +348,8 @@ function LayoutInner() {
       {/* Nothing to search or act on yet, and its hotkey would open it over
           the onboarding dialog. */}
       {!needsOnboarding && <ActionCenter />}
+      {/* Shortcuts are a keyboard's settings; a phone has none to set. */}
+      {!needsOnboarding && !isMobile && <ShortcutsDialog />}
       <BottomToolDock>
         {devToolsEnabled && (
           <React.Suspense fallback={null}>
