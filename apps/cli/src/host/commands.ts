@@ -8,11 +8,17 @@
  */
 
 import os from "node:os";
-import { decodeInvite, encodeInvite, isDeviceLink } from "@/app/inviteCode";
+import {
+  decodeInvite,
+  encodeInvite,
+  isDeviceLink,
+  isInviteExpired,
+} from "@/app/inviteCode";
 import type { PairCallbacks, SpaceInvite } from "@/platform/types";
 import { t, type MessageKey } from "../cli/messages";
 import { CliError } from "../cli/args";
 import { openHost, type Host, type HostOptions } from "./runtime";
+import { warnIfClockSkewed } from "./clock";
 
 /** Heartbeat that holds the event loop open while the host runs. */
 const STAY_ALIVE_MS = 60_000;
@@ -40,7 +46,6 @@ function parseCode(code: string | undefined): SpaceInvite {
   if (!code) throw new CliError("link.needCode");
   const invite = decodeInvite(code);
   if (!invite) throw new CliError("link.invalidCode");
-  if (invite.expiresAt <= Date.now()) throw new CliError("link.expiredCode");
   return invite;
 }
 
@@ -122,6 +127,10 @@ export async function linkHost(
   name: string | undefined,
 ): Promise<number> {
   const invite = parseCode(code);
+  // Before the expiry check: a fast clock is what makes a fresh code from
+  // the app look expired, and the warning is the only hint of that.
+  await warnIfClockSkewed(options.signalUrl);
+  if (isInviteExpired(invite)) throw new CliError("link.expiredCode");
   const host = await openHost(options);
 
   try {
@@ -175,9 +184,13 @@ export async function inviteHost(
   options: HostOptions,
   ttlMinutes: number,
 ): Promise<number> {
+  // Measured while the host opens; a slow clock stamps every code with an
+  // expiry the app has already passed.
+  const clockCheck = warnIfClockSkewed(options.signalUrl);
   const host = await openHost(options);
 
   try {
+    await clockCheck;
     await host.replicator.start();
     const invite = await host.engine.pairing.createDeviceLink(
       ttlMinutes * 60 * 1000,
