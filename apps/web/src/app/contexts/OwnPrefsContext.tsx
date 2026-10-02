@@ -11,6 +11,10 @@ import {
   readLegacyParentUsage,
 } from "@/lib/parentUsage";
 import { LEGACY_FRECENCY_KEY, readLegacyFrecency } from "@/lib/paletteUsage";
+import {
+  LEGACY_RECENT_ZONES_KEY,
+  readLegacyRecentZones,
+} from "@/components/timezonepicker/timezoneData";
 
 /**
  * Person-private preferences — the app-layer view of `platform.prefs`.
@@ -107,6 +111,12 @@ export const OWN_PREF_KEYS = {
    * in `@/lib/paletteUsage`.
    */
   paletteUsagePrefix: "palette.usage.",
+  /**
+   * Key PREFIX: `timezone.recents.<deviceKey>` → the zones that device picked
+   * lately; the timezone picker offers the latest few across all devices.
+   * Mirrored as `RECENT_ZONES_PREF_PREFIX` in the timezone picker's data.
+   */
+  timezoneRecentsPrefix: "timezone.recents.",
 } as const;
 
 /**
@@ -205,6 +215,10 @@ const LEGACY: Array<{
   {
     storageKey: LEGACY_FRECENCY_KEY,
     read: (raw, ctx) => readLegacyFrecency(raw, requireDevice(ctx)),
+  },
+  {
+    storageKey: LEGACY_RECENT_ZONES_KEY,
+    read: (raw, ctx) => readLegacyRecentZones(raw, requireDevice(ctx)),
   },
 ];
 
