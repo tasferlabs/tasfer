@@ -101,7 +101,8 @@ export function useIsSpaceCollapsed(id: string): boolean {
 /**
  * Spaces sorted by the person's saved order, with any space missing from it
  * (newly created, or just joined) kept in its incoming order at the end so it
- * still appears.
+ * still appears. That incoming order is creation order, the same on every
+ * device (see `spaces.list`), so an unarranged sidebar matches everywhere.
  */
 export function useOrderedSpaces(spaces: ISpace[]): ISpace[] {
   const store = useOwnPrefsStore();

@@ -364,7 +364,14 @@ const SCHEMA_SQL = `
     -- off is a setting, not a guarantee, and the whole point is that writing
     -- here cannot later become someone else's to read. Sharing a personal page
     -- means moving it to a shared space, not reclassifying the space.
-    personal    INTEGER NOT NULL DEFAULT 0
+    personal    INTEGER NOT NULL DEFAULT 0,
+    -- When the space was made by the clock of its author (unix ms): the "at"
+    -- field of its earliest space_set op as kept by refreshSpaceOrigin. It is
+    -- the default sidebar order because every device agrees on it; created_at
+    -- is when the space reached THIS device and differs per device. NULL when
+    -- that op predates the field or has not arrived yet.
+    -- (No commas in this comment: SQLite DROP COLUMN misparses them here.)
+    origin_at   INTEGER
   );
 
   -- Person-private preferences: one LWW register per key, replicated to this
@@ -629,6 +636,19 @@ export class Engine implements Platform {
       await this.driver.db.exec(
         "ALTER TABLE spaces ADD COLUMN archive_by TEXT",
       );
+    }
+
+    // spaces.origin_at — backfilled from the op log every existing space
+    // already holds, so the sidebar order agrees across devices from the first
+    // boot rather than only for spaces made afterwards.
+    if (!spaceCols.some((c) => c.name === "origin_at")) {
+      await this.driver.db.exec(
+        "ALTER TABLE spaces ADD COLUMN origin_at INTEGER",
+      );
+      const rows = await this.driver.db.query<{ id: string }>(
+        "SELECT id FROM spaces",
+      );
+      for (const { id } of rows) await this.refreshSpaceOrigin(id);
     }
 
     // peers.last_vv / last_vv_at — the last version vector a peer advertised.
@@ -1932,9 +1952,12 @@ export class Engine implements Platform {
         `SELECT s.* FROM spaces s
          JOIN space_members m ON m.space_id = s.id
          WHERE m.public_key = ? AND s.archived_at IS NULL
-         -- Arrival order, not name: a rename must not move a space. created_at
-         -- is stamped once, when the space first lands on this device.
-         ORDER BY s.created_at, s.id`,
+         -- Creation order, not name: a rename must not move a space. Not
+         -- created_at either — that is when the space reached this device, so
+         -- two devices would list the same spaces in different orders.
+         -- origin_at is the same everywhere; NULL (spaces older than the
+         -- op's \`at\` field) sorts first, and the id settles the rest.
+         ORDER BY s.origin_at, s.id`,
         [identity.publicKey],
       );
       return rows.map((r) => ({
@@ -2124,6 +2147,7 @@ export class Engine implements Platform {
           value: true,
         });
       }
+      await this.refreshSpaceOrigin(id);
 
       await this.emitSpaceOp(id, {
         op: "member_add",
@@ -4692,6 +4716,10 @@ export class Engine implements Platform {
         console.error(`[Engine] refreshSpaces after device_add failed: ${msg}`);
       });
     }
+    // Only a space_set can be the space's earliest one.
+    if (ops.some((op) => op.op === "space_set")) {
+      await this.refreshSpaceOrigin(spaceId);
+    }
     this.assetPrefetcher.noteRefs(avatarRefs);
     this.notifySpaceChange(spaceId);
   }
@@ -5082,6 +5110,38 @@ export class Engine implements Platform {
     if (this.replicator) {
       this.replicator.pushSpaceOps(spaceId, [op]);
     }
+  }
+
+  /**
+   * Re-derive `spaces.origin_at` from the space's earliest space_set op — its
+   * author's `space_set name` at creation, which every member eventually holds,
+   * so every device lands on the same value. Only space_set ops count: a member
+   * who joins emits device_add ops before syncing, and their low counters must
+   * not pass for the space's birth.
+   */
+  private async refreshSpaceOrigin(spaceId: string): Promise<void> {
+    const [first] = await this.driver.db.query<{ data: Uint8Array }>(
+      `SELECT data FROM ops
+        WHERE scope_id = ? AND type = 'space_set'
+        ORDER BY clock, peer_id
+        LIMIT 1`,
+      [`space:${spaceId}`],
+    );
+    let at: number | null = null;
+    if (first) {
+      try {
+        const op = JSON.parse(new TextDecoder().decode(first.data)) as {
+          at?: unknown;
+        };
+        if (typeof op.at === "number" && Number.isFinite(op.at)) at = op.at;
+      } catch {
+        /* corrupted op: leave the space unordered by origin */
+      }
+    }
+    await this.driver.db.mutate("UPDATE spaces SET origin_at = ? WHERE id = ?", [
+      at,
+      spaceId,
+    ]);
   }
 
   private async storeSpaceOp(op: SpaceOperation): Promise<void> {
