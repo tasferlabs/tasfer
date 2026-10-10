@@ -18,6 +18,12 @@ export interface ShortcutCommand {
    */
   readonly locked?: boolean;
   /**
+   * A text-editing chord macOS itself gives every text field, like ⌃K. The
+   * conflict note says so, since these look made up to anyone who never met
+   * them.
+   */
+  readonly macText?: boolean;
+  /**
    * Takes a key with no modifier. Only where no text is being typed — the
    * calendar's single letters — so a bare key can never eat a typed character.
    */
@@ -61,6 +67,8 @@ export function shortcutCommands({
     defaults: readonly string[],
     label: (t: TFunction) => string,
   ): ShortcutCommand => ({ id, scope, label, defaults, locked: true });
+  const macText = (command: ShortcutCommand): ShortcutCommand =>
+    apple ? { ...command, macText: true } : command;
 
   const commands: ShortcutCommand[] = [
     // General
@@ -154,66 +162,83 @@ export function shortcutCommands({
     locked("editor.outdent", "editor", ["shift+tab"], (t) =>
       t("shortcuts.cmd.outdent", "Outdent"),
     ),
-    locked(
-      "editor.wordLeft",
-      "editor",
-      [apple ? "alt+arrowleft" : "mod+arrowleft"],
-      (t) => t("shortcuts.cmd.wordLeft", "Move to previous word"),
+    macText(
+      locked(
+        "editor.wordLeft",
+        "editor",
+        [apple ? "alt+arrowleft" : "mod+arrowleft"],
+        (t) => t("shortcuts.cmd.wordLeft", "Move to previous word"),
+      ),
     ),
-    locked(
-      "editor.wordRight",
-      "editor",
-      [apple ? "alt+arrowright" : "mod+arrowright"],
-      (t) => t("shortcuts.cmd.wordRight", "Move to next word"),
+    macText(
+      locked(
+        "editor.wordRight",
+        "editor",
+        [apple ? "alt+arrowright" : "mod+arrowright"],
+        (t) => t("shortcuts.cmd.wordRight", "Move to next word"),
+      ),
     ),
-    locked(
-      "editor.lineStart",
-      "editor",
-      apple ? ["mod+arrowleft", "ctrl+a"] : ["home"],
-      (t) => t("shortcuts.cmd.lineStart", "Move to start of line"),
+    macText(
+      locked(
+        "editor.lineStart",
+        "editor",
+        apple ? ["mod+arrowleft", "ctrl+a"] : ["home"],
+        (t) => t("shortcuts.cmd.lineStart", "Move to start of line"),
+      ),
     ),
-    locked(
-      "editor.lineEnd",
-      "editor",
-      apple ? ["mod+arrowright", "ctrl+e"] : ["end"],
-      (t) => t("shortcuts.cmd.lineEnd", "Move to end of line"),
+    macText(
+      locked(
+        "editor.lineEnd",
+        "editor",
+        apple ? ["mod+arrowright", "ctrl+e"] : ["end"],
+        (t) => t("shortcuts.cmd.lineEnd", "Move to end of line"),
+      ),
     ),
-    locked(
-      "editor.documentStart",
-      "editor",
-      [apple ? "mod+arrowup" : "mod+home"],
-      (t) => t("shortcuts.cmd.documentStart", "Move to start of page"),
+    macText(
+      locked(
+        "editor.documentStart",
+        "editor",
+        [apple ? "mod+arrowup" : "mod+home"],
+        (t) => t("shortcuts.cmd.documentStart", "Move to start of page"),
+      ),
     ),
-    locked(
-      "editor.documentEnd",
-      "editor",
-      [apple ? "mod+arrowdown" : "mod+end"],
-      (t) => t("shortcuts.cmd.documentEnd", "Move to end of page"),
+    macText(
+      locked(
+        "editor.documentEnd",
+        "editor",
+        [apple ? "mod+arrowdown" : "mod+end"],
+        (t) => t("shortcuts.cmd.documentEnd", "Move to end of page"),
+      ),
     ),
   ];
 
   // The Cocoa text-view chords every macOS text field answers to.
   if (apple) {
+    const cocoa = (
+      id: string,
+      chord: string,
+      label: (t: TFunction) => string,
+    ): ShortcutCommand => macText(locked(id, "editor", [chord], label));
     commands.push(
-      locked("editor.emacsBack", "editor", ["ctrl+b"], (t) =>
+      cocoa("editor.emacsBack", "ctrl+b", (t) =>
         t("shortcuts.cmd.charLeft", "Move back one character"),
       ),
-      locked("editor.emacsForward", "editor", ["ctrl+f"], (t) =>
+      cocoa("editor.emacsForward", "ctrl+f", (t) =>
         t("shortcuts.cmd.charRight", "Move forward one character"),
       ),
-      locked("editor.emacsUp", "editor", ["ctrl+p"], (t) =>
+      cocoa("editor.emacsUp", "ctrl+p", (t) =>
         t("shortcuts.cmd.lineUp", "Move up one line"),
       ),
-      locked("editor.emacsDown", "editor", ["ctrl+n"], (t) =>
+      cocoa("editor.emacsDown", "ctrl+n", (t) =>
         t("shortcuts.cmd.lineDown", "Move down one line"),
       ),
-      locked("editor.emacsDeleteBackward", "editor", ["ctrl+h"], (t) =>
+      cocoa("editor.emacsDeleteBackward", "ctrl+h", (t) =>
         t("shortcuts.cmd.deleteBackward", "Delete character before cursor"),
       ),
-      locked("editor.emacsDeleteForward", "editor", ["ctrl+d"], (t) =>
+      cocoa("editor.emacsDeleteForward", "ctrl+d", (t) =>
         t("shortcuts.cmd.deleteForward", "Delete character after cursor"),
       ),
-      locked("editor.emacsKill", "editor", ["ctrl+k"], (t) =>
+      cocoa("editor.emacsKill", "ctrl+k", (t) =>
         t("shortcuts.cmd.deleteToLineEnd", "Delete to end of line"),
       ),
     );
