@@ -15,11 +15,20 @@ import { WIRE_VERSION } from "./wire-codec";
  * a paused peer is not dialed, a live connection to one is dropped, and what a
  * peer advertised before it went is kept — that record is the only thing that
  * can later say whether pausing it stranded anything.
+ *
+ * One of the person's own devices is the exception: it stays connected, but the
+ * link carries `own-state` only, so a resume made at either end can arrive.
  */
 
 const LOCAL_PUBLIC_KEY = "a".repeat(64);
 const REMOTE_PUBLIC_KEY = "b".repeat(64);
 const SPACE = "shared-space";
+const OWN_PREF = {
+  key: "theme",
+  value: '"dark"',
+  stamp: 5,
+  by: LOCAL_PUBLIC_KEY,
+};
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -88,7 +97,7 @@ function setup(options: { paused: boolean; ownDevice?: boolean; pausedSelf?: boo
     getSpaceMembers: vi.fn(async () => [{ publicKey: REMOTE_PUBLIC_KEY }]),
     getOwnSpaceStates: vi.fn(async () => []),
     applyOwnSpaceStates: vi.fn(async () => {}),
-    getOwnPrefs: vi.fn(async () => []),
+    getOwnPrefs: vi.fn(async () => [OWN_PREF]),
     applyOwnPrefs: vi.fn(async () => {}),
     getSpaceVV: vi.fn(async () => ({})),
     getPageVVs: vi.fn(async () => ({})),
@@ -101,6 +110,20 @@ function setup(options: { paused: boolean; ownDevice?: boolean; pausedSelf?: boo
   };
 
   return { network, host, peer, records, replicator: new Replicator(network, host) };
+}
+
+function hello(): Record<string, unknown> {
+  return {
+    type: "hello",
+    publicKey: REMOTE_PUBLIC_KEY,
+    protocolVersion: PROTOCOL_VERSION,
+    wireVersion: WIRE_VERSION,
+  };
+}
+
+/** Message types sent to the peer, hellos aside. */
+function sentTypes(peer: FakePeer): unknown[] {
+  return peer.sent.filter((m) => m.type !== "hello").map((m) => m.type);
 }
 
 describe("a paused peer", () => {
@@ -160,20 +183,106 @@ describe("a paused peer", () => {
   });
 });
 
+describe("a paused device of the person's own", () => {
+  it("is still dialed", async () => {
+    const { replicator, network } = setup({ paused: true, ownDevice: true });
+    await replicator.start();
+
+    expect(network.join).toHaveBeenCalled();
+  });
+
+  it("is sent own-state on hello and nothing else", async () => {
+    const { replicator, peer } = setup({ paused: true, ownDevice: true });
+    await replicator.start();
+    peer.receive(hello());
+
+    await vi.waitFor(() => expect(sentTypes(peer)).toEqual(["own-state"]));
+    expect(peer.sent.find((m) => m.type === "own-state")?.prefs).toEqual([
+      OWN_PREF,
+    ]);
+  });
+
+  it("has its own-state taken in, and its sync dropped", async () => {
+    const { replicator, host, peer } = setup({ paused: true, ownDevice: true });
+    await replicator.start();
+    peer.receive(hello());
+    peer.receive({
+      type: "sync-pull",
+      spaceId: SPACE,
+      spaceVV: { [REMOTE_PUBLIC_KEY]: 3 },
+      pageVVs: {},
+    });
+    peer.receive({ type: "own-state", spaces: [], prefs: [OWN_PREF] });
+
+    await vi.waitFor(() =>
+      expect(host.applyOwnPrefs).toHaveBeenCalledWith([OWN_PREF]),
+    );
+    expect(host.updatePeerLastSeen).not.toHaveBeenCalled();
+    expect(host.buildSyncResponse).not.toHaveBeenCalled();
+  });
+
+  it("does not count as connected", async () => {
+    const { replicator, peer } = setup({ paused: true, ownDevice: true });
+    await replicator.start();
+    peer.receive(hello());
+
+    expect(replicator.getConnectedPeers()).toEqual([]);
+  });
+
+  it("keeps its live connection when paused, narrowed to own-state", async () => {
+    const { replicator, records, peer } = setup({
+      paused: false,
+      ownDevice: true,
+    });
+    await replicator.start();
+    peer.receive(hello());
+    await vi.waitFor(() => expect(sentTypes(peer)).toContain("sync-pull"));
+
+    records[0] = { ...records[0], trusted: false };
+    await replicator.refreshSpaces();
+    peer.sent.length = 0;
+    peer.receive(hello());
+
+    await vi.waitFor(() => expect(sentTypes(peer)).toEqual(["own-state"]));
+    expect(peer.closed).toBe(false);
+    expect(replicator.getConnectedPeers()).toEqual([]);
+  });
+
+  it("catches up in full the moment it is resumed", async () => {
+    const { replicator, records, peer } = setup({
+      paused: true,
+      ownDevice: true,
+    });
+    await replicator.start();
+    peer.receive(hello());
+    await vi.waitFor(() => expect(sentTypes(peer)).toEqual(["own-state"]));
+
+    records[0] = { ...records[0], trusted: true };
+    peer.sent.length = 0;
+    await replicator.refreshSpaces();
+
+    // A hello, so the other side widens too, and our own pull.
+    expect(peer.sent.map((m) => m.type)).toContain("hello");
+    expect(sentTypes(peer)).toContain("sync-pull");
+    expect(replicator.getConnectedPeers()).toEqual([REMOTE_PUBLIC_KEY]);
+  });
+});
+
 describe("a pause naming this device", () => {
-  it("stops it dialing the person's other devices", async () => {
-    // The sibling that wrote the register is already refusing us, so a dial
-    // from this end could only be declined and retried forever — and the
-    // sibling is a member of our shared space too, which is the path that
-    // would otherwise keep admitting it.
-    const { replicator, network } = setup({
+  it("keeps it in touch with the person's other devices, for own-state only", async () => {
+    // The sibling that wrote the register syncs nothing with us, so neither do
+    // we — but the link stays, because it is the only way this device's own
+    // resume can reach the devices that paused it.
+    const { replicator, network, peer } = setup({
       paused: false,
       ownDevice: true,
       pausedSelf: true,
     });
     await replicator.start();
+    peer.receive(hello());
 
-    expect(network.join).not.toHaveBeenCalled();
+    expect(network.join).toHaveBeenCalled();
+    await vi.waitFor(() => expect(sentTypes(peer)).toEqual(["own-state"]));
   });
 
   it("leaves co-members alone", async () => {

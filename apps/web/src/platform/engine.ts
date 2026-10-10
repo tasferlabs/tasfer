@@ -1746,7 +1746,7 @@ export class Engine implements Platform {
       target: PeerTarget,
       paused: boolean,
     ): Promise<void> => {
-      await this.refuseSelfPause(target);
+      await this.refuseSelfPause(target, paused);
       // Through `prefs.set`: that is what stamps the decision and pushes the
       // register to this person's other devices, so pausing a peer on the
       // laptop pauses it on the phone rather than only here.
@@ -1914,14 +1914,18 @@ export class Engine implements Platform {
   /**
    * Refuse a pause that would name this device or this person's own root.
    *
-   * Pausing yourself is not a smaller version of pausing a peer: the register
-   * replicates to the devices it would silence, so the device that made the
-   * decision would be the only one able to undo it.
+   * Pausing yourself is not a smaller version of pausing a peer: it would cut
+   * this device off from every sibling for no one's benefit. Resuming this
+   * device is allowed — it is how a device paused from elsewhere gets back
+   * without the one that paused it to hand.
    */
-  private async refuseSelfPause(target: PeerTarget): Promise<void> {
+  private async refuseSelfPause(
+    target: PeerTarget,
+    paused: boolean,
+  ): Promise<void> {
     const identity = await this.identity.get();
     if ("publicKey" in target) {
-      if (target.publicKey === identity.publicKey) {
+      if (paused && target.publicKey === identity.publicKey) {
         throw new Error("A device cannot pause syncing with itself");
       }
       return;
@@ -2414,7 +2418,14 @@ export class Engine implements Platform {
 
     set: async (key: string, value: unknown): Promise<void> => {
       const identity = await this.identity.get();
-      const stamp = Date.now();
+      // Never behind the decision it replaces: a device whose clock runs slow
+      // would otherwise make a choice that loses to the one it was looking at
+      // — a paused device resuming itself is exactly that case.
+      const [held] = await this.driver.db.query<{ stamp: number }>(
+        "SELECT stamp FROM own_prefs WHERE key = ?",
+        [key],
+      );
+      const stamp = Math.max(Date.now(), (held?.stamp ?? 0) + 1);
       const encoded = JSON.stringify(value ?? null);
       await this.driver.db.mutate(
         `INSERT INTO own_prefs (key, value, stamp, by) VALUES (?, ?, ?, ?)

@@ -63,7 +63,8 @@ export interface DeviceInfo {
    * True while this person has paused syncing with this device (see
    * {@link PlatformApi.peers.setSyncPaused}). The decision is person-private
    * and replicates to their other devices, so a device paused from the laptop
-   * is paused on the phone too.
+   * is paused on the phone too. On the `current` device it means another of
+   * this person's devices paused this one; it can resume itself.
    */
   syncPaused: boolean;
   /** Last time this device was connected to this one (ISO), or null. */
@@ -747,9 +748,14 @@ export interface Platform {
      *
      * Person-private and reversible: it is a register in the own-prefs channel
      * (never an op), so it replicates to this person's own devices and to no
-     * co-member, and the peer it names is never told. Paused peers are dropped
+     * co-member, and a co-member it names is never told. Paused peers are dropped
      * from the admission set, which closes any live connection to them and
      * stops this device dialing them again.
+     *
+     * One of this person's own devices is the exception: the link to it stays
+     * open but carries only this person's private settings, so the pause can be
+     * lifted from either end. That includes the paused device itself, which may
+     * resume (never pause) its own key.
      *
      * It is not access control. A paused co-member still syncs with everyone
      * else in the space, so the same changes can reach them by another route;
