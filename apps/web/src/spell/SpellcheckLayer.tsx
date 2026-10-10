@@ -238,8 +238,14 @@ export const SpellcheckLayer = forwardRef<
   }, [lenientArabic, ignores.ignored]);
 
   // ── geometry ─────────────────────────────────────────────────────────────
-  const anchorFor = useCallback(
-    (flag: FlagRef): { x: number; y: number } | null => {
+  /**
+   * Where the flag's word sits on the canvas: its visual left and right edges
+   * and the top and height of its line, or `null` when it isn't laid out.
+   */
+  const flagCoords = useCallback(
+    (
+      flag: FlagRef,
+    ): { left: number; right: number; y: number; height: number } | null => {
       let a: { x: number; y: number; height: number } | null;
       let b: { x: number; y: number; height: number } | null;
       if (flag.field) {
@@ -254,17 +260,76 @@ export const SpellcheckLayer = forwardRef<
         a = editor.view.coordsAtPos({ block: flag.blockId, offset: span.from });
         b = editor.view.coordsAtPos({ block: flag.blockId, offset: span.to });
       }
-      const rect = getContainerRect();
-      if (!a || !rect) return null;
-      // Visual start of the word: the smaller x, so an RTL word anchors at its
-      // right edge's counterpart on the left in the same way an LTR word does.
+      if (!a) return null;
+      // The smaller x is the visual start, so an RTL word anchors on its left
+      // edge the same way an LTR word does.
       return {
-        x: rect.left + Math.min(a.x, b?.x ?? a.x),
-        y: rect.top + a.y + a.height,
+        left: Math.min(a.x, b?.x ?? a.x),
+        right: Math.max(a.x, b?.x ?? a.x),
+        y: a.y,
+        height: a.height,
       };
     },
-    [editor, getContainerRect],
+    [editor],
   );
+
+  const anchorFor = useCallback(
+    (flag: FlagRef): { x: number; y: number } | null => {
+      const at = flagCoords(flag);
+      const rect = getContainerRect();
+      if (!at || !rect) return null;
+      return { x: rect.left + at.left, y: rect.top + at.y + at.height };
+    },
+    [flagCoords, getContainerRect],
+  );
+
+  /**
+   * The misspelled word on screen closest to the caret, above or below it, or
+   * `null` when none is fully visible. Walks out from the caret in document
+   * order and stops each way once past the screen edge, so a long page with
+   * many mistakes only measures the ones near the view.
+   */
+  const nearestOnScreen = useCallback((): FlagRef | null => {
+    const checker = checkerRef.current;
+    const caret = editor.view.coordsAtPos("caret");
+    const point = caretPoint(editor) ?? "caret";
+    if (!checker || !caret) return null;
+    const flags = checker.flags();
+    const after = checker.next(point);
+    let split = after ? flags.findIndex((f) => sameFlag(f, after)) : -1;
+    if (split < 0) split = flags.length;
+    const screenHeight = editor.view.getViewport().height;
+    let best: FlagRef | null = null;
+    let bestDistance = Infinity;
+    // Forward from the caret until a word starts below the screen, then back
+    // from the caret until one ends above it.
+    const walks: Array<[number, number]> = [
+      [split, 1],
+      [split - 1, -1],
+    ];
+    for (const [start, step] of walks) {
+      for (let i = start; i >= 0 && i < flags.length; i += step) {
+        const at = flagCoords(flags[i]);
+        if (!at) continue;
+        if (step > 0 ? at.y >= screenHeight : at.y + at.height <= 0) break;
+        if (at.y < 0 || at.y + at.height > screenHeight) continue;
+        // Zero across when the caret is level with the word, so a mistake on
+        // the caret's own line beats one the same distance away on another.
+        const dx =
+          caret.x < at.left
+            ? at.left - caret.x
+            : caret.x > at.right
+              ? caret.x - at.right
+              : 0;
+        const distance = Math.hypot(dx, at.y - caret.y);
+        if (distance < bestDistance) {
+          best = flags[i];
+          bestDistance = distance;
+        }
+      }
+    }
+    return best;
+  }, [editor, flagCoords]);
 
   /** Select the flag's word, in a paragraph or inside a table cell. */
   const selectWord = (flag: FlagRef) => {
@@ -477,10 +542,27 @@ export const SpellcheckLayer = forwardRef<
     // either. Check its block now rather than jumping off a fresh typo.
     void checker.checkNow(caretPoint(editor) ?? "caret").then(() => {
       const late = flagNearCaret();
-      if (late) open(late);
+      if (late) {
+        open(late);
+        return;
+      }
+      // Fix the mistake the reader is looking at, above or below the caret;
+      // only search on past the screen when none is in view.
+      const near = nearestOnScreen();
+      if (near) goTo(near);
       else stepTo("next");
     });
-  }, [active, editor, flagNearCaret, touch, showBar, openPopover, stepTo]);
+  }, [
+    active,
+    editor,
+    flagNearCaret,
+    nearestOnScreen,
+    goTo,
+    touch,
+    showBar,
+    openPopover,
+    stepTo,
+  ]);
 
   const next = useCallback(() => stepTo("next"), [stepTo]);
   const prev = useCallback(() => stepTo("prev"), [stepTo]);
