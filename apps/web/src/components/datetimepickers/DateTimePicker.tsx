@@ -145,7 +145,25 @@ const EgDateTimePicker = React.forwardRef(
       latestValueRef.current = computeValue;
     }, [computeValue]);
 
+    // Mirror of the fields for the prop sync below, which must not depend on them.
+    const selectedRef = useRef({ selectedYear, selectedMonth, selectedDay, selectedHour, selectedMinute });
+    selectedRef.current = { selectedYear, selectedMonth, selectedDay, selectedHour, selectedMinute };
+
     useEffect(() => {
+      // A value that matches what is being typed is our own edit coming back.
+      // Writing its padded form ("2" → "0002") would fill the field and block
+      // the next digit, so only an outside change rewrites the fields.
+      const current = selectedRef.current;
+      const same = (typed: string, parsed: string) => toNumberOrNull(typed) === toNumberOrNull(parsed);
+      if (
+        same(current.selectedYear, parsedYear) &&
+        same(current.selectedMonth, parsedMonth) &&
+        same(current.selectedDay, parsedDay) &&
+        same(current.selectedHour, parsedHour) &&
+        same(current.selectedMinute, parsedMinute)
+      ) {
+        return;
+      }
       isSyncingFromProps.current = true;
       setSelectedYear(parsedYear);
       setSelectedMonth(parsedMonth);
@@ -159,6 +177,9 @@ const EgDateTimePicker = React.forwardRef(
         isSyncingFromProps.current = false;
         return;
       }
+      // Hold a half-typed year back so "2026" doesn't save years 2, 20 and 202
+      // on the way; blur pads a short year, which then saves.
+      if (type !== 'time' && selectedYear !== '' && selectedYear.length < 4) return;
       const yearNum = toNumberOrNull(selectedYear);
       const monthNum = toNumberOrNull(selectedMonth);
       const dayNum = toNumberOrNull(selectedDay);
