@@ -1,6 +1,6 @@
 import { useMemo, useRef, useEffect, useLayoutEffect, useState, useCallback } from "react";
 import { TopActionBarPortal } from "../../layout/TopActionBarSlot";
-import { useNavigate, useBlocker } from "react-router-dom";
+import { useBlocker } from "react-router-dom";
 import { useConfirmation } from "@/app/components/ConfirmationDialog";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -70,11 +70,14 @@ import {
   formatMonthLong,
   wallDateToUtcIso,
   wallMsToInstantMs,
+  allDayStartIso,
+  MINUTES_PER_DAY,
   wallNow,
   type ViewMode,
 } from "./utils";
 import { triggerHaptic } from "@/platform/bridge";
 import { EventCard } from "./EventCard";
+import { AllDayRow } from "./AllDayRow";
 import { EventPreview } from "./EventPreview";
 import { DateTimePickerOverlay } from "@/components/datetimepickers/DateTimePickerOverlay";
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
@@ -87,6 +90,8 @@ import clsx from "clsx";
 export interface DraftEvent {
   scheduledAt: string;
   duration: number;
+  /** Sits in the all-day row; `scheduledAt` is the start of its day. */
+  allDay?: boolean;
 }
 
 // ── Create-drag state ──
@@ -135,7 +140,6 @@ export default function CalendarPage() {
   // Re-render when this person changes a date or time setting on any device.
   useDateTimePrefs();
   const isRtl = i18next.dir() === "rtl";
-  const navigate = useNavigate();
   const { getConfirmation } = useConfirmation();
   const { isMobile } = useMobileLayout();
   const { firstSpaceId } = useSpaces();
@@ -387,6 +391,7 @@ export default function CalendarPage() {
   }, [prevDate, nextDate, viewMode]);
 
   const weekDays = useMemo(() => getWeekDays(selectedDate), [selectedDate]);
+  const selectedDays = useMemo(() => [selectedDate], [selectedDate]);
   const prevWeekDays = useMemo(() => getWeekDays(prevDate), [prevDate]);
   const nextWeekDays = useMemo(() => getWeekDays(nextDate), [nextDate]);
 
@@ -507,6 +512,9 @@ export default function CalendarPage() {
               }),
               ...(variables.duration !== undefined && {
                 duration: variables.duration,
+              }),
+              ...(variables.allDay !== undefined && {
+                allDay: variables.allDay,
               }),
               ...(variables.done !== undefined && { done: variables.done }),
             };
@@ -652,6 +660,22 @@ export default function CalendarPage() {
     [firstSpaceId, selectedDate, guardDiscard],
   );
 
+  const createAllDayDraft = useCallback(
+    (day: Date) => {
+      if (!firstSpaceId) return;
+      guardDiscard(() => {
+        setDraftEvent({
+          scheduledAt: allDayStartIso(day),
+          duration: MINUTES_PER_DAY,
+          allDay: true,
+        });
+        setPreviewPageId(null);
+        setPreviewAnchor(null);
+      });
+    },
+    [firstSpaceId, guardDiscard],
+  );
+
   // Duplicate an existing event into a new page: copies its title, parent,
   // color, duration, and task flag, but NOT its body — a duplicated event is a
   // fresh occasion, not a second copy of the original's notes. `scheduledAt`
@@ -723,7 +747,7 @@ export default function CalendarPage() {
         // the new event up near the top of the timeline where it stays visible
         // (and draggable) above the sheet.
         const timeline = timelineRef.current;
-        if (isMobile && timeline) {
+        if (isMobile && timeline && !draftEvent.allDay) {
           const cardRect = el.getBoundingClientRect();
           const tlRect = timeline.getBoundingClientRect();
           const target =
@@ -759,6 +783,7 @@ export default function CalendarPage() {
         spaceId: targetSpaceId,
         scheduledAt: draftEvent.scheduledAt,
         duration: draftEvent.duration,
+        ...(draftEvent.allDay && { allDay: true }),
         task: task ?? true,
       });
     },
@@ -779,7 +804,7 @@ export default function CalendarPage() {
     }
     // Include draft event as a temporary calendar page
     if (draftEvent) {
-      timedPages.push({
+      (draftEvent.allDay ? allDayPages : timedPages).push({
         id: "__draft__",
         title: "",
         parentId: null,
@@ -787,7 +812,7 @@ export default function CalendarPage() {
         color: null,
         scheduledAt: draftEvent.scheduledAt,
         duration: draftEvent.duration,
-        allDay: false,
+        allDay: !!draftEvent.allDay,
         recurrenceId: null,
         task: true,
         done: false,
@@ -2476,6 +2501,27 @@ export default function CalendarPage() {
     );
   }
 
+  // Creation from the all-day row follows the hour grid's rule: not while a
+  // popover preview is open, nor on the press that closed one.
+  const canCreateAllDay = () =>
+    !(
+      (!sidebarMode && (previewPageId || draftEvent)) ||
+      previewJustClosedRef.current
+    );
+
+  const allDayRow = (days: Date[]) => (
+    <AllDayRow
+      days={days}
+      pages={allDayPages}
+      canCreate={canCreateAllDay}
+      onCreate={createAllDayDraft}
+      onEventClick={handleEventClick}
+      onDuplicate={(id) => duplicatePage(id, { select: true })}
+      onDelete={handleEventDelete}
+      onToggleDone={handleToggleDone}
+    />
+  );
+
   return (
     <div className={style.container}>
       <TopActionBarPortal>
@@ -2583,33 +2629,6 @@ export default function CalendarPage() {
         </div>
       </TopActionBarPortal>
 
-      {allDayPages.length > 0 && (
-        <div className={style.allDaySection}>
-          {allDayPages.map((page) => (
-            <div
-              key={page.id}
-              className={style.allDayBadge}
-              onClick={() => navigate(`/page/${page.id}`)}
-              style={(() => {
-                const c =
-                  page.color ??
-                  (page.path &&
-                    [...page.path].reverse().find((p) => p.color)?.color) ??
-                  null;
-                return c
-                  ? {
-                      backgroundColor: `color-mix(in srgb, ${c}, transparent 85%)`,
-                      color: c,
-                    }
-                  : undefined;
-              })()}
-            >
-              {page.title || t("common.untitled", "Untitled")}
-            </div>
-          ))}
-        </div>
-      )}
-
       <DndContext
         sensors={sensors}
         onDragStart={handleDragStart}
@@ -2637,6 +2656,7 @@ export default function CalendarPage() {
                 </span>
               </div>
             </div>
+            {allDayRow(selectedDays)}
             <div
               className={style.timeline}
               ref={timelineRef}
@@ -2889,6 +2909,7 @@ export default function CalendarPage() {
               className={style.timeline}
               ref={timelineRef}
             >
+            <div className={style.weekHeaderSticky}>
             <div className={style.weekHeader}>
               <div className={style.weekTimeLabelSpacer} />
               {weekDays.map((day, i) => (
@@ -2906,6 +2927,8 @@ export default function CalendarPage() {
                   <span className={style.weekDayNumber}>{day.getDate()}</span>
                 </div>
               ))}
+            </div>
+            {allDayRow(weekDays)}
             </div>
               <div className={style.swipeStrip} onTouchStart={handleSwipeTouchStart} onTouchEnd={handleSwipeTouchEnd} onTouchCancel={handleSwipeTouchEnd}>
               <div className={style.swipeTrack} ref={swipeTrackRef}>

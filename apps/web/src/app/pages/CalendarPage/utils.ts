@@ -341,6 +341,79 @@ export function dayKey(date: Date): string {
   return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 }
 
+// ── All-day events ──
+//
+// An all-day event is stored as the start of its first day in the display
+// zone, with a duration of whole days. Its days are read the same way the
+// reminders read them: the stored instant seen in the display zone.
+
+/** The stored start of an all-day event on `day`. */
+export function allDayStartIso(day: Date): string {
+  const start = new Date(day);
+  start.setHours(0, 0, 0, 0);
+  return wallDateToUtcIso(start);
+}
+
+/**
+ * How many days an all-day event covers. Rounded rather than counted from its
+ * start minute, so one stored in another zone (and so not starting at this
+ * zone's midnight) still covers one day, not two.
+ */
+export function allDayDayCount(duration: number | null): number {
+  return Math.max(1, Math.round((duration || MINUTES_PER_DAY) / MINUTES_PER_DAY));
+}
+
+/** One all-day event placed in the all-day row. Columns are indexes into the row's days. */
+export interface AllDaySpan {
+  page: ICalendarPage;
+  startCol: number;
+  /** Exclusive. */
+  endCol: number;
+  lane: number;
+  continuesBefore: boolean;
+  continuesAfter: boolean;
+}
+
+/**
+ * Place all-day events across the row's `days`: each spans the columns of the
+ * days it covers, clipped to the row, and stacks in the first lane free there.
+ */
+export function layoutAllDayRow(
+  pages: readonly ICalendarPage[],
+  days: readonly Date[],
+): AllDaySpan[] {
+  if (days.length === 0) return [];
+  const spans: Omit<AllDaySpan, "lane">[] = [];
+  for (const page of pages) {
+    const first = daysBetween(zonedWallDate(page.scheduledAt), days[0]);
+    const last = first + allDayDayCount(page.duration);
+    const startCol = Math.max(0, first);
+    const endCol = Math.min(days.length, last);
+    if (endCol <= startCol) continue;
+    spans.push({
+      page,
+      startCol,
+      endCol,
+      continuesBefore: first < 0,
+      continuesAfter: last > days.length,
+    });
+  }
+  // Earlier first, then longer, so long spans keep the top lanes.
+  spans.sort(
+    (a, b) =>
+      a.startCol - b.startCol ||
+      b.endCol - b.startCol - (a.endCol - a.startCol) ||
+      a.page.id.localeCompare(b.page.id),
+  );
+  const laneEnds: number[] = [];
+  return spans.map((span) => {
+    let lane = laneEnds.findIndex((end) => end <= span.startCol);
+    if (lane === -1) lane = laneEnds.length;
+    laneEnds[lane] = span.endCol;
+    return { ...span, lane };
+  });
+}
+
 export function layoutCalendarIntervals(
   intervals: CalendarInterval[],
 ): Map<string, CalendarEventLayout> {

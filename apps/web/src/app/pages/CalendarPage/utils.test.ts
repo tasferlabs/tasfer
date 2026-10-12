@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_HOUR_HEIGHT,
+  allDayDayCount,
   MAX_HOUR_HEIGHT,
   MIN_HOUR_HEIGHT,
   clampDragStartMin,
@@ -8,6 +9,7 @@ import {
   clipToDay,
   dayKey,
   eventDayKeys,
+  layoutAllDayRow,
   layoutCalendarIntervals,
   maxResizeMinutes,
   pageStartMinOnDay,
@@ -143,5 +145,60 @@ describe("events across midnight", () => {
   it("resizes up to the end of the day the edge is on", () => {
     expect(maxResizeMinutes(23 * 60)).toBe(60);
     expect(maxResizeMinutes(-60)).toBe(24 * 60);
+  });
+});
+
+describe("all-day row", () => {
+  const page = (id: string, y: number, m: number, d: number, days = 1, h = 0) =>
+    ({
+      id,
+      scheduledAt: new Date(y, m, d, h).toISOString(),
+      duration: days * 24 * 60,
+    }) as ICalendarPage;
+  const week = Array.from({ length: 7 }, (_, i) => new Date(2026, 9, 11 + i));
+
+  it("puts each event under its own day", () => {
+    const spans = layoutAllDayRow(
+      [page("a", 2026, 9, 13), page("b", 2026, 9, 16)],
+      week,
+    );
+    expect(spans.map((s) => [s.page.id, s.startCol, s.endCol, s.lane])).toEqual([
+      ["a", 2, 3, 0],
+      ["b", 5, 6, 0],
+    ]);
+  });
+
+  it("leaves out events on other days", () => {
+    expect(layoutAllDayRow([page("a", 2026, 9, 13)], [week[0]])).toEqual([]);
+  });
+
+  it("clips a multi-day event to the row and marks the cut ends", () => {
+    const [span] = layoutAllDayRow([page("a", 2026, 9, 9, 4)], week);
+    expect(span).toMatchObject({
+      startCol: 0,
+      endCol: 2,
+      continuesBefore: true,
+      continuesAfter: false,
+    });
+  });
+
+  it("stacks overlapping events and reuses free lanes", () => {
+    const spans = layoutAllDayRow(
+      [page("short", 2026, 9, 12), page("long", 2026, 9, 11, 3), page("later", 2026, 9, 15)],
+      week,
+    );
+    expect(Object.fromEntries(spans.map((s) => [s.page.id, s.lane]))).toEqual({
+      long: 0,
+      short: 1,
+      later: 0,
+    });
+  });
+
+  it("counts whole days even when the start is off midnight", () => {
+    expect(allDayDayCount(24 * 60)).toBe(1);
+    expect(allDayDayCount(null)).toBe(1);
+    expect(allDayDayCount(3 * 24 * 60)).toBe(3);
+    const [span] = layoutAllDayRow([page("a", 2026, 9, 13, 1, 2)], week);
+    expect(span.endCol - span.startCol).toBe(1);
   });
 });
