@@ -30,11 +30,13 @@ import {
   useRestorePage,
   useUpdatePage,
   updatePage as updatePageApi,
+  updateOccurrence,
   type ICalendarPage,
   type IPage,
 } from "../../api/pages.api";
 import { useToast } from "../../components/Toast";
 import { useCalendarUndo } from "./useCalendarUndo";
+import { isOccurrence, useOccurrenceActions } from "./useOccurrenceActions";
 import {
   DEFAULT_HOUR_HEIGHT,
   TOTAL_HOURS,
@@ -397,6 +399,57 @@ export default function CalendarPage() {
 
   const { data: pages } = useGetCalendarPages(start, end);
 
+  // Calendar entries are keyed by entry id, which for an occurrence of a
+  // repeating event is not a page id (see PageCalendarItem.id). Everything that
+  // acts on an entry looks it up here first.
+  const findEntry = useCallback(
+    (id: string) => pages?.find((p) => p.id === id),
+    [pages],
+  );
+  // The previewed entry, kept while it scrolls out of the loaded range so the
+  // open preview doesn't lose track of which occurrence it shows.
+  const previewEntryRef = useRef<ICalendarPage | null>(null);
+  const foundPreviewEntry = useMemo(() => {
+    if (!previewPageId || !pages) return undefined;
+    const exact = pages.find((p) => p.id === previewPageId);
+    if (exact) return exact;
+    // The entry can change id under an open preview. Follow it:
+    const last =
+      previewEntryRef.current?.id === previewPageId
+        ? previewEntryRef.current
+        : null;
+    return (
+      // - the same occurrence, now under its own notes page's id;
+      (last?.seriesId
+        ? pages.find(
+            (p) =>
+              p.seriesId === last.seriesId &&
+              p.occurrenceStart === last.occurrenceStart,
+          )
+        : undefined) ??
+      // - a series set back to "does not repeat", now one plain event;
+      (last?.seriesId
+        ? pages.find((p) => p.id === last.seriesId)
+        : undefined) ??
+      // - a plain event that now repeats, as its first occurrence.
+      pages.find(
+        (p) =>
+          p.seriesId === previewPageId && p.occurrenceStart === p.seriesStart,
+      )
+    );
+  }, [pages, previewPageId]);
+  if (foundPreviewEntry) previewEntryRef.current = foundPreviewEntry;
+  const previewEntry =
+    foundPreviewEntry ??
+    (previewEntryRef.current?.id === previewPageId
+      ? previewEntryRef.current
+      : null);
+  useEffect(() => {
+    if (foundPreviewEntry && foundPreviewEntry.id !== previewPageId) {
+      setPreviewPageId(foundPreviewEntry.id);
+    }
+  }, [foundPreviewEntry, previewPageId]);
+
   // ── Undo / redo for calendar-level edits ──
   // Only what the calendar itself does to a page: moves, resizes, creations,
   // duplications, archives, reschedules. Body text typed inside an event's
@@ -407,6 +460,19 @@ export default function CalendarPage() {
     redo: popRedo,
   } = useCalendarUndo();
   const { toast } = useToast();
+
+  const {
+    reschedule: rescheduleOccurrence,
+    archive: archiveOccurrence,
+    scopeDialog,
+  } = useOccurrenceActions({
+    recordUndo,
+    onArchived: (entry) => {
+      if (previewEntry?.seriesId && previewEntry.seriesId === entry.seriesId) {
+        closePreviewNow();
+      }
+    },
+  });
 
   const { mutate: deletePage } = useDeletePage({
     onSuccess: (_data, variables) => {
@@ -582,32 +648,60 @@ export default function CalendarPage() {
     [recordUndo, updatePage, t],
   );
 
-  // Tick a task off, or back on, from its card.
+  // Tick a task off, or back on, from its card or its preview. Each
+  // occurrence of a repeating task is ticked off on its own.
   const handleToggleDone = useCallback(
-    (pageId: string) => {
-      const entry = pages?.find((p) => p.id === pageId);
+    (entryId: string) => {
+      const entry = findEntry(entryId);
       if (!entry?.task) return;
       const done = !entry.done;
       const message = (isDone: boolean) =>
         isDone
           ? t("calendar.undo.markedDone", "Task marked done")
           : t("calendar.undo.markedNotDone", "Task marked not done");
-      const write = (value: boolean) =>
-        updatePage({ id: entry.id, done: value });
+      let write: (value: boolean) => void;
+      if (isOccurrence(entry)) {
+        const { seriesId, occurrenceStart } = entry;
+        write = (value) => {
+          queryClient.setQueriesData<ICalendarPage[]>(
+            { queryKey: ["calendar-pages"] },
+            (old) =>
+              old?.map((p) =>
+                p.seriesId === seriesId && p.occurrenceStart === occurrenceStart
+                  ? { ...p, done: value }
+                  : p,
+              ),
+          );
+          void updateOccurrence({
+            seriesId,
+            occurrenceStart,
+            done: value,
+          }).then(() =>
+            queryClient.invalidateQueries({ queryKey: ["calendar-pages"] }),
+          );
+        };
+      } else {
+        write = (value) => updatePage({ id: entry.pageId, done: value });
+      }
       write(done);
       recordUndo({
         undoMessage: message(!done),
         redoMessage: message(done),
-        pageId: entry.id,
+        pageId: entry.seriesId ?? entry.pageId,
         undo: () => write(!done),
         redo: () => write(done),
       });
     },
-    [pages, recordUndo, updatePage, t],
+    [findEntry, recordUndo, updatePage, queryClient, t],
   );
 
   const handleEventDelete = useCallback(
     async (pageId: string) => {
+      const entry = findEntry(pageId);
+      if (isOccurrence(entry)) {
+        await archiveOccurrence(entry);
+        return;
+      }
       let hasChildren = false;
       try {
         hasChildren = (await getPlatform().pages.get(pageId)).hasChildren;
@@ -636,7 +730,14 @@ export default function CalendarPage() {
         );
       }
     },
-    [deletePage, getConfirmation, recordArchiveUndo, t],
+    [
+      deletePage,
+      getConfirmation,
+      recordArchiveUndo,
+      t,
+      findEntry,
+      archiveOccurrence,
+    ],
   );
 
   const createPageAtTime = useCallback(
@@ -689,25 +790,34 @@ export default function CalendarPage() {
     ) => {
       if (!firstSpaceId) return;
       const platform = getPlatform();
+      // An occurrence of a repeating event duplicates into a one-off event at
+      // that occurrence's time, filed where its series is.
+      const entry = findEntry(sourceId);
       let src;
       try {
-        src = await platform.pages.get(sourceId);
+        src = await platform.pages.get(entry?.pageId ?? sourceId);
       } catch {
         return;
       }
+      const occurrence = isOccurrence(entry) ? entry : null;
       const newPage = await platform.pages.create({
         title: src.title,
         titleMd: src.titleMd,
-        parentId: src.parentId,
+        parentId: occurrence ? occurrence.parentId : src.parentId,
         spaceId: src.spaceId ?? firstSpaceId,
-        scheduledAt: opts?.scheduledAt ?? src.scheduledAt ?? undefined,
-        duration: src.duration ?? undefined,
-        allDay: src.allDay ?? undefined,
+        scheduledAt:
+          opts?.scheduledAt ??
+          occurrence?.scheduledAt ??
+          src.scheduledAt ??
+          undefined,
+        duration: (occurrence ?? src).duration ?? undefined,
+        allDay: (occurrence ?? src).allDay ?? undefined,
         task: src.task,
       });
       // Color isn't part of the create payload, so apply it in a follow-up.
-      if (src.color) {
-        await updatePageApi({ id: newPage.id, color: src.color });
+      const color = occurrence?.color ?? src.color;
+      if (color) {
+        await updatePageApi({ id: newPage.id, color });
       }
       // Carry the heading over as content, not just as the title columns: those
       // columns are a derived cache of the doc, so a copy whose doc was left
@@ -731,7 +841,7 @@ export default function CalendarPage() {
         setPreviewAnchor(null);
       }
     },
-    [firstSpaceId, queryClient, recordCreateUndo, t],
+    [firstSpaceId, queryClient, recordCreateUndo, t, findEntry],
   );
 
   // After the draft card renders, resolve its position as the anchor
@@ -814,6 +924,11 @@ export default function CalendarPage() {
         duration: draftEvent.duration,
         allDay: !!draftEvent.allDay,
         recurrenceId: null,
+        pageId: "__draft__",
+        recurrence: null,
+        seriesId: null,
+        occurrenceStart: null,
+        seriesStart: null,
         task: true,
         done: false,
         path: null,
@@ -1224,6 +1339,15 @@ export default function CalendarPage() {
           setDraftEvent((prev) =>
             prev ? { ...prev, scheduledAt: newISO } : prev,
           );
+        } else if (isOccurrence(activeDragPage)) {
+          void rescheduleOccurrence(
+            activeDragPage,
+            { scheduledAt: newISO },
+            {
+              undoMessage: t("calendar.undo.moveUndone", "Page moved back"),
+              redoMessage: t("calendar.undo.moveRedone", "Page moved again"),
+            },
+          );
         } else {
           const movedId = activeDragPage.id;
           const previousISO = activeDragPage.scheduledAt;
@@ -1332,6 +1456,18 @@ export default function CalendarPage() {
       if (r && d !== null && d !== r.originalDuration) {
         if (r.pageId === "__draft__") {
           setDraftEvent((prev) => (prev ? { ...prev, duration: d } : prev));
+        } else if (isOccurrence(page)) {
+          void rescheduleOccurrence(
+            page,
+            { duration: d },
+            {
+              undoMessage: t("calendar.undo.resizeUndone", "Duration restored"),
+              redoMessage: t(
+                "calendar.undo.resizeRedone",
+                "Duration changed again",
+              ),
+            },
+          );
         } else {
           const resizedId = r.pageId;
           const previousDuration = r.originalDuration;
@@ -2950,7 +3086,7 @@ export default function CalendarPage() {
       </DndContext>
 
       <EventPreview
-        pageId={previewPageId}
+        pageId={previewEntry?.pageId ?? previewPageId}
         anchor={previewAnchor}
         onClose={handlePreviewClose}
         sidebarMode={sidebarMode ?? false}
@@ -2970,6 +3106,7 @@ export default function CalendarPage() {
           activeDragPage !== null || resize !== null || createDrag !== null
         }
       />
+      {scopeDialog}
     </div>
   );
 }

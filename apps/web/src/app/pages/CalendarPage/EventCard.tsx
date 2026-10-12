@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Copy,
   Pencil,
+  Repeat,
   Square,
   SquareCheck,
 } from "lucide-react";
@@ -94,6 +95,15 @@ export function EventCard({
 
   const timeStr = formatEventTime(page.scheduledAt, page.duration);
   const dotOnly = height < DOT_ONLY_HEIGHT;
+  // Marks an occurrence of a repeating event, beside its time.
+  const repeatIcon = page.seriesId ? (
+    <Repeat
+      size={10}
+      className={style.eventRepeatIcon}
+      role="img"
+      aria-label={t("calendar.repeat.repeats", "Repeats")}
+    />
+  ) : null;
   const isTask = page.task && !isDraft;
   const doneLabel = page.done
     ? t("calendar.markNotDone", "Mark not done")
@@ -161,7 +171,7 @@ export function EventCard({
       {...(isDraft ? { "data-draft-card": "" } : {})}
       {...(dotOnly
         ? {
-            "aria-label": `${page.title || t("common.untitled", "Untitled")} — ${timeStr}`,
+            "aria-label": `${page.title || t("common.untitled", "Untitled")} — ${timeStr}${page.seriesId ? ` — ${t("calendar.repeat.repeats", "Repeats")}` : ""}`,
           }
         : {})}
       style={{
@@ -245,7 +255,10 @@ export function EventCard({
               mathFontSize={titleMathSize}
             />
           </span>
-          <span className={style.eventTimeInline}>{formatTime(startMin)}</span>
+          <span className={style.eventTimeInline}>
+            {repeatIcon}
+            {formatTime(startMin)}
+          </span>
         </div>
       ) : (
         <>
@@ -267,6 +280,7 @@ export function EventCard({
               className={style.eventTime}
               style={compact ? { fontSize: "0.6rem" } : undefined}
             >
+              {repeatIcon}
               {timeStr}
             </div>
           )}

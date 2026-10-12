@@ -246,6 +246,7 @@ function extractPageMetadata(page: PageFull): PageMetadata | undefined {
   if (page.duration != null) meta.duration = page.duration;
   if (page.allDay != null) meta.allDay = page.allDay;
   if (page.color) meta.color = page.color;
+  if (page.recurrence) meta.recurrence = page.recurrence;
   return Object.keys(meta).length > 0 ? meta : undefined;
 }
 

@@ -13,6 +13,7 @@
  * and translate {@link NoImportablePagesError} for display.
  */
 
+import { normalizeRecurrence } from "@/platform/recurrence";
 import type { Block } from "@tasfer/editor/serlization/loadPage";
 import { getPlatform } from "@/platform";
 import { tokenizePage, parsePage, parseFrontmatter } from "@tasfer/editor";
@@ -507,6 +508,9 @@ async function importBundle(
           ...(metadata?.scheduledAt && { scheduledAt: metadata.scheduledAt }),
           ...(metadata?.duration != null && { duration: metadata.duration }),
           ...(metadata?.allDay != null && { allDay: metadata.allDay }),
+          ...(normalizeRecurrence(metadata?.recurrence) && {
+            recurrence: normalizeRecurrence(metadata?.recurrence)!,
+          }),
         });
         await platform.ops.writeBlocks(createdPage.id, blocks);
         if (metadata?.color || metadata?.done) {
@@ -577,6 +581,9 @@ async function importMarkdownFiles(
         ...(metadata?.scheduledAt && { scheduledAt: metadata.scheduledAt }),
         ...(metadata?.duration != null && { duration: metadata.duration }),
         ...(metadata?.allDay != null && { allDay: metadata.allDay }),
+        ...(normalizeRecurrence(metadata?.recurrence) && {
+          recurrence: normalizeRecurrence(metadata?.recurrence)!,
+        }),
       });
       await platform.ops.writeBlocks(createdPage.id, blocks);
       if (metadata?.color || metadata?.done) {

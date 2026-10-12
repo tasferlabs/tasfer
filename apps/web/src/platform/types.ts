@@ -134,7 +134,17 @@ export interface PageListItem {
   scheduledAt?: string | null;
   duration?: number | null;
   allDay?: boolean | null;
+  /**
+   * Set on a repeating event (a series): the rule its occurrences follow, in
+   * RRULE shape with a TZID part (see platform/recurrence.ts).
+   */
+  recurrence?: string | null;
+  /**
+   * Set on the page holding one occurrence's own notes: the series it belongs
+   * to. `recurrenceStart` names which occurrence, by the start the rule gave it.
+   */
   recurrenceId?: string | null;
+  recurrenceStart?: string | null;
 }
 
 /** A lightweight reference to a page in a breadcrumb path / parent chain. */
@@ -225,6 +235,8 @@ export interface PageCreateInput {
   duration?: number;
   allDay?: boolean;
   task?: boolean;
+  /** Makes the new page a repeating event (see {@link PageListItem.recurrence}). */
+  recurrence?: string;
 }
 
 /** Data for updating a page */
@@ -240,6 +252,7 @@ export interface PageUpdateInput {
   task?: boolean;
   /** Tick a task off, or back on. */
   done?: boolean;
+  recurrence?: string | null;
 }
 
 /** Data for moving a page */
@@ -289,7 +302,18 @@ export interface PageSearchResult {
 
 /** Calendar page result */
 export interface PageCalendarItem {
+  /**
+   * Unique per calendar entry. For an ordinary event it is the page id; for an
+   * occurrence of a repeating event it is the id the occurrence's own notes page
+   * has (or would have) — see `exceptionPageId`.
+   */
   id: string;
+  /**
+   * The page whose title and notes this entry shows: the event itself, or for
+   * an occurrence, its own notes page once someone wrote into it, else the
+   * series.
+   */
+  pageId: string;
   title: string;
   /** Markdown projection of the title line (see {@link PageListItem.titleMd}). */
   titleMd?: string;
@@ -300,11 +324,36 @@ export interface PageCalendarItem {
   duration: number | null;
   allDay: boolean | null;
   recurrenceId: string | null;
+  /** The series' rule, on every occurrence of a repeating event. */
+  recurrence: string | null;
+  /** Set on occurrences of a repeating event: the series page. */
+  seriesId: string | null;
+  /** Set on occurrences: the start the rule gave this one (its key). */
+  occurrenceStart: string | null;
+  /** The series' first start, on occurrences. */
+  seriesStart: string | null;
   task: boolean;
   /** A task that was ticked off. */
   done: boolean;
   path: PagePathSegment[] | null;
   createdAt: string;
+}
+
+/**
+ * Change one occurrence of a repeating event. Fields left undefined keep what
+ * they were; `null` drops the occurrence's own value so it follows the series
+ * again.
+ */
+export interface OccurrenceUpdateInput {
+  seriesId: string;
+  /** The start the rule gave the occurrence (its key), not where it is now. */
+  occurrenceStart: string;
+  scheduledAt?: string | null;
+  duration?: number | null;
+  allDay?: boolean | null;
+  cancelled?: boolean | null;
+  /** A repeating task's occurrence ticked off. */
+  done?: boolean | null;
 }
 
 /**
@@ -976,8 +1025,24 @@ export interface Platform {
       spaceId?: string | null,
       options?: { limit?: number | null },
     ): Promise<PageSearchResult[]>;
-    /** Get pages in a calendar date range */
+    /**
+     * Calendar entries in a date range: ordinary events, plus every occurrence
+     * of a repeating event that falls in it.
+     */
     calendar(start: number, end: number): Promise<PageCalendarItem[]>;
+    /** Move, resize, or cancel one occurrence of a repeating event. */
+    updateOccurrence(input: OccurrenceUpdateInput): Promise<void>;
+    /**
+     * Give one occurrence notes of its own, starting as a copy of the series'
+     * notes. Idempotent: returns the existing notes page when there is one.
+     */
+    forkOccurrence(seriesId: string, occurrenceStart: string): Promise<string>;
+    /**
+     * "This and following": end the series before `occurrenceStart` and start
+     * a new series there with the same rule, notes, and later changes. Returns
+     * the new series' id.
+     */
+    splitSeries(seriesId: string, occurrenceStart: string): Promise<string>;
     /**
      * Version-history entries derived from the op log, newest first. Metadata
      * only; see `versionBlocks` for the content at one entry.

@@ -134,6 +134,8 @@ export interface PageMetadata {
   task?: boolean;
   /** A task that was ticked off. */
   done?: boolean;
+  /** Repeat rule of a repeating event, in the host's RRULE-shaped string. */
+  recurrence?: string | null;
 }
 
 export interface Page {
@@ -174,6 +176,7 @@ export function parseFrontmatter(content: string): {
     else if (key === "duration" && value) metadata.duration = Number(value);
     else if (key === "allDay") metadata.allDay = value === "true";
     else if (key === "color" && value) metadata.color = value;
+    else if (key === "recurrence" && value) metadata.recurrence = value;
   }
 
   const hasValues =
@@ -182,7 +185,8 @@ export function parseFrontmatter(content: string): {
     metadata.scheduledAt ||
     metadata.duration != null ||
     metadata.allDay != null ||
-    metadata.color;
+    metadata.color ||
+    metadata.recurrence;
   return { content: remaining, metadata: hasValues ? metadata : undefined };
 }
 

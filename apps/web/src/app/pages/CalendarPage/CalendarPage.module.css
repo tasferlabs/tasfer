@@ -376,6 +376,12 @@ button.doneBox::after {
   text-decoration: line-through underline;
 }
 
+.eventRepeatIcon {
+  display: inline-block;
+  margin-inline-end: 3px;
+  vertical-align: -1px;
+}
+
 .eventTime {
   font-size: 0.7rem;
   color: var(--muted-foreground);

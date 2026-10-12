@@ -20,6 +20,7 @@ import type {
   RecreatePageInput,
   PageSearchResult,
   PageCalendarItem,
+  OccurrenceUpdateInput,
   PageFrontier,
   PagePathSegment,
   PageVersion,
@@ -66,6 +67,17 @@ import { deriveTitles, extractBodyText } from "../lib/pageTitle";
 import { appDataSchema } from "../appDataSchema";
 import { collectAssetRefs } from "@tasfer/editor";
 import { AssetPrefetcher } from "./asset-prefetch";
+import {
+  endRuleBefore,
+  exceptionPageId,
+  expandOccurrences,
+  formatRecurrence,
+  occurrenceKey,
+  occurrencesBefore,
+  parseRecurrence,
+  shiftOccurrenceKey,
+  type RecurrenceRule,
+} from "./recurrence";
 
 /** Minimal interface the engine uses to push ops — avoids circular imports */
 interface EngineReplicator {
@@ -229,6 +241,101 @@ function parseJson(raw: string): unknown {
 // only correct when every stored value shares the UTC "Z" shape.
 function toUtcIso(iso: string | null | undefined): string | null {
   return iso ? new Date(iso).toISOString() : null;
+}
+
+// One occurrence of a repeating event or task replicates as page_set fields on
+// the series named `occurrence.<field>|<start the rule gave it>`. One register per
+// field and occurrence, so two devices changing different occurrences — or
+// moving and cancelling the same one — never overwrite each other. Older builds
+// keep these ops in the log without materializing them (unknown field).
+const OCCURRENCE_FIELD_PREFIX = "occurrence.";
+type OccurrenceField =
+  | "scheduledAt"
+  | "duration"
+  | "allDay"
+  | "cancelled"
+  | "done";
+const OCCURRENCE_COLUMNS: Record<OccurrenceField, string> = {
+  scheduledAt: "scheduled_at",
+  duration: "duration",
+  allDay: "all_day",
+  cancelled: "cancelled",
+  done: "done",
+};
+
+type OccurrenceRow = {
+  page_id: string;
+  original_start: string;
+  scheduled_at: string | null;
+  duration: number | null;
+  all_day: number | null;
+  cancelled: number | null;
+  done: number | null;
+};
+
+/** The set fields of a stored occurrence, in their replicated shape. */
+function occurrenceRowFields(o: OccurrenceRow): [OccurrenceField, unknown][] {
+  const out: [OccurrenceField, unknown][] = [];
+  if (o.scheduled_at !== null) out.push(["scheduledAt", o.scheduled_at]);
+  if (o.duration !== null) out.push(["duration", o.duration]);
+  if (o.all_day !== null) out.push(["allDay", o.all_day === 1]);
+  if (o.cancelled !== null) out.push(["cancelled", o.cancelled === 1]);
+  if (o.done !== null) out.push(["done", o.done === 1]);
+  return out;
+}
+
+type CalendarRow = {
+  id: string;
+  title: string;
+  title_md: string;
+  parent_id: string | null;
+  order: number;
+  color: string | null;
+  scheduled_at: string;
+  duration: number | null;
+  all_day: number | null;
+  recurrence_id: string | null;
+  recurrence: string | null;
+  task: number;
+  done: number;
+  created_at: string;
+};
+
+/** Whether an event overlaps [start, end]; see the calendar query. */
+function overlaps(
+  scheduledAt: string,
+  duration: number | null,
+  start: string,
+  end: string,
+): boolean {
+  const from = Date.parse(scheduledAt);
+  return (
+    from <= Date.parse(end) &&
+    from + (duration || 60) * 60_000 > Date.parse(start)
+  );
+}
+
+function calendarItemBase(
+  r: CalendarRow,
+): Omit<PageCalendarItem, "id" | "pageId" | "path"> {
+  return {
+    title: r.title,
+    titleMd: r.title_md,
+    parentId: r.parent_id,
+    order: r.order,
+    color: r.color,
+    scheduledAt: r.scheduled_at,
+    duration: r.duration,
+    allDay: r.all_day === null ? null : r.all_day === 1,
+    recurrenceId: r.recurrence_id,
+    recurrence: r.recurrence,
+    seriesId: null,
+    occurrenceStart: null,
+    seriesStart: null,
+    task: r.task === 1,
+    done: r.done === 1,
+    createdAt: r.created_at,
+  };
 }
 /**
  * A page opens with one heading block, and every peer mints its `block_insert`
@@ -427,12 +534,29 @@ const SCHEMA_SQL = `
     duration      INTEGER,
     all_day       INTEGER,
     recurrence_id TEXT,
+    recurrence    TEXT,
+    recurrence_start TEXT,
     archived_at   TEXT,
     created_at    TEXT NOT NULL,
     updated_at    TEXT NOT NULL
   );
 
   CREATE INDEX IF NOT EXISTS idx_pages_space ON pages(space_id);
+
+  -- One occurrence of a repeating event that was moved, resized, cancelled, or
+  -- (a task's) ticked off, keyed by the start its rule gave it. NULL columns
+  -- follow the series, except done: an occurrence is open until ticked.
+  -- Materialized from \`occurrence.<field>|<start>\` page_set ops on the series.
+  CREATE TABLE IF NOT EXISTS page_occurrences (
+    page_id        TEXT NOT NULL,
+    original_start TEXT NOT NULL,
+    scheduled_at   TEXT,
+    duration       INTEGER,
+    all_day        INTEGER,
+    cancelled      INTEGER,
+    done           INTEGER,
+    PRIMARY KEY (page_id, original_start)
+  );
 
   CREATE TABLE IF NOT EXISTS ops (
     id         INTEGER PRIMARY KEY,
@@ -577,11 +701,30 @@ export class Engine implements Platform {
     if (!cols.some((c) => c.name === "body_text")) {
       await this.driver.db.exec("ALTER TABLE pages ADD COLUMN body_text TEXT");
     }
+    // pages.recurrence / recurrence_start — repeating events (see
+    // platform/recurrence.ts). Replicated as page_set fields.
+    if (!cols.some((c) => c.name === "recurrence")) {
+      await this.driver.db.exec("ALTER TABLE pages ADD COLUMN recurrence TEXT");
+    }
+    if (!cols.some((c) => c.name === "recurrence_start")) {
+      await this.driver.db.exec(
+        "ALTER TABLE pages ADD COLUMN recurrence_start TEXT",
+      );
+    }
     // pages.done — a task ticked off on the calendar. Replicated as a page_set
     // field.
     if (!cols.some((c) => c.name === "done")) {
       await this.driver.db.exec(
         "ALTER TABLE pages ADD COLUMN done INTEGER NOT NULL DEFAULT 0",
+      );
+    }
+    // page_occurrences.done — one occurrence of a repeating task ticked off.
+    const occurrenceCols = await this.driver.db.query<{ name: string }>(
+      "PRAGMA table_info(page_occurrences)",
+    );
+    if (!occurrenceCols.some((c) => c.name === "done")) {
+      await this.driver.db.exec(
+        "ALTER TABLE page_occurrences ADD COLUMN done INTEGER",
       );
     }
 
@@ -3373,6 +3516,8 @@ export class Engine implements Platform {
         duration: number | null;
         all_day: number | null;
         recurrence_id: string | null;
+        recurrence: string | null;
+        recurrence_start: string | null;
       }>(sql, params);
 
       return rows.map((r) => ({
@@ -3390,6 +3535,8 @@ export class Engine implements Platform {
         duration: r.duration,
         allDay: r.all_day === null ? null : r.all_day === 1,
         recurrenceId: r.recurrence_id,
+        recurrence: r.recurrence,
+        recurrenceStart: r.recurrence_start,
       }));
     },
 
@@ -3409,6 +3556,8 @@ export class Engine implements Platform {
         duration: number | null;
         all_day: number | null;
         recurrence_id: string | null;
+        recurrence: string | null;
+        recurrence_start: string | null;
         created_at: string;
         updated_at: string;
         space_archived_at: string | null;
@@ -3508,6 +3657,8 @@ export class Engine implements Platform {
         duration: r.duration,
         allDay: r.all_day === null ? null : r.all_day === 1,
         recurrenceId: r.recurrence_id,
+        recurrence: r.recurrence,
+        recurrenceStart: r.recurrence_start,
         blocks,
         frontier,
         createdAt: r.created_at,
@@ -3578,10 +3729,27 @@ export class Engine implements Platform {
         this.notifySpaceChange(data.spaceId);
       }
 
+      if (data.recurrence) {
+        return this.pages.update({ id, recurrence: data.recurrence });
+      }
       return this.pages.get(id);
     },
 
     update: async (data: PageUpdateInput): Promise<PageFull> => {
+      // A repeating event's start moving takes its per-occurrence changes and
+      // notes along (see shiftSeriesOccurrences), which needs the old start.
+      const before =
+        data.scheduledAt !== undefined
+          ? (
+              await this.driver.db.query<{
+                scheduled_at: string | null;
+                recurrence: string | null;
+              }>("SELECT scheduled_at, recurrence FROM pages WHERE id = ?", [
+                data.id,
+              ])
+            )[0]
+          : undefined;
+
       const sets: string[] = [];
       const params: unknown[] = [];
 
@@ -3633,6 +3801,11 @@ export class Engine implements Platform {
         params.push(data.done ? 1 : 0);
         changedFields.push({ field: "done", value: data.done });
       }
+      if (data.recurrence !== undefined) {
+        sets.push("recurrence = ?");
+        params.push(data.recurrence);
+        changedFields.push({ field: "recurrence", value: data.recurrence });
+      }
 
       if (sets.length > 0) {
         sets.push("updated_at = ?");
@@ -3660,6 +3833,37 @@ export class Engine implements Platform {
           // (other tabs sharing this engine) so their page lists refresh.
           this.notifySpaceChange(spaceId);
         }
+      }
+
+      // An occurrence's own notes page is a task exactly when its series is,
+      // so it stays out of the tree with it, or comes back with it.
+      if (data.task !== undefined) {
+        const forks = await this.driver.db.query<{ id: string }>(
+          `SELECT id FROM pages WHERE recurrence_id = ? AND task != ?
+           AND archived_at IS NULL`,
+          [data.id, data.task ? 1 : 0],
+        );
+        for (const f of forks) {
+          await this.pages.update({ id: f.id, task: data.task });
+        }
+      }
+
+      const rule = parseRecurrence(
+        data.recurrence !== undefined ? data.recurrence : before?.recurrence,
+      );
+      const newStart = toUtcIso(data.scheduledAt);
+      if (
+        rule &&
+        before?.scheduled_at &&
+        newStart &&
+        newStart !== before.scheduled_at
+      ) {
+        await this.shiftSeriesOccurrences(
+          data.id,
+          before.scheduled_at,
+          newStart,
+          rule.tzid,
+        );
       }
 
       return this.pages.get(data.id);
@@ -3984,15 +4188,27 @@ export class Engine implements Platform {
         scheduled_at: string | null;
         duration: number | null;
         all_day: number | null;
+        parent_id: string | null;
         recurrence_id: string | null;
+        recurrence: string | null;
+        recurrence_start: string | null;
       }>(
         `SELECT title, title_md, body_text, task, done, color, scheduled_at,
-                duration, all_day, recurrence_id
+                duration, all_day, parent_id, recurrence_id, recurrence,
+                recurrence_start
            FROM pages WHERE id = ?`,
         [input.sourceId],
       );
       invariant(src.length > 0, "recreateInSpace: source page not found");
       const s = src[0];
+      // An occurrence's notes page sits under its series, and the subtree is
+      // recreated parent first, so the new parent IS the series' copy. Notes
+      // that were moved elsewhere in the tree lose the link and stay a page.
+      const recurrenceId =
+        s.recurrence_id && s.recurrence_id === s.parent_id
+          ? input.parentId
+          : null;
+      const recurrenceStart = recurrenceId ? s.recurrence_start : null;
 
       const newId = nanoid(10);
       const now = new Date().toISOString();
@@ -4019,8 +4235,9 @@ export class Engine implements Platform {
       await this.driver.db.mutate(
         `INSERT INTO pages (id, title, title_md, body_text, parent_id, "order",
                             space_id, task, done, color, scheduled_at, duration,
-                            all_day, recurrence_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                            all_day, recurrence_id, recurrence,
+                            recurrence_start, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           newId,
           s.title,
@@ -4035,7 +4252,9 @@ export class Engine implements Platform {
           s.scheduled_at,
           s.duration,
           s.all_day,
-          s.recurrence_id,
+          recurrenceId,
+          s.recurrence,
+          recurrenceStart,
           now,
           now,
         ],
@@ -4067,8 +4286,9 @@ export class Engine implements Platform {
         duration: s.duration ?? null,
         allDay: s.all_day === null ? null : s.all_day === 1,
       });
-      // Done is not part of page_add (it is append-only and older builds would
-      // not read it), so it follows as a page_set.
+      // Done and the repeating-event fields are not part of page_add (it is
+      // append-only and older builds would not read them), so they follow as
+      // page_sets.
       if (s.done === 1) {
         await this.emitSpaceOp(input.spaceId, {
           op: "page_set",
@@ -4076,6 +4296,35 @@ export class Engine implements Platform {
           field: "done",
           value: true,
         });
+      }
+      const recurring = {
+        recurrence: s.recurrence,
+        recurrenceId,
+        recurrenceStart,
+      };
+      for (const [field, value] of Object.entries(recurring)) {
+        if (value === null) continue;
+        await this.emitSpaceOp(input.spaceId, {
+          op: "page_set",
+          pageId: newId,
+          field,
+          value,
+        });
+      }
+      const overrides = await this.driver.db.query<OccurrenceRow>(
+        "SELECT * FROM page_occurrences WHERE page_id = ?",
+        [input.sourceId],
+      );
+      for (const o of overrides) {
+        for (const [field, value] of occurrenceRowFields(o)) {
+          await this.setOccurrenceField(
+            input.spaceId,
+            newId,
+            o.original_start,
+            field,
+            value,
+          );
+        }
       }
       if (contentOps.length > 0) {
         this.replicator?.pushPageOps(input.spaceId, newId, contentOps);
@@ -4167,67 +4416,399 @@ export class Engine implements Platform {
     ): Promise<PageCalendarItem[]> => {
       const startIso = new Date(start).toISOString();
       const endIso = new Date(end).toISOString();
-      const rows = await this.driver.db.query<{
-        id: string;
-        title: string;
-        title_md: string;
-        parent_id: string | null;
-        order: number;
-        color: string | null;
-        scheduled_at: string;
-        duration: number | null;
-        all_day: number | null;
-        recurrence_id: string | null;
-        task: number;
-        done: number;
-        created_at: string;
-      }>(
+      const rows = await this.driver.db.query<CalendarRow>(
         // Pages in an archived space stay live but are hidden as a whole (see
         // spaces.listArchived), so their events must not surface here either.
         // An event belongs to the range when any part of it overlaps, so one
         // that started earlier and runs into the range is included. The grid
         // draws a missing or zero duration as an hour, so it counts as one here.
+        //
+        // A repeating event is fetched whenever it started before the range
+        // ends — its occurrences are worked out below — and kept out of the
+        // overlap test, which only speaks for its first one.
         `SELECT p.* FROM pages p
          LEFT JOIN spaces s ON s.id = p.space_id
          WHERE p.scheduled_at IS NOT NULL AND p.archived_at IS NULL
          AND (p.space_id IS NULL OR s.archived_at IS NULL)
          AND p.scheduled_at <= ?
-         AND julianday(p.scheduled_at)
-           + COALESCE(NULLIF(p.duration, 0), 60) / 1440.0 > julianday(?)
+         AND (p.recurrence IS NOT NULL OR julianday(p.scheduled_at)
+           + COALESCE(NULLIF(p.duration, 0), 60) / 1440.0 > julianday(?))
          ORDER BY p.scheduled_at ASC`,
         [endIso, startIso],
       );
 
       const results: PageCalendarItem[] = [];
+      const series: { row: CalendarRow; rule: RecurrenceRule }[] = [];
       for (const r of rows) {
-        const path = await this.buildParentChain(r.parent_id);
+        const rule = parseRecurrence(r.recurrence);
+        if (rule) {
+          series.push({ row: r, rule });
+          continue;
+        }
+        // A rule this build cannot expand (written by a newer one) still
+        // shows its first occurrence rather than nothing.
+        if (!overlaps(r.scheduled_at, r.duration, startIso, endIso)) continue;
         results.push({
+          ...calendarItemBase(r),
           id: r.id,
-          title: r.title,
-          titleMd: r.title_md,
-          parentId: r.parent_id,
-          order: r.order,
-          color: r.color,
-          scheduledAt: r.scheduled_at,
-          duration: r.duration,
-          allDay: r.all_day === null ? null : r.all_day === 1,
-          recurrenceId: r.recurrence_id,
-          task: r.task === 1,
-          done: r.done === 1,
-          path,
-          createdAt: r.created_at,
+          pageId: r.id,
+          path: await this.buildParentChain(r.parent_id),
         });
       }
+
+      if (series.length > 0) {
+        const ids = series.map((s) => s.row.id);
+        const marks = ids.map(() => "?").join(", ");
+        const overrides = await this.driver.db.query<OccurrenceRow>(
+          `SELECT * FROM page_occurrences WHERE page_id IN (${marks})`,
+          ids,
+        );
+        const notes = await this.driver.db.query<{
+          id: string;
+          title: string;
+          title_md: string;
+          recurrence_id: string;
+          recurrence_start: string;
+        }>(
+          `SELECT id, title, title_md, recurrence_id, recurrence_start FROM pages
+           WHERE recurrence_id IN (${marks}) AND recurrence_start IS NOT NULL
+           AND archived_at IS NULL ORDER BY id`,
+          ids,
+        );
+
+        for (const { row, rule } of series) {
+          const own = new Map<string, OccurrenceRow>();
+          for (const o of overrides) {
+            if (o.page_id === row.id) own.set(o.original_start, o);
+          }
+          const ownNotes = new Map<string, (typeof notes)[number]>();
+          for (const n of notes) {
+            // Two notes pages for one occurrence only happen when the series
+            // moved while another device was offline; the first by id wins
+            // (ordered above) and the other stays a page in the tree.
+            if (
+              n.recurrence_id === row.id &&
+              !ownNotes.has(n.recurrence_start)
+            ) {
+              ownNotes.set(n.recurrence_start, n);
+            }
+          }
+
+          // Occurrences that run into the range from before it count too.
+          const reach = Math.max(row.duration || 60, 60) * 60_000;
+          const keys = new Set(
+            expandOccurrences(
+              row.scheduled_at,
+              rule,
+              new Date(start - reach).toISOString(),
+              endIso,
+            ),
+          );
+          // An occurrence moved into the range from a date outside it.
+          for (const [key, o] of own) {
+            if (keys.has(key) || !o.scheduled_at) continue;
+            if (
+              expandOccurrences(row.scheduled_at, rule, key, key).length > 0
+            ) {
+              keys.add(key);
+            }
+          }
+
+          const path = await this.buildParentChain(row.parent_id);
+          for (const key of keys) {
+            const o = own.get(key);
+            if (o?.cancelled === 1) continue;
+            const scheduledAt = o?.scheduled_at ?? key;
+            const duration = o?.duration ?? row.duration;
+            if (!overlaps(scheduledAt, duration, startIso, endIso)) continue;
+            const n = ownNotes.get(key);
+            results.push({
+              ...calendarItemBase(row),
+              id: n?.id ?? exceptionPageId(row.id, key),
+              pageId: n?.id ?? row.id,
+              title: n?.title ?? row.title,
+              titleMd: n?.title_md ?? row.title_md,
+              scheduledAt,
+              duration,
+              allDay:
+                o?.all_day != null
+                  ? o.all_day === 1
+                  : row.all_day === null
+                    ? null
+                    : row.all_day === 1,
+              // Each occurrence of a repeating task is ticked off on its own;
+              // the series' own flag says nothing about any of them.
+              done: o?.done === 1,
+              seriesId: row.id,
+              occurrenceStart: key,
+              seriesStart: row.scheduled_at,
+              path,
+            });
+          }
+        }
+        results.sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt));
+      }
       return results;
+    },
+
+    updateOccurrence: async (input: OccurrenceUpdateInput): Promise<void> => {
+      const key = occurrenceKey(input.occurrenceStart);
+      const fields: [OccurrenceField, unknown][] = [];
+      if (input.scheduledAt !== undefined) {
+        fields.push(["scheduledAt", toUtcIso(input.scheduledAt)]);
+      }
+      if (input.duration !== undefined)
+        fields.push(["duration", input.duration]);
+      if (input.allDay !== undefined) fields.push(["allDay", input.allDay]);
+      if (input.cancelled !== undefined) {
+        fields.push(["cancelled", input.cancelled]);
+      }
+      if (input.done !== undefined) fields.push(["done", input.done]);
+      const spaceId = await this.getPageSpaceId(input.seriesId);
+      for (const [field, value] of fields) {
+        await this.setOccurrenceField(
+          spaceId,
+          input.seriesId,
+          key,
+          field,
+          value,
+        );
+      }
+      if (spaceId) this.notifySpaceChange(spaceId);
+    },
+
+    forkOccurrence: async (
+      seriesId: string,
+      occurrenceStart: string,
+    ): Promise<string> => {
+      const key = occurrenceKey(occurrenceStart);
+      const existing = await this.driver.db.query<{ id: string }>(
+        `SELECT id FROM pages WHERE recurrence_id = ? AND recurrence_start = ?
+         AND archived_at IS NULL ORDER BY id LIMIT 1`,
+        [seriesId, key],
+      );
+      if (existing.length > 0) return existing[0].id;
+
+      const [series] = await this.driver.db.query<{
+        title: string;
+        title_md: string;
+        body_text: string | null;
+        space_id: string | null;
+        task: number;
+      }>(
+        "SELECT title, title_md, body_text, space_id, task FROM pages WHERE id = ?",
+        [seriesId],
+      );
+      invariant(series, "forkOccurrence: series not found");
+
+      // The derived id lets two devices that fork the same occurrence offline
+      // meet on one page. A row already holding it is an earlier fork that was
+      // archived; reviving it would bring its old notes back under the copy,
+      // so this fork gets an id of its own instead.
+      let id = exceptionPageId(seriesId, key);
+      const taken = await this.driver.db.query(
+        "SELECT 1 FROM pages WHERE id = ?",
+        [id],
+      );
+      if (taken.length > 0) id = nanoid(10);
+
+      const order = await this.nextChildOrder(seriesId);
+      const now = new Date().toISOString();
+      // Nested under the series, so the notes of every occurrence sit together
+      // in the tree and go wherever the series goes. No schedule of its own:
+      // the occurrence's time comes from the series and its overrides. A
+      // task's notes are a task too, kept out of the tree like the series.
+      await this.driver.db.mutate(
+        `INSERT INTO pages (id, title, title_md, body_text, parent_id, "order",
+                            space_id, task, recurrence_id, recurrence_start,
+                            created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          id,
+          series.title,
+          series.title_md,
+          series.body_text,
+          seriesId,
+          order,
+          series.space_id,
+          series.task,
+          seriesId,
+          key,
+          now,
+          now,
+        ],
+      );
+      const contentOps = await this.reoriginateContent(seriesId, id);
+      if (contentOps.length > 0) {
+        await this.insertOpsBatch(id, contentOps, Date.now());
+      }
+
+      if (series.space_id) {
+        await this.emitSpaceOp(series.space_id, {
+          op: "page_add",
+          pageId: id,
+          parentId: seriesId,
+          order,
+          task: series.task === 1,
+        });
+        await this.emitSpaceOp(series.space_id, {
+          op: "page_set",
+          pageId: id,
+          field: "recurrenceId",
+          value: seriesId,
+        });
+        await this.emitSpaceOp(series.space_id, {
+          op: "page_set",
+          pageId: id,
+          field: "recurrenceStart",
+          value: key,
+        });
+        if (contentOps.length > 0) {
+          this.replicator?.pushPageOps(series.space_id, id, contentOps);
+        }
+        this.notifySpaceChange(series.space_id);
+      }
+      return id;
+    },
+
+    splitSeries: async (
+      seriesId: string,
+      occurrenceStart: string,
+    ): Promise<string> => {
+      const key = occurrenceKey(occurrenceStart);
+      const [row] = await this.driver.db.query<{
+        title: string;
+        title_md: string;
+        body_text: string | null;
+        parent_id: string | null;
+        order: number;
+        space_id: string | null;
+        color: string | null;
+        scheduled_at: string | null;
+        duration: number | null;
+        all_day: number | null;
+        recurrence: string | null;
+        task: number;
+      }>(
+        `SELECT title, title_md, body_text, parent_id, "order", space_id, color,
+                scheduled_at, duration, all_day, recurrence, task
+           FROM pages WHERE id = ?`,
+        [seriesId],
+      );
+      invariant(row?.scheduled_at, "splitSeries: series not found");
+      const rule = parseRecurrence(row.recurrence);
+      invariant(rule, "splitSeries: not a repeating event");
+      // Splitting at the first occurrence leaves nothing before it: the
+      // series itself is "this and following".
+      if (key <= occurrenceKey(row.scheduled_at)) return seriesId;
+
+      const nextRule = { ...rule };
+      if (rule.count !== null) {
+        nextRule.count = Math.max(
+          1,
+          rule.count - occurrencesBefore(row.scheduled_at, rule, key),
+        );
+      }
+
+      const newId = nanoid(10);
+      const now = new Date().toISOString();
+      // Right after the old series among its siblings.
+      const order = row.order + 0.5;
+      await this.driver.db.mutate(
+        `INSERT INTO pages (id, title, title_md, body_text, parent_id, "order",
+                            space_id, task, color, scheduled_at, duration,
+                            all_day, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          newId,
+          row.title,
+          row.title_md,
+          row.body_text,
+          row.parent_id,
+          order,
+          row.space_id,
+          row.task,
+          row.color,
+          key,
+          row.duration,
+          row.all_day,
+          now,
+          now,
+        ],
+      );
+      const contentOps = await this.reoriginateContent(seriesId, newId);
+      if (contentOps.length > 0) {
+        await this.insertOpsBatch(newId, contentOps, Date.now());
+      }
+      if (row.space_id) {
+        await this.emitSpaceOp(row.space_id, {
+          op: "page_add",
+          pageId: newId,
+          parentId: row.parent_id,
+          order,
+          task: row.task === 1,
+          color: row.color ?? undefined,
+          scheduledAt: key,
+          duration: row.duration,
+          allDay: row.all_day === null ? null : row.all_day === 1,
+        });
+        if (contentOps.length > 0) {
+          this.replicator?.pushPageOps(row.space_id, newId, contentOps);
+        }
+      }
+      await this.pages.update({
+        id: newId,
+        recurrence: formatRecurrence(nextRule),
+      });
+
+      // Both series share the rule and clock time, so occurrences from the
+      // split on carry the same keys: their changes and notes move over as is.
+      const overrides = await this.driver.db.query<OccurrenceRow>(
+        "SELECT * FROM page_occurrences WHERE page_id = ? AND original_start >= ?",
+        [seriesId, key],
+      );
+      for (const o of overrides) {
+        for (const [field, value] of occurrenceRowFields(o)) {
+          await this.setOccurrenceField(
+            row.space_id,
+            newId,
+            o.original_start,
+            field,
+            value,
+          );
+          await this.setOccurrenceField(
+            row.space_id,
+            seriesId,
+            o.original_start,
+            field,
+            null,
+          );
+        }
+      }
+      const forks = await this.driver.db.query<{ id: string }>(
+        `SELECT id FROM pages WHERE recurrence_id = ? AND recurrence_start >= ?
+         AND archived_at IS NULL`,
+        [seriesId, key],
+      );
+      for (const f of forks) {
+        await this.setPageFields(row.space_id, f.id, { recurrenceId: newId });
+        await this.pages.move({ id: f.id, parentId: newId });
+      }
+
+      await this.pages.update({
+        id: seriesId,
+        recurrence: formatRecurrence(endRuleBefore(rule, key)),
+      });
+      if (row.space_id) this.notifySpaceChange(row.space_id);
+      return newId;
     },
 
     versions: async (pageId: string): Promise<PageVersion[]> => {
       const timed = await this.loadTimedPageOps(pageId);
       if (timed.length === 0) return [];
 
-      const { buildVersionHistory } = await import(
-        "@tasfer/editor/sync/version-history"
-      );
+      const { buildVersionHistory } =
+        await import("@tasfer/editor/sync/version-history");
 
       // Newest first — the list is read top-down and the recent past is what
       // anyone is actually looking for.
@@ -5114,6 +5695,151 @@ export class Engine implements Platform {
     return rows[0].private_key;
   }
 
+  /** Materialize a replicated `occurrence.<field>|<start>` page_set. */
+  private async storeOccurrenceField(
+    pageId: string,
+    field: string,
+    value: unknown,
+  ): Promise<void> {
+    const bar = field.indexOf("|");
+    if (bar < 0) return;
+    const name = field.slice(OCCURRENCE_FIELD_PREFIX.length, bar);
+    const col = OCCURRENCE_COLUMNS[name as OccurrenceField];
+    if (!col) return;
+    const key = field.slice(bar + 1);
+    const stored =
+      value === null || value === undefined
+        ? null
+        : typeof value === "boolean"
+          ? value
+            ? 1
+            : 0
+          : value;
+    await this.driver.db.mutate(
+      `INSERT INTO page_occurrences (page_id, original_start, ${col})
+       VALUES (?, ?, ?)
+       ON CONFLICT (page_id, original_start) DO UPDATE SET ${col} = excluded.${col}`,
+      [pageId, key, stored],
+    );
+  }
+
+  /** Change one field of one occurrence, here and (in a space) for peers. */
+  private async setOccurrenceField(
+    spaceId: string | null,
+    seriesId: string,
+    key: string,
+    field: OccurrenceField,
+    value: unknown,
+  ): Promise<void> {
+    const name = `${OCCURRENCE_FIELD_PREFIX}${field}|${key}`;
+    await this.storeOccurrenceField(seriesId, name, value);
+    if (spaceId) {
+      await this.emitSpaceOp(spaceId, {
+        op: "page_set",
+        pageId: seriesId,
+        field: name,
+        value: value ?? null,
+      });
+    }
+  }
+
+  /** Set replicated page fields that pages.update does not take. */
+  private async setPageFields(
+    spaceId: string | null,
+    pageId: string,
+    fields: { recurrenceId?: string | null; recurrenceStart?: string | null },
+  ): Promise<void> {
+    const cols = {
+      recurrenceId: "recurrence_id",
+      recurrenceStart: "recurrence_start",
+    };
+    for (const [field, value] of Object.entries(fields)) {
+      if (value === undefined) continue;
+      await this.driver.db.mutate(
+        `UPDATE pages SET ${cols[field as keyof typeof cols]} = ?, updated_at = ? WHERE id = ?`,
+        [value, new Date().toISOString(), pageId],
+      );
+      if (spaceId) {
+        await this.emitSpaceOp(spaceId, {
+          op: "page_set",
+          pageId,
+          field,
+          value,
+        });
+      }
+    }
+  }
+
+  /** Order that appends a page after `parentId`'s live children. */
+  private async nextChildOrder(parentId: string): Promise<number> {
+    const [row] = await this.driver.db.query<{ max_order: number | null }>(
+      'SELECT MAX("order") as max_order FROM pages WHERE parent_id = ? AND archived_at IS NULL',
+      [parentId],
+    );
+    return (row?.max_order ?? 0) + 1;
+  }
+
+  /**
+   * A repeating event's first start moved from `oldStart` to `newStart` (an
+   * "all events" edit). Its per-occurrence changes and notes pages are keyed
+   * by the old dates; re-key them by the same shift so they stay with the
+   * occurrences they were made for instead of being left on dates the series
+   * no longer hits. Moved-occurrence times are absolute and stay as they are.
+   */
+  private async shiftSeriesOccurrences(
+    seriesId: string,
+    oldStart: string,
+    newStart: string,
+    tzid: string,
+  ): Promise<void> {
+    const spaceId = await this.getPageSpaceId(seriesId);
+    const shift = (key: string) =>
+      shiftOccurrenceKey(key, oldStart, newStart, tzid);
+
+    const overrides = await this.driver.db.query<OccurrenceRow>(
+      "SELECT * FROM page_occurrences WHERE page_id = ?",
+      [seriesId],
+    );
+    // Clear every old key first, so a shift onto a key that is itself about
+    // to move does not wipe what just landed there.
+    for (const o of overrides) {
+      for (const [field] of occurrenceRowFields(o)) {
+        await this.setOccurrenceField(
+          spaceId,
+          seriesId,
+          o.original_start,
+          field,
+          null,
+        );
+      }
+    }
+    for (const o of overrides) {
+      for (const [field, value] of occurrenceRowFields(o)) {
+        await this.setOccurrenceField(
+          spaceId,
+          seriesId,
+          shift(o.original_start),
+          field,
+          value,
+        );
+      }
+    }
+
+    const forks = await this.driver.db.query<{
+      id: string;
+      recurrence_start: string;
+    }>(
+      `SELECT id, recurrence_start FROM pages
+       WHERE recurrence_id = ? AND recurrence_start IS NOT NULL`,
+      [seriesId],
+    );
+    for (const f of forks) {
+      await this.setPageFields(spaceId, f.id, {
+        recurrenceStart: shift(f.recurrence_start),
+      });
+    }
+  }
+
   private async getPageSpaceId(pageId: string): Promise<string | null> {
     const rows = await this.driver.db.query<{ space_id: string | null }>(
       "SELECT space_id FROM pages WHERE id = ?",
@@ -5445,7 +6171,14 @@ export class Engine implements Platform {
           scheduledAt: "scheduled_at",
           duration: "duration",
           allDay: "all_day",
+          recurrence: "recurrence",
+          recurrenceId: "recurrence_id",
+          recurrenceStart: "recurrence_start",
         };
+        if (op.field.startsWith(OCCURRENCE_FIELD_PREFIX)) {
+          await this.storeOccurrenceField(op.pageId, op.field, op.value);
+          break;
+        }
         const col = fieldMap[op.field];
         if (col) {
           let val = op.value;

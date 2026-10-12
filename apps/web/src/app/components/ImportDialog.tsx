@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import { normalizeRecurrence } from "@/platform/recurrence";
 import { Button } from "@/components/ui/button";
 import {
   Drawer,
@@ -113,6 +114,9 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
           }),
           ...(pendingMetadata?.allDay != null && {
             allDay: pendingMetadata.allDay,
+          }),
+          ...(normalizeRecurrence(pendingMetadata?.recurrence) && {
+            recurrence: normalizeRecurrence(pendingMetadata?.recurrence),
           }),
         });
         queryClient.invalidateQueries({

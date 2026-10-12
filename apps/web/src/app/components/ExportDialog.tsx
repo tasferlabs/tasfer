@@ -88,6 +88,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
       if (pageData.duration != null) meta.duration = pageData.duration;
       if (pageData.allDay != null) meta.allDay = pageData.allDay;
       if (pageData.color) meta.color = pageData.color;
+      if (pageData.recurrence) meta.recurrence = pageData.recurrence;
       return Object.keys(meta).length > 0 ? meta : undefined;
     } catch {
       return undefined;

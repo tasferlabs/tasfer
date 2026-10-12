@@ -21,6 +21,8 @@ export interface PageMetadata {
   task?: boolean;
   /** A task that was ticked off. */
   done?: boolean;
+  /** Repeat rule of a repeating event, in the host's RRULE-shaped string. */
+  recurrence?: string | null;
 }
 
 export interface MarkdownSerializeOptions {
@@ -45,6 +47,7 @@ function serializeFrontmatter(metadata: PageMetadata): string {
   if (metadata.duration != null) lines.push(`duration: ${metadata.duration}`);
   if (metadata.allDay != null) lines.push(`allDay: ${metadata.allDay}`);
   if (metadata.color) lines.push(`color: ${metadata.color}`);
+  if (metadata.recurrence) lines.push(`recurrence: ${metadata.recurrence}`);
   if (lines.length === 0) return "";
   return `---\n${lines.join("\n")}\n---\n`;
 }

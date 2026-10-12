@@ -14,6 +14,7 @@ import type {
   PageSearchResult,
   PageCalendarItem,
   PageVersion,
+  OccurrenceUpdateInput,
 } from "@/platform";
 import type { Block } from "@tasfer/editor";
 
@@ -77,6 +78,7 @@ interface ICreatePage {
   duration?: number;
   allDay?: boolean;
   task?: boolean;
+  recurrence?: string;
 }
 
 export async function createPage(data: ICreatePage): Promise<IPage> {
@@ -105,6 +107,7 @@ interface IUpdatePage {
   allDay?: boolean | null;
   task?: boolean;
   done?: boolean;
+  recurrence?: string | null;
 }
 
 export async function updatePage(data: IUpdatePage): Promise<IPage> {
@@ -279,6 +282,27 @@ export function useGetCalendarPages(start: number, end: number) {
     queryKey: ["calendar-pages", { start, end }],
     queryFn: () => getCalendarPages(start, end),
   });
+}
+
+// Repeating events — see platform/recurrence.ts.
+export async function updateOccurrence(
+  input: OccurrenceUpdateInput,
+): Promise<void> {
+  return getPlatform().pages.updateOccurrence(input);
+}
+
+export async function forkOccurrence(
+  seriesId: string,
+  occurrenceStart: string,
+): Promise<string> {
+  return getPlatform().pages.forkOccurrence(seriesId, occurrenceStart);
+}
+
+export async function splitSeries(
+  seriesId: string,
+  occurrenceStart: string,
+): Promise<string> {
+  return getPlatform().pages.splitSeries(seriesId, occurrenceStart);
 }
 
 // Helper to get the query key for a page
