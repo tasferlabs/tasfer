@@ -873,9 +873,9 @@
   color: var(--foreground);
 }
 
-/* The tree's rows, grouped so the caption above can name them to assistive tech
-   and fold them as one. Carries the column layout the picker gives its own
-   children, since the group takes their place in it. */
+/* The tree's rows, grouped so they part from the shortcut row as one. Carries
+   the column layout the picker gives its own children, since the group takes
+   their place in it. */
 .draftTagLevelGroup {
   display: flex;
   flex-direction: column;
@@ -883,9 +883,8 @@
 }
 
 /* Parts the tree from the shortcuts above it: they are two ways of answering
-   the same question, and at the row gap alone they read as one list. Space
-   alone does it — the two captions already mark where one ends. */
-.draftTagRowLabelParted {
+   the same question, and at the row gap alone they read as one list. */
+.draftTagLevelGroupParted {
   margin-top: 10px;
 }
 

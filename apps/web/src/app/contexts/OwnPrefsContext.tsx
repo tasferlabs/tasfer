@@ -104,8 +104,6 @@ export const OWN_PREF_KEYS = {
   calendarParentUsagePrefix: "calendar.parentUsage.",
   /** `boolean` — the draft parent picker's "Recent" row; absent means open. */
   calendarRecentParentsOpen: "calendar.recentParentsOpen",
-  /** `boolean` — the draft parent picker's page tree; absent means open. */
-  calendarParentTreeOpen: "calendar.parentTreeOpen",
   /** `string` — the space a new calendar event is drafted into. */
   calendarEventSpace: "calendar.eventSpace",
   /**
@@ -206,7 +204,7 @@ const LEGACY: Array<{
     read: (raw) =>
       raw && raw !== "system" ? [[OWN_PREF_KEYS.dateTimeTimezone, raw]] : [],
   },
-  // The event draft's parent picker kept its shortcut stats, its two folds and
+  // The event draft's parent picker kept its shortcut stats, its fold and
   // the draft's space in this browser alone.
   {
     storageKey: LEGACY_PARENT_USAGE_KEY,
@@ -221,13 +219,6 @@ const LEGACY: Array<{
     read: (raw) =>
       raw === "open" || raw === "closed"
         ? [[OWN_PREF_KEYS.calendarRecentParentsOpen, raw === "open"]]
-        : [],
-  },
-  {
-    storageKey: "tasfer:remember:calendar-parent-tree",
-    read: (raw) =>
-      raw === "open" || raw === "closed"
-        ? [[OWN_PREF_KEYS.calendarParentTreeOpen, raw === "open"]]
         : [],
   },
   {

@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ChevronRight, FileText, History, Search, X } from "lucide-react";
+import { ChevronRight, History, Search, X } from "lucide-react";
 import { useQueries } from "@tanstack/react-query";
 import i18next from "i18next";
 import { useTranslation } from "react-i18next";
@@ -127,12 +127,6 @@ export function DraftTagPicker({
   const recentOpen = recentFold.value;
   const toggleRecent = () => recentFold.set(!recentOpen);
 
-  // The tree folds the same way, for the opposite habit: someone who files from
-  // the shortcuts (or from search) can put the whole drill-down away.
-  const treeFold = useOwnPref(OWN_PREF_KEYS.calendarParentTreeOpen, true);
-  const treeOpen = treeFold.value;
-  const toggleTree = () => treeFold.set(!treeOpen);
-
   // The shortcut row is offered for a NEW page only. Re-parenting an existing
   // one must never offer a page inside its own subtree — that would cut the
   // subtree loose — and a stored shortcut carries no live ancestor chain to
@@ -245,15 +239,13 @@ export function DraftTagPicker({
     return built;
   }, [recentTags, childrenOf, levels, drillPath, excludeId]);
 
-  const treeRows = useMemo(() => allRows.filter((r) => !r.recent), [allRows]);
-
   // What is actually on screen — and so what the arrow keys move through. A
-  // folded section keeps its rows out of the grid rather than stepping the
+  // folded shortcut row keeps its tags out of the grid rather than stepping the
   // cursor through tags nobody can see.
   const rows: TagRowModel[] = useMemo(() => {
-    const shown = allRows.filter((r) => (r.recent ? recentOpen : treeOpen));
-    // Folding away every section must not fold away the answer: an event filed
-    // under a page the draft never showed is the one thing this picker owes the
+    const shown = allRows.filter((r) => !r.recent || recentOpen);
+    // Folding away the shortcuts must not fold away the answer: an event filed
+    // under a page the rows never showed is the one thing this picker owes the
     // user. The chosen parent stays on screen as a row of its own — tapping it
     // clears the choice, exactly as tapping it anywhere else would.
     if (
@@ -284,7 +276,7 @@ export function DraftTagPicker({
       });
     }
     return shown;
-  }, [allRows, recentOpen, treeOpen, value]);
+  }, [allRows, recentOpen, value]);
 
   // ── Roving focus ──
   //
@@ -298,7 +290,6 @@ export function DraftTagPicker({
   // the roving index without the effect yanking focus back.
   const keyNavRef = useRef(false);
   const recentRowId = useId();
-  const treeGroupId = useId();
   const buttonsRef = useRef(new Map<string, HTMLButtonElement | null>());
 
   const selectedPos = useMemo(() => {
@@ -559,36 +550,17 @@ export function DraftTagPicker({
         .filter((r) => r.recent)
         .map((rowModel) => renderRow(rowModel, rows.indexOf(rowModel)))}
 
-      {treeRows.length > 0 && (
-        <button
-          type="button"
-          className={cn(
-            style.draftTagRowLabel,
-            // Only needs the gap when there is something above to part from.
-            recentTags.length > 0 && style.draftTagRowLabelParted,
-          )}
-          aria-expanded={treeOpen}
-          aria-controls={treeOpen ? treeGroupId : undefined}
-          onClick={toggleTree}
-        >
-          <FileText size={11} aria-hidden />
-          {t("page.pages", "Pages")}
-          <ChevronRight
-            size={12}
-            className={cn(
-              style.draftTagChevron,
-              treeOpen && style.draftTagChevronOpen,
-            )}
-          />
-        </button>
-      )}
-      {treeOpen && (
-        <div id={treeGroupId} className={style.draftTagLevelGroup}>
-          {rows
-            .filter((r) => !r.recent && r.key !== "__selection__")
-            .map((rowModel) => renderRow(rowModel, rows.indexOf(rowModel)))}
-        </div>
-      )}
+      <div
+        className={cn(
+          style.draftTagLevelGroup,
+          // Only needs the gap when there is something above to part from.
+          recentTags.length > 0 && style.draftTagLevelGroupParted,
+        )}
+      >
+        {rows
+          .filter((r) => !r.recent && r.key !== "__selection__")
+          .map((rowModel) => renderRow(rowModel, rows.indexOf(rowModel)))}
+      </div>
 
       {/* The chosen parent, when neither section is showing it. */}
       {rows
