@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/drawer";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  Bell,
   CalendarClock,
   ChevronRight,
   Download,
@@ -24,6 +25,7 @@ import { Data } from "./DataTab/Data";
 import { DateTime } from "./DateTimeTab/DateTime";
 import { ErrorLog } from "./ErrorLogTab/ErrorLog";
 import { Information } from "./InformationTab/Information";
+import { Notifications } from "./NotificationsTab/Notifications";
 import { Preferences } from "./PreferencesTab/Preferences";
 import { Profile } from "./ProfileTab/Profile";
 import { Spelling } from "./SpellingTab/Spelling";
@@ -34,6 +36,7 @@ const TABS = [
   "preferences",
   "spelling",
   "dateTime",
+  "notifications",
   "data",
   "errorLog",
   "information",
@@ -46,6 +49,7 @@ const TAB_ICONS: Record<Tab, React.ElementType> = {
   preferences: SlidersHorizontal,
   spelling: SpellCheck,
   dateTime: CalendarClock,
+  notifications: Bell,
   data: Download,
   errorLog: ScrollText,
   information: Info,
@@ -56,6 +60,7 @@ const CONTENT: Record<Tab, React.FC> = {
   preferences: Preferences,
   spelling: Spelling,
   dateTime: DateTime,
+  notifications: Notifications,
   data: Data,
   errorLog: ErrorLog,
   information: Information,
@@ -83,6 +88,7 @@ export default function SettingsPage() {
     preferences: t("settings.preferences", "Preferences"),
     spelling: t("settings.spelling.title", "Spelling"),
     dateTime: t("settings.dateTime.title", "Date & Time"),
+    notifications: t("reminders.settings.title", "Notifications"),
     data: t("export.title", "Export"),
     errorLog: t("settings.errorLog.title", "Error log"),
     information: t("settings.information.title", "Information"),
@@ -163,6 +169,9 @@ export default function SettingsPage() {
             <TabsTrigger value="dateTime">
               {t("settings.dateTime.title", "Date & Time")}
             </TabsTrigger>
+            <TabsTrigger value="notifications">
+              {t("reminders.settings.title", "Notifications")}
+            </TabsTrigger>
             <TabsTrigger value="data">
               {t("export.title", "Export")}
             </TabsTrigger>
@@ -184,6 +193,9 @@ export default function SettingsPage() {
           </TabsContent>
           <TabsContent value={"dateTime"}>
             <DateTime />
+          </TabsContent>
+          <TabsContent value={"notifications"}>
+            <Notifications />
           </TabsContent>
           <TabsContent value={"data"}>
             <Data />

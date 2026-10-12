@@ -84,6 +84,7 @@ import { EventPreview } from "./EventPreview";
 import { DateTimePickerOverlay } from "@/components/datetimepickers/DateTimePickerOverlay";
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { DateTime } from "luxon";
+import { useEventLink } from "./useEventLink";
 import style from "./CalendarPage.module.css";
 import clsx from "clsx";
 
@@ -290,6 +291,15 @@ export default function CalendarPage() {
   const handlePreviewClose = useCallback(() => {
     guardDiscard(closePreviewNow);
   }, [guardDiscard, closePreviewNow]);
+
+  // A clicked reminder lands here: go to the event's day and open it.
+  useEventLink((entryId, day) => {
+    guardDiscard(() => {
+      setSelectedDate(day);
+      setPreviewPageId(entryId);
+      setPreviewAnchor(null);
+    });
+  });
 
   // Apply a mini-calendar date pick, guarding an in-progress draft. On cancel,
   // revert the overlay fields back to the current selection so the picker

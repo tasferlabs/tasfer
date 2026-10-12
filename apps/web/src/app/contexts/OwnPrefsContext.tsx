@@ -133,6 +133,19 @@ export const OWN_PREF_KEYS = {
    * shortcuts never overwrite each other. Read through `@/shortcuts`.
    */
   shortcutPrefix: "shortcut.",
+  /**
+   * Key PREFIX: `reminder.<pageId>` → minutes before the event starts, or
+   * `"off"`; `null` puts the event back on the default. One key per event so
+   * two devices changing two events never overwrite each other. Mirrored as
+   * `REMINDER_PREF_PREFIX` in `@/reminders/reminders`.
+   */
+  reminderPrefix: "reminder.",
+  /**
+   * The reminder a timed event gets until one is chosen for it: minutes
+   * before, or `"off"`. Absent means 10 minutes. Mirrored as
+   * `DEFAULT_REMINDER_KEY` in `@/reminders/reminders`.
+   */
+  reminderDefault: "reminders.default",
 } as const;
 
 /**
