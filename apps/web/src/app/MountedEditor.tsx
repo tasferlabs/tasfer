@@ -45,6 +45,7 @@ import {
   type CursorDragInfo,
   type Decoration,
   type DocPoint,
+  type ViewWindow,
 } from "@tasfer/editor";
 import { downloadFile } from "@/downloadFile";
 import { exportBaseName } from "@/lib/exportFileName";
@@ -121,6 +122,7 @@ import {
   useState,
   type ComponentType,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -222,6 +224,7 @@ import { useEditorCore } from "./editorCore";
 import {
   useCollaborativeDoc,
   type CollaborativeDoc,
+  type UseCollaborativeDocOptions,
 } from "./useCollaborativeDoc";
 
 function toolbarBlockTypeFromQueryBlock(
@@ -1381,7 +1384,10 @@ interface MountedEditorProps {
   onEditorReady?: (editor: MountedEditorInstance["editor"] | null) => void;
   /** When true, editor is read-only - no editing, no CRDT sync, no native bridge updates */
   readonly?: boolean;
-  /** Override default canvas padding */
+  /**
+   * Override default canvas padding. Setting a side padding also opts out of
+   * the page-width gutter (and `onHorizontalPaddingChange`).
+   */
   padding?: Partial<{
     paddingTop: number;
     paddingBottom: number;
@@ -1401,6 +1407,17 @@ interface MountedEditorProps {
    * column. Fired on mount and whenever the padding changes.
    */
   onHorizontalPaddingChange?: (paddingPx: number) => void;
+  /**
+   * Show only part of the page (e.g. `bodyBlocksWindow()` beside a
+   * `TitleEditor`). Must be stable for the editor's lifetime — a module
+   * constant or a memo. Omit for the full page.
+   */
+  viewWindow?: ViewWindow;
+  /**
+   * A shared doc owned by a {@link PageDocScope} above, for when other surfaces
+   * (a `TitleEditor`) edit the same page. Omit to have this editor own its doc.
+   */
+  collab?: CollaborativeDoc;
 }
 
 // Find-in-document highlight colors (host-owned now that the engine paints
@@ -1573,12 +1590,28 @@ function isFocusedPageRow(el: Element | null): boolean {
  * teardown/rebuild.
  */
 export function MountedEditor(props: MountedEditorProps) {
-  return (
-    <CollaborativeEditor
-      key={`${props.pageId}::${props.readonly ? "ro" : "rw"}`}
-      {...props}
-    />
-  );
+  const key = `${props.pageId}::${props.readonly ? "ro" : "rw"}`;
+  if (props.collab) {
+    return <PageEditor key={key} {...props} collab={props.collab} />;
+  }
+  return <CollaborativeEditor key={key} {...props} />;
+}
+
+/**
+ * Owns one page's shared {@link Doc} (as {@link CollaborativeEditor} does) and
+ * hands it to `children`, so several surfaces — a `TitleEditor` and a windowed
+ * `MountedEditor` passed `collab` — edit one page with sync wired once. The
+ * surfaces render inside it, so they are torn down before the doc. Key it per
+ * page, so a page switch builds a fresh doc.
+ */
+export function PageDocScope({
+  children,
+  ...options
+}: UseCollaborativeDocOptions & {
+  children: (collab: CollaborativeDoc) => ReactNode;
+}) {
+  const collab = useCollaborativeDoc(options);
+  return <>{children(collab)}</>;
 }
 
 /**
@@ -1629,6 +1662,7 @@ function PageEditor({
   placeholderOverrides,
   onScroll,
   onHorizontalPaddingChange,
+  viewWindow,
 }: PageEditorProps) {
   const { setOnOpenFind, fontStyle, editorWidth, density } = usePageSettings();
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -2319,6 +2353,7 @@ function PageEditor({
   const { containerRef, editor } = useEditorCore({
     doc,
     schema: appSchema,
+    window: viewWindow,
     editable: !readonly,
     // Desktop squiggles come from our own checker (SpellcheckLayer); the
     // browser's spellcheck/autocorrect on the hidden input would waste CPU on
@@ -2369,10 +2404,13 @@ function PageEditor({
   // "narrow" reading column is expressed as symmetric horizontal padding
   // computed from the measured canvas width, recomputed on resize. The width
   // control is desktop-only; on mobile this falls through to the engine's
-  // default gutter. setTheme reflows text without a re-mount.
+  // default gutter. setTheme reflows text without a re-mount. A host that sets
+  // its own side padding (a compact panel, not a page) keeps it.
+  const fixedHorizontalPadding =
+    padding?.paddingLeft !== undefined || padding?.paddingRight !== undefined;
   useEffect(() => {
     const el = wrapperRef.current;
-    if (!editor || !el) return;
+    if (!editor || !el || fixedHorizontalPadding) return;
     let previousHorizontal: number | null = null;
     const apply = () => {
       const horizontal = horizontalPaddingForWidth(
@@ -2393,7 +2431,7 @@ function PageEditor({
     const observer = new ResizeObserver(apply);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [editor, editorWidth]);
+  }, [editor, editorWidth, fixedHorizontalPadding]);
 
   // Push the display-density scale (line-spacing multiplier page setting) into
   // the live editor. It scales the flow-text line heights and inter-block gaps;
