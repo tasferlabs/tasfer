@@ -14,6 +14,7 @@ import {
   to12Hour,
   to24Hour,
 } from './utils';
+import { formatCopiedDateTime, parsePastedDateTime } from './clipboard';
 import { useDateTimePrefs } from '@/app/contexts/DateTimePrefsContext';
 
 type Segment = 'year' | 'month' | 'day' | 'hour' | 'minute' | 'period';
@@ -216,6 +217,38 @@ export const DateTimeInputGroup = React.forwardRef(
       }
     };
 
+    // A pasted date fills every field at once; a plain number still pastes into
+    // the one field. Copy takes the whole value, in the order it is shown.
+    const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+      if (disabled) return;
+      const text = e.clipboardData.getData('text/plain');
+      if (/^\s*\d*\s*$/.test(text)) return;
+      const parsed = parsePastedDateTime(text, fields, type);
+      if (!parsed) return;
+      e.preventDefault();
+      if (type !== 'time') {
+        setSelectedYear(parsed.year);
+        setSelectedMonth(parsed.month);
+        setSelectedDay(parsed.day);
+      }
+      if (type !== 'date' && parsed.hour) {
+        setSelectedHour(parsed.hour);
+        setSelectedMinute(parsed.minute);
+      }
+    };
+
+    const handleCopy = (e: React.ClipboardEvent<HTMLDivElement>) => {
+      const text = formatCopiedDateTime(
+        { year: selectedYear, month: selectedMonth, day: selectedDay, hour: selectedHour, minute: selectedMinute },
+        fields,
+        separator,
+        type
+      );
+      if (!text) return;
+      e.preventDefault();
+      e.clipboardData.setData('text/plain', text);
+    };
+
     const periodSegment = is12h && (
       <DayPeriodInput
         ref={periodRef}
@@ -233,7 +266,7 @@ export const DateTimeInputGroup = React.forwardRef(
     );
 
     return (
-      <div className="flex flex-row items-center gap-1">
+      <div className="flex flex-row items-center gap-1" onPaste={handlePaste} onCopy={handleCopy}>
         {(type === 'datetime' || type === 'date') && (
           <>
             {fields.map((field, index) => {
