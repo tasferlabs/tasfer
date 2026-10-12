@@ -55,6 +55,7 @@ import {
   handleWheel,
 } from "./mouseEvents";
 import { tickPendingCapture } from "./regions";
+import { stepSidewaysFling } from "./sidewaysScroll";
 import {
   dragCaretToPoint,
   handleTouchCancel,
@@ -550,6 +551,26 @@ export function handleEvents(
     }
   }
 
+  // A drag that keeps acting while the pointer rests (a table edge held past the
+  // page's edge) gets its frame here. No block type named here.
+  const framed = session.captured;
+  if (framed?.point && framed.region.drag?.onFrame) {
+    const next = framed.region.drag.onFrame(framed.point, {
+      state,
+      viewport,
+      documentHeight,
+      visibility,
+      session,
+      updateViewport: updateViewportCallback,
+    });
+    if (next) state = next;
+  }
+
+  // A sideways fling over a wide block coasts the same way, one step a frame.
+  if (session.sidewaysFling && state.ui.mode !== "suspended") {
+    state = stepSidewaysFling(state, viewport, session);
+  }
+
   // Apply momentum scrolling if active (even when no events)
   // But not in suspended mode
   if (state.view.momentum.isActive && state.ui.mode !== "suspended") {
@@ -753,6 +774,8 @@ export function handleEvents(
           documentHeight,
           session,
           updateViewportCallback,
+          containerRect,
+          visibility,
         );
         break;
       case "touchstart":

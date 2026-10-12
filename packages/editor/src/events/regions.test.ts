@@ -4,6 +4,7 @@ import {
   type RegionCtx,
   routeCapturedCancel,
   routeCapturedEnd,
+  routeCapturedMove,
 } from "./regions";
 import { describe, expect, it, vi } from "vitest";
 
@@ -88,5 +89,23 @@ describe("routeCapturedCancel", () => {
     expect(routeCapturedCancel(ctx)).toBeNull();
     expect(session.captured).toBeNull();
     expect(onCancel).not.toHaveBeenCalled();
+  });
+});
+
+describe("routeCapturedMove", () => {
+  it("records where the pointer was last seen, for a drag's onFrame", () => {
+    const region: Region = {
+      id: "drag-region",
+      priority: 1,
+      hitTest: () => null,
+      drag: baseDrag,
+    };
+    const { ctx, session } = makeCtx(region, null);
+
+    routeCapturedMove({ x: 120, y: 40 }, ctx);
+
+    // A drag that keeps acting while the pointer rests (a table edge held at
+    // the screen's edge) is called each frame with this point.
+    expect(session.captured?.point).toEqual({ x: 120, y: 40 });
   });
 });

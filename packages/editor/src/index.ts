@@ -46,6 +46,7 @@ export {
   type NodeRect,
   type NodeRegionCtx,
   NodeRegistry,
+  type NodeScrollCtx,
   paintTextRun,
   type PaintTextRunArgs,
   QuoteNode,

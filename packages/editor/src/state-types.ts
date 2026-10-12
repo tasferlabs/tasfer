@@ -371,7 +371,16 @@ export interface ImageHoverState {
  * the affordance ("this edge can be dragged sideways"), never a raw CSS value.
  */
 export type RegionHoverCursor =
-  "ew-resize" | "ns-resize" | "pointer" | "grab" | "text";
+  | "ew-resize"
+  | "ns-resize"
+  | "pointer"
+  | "grab"
+  // The closed hand, for chrome held mid-drag — a scrollbar thumb being pulled.
+  | "grabbing"
+  | "text"
+  // The plain arrow, for chrome that is grabbed rather than clicked or typed
+  // into — a scrollbar thumb — where the canvas's text caret would mislead.
+  | "default";
 
 /**
  * What the pointer is resting on, as the hit region under it describes itself.

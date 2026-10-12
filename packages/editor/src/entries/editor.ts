@@ -58,6 +58,7 @@ import {
 } from "../events/interaction-session";
 import { builtInKeymapClaims, keymapCommandIn } from "../events/keysEvents";
 import { pressArmsTextDrag } from "../events/mouseEvents";
+import { revealCaretSideways } from "../events/sidewaysScroll";
 import { touchStartsOwnedGesture } from "../events/touchEvents";
 import { onFontsReady } from "../fonts";
 import {
@@ -1169,6 +1170,9 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
   private lastCursorBlinkState = false; // Track cursor blink state changes
 
+  // The local nested caret the last sideways reveal ran for (see renderFrame).
+  private revealedSidewaysCaret: ContentPoint | undefined = undefined;
+
   // Timestamp of the caret's most recent navigation, driving the "landing"
   // morph (circle → bar). `null` when no morph is in flight. See caret-landing.
   private caretLandingStartedAt: number | null = null;
@@ -1805,6 +1809,22 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       // pre-drain state the dirty-layer checks below diff against).
       const prevState = this.processQueuedEvents();
 
+      // The local caret moved: a block that scrolls sideways (a wide table)
+      // brings it into sight. Keyed on the caret itself rather than on this
+      // frame's events, so a move made by a command or a host call is
+      // followed too.
+      const caretFocus = this._state.document.contentSelection?.focus;
+      if (caretFocus !== this.revealedSidewaysCaret) {
+        this.revealedSidewaysCaret = caretFocus;
+        if (caretFocus) {
+          this._state = revealCaretSideways(
+            this._state,
+            this.viewport,
+            caretFocus,
+          );
+        }
+      }
+
       // Check if state changed or if there are events that require rendering
       const stateChanged = prevState !== this._state;
 
@@ -1902,6 +1922,14 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         // per frame, not a repaint per mousemove.
         if (prevState.ui.regionHover !== this._state.ui.regionHover) {
           this.dirtyLayers.content = true;
+        }
+
+        // A node's own view state (a table's sideways scroll, a column being
+        // dragged) changes what it paints and where its carets sit, with no
+        // page or selection change to say so.
+        if (prevState.ui.nodeViewState !== this._state.ui.nodeViewState) {
+          this.dirtyLayers.content = true;
+          this.dirtyLayers.cursor = true;
         }
 
         // Math hover state changes affect rendered chip/block backgrounds. The
@@ -2054,7 +2082,11 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
             this._state.ui.hoveredDragHandleBlockId !== null,
             this._state.ui.blockDrag !== null,
             this._state.ui.isHoveringSelection,
-            this._state.ui.regionHover?.cursor ?? null,
+            // A region drag holding the pointer may name its own cursor (a
+            // table's scrollbar thumb → closed hand), over the press's hover.
+            this.session.captured?.region.drag?.cursor ??
+              this._state.ui.regionHover?.cursor ??
+              null,
           );
 
           this.dirtyLayers.content = viewportChangedAfterPaint;

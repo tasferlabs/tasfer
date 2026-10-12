@@ -61,6 +61,7 @@ import {
   markPlacesContentCaret,
   nodePlacesContentCaret,
 } from "./nodes/content-caret";
+import type { NodeCaretRect } from "./nodes/Node";
 import { renderScrollbar } from "./scrollbar";
 
 // Helper to get a block's flow height. The base height comes from the block's
@@ -289,6 +290,7 @@ export function renderPage(
         maxWidth,
         styles,
         requestRedraw,
+        viewport,
       );
       renderedBlocks.push(renderedBlock);
     } else if (foundVisibleBlock) {
@@ -442,6 +444,7 @@ export function renderBlock(
   maxWidth: number,
   styles: EditorStyles = getEditorStyles(state),
   requestRedraw: () => void = () => {},
+  viewport?: ViewportState,
 ): RenderedBlock {
   // Blocks dispatch to their registered node. A block type with no registered
   // node (a custom/newer type this build doesn't know) falls back to an
@@ -469,6 +472,7 @@ export function renderBlock(
       ctx,
       state,
       origin: { x, y },
+      viewport,
       requestRedraw,
     });
   }
@@ -546,7 +550,7 @@ function calculateCursorPosition(
   renderChars?: Char[],
   renderFormats?: MarkSpan[],
   heightIndex?: BlockHeightIndex,
-): { x: number; y: number; height: number } | null {
+): NodeCaretRect | null {
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
   const blockTop = getBlockTopViewport(
@@ -734,6 +738,21 @@ interface OutOfViewPeer {
   textIndex: number;
 }
 
+/**
+ * A peer whose caret is on screen vertically but inside content its block has
+ * scrolled out of sight sideways (a wide table's hidden column). `x` is the
+ * window edge the block pinned it to, `y`/`height` the caret's row.
+ */
+interface SidewaysPeer {
+  caret: ResolvedCaret;
+  side: "left" | "right";
+  x: number;
+  y: number;
+  height: number;
+  blockIndex: number;
+  textIndex: number;
+}
+
 // Hit areas for out-of-view peer indicators live on the per-instance session
 // (InteractionSession.outOfViewIndicatorHitAreas), populated each render below.
 
@@ -788,9 +807,6 @@ function renderOutOfViewIndicators(
     edgeMargin,
     initialFontWeight,
   } = styles.remoteCursor.outOfViewIndicator;
-
-  // Clear previous hit areas (mutate in place — callers hold this same array)
-  hitAreas.length = 0;
 
   ctx.font = `${initialFontWeight} ${fontSize}px ${getFontStack(currentFontFamily(styles), styles.fonts)}`;
 
@@ -958,6 +974,7 @@ function renderCaretDecorations(
   heightIndex?: BlockHeightIndex,
 ) {
   const outOfViewPeers: OutOfViewPeer[] = [];
+  const sidewaysPeers: SidewaysPeer[] = [];
   // Where document content starts on screen. The top padding is document
   // space (hosts reserve it for chrome that scrolls with the page, like a tag
   // row), so once scrolled past it the whole viewport is free for carets.
@@ -1010,6 +1027,21 @@ function renderCaretDecorations(
         caret,
         direction: "below",
         x: cursorPos.x,
+        blockIndex: position.blockIndex,
+        textIndex: position.textIndex,
+      });
+      continue;
+    }
+
+    // In a column its block has scrolled out of sight: mark the window's edge
+    // on that row instead, the same pill as above/below, pointing the way.
+    if (cursorPos.offscreen) {
+      sidewaysPeers.push({
+        caret,
+        side: cursorPos.offscreen,
+        x: cursorPos.x,
+        y: cursorPos.y,
+        height: cursorPos.height,
         blockIndex: position.blockIndex,
         textIndex: position.textIndex,
       });
@@ -1117,6 +1149,8 @@ function renderCaretDecorations(
     }
   }
 
+  // Clear previous hit areas (mutate in place — callers hold this same array)
+  session.outOfViewIndicatorHitAreas.length = 0;
   // Render out-of-view peer indicators in the left margin, pinned to the
   // viewport edges.
   if (outOfViewPeers.length > 0) {
@@ -1127,8 +1161,97 @@ function renderCaretDecorations(
       viewport,
       styles,
     );
-  } else {
-    session.outOfViewIndicatorHitAreas.length = 0;
+  }
+  if (sidewaysPeers.length > 0) {
+    renderSidewaysIndicators(
+      ctx,
+      session.outOfViewIndicatorHitAreas,
+      sidewaysPeers,
+      styles,
+    );
+  }
+}
+
+/**
+ * Pills for peers in content scrolled out of sight sideways: each sits just
+ * inside the window edge its block pinned the caret to, centered on the
+ * caret's row, its chevron pointing out the way the peer is. Peers sharing an
+ * edge and a row step inward rather than stack on top of each other.
+ */
+function renderSidewaysIndicators(
+  ctx: CanvasRenderingContext2D,
+  hitAreas: IndicatorHitArea[],
+  peers: SidewaysPeer[],
+  styles: EditorStyles,
+) {
+  const {
+    pillHeight,
+    pillPadding,
+    fontSize,
+    chevronSize,
+    gap,
+    initialFontWeight,
+  } = styles.remoteCursor.outOfViewIndicator;
+  ctx.font = `${initialFontWeight} ${fontSize}px ${getFontStack(currentFontFamily(styles), styles.fonts)}`;
+
+  const placed: { side: "left" | "right"; y: number; inner: number }[] = [];
+  for (const peer of peers) {
+    const initial =
+      peer.caret.decoration.label?.text.charAt(0).toUpperCase() || "?";
+    const textWidth = ctx.measureText(initial).width;
+    const pillWidth = Math.max(textWidth + pillPadding * 2, pillHeight);
+    const y = peer.y + peer.height / 2 - pillHeight / 2;
+
+    // How far in from the edge this pill starts: past any pill already on
+    // this edge whose row it would overlap.
+    let offset = 0;
+    for (const other of placed) {
+      if (other.side !== peer.side) continue;
+      if (Math.abs(other.y - y) >= pillHeight) continue;
+      offset = Math.max(offset, other.inner + gap);
+    }
+    const inner = offset + chevronSize + pillWidth;
+    placed.push({ side: peer.side, y, inner });
+
+    const tipX = peer.side === "left" ? peer.x + offset : peer.x - offset;
+    const pillX =
+      peer.side === "left"
+        ? tipX + chevronSize
+        : tipX - chevronSize - pillWidth;
+    const baseX = peer.side === "left" ? pillX : pillX + pillWidth;
+    const midY = y + pillHeight / 2;
+
+    hitAreas.push({
+      x: Math.min(tipX, pillX),
+      y,
+      width: pillWidth + chevronSize,
+      height: pillHeight,
+      blockIndex: peer.blockIndex,
+      textIndex: peer.textIndex,
+      ...(peer.caret.contentPoint
+        ? { contentPoint: peer.caret.contentPoint }
+        : {}),
+    });
+
+    // Chevron pointing out past the edge, then the pill it hangs from.
+    ctx.fillStyle = peer.caret.decoration.color;
+    ctx.beginPath();
+    ctx.moveTo(tipX, midY);
+    ctx.lineTo(baseX, midY - chevronSize);
+    ctx.lineTo(baseX, midY + chevronSize);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.roundRect(pillX, y, pillWidth, pillHeight, pillHeight / 2);
+    ctx.fill();
+
+    ctx.fillStyle = styles.remoteCursor.labelTextColor;
+    ctx.textBaseline = "middle";
+    ctx.direction = getTextDirection(initial);
+    ctx.textAlign = "center";
+    ctx.fillText(initial, pillX + pillWidth / 2, midY);
+    ctx.textAlign = "start";
+    ctx.direction = "ltr";
   }
 }
 
@@ -1403,7 +1526,9 @@ export function renderCursorLayer(
     heightIndex,
   );
 
-  if (!cursorPos) {
+  // A caret in a column its block has scrolled out of sight is not drawn; it
+  // is scrolled back into view as soon as it moves.
+  if (!cursorPos || cursorPos.offscreen) {
     ctx.restore();
     return;
   }
