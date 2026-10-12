@@ -51,6 +51,32 @@ export function getResolved12h(): boolean {
   return formatted.hour12 ?? false;
 }
 
+/** 0–23 → the 1–12 a 12-hour clock shows: 0 → 12, 13 → 1. */
+export function to12Hour(hour24: number): number {
+  return hour24 % 12 || 12;
+}
+
+/** 1–12 in the given half of the day → 0–23: 12 AM → 0, 12 PM → 12, 3 PM → 15. */
+export function to24Hour(hour12: number, pm: boolean): number {
+  return (hour12 % 12) + (pm ? 12 : 0);
+}
+
+/** The locale's own word for one half of the day: "AM"/"PM", "ص"/"م" in Arabic. */
+export function getLocalizedDayPeriod(isAM: boolean, locale: string): string {
+  const date = new Date(2000, 0, 1, isAM ? 9 : 15, 0);
+  const parts = new Intl.DateTimeFormat(locale, { hour: 'numeric', hour12: true }).formatToParts(date);
+  return parts.find((p) => p.type === 'dayPeriod')?.value ?? (isAM ? 'AM' : 'PM');
+}
+
+/** Whether the locale writes the day period before the hour ("下午3:00") rather than after ("3:00 PM"). */
+export function isDayPeriodBeforeHour(locale: string): boolean {
+  const parts = new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit', hour12: true }).formatToParts(
+    new Date(2000, 0, 1, 15, 0)
+  );
+  const period = parts.findIndex((p) => p.type === 'dayPeriod');
+  return period !== -1 && period < parts.findIndex((p) => p.type === 'hour');
+}
+
 export function toNumberOrNull(value: string) {
   const num = parseInt(value);
   if (isNaN(num)) {

@@ -1,16 +1,10 @@
 import { cn } from '@/lib/utils';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { getResolved12h, padValue, toNumberOrNull } from './utils';
+import { getLocalizedDayPeriod, getResolved12h, padValue, toNumberOrNull } from './utils';
 import { useDateTimePrefs } from '@/app/contexts/DateTimePrefsContext';
 
 export type TimeField = 'hour' | 'minute';
-
-function getLocalizedDayPeriod(isAM: boolean, locale: string): string {
-  const date = new Date(2000, 0, 1, isAM ? 9 : 15, 0);
-  const parts = new Intl.DateTimeFormat(locale, { hour: 'numeric', hour12: true }).formatToParts(date);
-  return parts.find((p) => p.type === 'dayPeriod')?.value ?? (isAM ? 'AM' : 'PM');
-}
 
 interface TimeFieldsProps {
   /** 24-hour value, '' or '00'–'23'. */
