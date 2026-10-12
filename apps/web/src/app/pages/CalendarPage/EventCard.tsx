@@ -1,6 +1,15 @@
 import { useEffect, useRef } from "react";
 import { useDraggable } from "@dnd-kit/core";
-import { Archive, ChevronLeft, ChevronRight, Copy, Pencil } from "lucide-react";
+import {
+  Archive,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  Pencil,
+  Square,
+  SquareCheck,
+} from "lucide-react";
 import i18next from "i18next";
 import { useTranslation } from "react-i18next";
 import clsx from "clsx";
@@ -43,6 +52,7 @@ export function EventCard({
   onEventClick,
   onDuplicate,
   onDelete,
+  onToggleDone,
   layout,
   compact,
   isDraft,
@@ -55,6 +65,8 @@ export function EventCard({
   onEventClick: (pageId: string, rect: DOMRect) => void;
   onDuplicate?: (pageId: string) => void;
   onDelete?: (pageId: string) => void;
+  /** Tick a task off or back on. Without it a task's box only shows its state. */
+  onToggleDone?: (pageId: string) => void;
   layout?: CalendarEventLayout;
   compact?: boolean;
   isDraft?: boolean;
@@ -82,6 +94,17 @@ export function EventCard({
 
   const timeStr = formatEventTime(page.scheduledAt, page.duration);
   const dotOnly = height < DOT_ONLY_HEIGHT;
+  const isTask = page.task && !isDraft;
+  const doneLabel = page.done
+    ? t("calendar.markNotDone", "Mark not done")
+    : t("calendar.markDone", "Mark done");
+  const doneBox = isTask ? (
+    <DoneBox
+      done={page.done}
+      label={doneLabel}
+      onToggle={onToggleDone ? () => onToggleDone(page.id) : undefined}
+    />
+  ) : null;
   const showEllipsis = dotOnly && height >= ELLIPSIS_MIN_HEIGHT;
   const tight = !dotOnly && height < TIGHT_HEIGHT;
   const showTimeSeparate = height > 40;
@@ -133,6 +156,7 @@ export function EventCard({
         dotOnly && style.eventCardDot,
         continuesBefore && style.eventCardContinuesBefore,
         continuesAfter && style.eventCardContinuesAfter,
+        isTask && page.done && style.eventCardDone,
       )}
       {...(isDraft ? { "data-draft-card": "" } : {})}
       {...(dotOnly
@@ -213,6 +237,7 @@ export function EventCard({
         showEllipsis ? <span className={style.eventEllipsis}>…</span> : null
       ) : showTimeInline && compact ? (
         <div className={style.eventInline}>
+          {doneBox}
           <span className={style.eventTitle} style={{ fontSize: titleFontSize }}>
             <TitlePreview
               title={page.title}
@@ -224,16 +249,19 @@ export function EventCard({
         </div>
       ) : (
         <>
-          <span
-            className={style.eventTitle}
-            style={titleFontSize ? { fontSize: titleFontSize } : undefined}
-          >
-            <TitlePreview
-              title={page.title}
-              titleMd={page.titleMd}
-              mathFontSize={titleMathSize}
-            />
-          </span>
+          <div className={style.eventTitleRow}>
+            {doneBox}
+            <span
+              className={style.eventTitle}
+              style={titleFontSize ? { fontSize: titleFontSize } : undefined}
+            >
+              <TitlePreview
+                title={page.title}
+                titleMd={page.titleMd}
+                mathFontSize={titleMathSize}
+              />
+            </span>
+          </div>
           {showTimeSeparate && (
             <div
               className={style.eventTime}
@@ -288,6 +316,12 @@ export function EventCard({
           <Copy />
           {t("calendar.duplicateEvent", "Duplicate page")}
         </ContextMenuItem>
+        {isTask && onToggleDone && (
+          <ContextMenuItem onSelect={() => onToggleDone(page.id)}>
+            {page.done ? <Square /> : <SquareCheck />}
+            {doneLabel}
+          </ContextMenuItem>
+        )}
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={() => onDelete(page.id)}>
           <Archive />
@@ -295,6 +329,56 @@ export function EventCard({
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
+  );
+}
+
+/**
+ * A task's tick box. With `onToggle` it is a checkbox of its own inside the
+ * card: its press must not reach the card, where it would start a move-drag
+ * or open the preview. Without it the box only shows the state.
+ */
+export function DoneBox({
+  done,
+  label,
+  onToggle,
+}: {
+  done: boolean;
+  label: string;
+  onToggle?: () => void;
+}) {
+  const icon = done ? <Check size={9} strokeWidth={3} aria-hidden /> : null;
+  if (!onToggle) {
+    return (
+      <span
+        className={clsx(style.doneBox, done && style.doneBoxChecked)}
+        aria-hidden
+      >
+        {icon}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={done}
+      aria-label={label}
+      title={label}
+      className={clsx(style.doneBox, done && style.doneBoxChecked)}
+      onPointerDown={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      // Space and Enter press the box; on the card they would pick it up.
+      onKeyDown={(e) => {
+        if (e.key === " " || e.key === "Enter") e.stopPropagation();
+      }}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+    >
+      {icon}
+    </button>
   );
 }
 

@@ -241,6 +241,7 @@ function relativeRootPrefix(entryPath: string): string {
 function extractPageMetadata(page: PageFull): PageMetadata | undefined {
   const meta: PageMetadata = {};
   if (page.task) meta.task = true;
+  if (page.done) meta.done = true;
   if (page.scheduledAt) meta.scheduledAt = page.scheduledAt;
   if (page.duration != null) meta.duration = page.duration;
   if (page.allDay != null) meta.allDay = page.allDay;

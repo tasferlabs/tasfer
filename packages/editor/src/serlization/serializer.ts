@@ -19,6 +19,8 @@ export interface PageMetadata {
   duration?: number | null;
   allDay?: boolean | null;
   task?: boolean;
+  /** A task that was ticked off. */
+  done?: boolean;
 }
 
 export interface MarkdownSerializeOptions {
@@ -38,6 +40,7 @@ export interface MarkdownSerializeOptions {
 function serializeFrontmatter(metadata: PageMetadata): string {
   const lines: string[] = [];
   if (metadata.task) lines.push(`task: true`);
+  if (metadata.done) lines.push(`done: true`);
   if (metadata.scheduledAt) lines.push(`scheduledAt: ${metadata.scheduledAt}`);
   if (metadata.duration != null) lines.push(`duration: ${metadata.duration}`);
   if (metadata.allDay != null) lines.push(`allDay: ${metadata.allDay}`);

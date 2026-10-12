@@ -132,6 +132,8 @@ export interface PageMetadata {
   duration?: number | null;
   allDay?: boolean | null;
   task?: boolean;
+  /** A task that was ticked off. */
+  done?: boolean;
 }
 
 export interface Page {
@@ -167,6 +169,7 @@ export function parseFrontmatter(content: string): {
     const value = line.slice(colonIdx + 1).trim();
 
     if (key === "task") metadata.task = value === "true";
+    else if (key === "done") metadata.done = value === "true";
     else if (key === "scheduledAt" && value) metadata.scheduledAt = value;
     else if (key === "duration" && value) metadata.duration = Number(value);
     else if (key === "allDay") metadata.allDay = value === "true";
@@ -175,6 +178,7 @@ export function parseFrontmatter(content: string): {
 
   const hasValues =
     metadata.task ||
+    metadata.done ||
     metadata.scheduledAt ||
     metadata.duration != null ||
     metadata.allDay != null ||

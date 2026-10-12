@@ -321,6 +321,60 @@
   text-decoration: underline;
 }
 
+/* The title clips its overflow, so its baseline is its bottom edge and a tick
+   box set on the text line sits below it. A row centres the two instead, and
+   keeps the height of the text line the title used to sit in. */
+.eventTitleRow {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 1.5em;
+}
+
+.eventCardTight .eventTitleRow {
+  min-height: 0;
+}
+
+/* A task's tick box, before its title on a card or all-day chip. */
+.doneBox {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  margin-inline-end: 5px;
+  padding: 0;
+  vertical-align: -2px;
+  border: 1.5px solid var(--muted-foreground);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--primary-foreground);
+  cursor: pointer;
+}
+
+/* The box is small; its tap target is not. */
+button.doneBox::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+}
+
+.doneBoxChecked {
+  border-color: var(--primary);
+  background-color: var(--primary);
+}
+
+.eventCardDone .eventTitle {
+  text-decoration: line-through;
+  color: var(--muted-foreground);
+}
+
+.eventCardDone .eventTitle:hover {
+  text-decoration: line-through underline;
+}
+
 .eventTime {
   font-size: 0.7rem;
   color: var(--muted-foreground);
@@ -338,6 +392,11 @@
 .eventInline .eventTitle {
   flex: 1;
   min-width: 0;
+}
+
+/* The box has no text baseline to share; set it against the title's top. */
+.eventInline .doneBox {
+  align-self: flex-start;
 }
 
 .eventTimeInline {

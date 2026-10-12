@@ -421,6 +421,7 @@ const SCHEMA_SQL = `
     "order"       REAL NOT NULL DEFAULT 0,
     space_id      TEXT,
     task          INTEGER NOT NULL DEFAULT 0,
+    done          INTEGER NOT NULL DEFAULT 0,
     color         TEXT,
     scheduled_at  TEXT,
     duration      INTEGER,
@@ -575,6 +576,13 @@ export class Engine implements Platform {
     // un-derived row (NULL) from a genuinely empty page ('').
     if (!cols.some((c) => c.name === "body_text")) {
       await this.driver.db.exec("ALTER TABLE pages ADD COLUMN body_text TEXT");
+    }
+    // pages.done — a task ticked off on the calendar. Replicated as a page_set
+    // field.
+    if (!cols.some((c) => c.name === "done")) {
+      await this.driver.db.exec(
+        "ALTER TABLE pages ADD COLUMN done INTEGER NOT NULL DEFAULT 0",
+      );
     }
 
     // identity.root_public_key / root_private_key — the person-level keypair
@@ -3359,6 +3367,7 @@ export class Engine implements Platform {
         has_children: number;
         space_id: string | null;
         task: number;
+        done: number;
         color: string | null;
         scheduled_at: string | null;
         duration: number | null;
@@ -3375,6 +3384,7 @@ export class Engine implements Platform {
         hasChildren: r.has_children === 1,
         spaceId: r.space_id,
         task: r.task === 1,
+        done: r.done === 1,
         color: r.color,
         scheduledAt: r.scheduled_at,
         duration: r.duration,
@@ -3393,6 +3403,7 @@ export class Engine implements Platform {
         has_children: number;
         space_id: string | null;
         task: number;
+        done: number;
         color: string | null;
         scheduled_at: string | null;
         duration: number | null;
@@ -3491,6 +3502,7 @@ export class Engine implements Platform {
         hasChildren: r.has_children === 1,
         spaceId: r.space_id,
         task: r.task === 1,
+        done: r.done === 1,
         color: r.color,
         scheduledAt: r.scheduled_at,
         duration: r.duration,
@@ -3615,6 +3627,11 @@ export class Engine implements Platform {
         sets.push("task = ?");
         params.push(data.task ? 1 : 0);
         changedFields.push({ field: "task", value: data.task });
+      }
+      if (data.done !== undefined) {
+        sets.push("done = ?");
+        params.push(data.done ? 1 : 0);
+        changedFields.push({ field: "done", value: data.done });
       }
 
       if (sets.length > 0) {
@@ -3962,13 +3979,14 @@ export class Engine implements Platform {
         title_md: string;
         body_text: string | null;
         task: number;
+        done: number;
         color: string | null;
         scheduled_at: string | null;
         duration: number | null;
         all_day: number | null;
         recurrence_id: string | null;
       }>(
-        `SELECT title, title_md, body_text, task, color, scheduled_at,
+        `SELECT title, title_md, body_text, task, done, color, scheduled_at,
                 duration, all_day, recurrence_id
            FROM pages WHERE id = ?`,
         [input.sourceId],
@@ -4000,9 +4018,9 @@ export class Engine implements Platform {
       // async title re-derive.
       await this.driver.db.mutate(
         `INSERT INTO pages (id, title, title_md, body_text, parent_id, "order",
-                            space_id, task, color, scheduled_at, duration,
+                            space_id, task, done, color, scheduled_at, duration,
                             all_day, recurrence_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           newId,
           s.title,
@@ -4012,6 +4030,7 @@ export class Engine implements Platform {
           order,
           input.spaceId,
           s.task,
+          s.done,
           s.color,
           s.scheduled_at,
           s.duration,
@@ -4048,6 +4067,16 @@ export class Engine implements Platform {
         duration: s.duration ?? null,
         allDay: s.all_day === null ? null : s.all_day === 1,
       });
+      // Done is not part of page_add (it is append-only and older builds would
+      // not read it), so it follows as a page_set.
+      if (s.done === 1) {
+        await this.emitSpaceOp(input.spaceId, {
+          op: "page_set",
+          pageId: newId,
+          field: "done",
+          value: true,
+        });
+      }
       if (contentOps.length > 0) {
         this.replicator?.pushPageOps(input.spaceId, newId, contentOps);
       }
@@ -4150,6 +4179,7 @@ export class Engine implements Platform {
         all_day: number | null;
         recurrence_id: string | null;
         task: number;
+        done: number;
         created_at: string;
       }>(
         // Pages in an archived space stay live but are hidden as a whole (see
@@ -4183,6 +4213,7 @@ export class Engine implements Platform {
           allDay: r.all_day === null ? null : r.all_day === 1,
           recurrenceId: r.recurrence_id,
           task: r.task === 1,
+          done: r.done === 1,
           path,
           createdAt: r.created_at,
         });
@@ -5410,6 +5441,7 @@ export class Engine implements Platform {
           order: '"order"',
           color: "color",
           task: "task",
+          done: "done",
           scheduledAt: "scheduled_at",
           duration: "duration",
           allDay: "all_day",
@@ -5417,7 +5449,7 @@ export class Engine implements Platform {
         const col = fieldMap[op.field];
         if (col) {
           let val = op.value;
-          if (op.field === "task") {
+          if (op.field === "task" || op.field === "done") {
             val = val ? 1 : 0;
           } else if (op.field === "allDay") {
             val = val === null ? null : val ? 1 : 0;

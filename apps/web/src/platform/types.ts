@@ -128,6 +128,8 @@ export interface PageListItem {
   hasChildren: boolean;
   spaceId?: string | null;
   task?: boolean;
+  /** A task that was ticked off. */
+  done?: boolean;
   color?: string | null;
   scheduledAt?: string | null;
   duration?: number | null;
@@ -236,6 +238,8 @@ export interface PageUpdateInput {
   duration?: number | null;
   allDay?: boolean | null;
   task?: boolean;
+  /** Tick a task off, or back on. */
+  done?: boolean;
 }
 
 /** Data for moving a page */
@@ -297,6 +301,8 @@ export interface PageCalendarItem {
   allDay: boolean | null;
   recurrenceId: string | null;
   task: boolean;
+  /** A task that was ticked off. */
+  done: boolean;
   path: PagePathSegment[] | null;
   createdAt: string;
 }

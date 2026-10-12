@@ -31,6 +31,7 @@ import {
   useUpdatePage,
   updatePage as updatePageApi,
   type ICalendarPage,
+  type IPage,
 } from "../../api/pages.api";
 import { useToast } from "../../components/Toast";
 import { useCalendarUndo } from "./useCalendarUndo";
@@ -507,10 +508,17 @@ export default function CalendarPage() {
               ...(variables.duration !== undefined && {
                 duration: variables.duration,
               }),
+              ...(variables.done !== undefined && { done: variables.done }),
             };
           });
         },
       );
+      // The preview reads the page itself; its done toggle answers at once too.
+      if (variables.done !== undefined) {
+        queryClient.setQueryData<IPage>(["page", variables.id], (old) =>
+          old ? { ...old, done: variables.done } : old,
+        );
+      }
 
       return { previousData };
     },
@@ -564,6 +572,30 @@ export default function CalendarPage() {
       });
     },
     [recordUndo, updatePage, t],
+  );
+
+  // Tick a task off, or back on, from its card.
+  const handleToggleDone = useCallback(
+    (pageId: string) => {
+      const entry = pages?.find((p) => p.id === pageId);
+      if (!entry?.task) return;
+      const done = !entry.done;
+      const message = (isDone: boolean) =>
+        isDone
+          ? t("calendar.undo.markedDone", "Task marked done")
+          : t("calendar.undo.markedNotDone", "Task marked not done");
+      const write = (value: boolean) =>
+        updatePage({ id: entry.id, done: value });
+      write(done);
+      recordUndo({
+        undoMessage: message(!done),
+        redoMessage: message(done),
+        pageId: entry.id,
+        undo: () => write(!done),
+        redo: () => write(done),
+      });
+    },
+    [pages, recordUndo, updatePage, t],
   );
 
   const handleEventDelete = useCallback(
@@ -758,6 +790,7 @@ export default function CalendarPage() {
         allDay: false,
         recurrenceId: null,
         task: true,
+        done: false,
         path: null,
         createdAt: new Date().toISOString(),
       });
@@ -2273,6 +2306,7 @@ export default function CalendarPage() {
             onEventClick={handleEventClick}
             onDuplicate={(id) => duplicatePage(id, { select: true })}
             onDelete={handleEventDelete}
+            onToggleDone={handleToggleDone}
             compact={viewMode === "week"}
             isDraft={page.id === "__draft__"}
           />
@@ -2681,6 +2715,7 @@ export default function CalendarPage() {
                             duplicatePage(id, { select: true })
                           }
                           onDelete={handleEventDelete}
+                          onToggleDone={handleToggleDone}
                           isDraft={page.id === "__draft__"}
                         />
                       ),

@@ -103,6 +103,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
         await updatePage({
           id: newPage.id,
           ...(pendingMetadata?.task && { task: true }),
+          ...(pendingMetadata?.done && { done: true }),
           ...(pendingMetadata?.color && { color: pendingMetadata.color }),
           ...(pendingMetadata?.scheduledAt && {
             scheduledAt: pendingMetadata.scheduledAt,

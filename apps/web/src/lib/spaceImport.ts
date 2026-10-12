@@ -509,8 +509,12 @@ async function importBundle(
           ...(metadata?.allDay != null && { allDay: metadata.allDay }),
         });
         await platform.ops.writeBlocks(createdPage.id, blocks);
-        if (metadata?.color) {
-          await updatePage({ id: createdPage.id, color: metadata.color });
+        if (metadata?.color || metadata?.done) {
+          await updatePage({
+            id: createdPage.id,
+            ...(metadata.color && { color: metadata.color }),
+            ...(metadata.done && { done: true }),
+          });
         }
 
         result.pagesCreated++;
@@ -575,8 +579,12 @@ async function importMarkdownFiles(
         ...(metadata?.allDay != null && { allDay: metadata.allDay }),
       });
       await platform.ops.writeBlocks(createdPage.id, blocks);
-      if (metadata?.color) {
-        await updatePage({ id: createdPage.id, color: metadata.color });
+      if (metadata?.color || metadata?.done) {
+        await updatePage({
+          id: createdPage.id,
+          ...(metadata.color && { color: metadata.color }),
+          ...(metadata.done && { done: true }),
+        });
       }
 
       result.pagesCreated++;

@@ -104,6 +104,7 @@ interface IUpdatePage {
   duration?: number | null;
   allDay?: boolean | null;
   task?: boolean;
+  done?: boolean;
 }
 
 export async function updatePage(data: IUpdatePage): Promise<IPage> {
