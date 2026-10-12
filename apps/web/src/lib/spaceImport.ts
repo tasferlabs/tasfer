@@ -1,16 +1,18 @@
 /**
- * Import markdown / text / ZIP files into a space as pages.
+ * Import markdown / text / ZIP files, or whole folders, into a space as pages.
  *
  * The shared import engine behind both the "Import all" dialog and the editor
- * drag-and-drop drop target. Keeping the ZIP page-tree reconstruction and the
+ * drag-and-drop drop target. Keeping the page-tree reconstruction and the
  * markdown→blocks pipeline here (instead of inline in a dialog) means the two
  * entry points stay byte-for-byte consistent and there is one place to fix.
+ *
+ * A folder imports exactly like the ZIP you would get by compressing it: both
+ * are read as a list of paths ({@link BundleEntry}) and share one tree builder.
  *
  * Pure (no React): callers drive progress through {@link ImportToSpaceOptions}
  * and translate {@link NoImportablePagesError} for display.
  */
 
-import type JSZip from "jszip";
 import type { Block } from "@tasfer/editor/serlization/loadPage";
 import { getPlatform } from "@/platform";
 import { tokenizePage, parsePage, parseFrontmatter } from "@tasfer/editor";
@@ -19,15 +21,38 @@ import { createPage, updatePage } from "@/app/api/pages.api";
 import { uploadImage } from "@/app/api/images.api";
 import { appDataSchema } from "@/appDataSchema";
 
-/** A page reconstructed from the ZIP folder layout. */
+/**
+ * One file inside an imported bundle (a ZIP or a folder), addressed by its
+ * slash-separated path inside the bundle. Content is read only when needed.
+ */
+interface BundleEntry {
+  path: string;
+  text: () => Promise<string>;
+  blob: () => Promise<Blob>;
+}
+
+/** A file picked or dropped as part of a folder, with its path inside it. */
+export interface FolderFile {
+  /** Slash-separated, starting with the picked/dropped folder's own name. */
+  path: string;
+  file: File;
+}
+
+/** What the user chose to import: loose files, or the contents of folders. */
+export type ImportSelection =
+  { kind: "files"; files: File[] } | { kind: "folder"; files: FolderFile[] };
+
+/** A page reconstructed from the bundle's folder layout. */
 interface PageNode {
   name: string;
   /**
-   * The ZIP entry backing this page's content, or `""` for a folder that has
-   * no self-named markdown file (imported from a plain directory of notes) —
-   * such a node becomes an empty parent page.
+   * The entry backing this page's content, or null for a folder that has no
+   * self-named markdown file (a plain directory of notes) — such a node
+   * becomes an empty parent page.
    */
-  zipPath: string;
+  entry: BundleEntry | null;
+  /** Markdown keeps its own heading as the title; `.txt` is titled by name. */
+  isMarkdown: boolean;
   children: PageNode[];
 }
 
@@ -57,7 +82,7 @@ export interface ImportToSpaceResult {
   errors: string[];
 }
 
-/** Thrown when a ZIP contains no markdown files to import. */
+/** Thrown when a ZIP or folder contains no markdown/text files to import. */
 export class NoImportablePagesError extends Error {
   constructor() {
     super("No importable pages found");
@@ -66,6 +91,11 @@ export class NoImportablePagesError extends Error {
 }
 
 const DOC_EXTENSIONS = [".md", ".txt"];
+
+function isDocPath(path: string): boolean {
+  const lower = path.toLowerCase();
+  return DOC_EXTENSIONS.some((e) => lower.endsWith(e));
+}
 
 /** Whether a file is one this importer accepts (markdown, text, or ZIP). */
 export function isImportableSpaceFile(file: File): boolean {
@@ -90,15 +120,17 @@ function guessMimeType(fileName: string): string {
 
 /**
  * Replace image links into the bundle's images/ folder with the uploaded asset
- * id. Exported pages link at their own depth (./images/, ../images/, …), so
- * any relative prefix is accepted.
+ * id. Exported pages link at their own depth (./images/, ../images/, …), and
+ * hand-written notes often link `images/x.png` with no prefix, so any relative
+ * prefix (or none) is accepted. The link must start the URL — right after `(`,
+ * a quote, or whitespace — so `https://host/images/x.png` is left alone.
  */
 function rewriteImageUrls(
   markdown: string,
   imageUrlMap: Map<string, string>,
 ): string {
   return markdown.replace(
-    /(?:\.\.?\/)+images\/([^)"/?#\s]+)/g,
+    /(?<=^|[("'\s])(?:\.\.?\/)*images\/([^)"/?#\s]+)/gm,
     (match, fileName) => imageUrlMap.get(fileName) || match,
   );
 }
@@ -121,45 +153,52 @@ function isArchiveArtifact(path: string): boolean {
 }
 
 /**
- * Build a page tree from ZIP entries.
+ * Build a page tree from bundle entries.
  * The export format uses space-level folders as the first segment.
- * We strip those and merge everything into the target space.
+ * We strip those and merge everything into the target space. (A compressed or
+ * picked folder has its own name as the first segment, stripped the same way.)
  */
-function buildPageTree(zip: JSZip): {
-  imageEntries: Array<{ path: string; entry: JSZip.JSZipObject }>;
+function buildPageTree(entries: BundleEntry[]): {
+  imageEntries: BundleEntry[];
   roots: PageNode[];
 } {
-  const imageEntries: Array<{ path: string; entry: JSZip.JSZipObject }> = [];
-  const mdFiles: Array<{ stripped: string; fullPath: string }> = [];
+  const imageEntries: BundleEntry[] = [];
+  const docFiles: Array<{ stripped: string; entry: BundleEntry }> = [];
 
-  zip.forEach((relativePath, entry) => {
-    if (entry.dir) return;
-    if (isArchiveArtifact(relativePath)) return;
+  for (const entry of entries) {
+    const relativePath = entry.path;
+    if (isArchiveArtifact(relativePath)) continue;
 
-    if (relativePath.startsWith("images/")) {
-      imageEntries.push({ path: relativePath, entry });
-      return;
+    const parts = relativePath.split("/");
+    const isDoc = isDocPath(relativePath);
+
+    // Images live in `images/` at the bundle root (the export layout), or one
+    // level down when the bundle is a single wrapping folder (`Notes/images/`).
+    const imagesDir = parts.indexOf("images");
+    if (
+      !isDoc &&
+      (imagesDir === 0 || imagesDir === 1) &&
+      imagesDir < parts.length - 1
+    ) {
+      imageEntries.push(entry);
+      continue;
     }
 
-    if (!relativePath.endsWith(".md")) return;
+    if (!isDoc) continue;
 
     // Strip the first directory segment (space folder)
-    const parts = relativePath.split("/");
     if (parts.length >= 2) {
-      mdFiles.push({
-        stripped: parts.slice(1).join("/"),
-        fullPath: relativePath,
-      });
+      docFiles.push({ stripped: parts.slice(1).join("/"), entry });
     } else {
       // No space folder — treat as root-level
-      mdFiles.push({ stripped: relativePath, fullPath: relativePath });
+      docFiles.push({ stripped: relativePath, entry });
     }
-  });
+  }
 
-  // Build a map from stripped path to full ZIP path
-  const pathMap = new Map<string, string>();
-  for (const f of mdFiles) {
-    pathMap.set(f.stripped, f.fullPath);
+  // Build a map from stripped path to its entry
+  const entryMap = new Map<string, BundleEntry>();
+  for (const f of docFiles) {
+    entryMap.set(f.stripped, f.entry);
   }
 
   function buildLevelWithPrefix(paths: string[], prefix: string): PageNode[] {
@@ -180,11 +219,10 @@ function buildPageTree(zip: JSZip): {
     }
 
     for (const file of directFiles) {
-      const name = file.replace(/\.md$/, "");
-      const stripped = `${prefix}${file}`;
       nodes.push({
-        name,
-        zipPath: pathMap.get(stripped) || stripped,
+        name: file.replace(/\.(md|txt)$/i, ""),
+        entry: entryMap.get(`${prefix}${file}`) ?? null,
+        isMarkdown: /\.md$/i.test(file),
         children: [],
       });
     }
@@ -199,10 +237,10 @@ function buildPageTree(zip: JSZip): {
           childPaths,
           `${prefix}${dir}/`,
         );
-        const selfStripped = `${prefix}${dir}/${selfFile}`;
         nodes.push({
           name: dir,
-          zipPath: pathMap.get(selfStripped) || selfStripped,
+          entry: entryMap.get(`${prefix}${dir}/${selfFile}`) ?? null,
+          isMarkdown: true,
           children: fullChildren,
         });
       } else {
@@ -210,7 +248,12 @@ function buildPageTree(zip: JSZip): {
         // folder as an empty parent page so its structure is preserved,
         // rather than flattening its children up to this level.
         const innerNodes = buildLevelWithPrefix(contents, `${prefix}${dir}/`);
-        nodes.push({ name: dir, zipPath: "", children: innerNodes });
+        nodes.push({
+          name: dir,
+          entry: null,
+          isMarkdown: false,
+          children: innerNodes,
+        });
       }
     }
 
@@ -226,7 +269,7 @@ function buildPageTree(zip: JSZip): {
     return nodes;
   }
 
-  const strippedPaths = mdFiles.map((f) => f.stripped);
+  const strippedPaths = docFiles.map((f) => f.stripped);
   const roots = buildLevelWithPrefix(strippedPaths, "");
   return { imageEntries, roots };
 }
@@ -316,19 +359,72 @@ function buildImportedPage(
   return { blocks, title: title || displayName, titleMd };
 }
 
-async function importZip(
-  file: File,
+/** List a ZIP's files as bundle entries. */
+async function zipEntries(file: File): Promise<BundleEntry[]> {
+  const { default: JSZip } = await import("jszip");
+  const zip = await JSZip.loadAsync(await file.arrayBuffer());
+  const entries: BundleEntry[] = [];
+  zip.forEach((path, entry) => {
+    if (entry.dir) return;
+    entries.push({
+      path,
+      text: () => entry.async("string"),
+      blob: () => entry.async("blob"),
+    });
+  });
+  return entries;
+}
+
+/**
+ * List a picked or dropped folder's files as bundle entries, so the folder
+ * imports exactly like the ZIP of it: that ZIP holds `Notes/…`, and the tree
+ * strips the leading `Notes/` like a space folder.
+ *
+ * One exception: an extracted export. Unzipping an export that holds several
+ * top-level entries (space folders plus `images/`) wraps them in one more
+ * folder, which is not part of the export. A root folder with `images/` and no
+ * pages of its own directly inside is that wrapper, and is dropped so the
+ * export imports as its ZIP would.
+ *
+ * Hidden files and folders (`.git`, `.obsidian`, …) are tool data, not notes.
+ */
+function folderEntries(files: FolderFile[]): BundleEntry[] {
+  const visible = files.filter(
+    ({ path }) => !path.split("/").some((segment) => segment.startsWith(".")),
+  );
+
+  const rootsWithImages = new Set<string>();
+  const rootsWithPages = new Set<string>();
+  for (const { path } of visible) {
+    const parts = path.split("/");
+    if (parts.length >= 3 && parts[1] === "images") {
+      rootsWithImages.add(parts[0]);
+    }
+    if (parts.length === 2 && isDocPath(path)) rootsWithPages.add(parts[0]);
+  }
+
+  return visible.map(({ path, file }) => {
+    const [root, ...rest] = path.split("/");
+    const isWrapper =
+      rest.length > 0 && rootsWithImages.has(root) && !rootsWithPages.has(root);
+    return {
+      path: isWrapper ? rest.join("/") : path,
+      text: () => file.text(),
+      blob: async () => file,
+    };
+  });
+}
+
+/** Import a ZIP's or folder's files, rebuilding their page tree. */
+async function importBundle(
+  entries: BundleEntry[],
   spaceId: string,
   result: ImportToSpaceResult,
   opts: ImportToSpaceOptions,
 ): Promise<void> {
   const aborted = () => opts.isAborted?.() ?? false;
 
-  const zipData = await file.arrayBuffer();
-  const { default: JSZip } = await import("jszip");
-  const zip = await JSZip.loadAsync(zipData);
-
-  const { imageEntries, roots } = buildPageTree(zip);
+  const { imageEntries, roots } = buildPageTree(entries);
 
   if (roots.length === 0) {
     throw new NoImportablePagesError();
@@ -340,11 +436,11 @@ async function importZip(
 
   // Step 1: Upload images and build a fileName → asset-id map.
   const imageUrlMap = new Map<string, string>();
-  for (const { path, entry } of imageEntries) {
+  for (const entry of imageEntries) {
     if (aborted()) return;
-    const fileName = path.split("/").pop()!;
+    const fileName = entry.path.split("/").pop()!;
     try {
-      const blob = await entry.async("blob");
+      const blob = await entry.blob();
       const imageFile = new File([blob], fileName, {
         type: guessMimeType(fileName),
       });
@@ -367,7 +463,7 @@ async function importZip(
     for (const node of nodes) {
       if (aborted()) return;
       try {
-        if (!node.zipPath) {
+        if (!node.entry) {
           // Folder with no backing markdown file: seed the parent page with a
           // heading holding the folder name, so it opens to a titled (not
           // blank) page instead of appearing blank.
@@ -393,22 +489,13 @@ async function importZip(
           continue;
         }
 
-        const zipEntry = zip.file(node.zipPath);
-        if (!zipEntry) {
-          result.errors.push(`File not found in ZIP: ${node.zipPath}`);
-          done++;
-          opts.onProgress?.({ done, total });
-          continue;
-        }
-
-        const mdContent = await zipEntry.async("string");
-        const rewritten = rewriteImageUrls(mdContent, imageUrlMap);
+        const content = await node.entry.text();
+        const rewritten = rewriteImageUrls(content, imageUrlMap);
         const { content: body, metadata } = parseFrontmatter(rewritten);
-        // ZIP entries are always markdown (the tree only collects `.md`).
         const { blocks, title, titleMd } = buildImportedPage(
           body,
           node.name,
-          true,
+          node.isMarkdown,
         );
 
         const createdPage = await createPage({
@@ -504,13 +591,14 @@ async function importMarkdownFiles(
 }
 
 /**
- * Import a set of files into `spaceId` as pages. A single ZIP is expanded into
- * its page tree (rebuilding parent/child structure and uploading bundled
- * images); markdown/text files each become a top-level page. Throws
- * {@link NoImportablePagesError} when a ZIP has no markdown inside.
+ * Import a selection into `spaceId` as pages. A folder, or a single ZIP, is
+ * expanded into its page tree (rebuilding parent/child structure and uploading
+ * bundled images); loose markdown/text files each become a top-level page.
+ * Throws {@link NoImportablePagesError} when a ZIP or folder has no
+ * markdown/text inside.
  */
-export async function importFilesToSpace(
-  files: File[],
+export async function importToSpace(
+  selection: ImportSelection,
   spaceId: string,
   opts: ImportToSpaceOptions = {},
 ): Promise<ImportToSpaceResult> {
@@ -521,13 +609,17 @@ export async function importFilesToSpace(
     errors: [],
   };
 
-  if (files.length === 1 && files[0].name.toLowerCase().endsWith(".zip")) {
-    await importZip(files[0], spaceId, result, opts);
+  if (selection.kind === "folder") {
+    await importBundle(folderEntries(selection.files), spaceId, result, opts);
+  } else if (
+    selection.files.length === 1 &&
+    selection.files[0].name.toLowerCase().endsWith(".zip")
+  ) {
+    const entries = await zipEntries(selection.files[0]);
+    await importBundle(entries, spaceId, result, opts);
   } else {
-    const mdFiles = files.filter((f) =>
-      DOC_EXTENSIONS.some((e) => f.name.toLowerCase().endsWith(e)),
-    );
-    await importMarkdownFiles(mdFiles, spaceId, result, opts);
+    const docFiles = selection.files.filter((f) => isDocPath(f.name));
+    await importMarkdownFiles(docFiles, spaceId, result, opts);
   }
 
   return result;

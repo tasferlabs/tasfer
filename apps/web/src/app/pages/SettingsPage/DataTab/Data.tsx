@@ -83,7 +83,7 @@ export function Data() {
           <p className="text-sm opacity-75">
             {t(
               "import.fromZipOrMarkdown",
-              "Import pages from a ZIP file or markdown files",
+              "Import pages from a ZIP file, a folder, or markdown files",
             )}
           </p>
         </div>

@@ -19,11 +19,13 @@ import { PagePicker } from "@/components/PagePicker";
 import type { ImportParent } from "./ImportDialogProvider";
 import { getRememberedChoice, REMEMBER_KEYS } from "@/lib/rememberedChoice";
 import {
-  importFilesToSpace,
+  importToSpace,
   isImportableSpaceFile,
   NoImportablePagesError,
+  type ImportSelection,
   type ImportToSpaceResult,
 } from "@/lib/spaceImport";
+import { readDroppedFiles } from "@/lib/droppedFolders";
 
 interface ImportAllDialogProps {
   open: boolean;
@@ -51,7 +53,7 @@ export function ImportAllDialog({
   spaceId,
   parent,
 }: ImportAllDialogProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { spaces } = useSpaces();
   const queryClient = useQueryClient();
 
@@ -68,7 +70,7 @@ export function ImportAllDialog({
   const [selectedParent, setSelectedParent] = useState<ISearchPage | null>(
     null,
   );
-  const [files, setFiles] = useState<File[]>([]);
+  const [selection, setSelection] = useState<ImportSelection | null>(null);
   const [phase, setPhase] = useState<"select" | "importing" | "done">("select");
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [result, setResult] = useState<ImportToSpaceResult | null>(null);
@@ -90,7 +92,7 @@ export function ImportAllDialog({
           "",
       );
       setSelectedParent(null);
-      setFiles([]);
+      setSelection(null);
       setPhase("select");
       setProgress({ done: 0, total: 0 });
       setResult(null);
@@ -106,21 +108,35 @@ export function ImportAllDialog({
     setSelectedParent(null);
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const dropped = Array.from(e.dataTransfer.files).filter(
-      isImportableSpaceFile,
-    );
-    if (dropped.length > 0) {
-      setFiles(dropped);
-      setError(null);
-    } else {
-      setError(
-        t("import.pleaseSelectFiles", "Please select .zip, .md, or .txt files"),
-      );
-    }
-  }, []);
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setIsDragging(false);
+      void readDroppedFiles(e.dataTransfer).then((dropped) => {
+        // A folder is checked for pages when imported; loose files are
+        // filtered here so an unsupported drop is caught before Import.
+        const picked: ImportSelection =
+          dropped.kind === "folder"
+            ? dropped
+            : {
+                kind: "files",
+                files: dropped.files.filter(isImportableSpaceFile),
+              };
+        if (picked.files.length > 0) {
+          setSelection(picked);
+          setError(null);
+        } else {
+          setError(
+            t(
+              "import.pleaseSelectFiles",
+              "Please select .zip, .md, or .txt files, or a folder",
+            ),
+          );
+        }
+      });
+    },
+    [t],
+  );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -136,7 +152,7 @@ export function ImportAllDialog({
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const selected = e.target.files;
       if (selected && selected.length > 0) {
-        setFiles(Array.from(selected));
+        setSelection({ kind: "files", files: Array.from(selected) });
         setError(null);
       }
       e.target.value = "";
@@ -145,13 +161,13 @@ export function ImportAllDialog({
   );
 
   const handleImport = useCallback(async () => {
-    if (files.length === 0 || !selectedSpaceId) return;
+    if (!selection || !selectedSpaceId) return;
 
     setPhase("importing");
     setError(null);
 
     try {
-      const importResult = await importFilesToSpace(files, selectedSpaceId, {
+      const importResult = await importToSpace(selection, selectedSpaceId, {
         onProgress: setProgress,
         isAborted: () => abortRef.current,
         parentId: parentFixed ? parent.id : (selectedParent?.id ?? null),
@@ -167,10 +183,15 @@ export function ImportAllDialog({
       if (!abortRef.current) {
         setError(
           err instanceof NoImportablePagesError
-            ? t(
-                "import.noImportablePages",
-                "No importable pages found in the ZIP file",
-              )
+            ? selection.kind === "folder"
+              ? t(
+                  "import.noImportablePagesInFolder",
+                  "No markdown or text files found in this folder",
+                )
+              : t(
+                  "import.noImportablePages",
+                  "No importable pages found in the ZIP file",
+                )
             : err instanceof Error
               ? err.message
               : t("import.failed", "Import failed"),
@@ -179,7 +200,7 @@ export function ImportAllDialog({
       }
     }
   }, [
-    files,
+    selection,
     selectedSpaceId,
     parentFixed,
     parent,
@@ -194,6 +215,26 @@ export function ImportAllDialog({
     }
     onOpenChange(false);
   }, [phase, onOpenChange]);
+
+  // What the drop zone shows once something is chosen: the file's or folders'
+  // names, or a count for several loose files.
+  const selectionLabel = React.useMemo(() => {
+    if (!selection) return null;
+    if (selection.kind === "folder") {
+      const roots = [
+        ...new Set(selection.files.map((f) => f.path.split("/")[0])),
+      ];
+      return new Intl.ListFormat(i18n.language, {
+        type: "conjunction",
+      }).format(roots);
+    }
+    return selection.files.length === 1
+      ? selection.files[0].name
+      : t("format.filesSelected", {
+          defaultValue: "{{count}} files selected",
+          count: selection.files.length,
+        });
+  }, [selection, i18n.language, t]);
 
   // When a target is fixed we hide its selector, so show where imports land.
   const targetSpaceName =
@@ -233,7 +274,7 @@ export function ImportAllDialog({
             {phase === "select" &&
               t(
                 "import.fromZipOrMarkdownDesc",
-                "Import pages from a ZIP file or markdown files.",
+                "Import pages from a ZIP file, a folder, or markdown files.",
               )}
             {phase === "importing" &&
               t("import.importingPages", "Importing your pages...")}
@@ -265,14 +306,9 @@ export function ImportAllDialog({
                   isDragging ? "text-primary" : "text-muted-foreground"
                 }`}
               />
-              {files.length > 0 ? (
-                <span className="font-medium text-center">
-                  {files.length === 1
-                    ? files[0].name
-                    : t("format.filesSelected", {
-                        defaultValue: "{{count}} files selected",
-                        count: files.length,
-                      })}
+              {selectionLabel ? (
+                <span className="font-medium text-center break-all">
+                  {selectionLabel}
                 </span>
               ) : (
                 <>
@@ -281,7 +317,7 @@ export function ImportAllDialog({
                       ? t("import.dropFiles", "Drop files here")
                       : t(
                           "import.dragAndDropFiles",
-                          "Drag and drop files here",
+                          "Drag and drop files or a folder here",
                         )}
                   </span>
                   <span className="text-sm text-muted-foreground mt-1">
@@ -368,7 +404,7 @@ export function ImportAllDialog({
               </Button>
               <Button
                 onClick={handleImport}
-                disabled={files.length === 0 || !selectedSpaceId}
+                disabled={!selection || !selectedSpaceId}
               >
                 {t("import.title", "Import")}
               </Button>

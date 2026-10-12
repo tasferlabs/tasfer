@@ -9,10 +9,12 @@ import { useActiveEditor } from "../contexts/ActiveEditorContext";
 import type { ActiveEditorHandle } from "../contexts/ActiveEditorContext";
 import type { DocPoint } from "@tasfer/editor";
 import {
-  importFilesToSpace,
+  importToSpace,
   isImportableSpaceFile,
   NoImportablePagesError,
+  type ImportSelection,
 } from "@/lib/spaceImport";
+import { readDroppedFiles } from "@/lib/droppedFolders";
 
 const IMAGE_EXTENSION = /\.(png|jpe?g|gif|webp|svg|bmp|avif|heic)$/i;
 
@@ -107,9 +109,10 @@ interface UseFileDropImport {
 }
 
 /**
- * Window-level file drag-and-drop. Dropped markdown/text/ZIP files import as
- * pages into a space (a full-window overlay invites the drop anywhere; a picker
- * resolves which space when there's more than one). Dropped images insert into
+ * Window-level file drag-and-drop. Dropped markdown/text/ZIP files and folders
+ * import as pages into a space (a full-window overlay invites the drop
+ * anywhere; a picker resolves which space when there's more than one). Dropped
+ * images insert into
  * the open document at the point a live insertion line marks — the same line a
  * block reorder shows. Mounted once at the app root.
  */
@@ -122,9 +125,8 @@ export function useFileDropImport(): UseFileDropImport {
   const queryClient = useQueryClient();
 
   const [dragKindState, setDragKind] = useState<"image" | "doc" | null>(null);
-  const [pendingSpaceFiles, setPendingSpaceFiles] = useState<File[] | null>(
-    null,
-  );
+  const [pendingSpaceFiles, setPendingSpaceFiles] =
+    useState<ImportSelection | null>(null);
 
   // Latest editor read inside stable drop handlers without re-binding them.
   const editorRef = useRef(editor);
@@ -165,11 +167,11 @@ export function useFileDropImport(): UseFileDropImport {
     return ed && !ed.state.isReadonlyBase ? ed : null;
   }, []);
 
-  const importToSpace = useCallback(
-    async (files: File[], spaceId: string) => {
+  const importDropToSpace = useCallback(
+    async (selection: ImportSelection, spaceId: string) => {
       const progress = toast.loading(t("import.importing", "Importing..."));
       try {
-        const result = await importFilesToSpace(files, spaceId);
+        const result = await importToSpace(selection, spaceId);
         queryClient.invalidateQueries({ queryKey: ["pages"] });
         if (result.firstPageId) {
           progress.dismiss();
@@ -185,10 +187,15 @@ export function useFileDropImport(): UseFileDropImport {
           variant: "error",
           message:
             err instanceof NoImportablePagesError
-              ? t(
-                  "import.noImportablePages",
-                  "No importable pages found in the ZIP file",
-                )
+              ? selection.kind === "folder"
+                ? t(
+                    "import.noImportablePagesInFolder",
+                    "No markdown or text files found in this folder",
+                  )
+                : t(
+                    "import.noImportablePages",
+                    "No importable pages found in the ZIP file",
+                  )
               : t("import.failed", "Import failed"),
         });
       }
@@ -372,9 +379,8 @@ export function useFileDropImport(): UseFileDropImport {
 
       const dropped = Array.from(e.dataTransfer.files);
       const images = dropped.filter(isImageFile);
-      const docs = dropped.filter(
-        (f) => !isImageFile(f) && isImportableSpaceFile(f),
-      );
+      // Read now: the drop's folder entries are only readable during the event.
+      const reading = readDroppedFiles(e.dataTransfer);
 
       // Resolve the insertion point before clearing the indicator.
       const ed = insertableEditor();
@@ -393,27 +399,39 @@ export function useFileDropImport(): UseFileDropImport {
         );
       }
 
-      if (docs.length > 0) {
-        if (spaces.length > 1) {
-          setPendingSpaceFiles(docs);
-        } else if (spaces.length === 1) {
-          // Only one place the files can go, so there is nothing to ask.
-          void importToSpace(docs, spaces[0].id);
-        }
-      }
+      void reading.then((selection) => {
+        // A dropped folder imports whole (its own images included); loose
+        // images went into the document above, so only documents remain here.
+        const docs: ImportSelection =
+          selection.kind === "folder"
+            ? selection
+            : {
+                kind: "files",
+                files: selection.files.filter(
+                  (f) => !isImageFile(f) && isImportableSpaceFile(f),
+                ),
+              };
 
-      if (images.length === 0 && docs.length === 0) {
-        toast.error(
-          t(
-            "import.unsupportedFile",
-            "Drop an image, or a .md, .txt, or .zip file",
-          ),
-        );
-      }
+        if (docs.files.length > 0) {
+          if (spaces.length > 1) {
+            setPendingSpaceFiles(docs);
+          } else if (spaces.length === 1) {
+            // Only one place the files can go, so there is nothing to ask.
+            void importDropToSpace(docs, spaces[0].id);
+          }
+        } else if (images.length === 0) {
+          toast.error(
+            t(
+              "import.unsupportedFile",
+              "Drop an image, a folder, or a .md, .txt, or .zip file",
+            ),
+          );
+        }
+      });
     },
     [
       endDrag,
-      importToSpace,
+      importDropToSpace,
       insertableEditor,
       isFileImport,
       toast,
@@ -426,9 +444,9 @@ export function useFileDropImport(): UseFileDropImport {
     (spaceId: string) => {
       const files = pendingSpaceFiles;
       setPendingSpaceFiles(null);
-      if (files) void importToSpace(files, spaceId);
+      if (files) void importDropToSpace(files, spaceId);
     },
-    [pendingSpaceFiles, importToSpace],
+    [pendingSpaceFiles, importDropToSpace],
   );
 
   return {
