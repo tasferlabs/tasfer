@@ -35,6 +35,7 @@ import {
   type TableContext,
 } from "./context";
 import { layoutTable, type TableLayout } from "./geometry";
+import { viewedTableLayout } from "./scroll";
 import {
   cellLength,
   cellPosition,
@@ -139,14 +140,18 @@ function withRefreshedBlink(state: EditorState): EditorState {
   };
 }
 
-/** Lay a table block out at the current viewport width. */
+/**
+ * Lay a table block out at the current viewport width, as it is shown —
+ * scrolled sideways, for a table wider than the page, so an x read off the
+ * screen (the caret arriving from the line above) lands in the column under it.
+ */
 function tableLayoutFor(
   state: EditorState,
   block: Block,
   viewport: ViewportState,
 ): TableLayout {
   const styles = getEditorStyles(state);
-  return layoutTable(getTableDocument(block), {
+  const layout = layoutTable(getTableDocument(block), {
     maxWidth:
       viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight),
     style: styles.blocks.table,
@@ -154,6 +159,7 @@ function tableLayoutFor(
     fonts: styles.fonts,
     marks: state.marks,
   });
+  return viewedTableLayout(layout, state, block.id);
 }
 
 /** Park the nested caret at `caret`, clearing any flat selection. */

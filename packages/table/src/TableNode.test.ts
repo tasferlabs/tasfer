@@ -6,14 +6,20 @@
 
 import { registerTableActions } from "./actions";
 import { registerTableCommands } from "./commands";
-import type { TableLayout } from "./geometry";
+import { tableGridWidth, type TableLayout } from "./geometry";
+import { tableScrollX } from "./scroll";
 import {
   cellCaretHeight,
   tableCaretFromContentPoint,
   tableCellIds,
   tableRangeToContentSelection,
 } from "./selection";
-import { cellText, getTableDocument, readTable } from "./structured";
+import {
+  cellText,
+  getTableDocument,
+  readTable,
+  tableWidth,
+} from "./structured";
 import { tableExtension } from "./table-extension";
 import { type TableBlock, TableNode } from "./TableNode";
 import { createNodeRegistry } from "@tasfer/editor";
@@ -41,6 +47,7 @@ import type { EditorState, ViewportState } from "@tasfer/editor/state-types";
 import { createInitialState } from "@tasfer/editor/state-utils";
 import { updateContentSelection } from "@tasfer/editor/structured-selection";
 import { resolveTheme } from "@tasfer/editor/styles";
+import { undoState } from "@tasfer/editor/sync/crdt-undo";
 import { describe, expect, it } from "vitest";
 
 const schema = baseSchema.use(tableExtension());
@@ -388,7 +395,16 @@ describe("TableNode paint", () => {
     // Four columns in a viewport too narrow to give even one minimum width: the
     // columns share what there is, and a glyph no longer fits inside a cell's
     // padding. Without a clip those glyphs paint straight across the hairline
-    // into the neighbouring cell.
+    // into the neighbouring cell. (A theme that never lets a table scroll
+    // sideways, so the squeeze happens at all — by default this table would
+    // simply grow wider than the page.)
+    const squeezed = {
+      ...styles,
+      blocks: {
+        ...styles.blocks,
+        table: { ...styles.blocks.table, overflowColumnWidth: 0 },
+      },
+    };
     const state = stateOf(
       [
         "| a | b | c | d |",
@@ -402,7 +418,7 @@ describe("TableNode paint", () => {
       blockIndex: 0,
       maxWidth: narrow,
       isFirst: true,
-      styles,
+      styles: squeezed,
       marks: state.marks,
     });
     // The scenario is only meaningful if the squeeze really did overflow a cell.
@@ -432,7 +448,7 @@ describe("TableNode paint", () => {
       blockIndex: 0,
       maxWidth: narrow,
       isFirst: true,
-      styles,
+      styles: squeezed,
       marks: state.marks,
       ctx,
       state,
@@ -691,7 +707,7 @@ function resizeRegion(state: EditorState) {
 }
 
 describe("column resize", () => {
-  it("offers a grab band on every interior edge, and none on the outer ones", () => {
+  it("offers a grab band on every interior edge", () => {
     const state = stateOf(TABLE);
     const layout = layoutOf(state);
     const region = resizeRegion(state);
@@ -699,17 +715,6 @@ describe("column resize", () => {
     const edge = styles.canvas.paddingLeft + layout.columns[1].x;
 
     expect(region.hitTest({ x: edge, y }, "mouse")).toMatchObject({ index: 1 });
-    // The grid is exactly as wide as the page, so its outer edges have nowhere
-    // to be dragged to.
-    expect(
-      region.hitTest({ x: styles.canvas.paddingLeft, y }, "mouse"),
-    ).toBeNull();
-    expect(
-      region.hitTest(
-        { x: styles.canvas.paddingLeft + layout.gridWidth, y },
-        "mouse",
-      ),
-    ).toBeNull();
   });
 
   it("ignores a point above or below the grid", () => {
@@ -796,6 +801,31 @@ describe("column resize", () => {
     );
   });
 
+  it("undoes to the widths the press found", () => {
+    const state = stateOf(TABLE);
+    const layout = layoutOf(state);
+    const region = resizeRegion(state);
+    const y = layout.gridTop + 4;
+    const edge = styles.canvas.paddingLeft + layout.columns[1].x;
+    const hit = region.hitTest({ x: edge, y }, "mouse")!;
+    region.drag!.onStart(hit, { x: edge, y }, {
+      state,
+      session: session(hit),
+    } as never);
+    const moved = region.drag!.onMove({ x: edge + 60, y }, {
+      state,
+      session: session(hit),
+    } as never)!;
+    const released = region.drag!.onEnd({ x: edge + 60, y }, {
+      state: moved.state,
+      session: session(hit),
+    } as never)!;
+
+    const undone = undoState(released.state).state;
+    expect(layoutOf(undone).columns[0].width).toBe(layout.columns[0].width);
+    expect(layoutOf(undone).columns[1].width).toBe(layout.columns[1].width);
+  });
+
   it("puts the columns back where they were when the drag is cancelled", () => {
     const state = stateOf(TABLE);
     const layout = layoutOf(state);
@@ -854,6 +884,159 @@ describe("column resize", () => {
     expect(layoutOf(further.state).columns[0].width).toBe(
       styles.blocks.table.minColumnWidth,
     );
+  });
+});
+
+describe("table width (the grid's right edge)", () => {
+  /** Press the right edge and return what the drag calls need. */
+  function grabRightEdge(state: EditorState) {
+    const layout = layoutOf(state);
+    const region = resizeRegion(state);
+    const y = layout.gridTop + 4;
+    // Scrolled to its end, a wide table's right edge sits on the page's edge.
+    const edge =
+      styles.canvas.paddingLeft +
+      layout.gridWidth -
+      tableScrollX(state, "block-0", layout);
+    const hit = region.hitTest({ x: edge, y }, "mouse")!;
+    const ctx = (current: EditorState) =>
+      ({ state: current, viewport, session: session(hit) }) as never;
+    expect(
+      region.drag!.onStart(hit, { x: edge, y }, ctx(state)),
+    ).not.toBeNull();
+    return { layout, region, y, edge, hit, ctx };
+  }
+
+  function rootWidth(state: EditorState): number | null {
+    return tableWidth(readTable(getTableDocument(tableBlock(state, 0))!).root);
+  }
+
+  it("is a grab band; the left edge is not", () => {
+    const state = stateOf(TABLE);
+    const layout = layoutOf(state);
+    const region = resizeRegion(state);
+    const y = layout.gridTop + 4;
+
+    expect(
+      region.hitTest(
+        { x: styles.canvas.paddingLeft + layout.gridWidth, y },
+        "mouse",
+      ),
+    ).toMatchObject({ index: layout.columns.length });
+    expect(
+      region.hitTest({ x: styles.canvas.paddingLeft, y }, "mouse"),
+    ).toBeNull();
+  });
+
+  it("widens the last column and the table past the page, scrolled to its end", () => {
+    const state = stateOf(TABLE);
+    const { layout, region, y, edge, ctx } = grabRightEdge(state);
+
+    const moved = region.drag!.onMove({ x: edge + 200, y }, ctx(state))!;
+    // A live drag repaints; it must not write an operation per frame.
+    expect(moved.ops ?? []).toHaveLength(0);
+
+    const after = layoutOf(moved.state);
+    expect(after.gridWidth).toBe(layout.gridWidth + 200);
+    expect(after.columns[0].width).toBe(layout.columns[0].width);
+    expect(after.columns[1].width).toBe(layout.columns[1].width + 200);
+    // The edge stays on the page's edge: the grid slides under it.
+    expect(tableScrollX(moved.state, "block-0", after)).toBe(200);
+  });
+
+  it("commits the width as page widths a peer can replay", () => {
+    const state = stateOf(TABLE);
+    const { layout, region, y, edge, ctx } = grabRightEdge(state);
+
+    const released = region.drag!.onEnd({ x: edge + 300, y }, ctx(state))!;
+
+    expect(released.ops?.length).toBeGreaterThan(0);
+    expect(released.ops?.every((op) => op.op === "content_edit")).toBe(true);
+    expect(rootWidth(released.state)).toBeCloseTo(
+      (layout.gridWidth + 300) / MAX_WIDTH,
+    );
+    expect(layoutOf(released.state).gridWidth).toBe(layout.gridWidth + 300);
+  });
+
+  it("narrows back to the automatic width and no further, forgetting its own", () => {
+    const state = stateOf(TABLE);
+    const wide = (() => {
+      const { region, y, edge, ctx } = grabRightEdge(state);
+      return region.drag!.onEnd({ x: edge + 300, y }, ctx(state))!.state;
+    })();
+    expect(rootWidth(wide)).not.toBeNull();
+
+    const { layout, region, y, edge, ctx } = grabRightEdge(wide);
+    const released = region.drag!.onEnd({ x: edge - 2_000, y }, ctx(wide))!;
+
+    const after = layoutOf(released.state);
+    expect(after.gridWidth).toBe(MAX_WIDTH);
+    expect(rootWidth(released.state)).toBeNull();
+    // The first column kept its width; the last gave up the difference.
+    expect(after.columns[0].width).toBe(layout.columns[0].width);
+  });
+
+  it("puts the width and the scroll back when the drag is cancelled", () => {
+    const state = stateOf(TABLE);
+    const { layout, region, y, edge, ctx } = grabRightEdge(state);
+    const moved = region.drag!.onMove({ x: edge + 200, y }, ctx(state))!;
+
+    const cancelled = region.drag!.onCancel(ctx(moved.state));
+
+    const after = layoutOf(cancelled);
+    expect(after.gridWidth).toBe(layout.gridWidth);
+    expect(after.columns.map((column) => column.width)).toEqual(
+      layout.columns.map((column) => column.width),
+    );
+    expect(rootWidth(cancelled)).toBeNull();
+    expect(tableScrollX(cancelled, "block-0", after)).toBe(0);
+  });
+
+  it("keeps growing while the pointer is held at the screen's edge", () => {
+    const state = stateOf(TABLE);
+    const { layout, region, y, edge, ctx } = grabRightEdge(state);
+    // Just grabbed, even inside the edge zone (as on a phone), it holds still.
+    expect(region.drag!.onFrame!({ x: edge, y }, ctx(state))).toBeNull();
+
+    const held = { x: viewport.width - 2, y };
+    let current = region.drag!.onMove(held, ctx(state))!.state;
+    const reached = layoutOf(current).gridWidth;
+    for (let frame = 0; frame < 10; frame++) {
+      current = region.drag!.onFrame!(held, ctx(current)) ?? current;
+    }
+
+    expect(layoutOf(current).gridWidth).toBeGreaterThan(reached);
+    expect(layoutOf(current).gridWidth).toBeGreaterThan(
+      layout.gridWidth + (held.x - edge),
+    );
+  });
+
+  it("undoes to the width the press found, in one step", () => {
+    const state = stateOf(TABLE);
+    const { layout, region, y, edge, ctx } = grabRightEdge(state);
+    // The live drag repaints the document before the release commits it; the
+    // editor would record the release against that repainted state.
+    const moved = region.drag!.onMove({ x: edge + 200, y }, ctx(state))!;
+    const released = region.drag!.onEnd(
+      { x: edge + 200, y },
+      ctx(moved.state),
+    )!;
+
+    // The release recorded its own entry, so the editor leaves it alone.
+    expect(released.state.undoManager).not.toBe(moved.state.undoManager);
+    const undone = undoState(released.state).state;
+    expect(layoutOf(undone).gridWidth).toBe(layout.gridWidth);
+    expect(rootWidth(undone)).toBeNull();
+  });
+
+  it("is drawn at its stored width, which a reader bounds", () => {
+    const style = { overflowColumnWidth: 120 };
+    expect(tableGridWidth(2, 600, style, 1.5)).toBe(900);
+    // It only ever widens: the automatic width still wins when it is wider.
+    expect(tableGridWidth(8, 600, style, 1.2)).toBe(960);
+    expect(tableWidth({ attrs: { width: 0.5 } } as never)).toBeNull();
+    expect(tableWidth({ attrs: { width: 100 } } as never)).toBeNull();
+    expect(tableWidth({ attrs: { width: "2" } } as never)).toBeNull();
   });
 });
 

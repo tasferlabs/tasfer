@@ -1202,12 +1202,17 @@ export interface TableBlockStyle extends TextStyle {
   readonly cellPaddingX: number;
   readonly cellPaddingY: number;
   /**
-   * Narrowest a column may be squeezed to before its text is allowed to
-   * overflow its own wrap width. A table always fits the page width (there is
-   * no horizontal scroll), so this is the floor that keeps a many-column table
-   * from collapsing its columns to slivers.
+   * Narrowest a column may be dragged to, and the floor no column is fitted
+   * under. A single unbreakable glyph wider than this overflows its wrap width
+   * and is clipped at the cell's edge.
    */
   readonly minColumnWidth: number;
+  /**
+   * The average column width below which a table stops shrinking to fit the
+   * page and grows wider than it instead, scrolling sideways. A table whose
+   * columns all fit at this width fills the page exactly, as before.
+   */
+  readonly overflowColumnWidth: number;
   /** Fill behind the cell the caret is in, marking the active cell. */
   readonly activeCellBackgroundColor: string;
   /**
