@@ -15,7 +15,11 @@ import type { ICalendarPage } from "../../api/pages.api";
 import { TitlePreview } from "../../TitlePreview";
 import {
   DEFAULT_HOUR_HEIGHT,
+  MINUTES_PER_DAY,
   pageToStartMin,
+  pageStartMinOnDay,
+  clipToDay,
+  dayKey,
   formatEventTime,
   formatTime,
   getEventLaneInsets,
@@ -34,6 +38,7 @@ const TIGHT_HEIGHT = 24;
 
 export function EventCard({
   page,
+  day,
   onResizeStart,
   onEventClick,
   onDuplicate,
@@ -44,7 +49,9 @@ export function EventCard({
   hourHeight = DEFAULT_HOUR_HEIGHT,
 }: {
   page: ICalendarPage;
-  onResizeStart: (pageId: string, e: React.PointerEvent) => void;
+  /** The day this card draws; an event past midnight gets one card per day. */
+  day: Date;
+  onResizeStart: (pageId: string, e: React.PointerEvent, day: Date) => void;
   onEventClick: (pageId: string, rect: DOMRect) => void;
   onDuplicate?: (pageId: string) => void;
   onDelete?: (pageId: string) => void;
@@ -58,12 +65,19 @@ export function EventCard({
   useDateTimePrefs();
   const startMin = pageToStartMin(page);
   const duration = page.duration || 60;
-  const top = (startMin / 60) * hourHeight;
-  const height = (duration / 60) * hourHeight;
+  const startOnDay = pageStartMinOnDay(page, day);
+  const piece = clipToDay(startOnDay, duration) ?? {
+    startMinutes: 0,
+    endMinutes: 0,
+  };
+  const continuesBefore = startOnDay < 0;
+  const continuesAfter = startOnDay + duration > MINUTES_PER_DAY;
+  const top = (piece.startMinutes / 60) * hourHeight;
+  const height = ((piece.endMinutes - piece.startMinutes) / 60) * hourHeight;
 
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: `event-${page.id}`,
-    data: { page },
+    id: `event-${page.id}-${dayKey(day)}`,
+    data: { page, day },
   });
 
   const timeStr = formatEventTime(page.scheduledAt, page.duration);
@@ -117,6 +131,8 @@ export function EventCard({
         isDraft && style.eventCardDraft,
         tight && style.eventCardTight,
         dotOnly && style.eventCardDot,
+        continuesBefore && style.eventCardContinuesBefore,
+        continuesAfter && style.eventCardContinuesAfter,
       )}
       {...(isDraft ? { "data-draft-card": "" } : {})}
       {...(dotOnly
@@ -230,8 +246,10 @@ export function EventCard({
         </>
       )}
       {/* A handle taller than the card would swallow the tap target, so it
-          tracks the card height and disappears once only a dot is left. */}
-      {!dotOnly && (
+          tracks the card height and disappears once only a dot is left. The
+          piece before midnight ends at the day's edge, not the event's end, so
+          only the last piece can be resized. */}
+      {!dotOnly && !continuesAfter && (
         <div
           className={style.resizeHandle}
           style={
@@ -239,7 +257,7 @@ export function EventCard({
           }
           onPointerDown={(e) => {
             e.stopPropagation();
-            onResizeStart(page.id, e);
+            onResizeStart(page.id, e, day);
           }}
           // A press fires more than pointerdown (handled above): touchstart on
           // touch, mousedown with a mouse. Either one bubbling to the card trips

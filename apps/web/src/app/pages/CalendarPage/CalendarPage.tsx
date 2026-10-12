@@ -56,13 +56,17 @@ import {
   pxToMinutes,
   snapPx,
   snapStartMin,
-  pageToStartMin,
+  pageStartMinOnDay,
+  clipToDay,
+  clampDragStartMin,
+  maxResizeMinutes,
+  eventDayKeys,
+  dayKey,
   layoutCalendarIntervals,
   getEventLaneInsets,
   type CalendarEventLayout,
   shortDayName,
   formatMonthLong,
-  zonedWallDate,
   wallDateToUtcIso,
   wallMsToInstantMs,
   wallNow,
@@ -115,6 +119,8 @@ interface ZoomAnchor {
 interface ResizeState {
   pageId: string;
   originalDuration: number;
+  // Minutes from the start of the day the bottom edge is dragged on; negative
+  // for the piece of an event that started the day before.
   originalStartMin: number;
   startY: number;
   startScrollTop: number;
@@ -759,21 +765,52 @@ export default function CalendarPage() {
     return { timedPages, allDayPages };
   }, [pages, draftEvent]);
 
-  // Group timed pages by day (for week view)
+  // Group timed pages by day. An event that runs past midnight is listed on
+  // every day it covers, and each day draws its own piece of it.
   const pagesByDay = useMemo(() => {
     const map = new Map<string, ICalendarPage[]>();
     for (const page of timedPages) {
-      const d = zonedWallDate(page.scheduledAt);
-      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(page);
+      for (const key of eventDayKeys(page.scheduledAt, page.duration || 60)) {
+        if (!map.has(key)) map.set(key, []);
+        map.get(key)!.push(page);
+      }
     }
     return map;
   }, [timedPages]);
 
   function getPagesForDay(date: Date): ICalendarPage[] {
-    const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
-    return pagesByDay.get(key) || [];
+    return pagesByDay.get(dayKey(date)) || [];
+  }
+
+  // The part of an event drawn on `day`, as a layout interval.
+  function dayInterval(page: ICalendarPage, day: Date) {
+    const clipped = clipToDay(
+      pageStartMinOnDay(page, day),
+      page.duration || 60,
+    );
+    return {
+      id: page.id,
+      startMinutes: clipped?.startMinutes ?? 0,
+      duration: clipped ? clipped.endMinutes - clipped.startMinutes : 0,
+    };
+  }
+
+  // Where the move-drag ghost sits: the day it would land on and its new start
+  // in minutes from that day's start (negative when it would still start the
+  // day before).
+  function getDragGhost() {
+    if (!activeDragPage || !dragSourceDay) return null;
+    const duration = activeDragPage.duration || 60;
+    const oldStartMin = pageStartMinOnDay(activeDragPage, dragSourceDay);
+    return {
+      day: dragTargetDay || dragSourceDay,
+      startMinutes: clampDragStartMin(
+        oldStartMin,
+        oldStartMin + dragDeltaMinutes,
+        duration,
+      ),
+      duration,
+    };
   }
 
   function getTransientIntervalsForDay(day: Date) {
@@ -791,35 +828,29 @@ export default function CalendarPage() {
       });
     }
 
-    if (activeDragPage) {
-      const dragDay =
-        dragTargetDay || zonedWallDate(activeDragPage.scheduledAt);
-      if (isSameDay(dragDay, day)) {
-        const startMinutes = Math.max(
-          0,
-          Math.min(
-            pageToStartMin(activeDragPage) + dragDeltaMinutes,
-            TOTAL_HOURS * 60 - SNAP_MINUTES,
-          ),
-        );
-        intervals.push({
-          id: "__drag_ghost__",
-          startMinutes,
-          duration: activeDragPage.duration || 60,
-        });
-      }
+    const ghost = getDragGhost();
+    const ghostPiece =
+      ghost && isSameDay(ghost.day, day)
+        ? clipToDay(ghost.startMinutes, ghost.duration)
+        : null;
+    if (ghostPiece) {
+      intervals.push({
+        id: "__drag_ghost__",
+        startMinutes: ghostPiece.startMinutes,
+        duration: ghostPiece.endMinutes - ghostPiece.startMinutes,
+      });
     }
 
     return intervals;
   }
 
-  function getLaidOutPages(dayPages: ICalendarPage[], day?: Date) {
+  function getLaidOutPages(dayPages: ICalendarPage[], day: Date) {
     const displayPages = dayPages.map((page) =>
       resize?.pageId === page.id && resizeDuration !== null
         ? { ...page, duration: resizeDuration }
         : page,
     );
-    const transientIntervals = day ? getTransientIntervalsForDay(day) : [];
+    const transientIntervals = getTransientIntervalsForDay(day);
     const layouts = layoutCalendarIntervals(
       [
         ...displayPages
@@ -829,11 +860,7 @@ export default function CalendarPage() {
               page.id !== activeDragPage.id ||
               transientIntervals.length === 0,
           )
-          .map((page) => ({
-            id: page.id,
-            startMinutes: pageToStartMin(page),
-            duration: page.duration || 60,
-          })),
+          .map((page) => dayInterval(page, day)),
         ...transientIntervals,
       ],
     );
@@ -847,11 +874,7 @@ export default function CalendarPage() {
   ): CalendarEventLayout | undefined {
     const intervals = getPagesForDay(day)
       .filter((page) => page.id !== excludedPageId)
-      .map((page) => ({
-        id: page.id,
-        startMinutes: pageToStartMin(page),
-        duration: page.duration || 60,
-      }));
+      .map((page) => dayInterval(page, day));
     intervals.push(interval);
     return layoutCalendarIntervals(intervals).get(interval.id);
   }
@@ -904,6 +927,9 @@ export default function CalendarPage() {
   const [activeDragPage, setActiveDragPage] = useState<ICalendarPage | null>(
     null,
   );
+  // The day of the piece that was grabbed. An event past midnight is drawn on
+  // two days, and the drag moves it relative to the piece under the pointer.
+  const [dragSourceDay, setDragSourceDay] = useState<Date | null>(null);
   // Mirrors `activeDragPage` for the native listeners that must not zoom or
   // create while a move-drag owns the pointers.
   const dragActiveRef = useRef(false);
@@ -1002,9 +1028,7 @@ export default function CalendarPage() {
             // In day view, track the accumulated target day so handleDragEnd
             // knows which day to save the event to
             if (viewMode === "day") {
-              const base =
-                edgeDragTargetDayRef.current ||
-                zonedWallDate(activeDragPage!.scheduledAt);
+              const base = edgeDragTargetDayRef.current || dragSourceDay!;
               const newTarget = new Date(base);
               newTarget.setDate(newTarget.getDate() + edgeDir!);
               edgeDragTargetDayRef.current = newTarget;
@@ -1068,7 +1092,7 @@ export default function CalendarPage() {
       window.removeEventListener("keyup", handleModifierKey);
       clearEdgeDragTimer();
     };
-  }, [activeDragPage, viewMode, weekDays, clearEdgeDragTimer, isRtl, setDragDuplicate]);
+  }, [activeDragPage, dragSourceDay, viewMode, weekDays, clearEdgeDragTimer, isRtl, setDragDuplicate]);
 
   // Turn a raw pixel offset into a minute delta whose result lands on the grid:
   // snap `start + rawDelta` absolutely, then subtract the start so the existing
@@ -1082,13 +1106,15 @@ export default function CalendarPage() {
 
   function handleDragStart(event: DragStartEvent) {
     const page = event.active.data.current?.page as ICalendarPage | undefined;
-    if (page) {
+    const day = event.active.data.current?.day as Date | undefined;
+    if (page && day) {
       triggerHaptic("medium");
       setActiveDragPage(page);
+      setDragSourceDay(day);
       setDragDeltaMinutes(0);
       dragDeltaMinutesRef.current = 0;
       dragDeltaPxRef.current = 0;
-      dragStartMinRef.current = pageToStartMin(page);
+      dragStartMinRef.current = pageStartMinOnDay(page, day);
       setDragTargetDay(null);
       const ae = event.activatorEvent as
         | {
@@ -1115,18 +1141,18 @@ export default function CalendarPage() {
   function handleDragEnd(_event: DragEndEvent) {
     clearEdgeDragTimer();
     edgeDragTargetDayRef.current = null;
-    if (activeDragPage) {
-      const oldStartMin = pageToStartMin(activeDragPage);
-      let newStartMin = oldStartMin + dragDeltaMinutesRef.current;
-      newStartMin = Math.max(
-        0,
-        Math.min(newStartMin, TOTAL_HOURS * 60 - SNAP_MINUTES),
+    if (activeDragPage && dragSourceDay) {
+      const oldStartMin = pageStartMinOnDay(activeDragPage, dragSourceDay);
+      const newStartMin = clampDragStartMin(
+        oldStartMin,
+        oldStartMin + dragDeltaMinutesRef.current,
+        activeDragPage.duration || 60,
       );
 
-      const targetDate =
-        dragTargetDay || zonedWallDate(activeDragPage.scheduledAt);
+      const targetDate = dragTargetDay || dragSourceDay;
       const scheduledDate = new Date(targetDate);
       scheduledDate.setHours(0, 0, 0, 0);
+      // A negative start rolls back into the previous day.
       scheduledDate.setMinutes(newStartMin);
 
       const newISO = wallDateToUtcIso(scheduledDate);
@@ -1155,6 +1181,7 @@ export default function CalendarPage() {
       }
     }
     setActiveDragPage(null);
+    setDragSourceDay(null);
     setDragDeltaMinutes(0);
     dragDeltaMinutesRef.current = 0;
     dragDeltaPxRef.current = 0;
@@ -1168,6 +1195,7 @@ export default function CalendarPage() {
     edgeDragTransitionCancelRef.current?.();
     edgeDragTargetDayRef.current = null;
     setActiveDragPage(null);
+    setDragSourceDay(null);
     setDragDeltaMinutes(0);
     dragDeltaMinutesRef.current = 0;
     dragDeltaPxRef.current = 0;
@@ -1183,7 +1211,11 @@ export default function CalendarPage() {
   const resizeDurationRef = useRef<number | null>(null);
   const resizeCleanupRef = useRef<(() => void) | null>(null);
 
-  function handleResizeStart(pageId: string, e: React.PointerEvent) {
+  function handleResizeStart(
+    pageId: string,
+    e: React.PointerEvent,
+    day: Date,
+  ) {
     const page = timedPages.find((p) => p.id === pageId);
     if (!page) return;
     e.preventDefault();
@@ -1194,7 +1226,7 @@ export default function CalendarPage() {
     const state: ResizeState = {
       pageId,
       originalDuration: page.duration || 60,
-      originalStartMin: pageToStartMin(page),
+      originalStartMin: pageStartMinOnDay(page, day),
       startY: e.clientY,
       startScrollTop: timelineRef.current?.scrollTop ?? 0,
     };
@@ -1230,7 +1262,7 @@ export default function CalendarPage() {
         MIN_DRAG_MINUTES,
         r.originalDuration + deltaMin,
       );
-      const maxDuration = TOTAL_HOURS * 60 - r.originalStartMin;
+      const maxDuration = maxResizeMinutes(r.originalStartMin);
       const clamped = Math.min(newDuration, maxDuration);
       resizeDurationRef.current = clamped;
       setResizeDuration(clamped);
@@ -1775,7 +1807,7 @@ export default function CalendarPage() {
               );
               const duration = Math.min(
                 Math.max(MIN_DRAG_MINUTES, r.originalDuration + deltaMin),
-                TOTAL_HOURS * 60 - r.originalStartMin,
+                maxResizeMinutes(r.originalStartMin),
               );
               resizeDurationRef.current = duration;
               setResizeDuration(duration);
@@ -2234,6 +2266,7 @@ export default function CalendarPage() {
           <EventCard
             key={page.id}
             page={page}
+            day={dayDate}
             layout={layout}
             hourHeight={hourHeight}
             onResizeStart={handleResizeStart}
@@ -2248,24 +2281,20 @@ export default function CalendarPage() {
         {/* Move-drag ghost */}
         {activeDragPage &&
           (() => {
-            const ghostDay =
-              dragTargetDay || zonedWallDate(activeDragPage.scheduledAt);
-            if (!isSameDay(ghostDay, dayDate)) return null;
-            const oldStartMin = pageToStartMin(activeDragPage);
-            const duration = activeDragPage.duration || 60;
-            let newStartMin = oldStartMin + dragDeltaMinutes;
-            newStartMin = Math.max(
-              0,
-              Math.min(newStartMin, TOTAL_HOURS * 60 - SNAP_MINUTES),
-            );
-            const top = (newStartMin / 60) * hourHeight;
-            const height = (duration / 60) * hourHeight;
+            const ghost = getDragGhost();
+            if (!ghost || !isSameDay(ghost.day, dayDate)) return null;
+            const { startMinutes: newStartMin, duration } = ghost;
+            const piece = clipToDay(newStartMin, duration);
+            if (!piece) return null;
+            const top = (piece.startMinutes / 60) * hourHeight;
+            const height =
+              ((piece.endMinutes - piece.startMinutes) / 60) * hourHeight;
             const layout = getTransientLayout(
               dayDate,
               {
                 id: "__drag_ghost__",
-                startMinutes: newStartMin,
-                duration,
+                startMinutes: piece.startMinutes,
+                duration: piece.endMinutes - piece.startMinutes,
               },
               activeDragPage.id,
             );
@@ -2602,6 +2631,7 @@ export default function CalendarPage() {
                       <EventCard
                         key={page.id}
                         page={page}
+                        day={prevDate}
                         layout={layout}
                         hourHeight={hourHeight}
                         onResizeStart={noopHandler}
@@ -2642,6 +2672,7 @@ export default function CalendarPage() {
                         <EventCard
                           key={page.id}
                           page={page}
+                          day={selectedDate}
                           layout={layout}
                           hourHeight={hourHeight}
                           onResizeStart={handleResizeStart}
@@ -2672,24 +2703,21 @@ export default function CalendarPage() {
                     {/* Move-drag ghost preview on grid */}
                     {activeDragPage &&
                       (() => {
-                        const oldStartMin = pageToStartMin(activeDragPage);
-                        const duration = activeDragPage.duration || 60;
-                        let newStartMin = oldStartMin + dragDeltaMinutes;
-                        newStartMin = Math.max(
-                          0,
-                          Math.min(
-                            newStartMin,
-                            TOTAL_HOURS * 60 - SNAP_MINUTES,
-                          ),
-                        );
-                        const top = (newStartMin / 60) * hourHeight;
-                        const height = (duration / 60) * hourHeight;
+                        const ghost = getDragGhost();
+                        if (!ghost) return null;
+                        const { startMinutes: newStartMin, duration } = ghost;
+                        const piece = clipToDay(newStartMin, duration);
+                        if (!piece) return null;
+                        const top = (piece.startMinutes / 60) * hourHeight;
+                        const height =
+                          ((piece.endMinutes - piece.startMinutes) / 60) *
+                          hourHeight;
                         const layout = getTransientLayout(
                           selectedDate,
                           {
                             id: "__drag_ghost__",
-                            startMinutes: newStartMin,
-                            duration,
+                            startMinutes: piece.startMinutes,
+                            duration: piece.endMinutes - piece.startMinutes,
                           },
                           activeDragPage.id,
                         );
@@ -2793,6 +2821,7 @@ export default function CalendarPage() {
                       <EventCard
                         key={page.id}
                         page={page}
+                        day={nextDate}
                         layout={layout}
                         hourHeight={hourHeight}
                         onResizeStart={noopHandler}

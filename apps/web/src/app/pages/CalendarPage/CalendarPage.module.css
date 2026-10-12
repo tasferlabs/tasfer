@@ -278,6 +278,20 @@
   bottom: -6px;
 }
 
+/* An event past midnight is cut at the day's edge: square corners there show
+   it carries on into the day before or after. */
+.eventCardContinuesBefore {
+  border-start-start-radius: 0;
+  border-start-end-radius: 0;
+  border-top-style: dashed;
+}
+
+.eventCardContinuesAfter {
+  border-end-start-radius: 0;
+  border-end-end-radius: 0;
+  border-bottom-style: dashed;
+}
+
 /* Too-short events show an ellipsis rather than a colour swatch: it reads as
    "more here, too small to show". Neutral, not the event's accent colour. */
 .eventEllipsis {

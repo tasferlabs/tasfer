@@ -4136,6 +4136,8 @@ export class Engine implements Platform {
       start: number,
       end: number,
     ): Promise<PageCalendarItem[]> => {
+      const startIso = new Date(start).toISOString();
+      const endIso = new Date(end).toISOString();
       const rows = await this.driver.db.query<{
         id: string;
         title: string;
@@ -4152,13 +4154,18 @@ export class Engine implements Platform {
       }>(
         // Pages in an archived space stay live but are hidden as a whole (see
         // spaces.listArchived), so their events must not surface here either.
+        // An event belongs to the range when any part of it overlaps, so one
+        // that started earlier and runs into the range is included. The grid
+        // draws a missing or zero duration as an hour, so it counts as one here.
         `SELECT p.* FROM pages p
          LEFT JOIN spaces s ON s.id = p.space_id
          WHERE p.scheduled_at IS NOT NULL AND p.archived_at IS NULL
          AND (p.space_id IS NULL OR s.archived_at IS NULL)
-         AND p.scheduled_at >= ? AND p.scheduled_at <= ?
+         AND p.scheduled_at <= ?
+         AND julianday(p.scheduled_at)
+           + COALESCE(NULLIF(p.duration, 0), 60) / 1440.0 > julianday(?)
          ORDER BY p.scheduled_at ASC`,
-        [new Date(start).toISOString(), new Date(end).toISOString()],
+        [endIso, startIso],
       );
 
       const results: PageCalendarItem[] = [];
