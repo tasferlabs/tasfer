@@ -22,6 +22,11 @@ import type { Block } from "@tasfer/editor";
 import { deriveTitles, findTitleBlock } from "@/lib/pageTitle";
 import { getResolvedTimezone } from "@/lib/dateTimePreferences";
 import { useDateTimePrefs } from "@/app/contexts/DateTimePrefsContext";
+import { useOwnPrefsStore } from "@/app/contexts/OwnPrefsContext";
+import {
+  reminderPrefKey,
+  type ReminderSetting,
+} from "@/reminders/reminders";
 import { getPlatform } from "@/platform";
 import {
   useGetCalendarPages,
@@ -80,7 +85,7 @@ import {
 import { triggerHaptic } from "@/platform/bridge";
 import { EventCard } from "./EventCard";
 import { AllDayRow } from "./AllDayRow";
-import { EventPreview } from "./EventPreview";
+import { EventPreview, type ScheduleFields } from "./EventPreview";
 import { DateTimePickerOverlay } from "@/components/datetimepickers/DateTimePickerOverlay";
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { DateTime } from "luxon";
@@ -230,6 +235,7 @@ export default function CalendarPage() {
   // (in-page + route) don't fire during the create → onSuccess window.
   const savingDraftRef = useRef(false);
   const queryClient = useQueryClient();
+  const ownPrefs = useOwnPrefsStore();
 
   // Tear down the preview without asking. Only for paths that already carry an
   // explicit discard intent (the draft footer's Cancel); everything else goes
@@ -537,7 +543,12 @@ export default function CalendarPage() {
   const { mutate: createPage } = useCreatePage({
     onSuccess: async (newPage) => {
       // Save draft title and body to the new page
-      const { blocks } = draftSnapshotRef.current;
+      const { blocks, reminder } = draftSnapshotRef.current;
+      // Before the panel switches to the new event, so its reminder row opens
+      // on what was picked in the draft.
+      if (reminder !== undefined) {
+        ownPrefs.set(reminderPrefKey(newPage.id), reminder);
+      }
       if (blocks) {
         await updatePageApi({
           id: newPage.id,
@@ -625,8 +636,8 @@ export default function CalendarPage() {
   const handlePreviewScheduleEdited = useCallback(
     (
       pageId: string,
-      before: { scheduledAt: string | null; duration: number | null },
-      after: { scheduledAt: string | null; duration: number | null },
+      before: ScheduleFields,
+      after: ScheduleFields,
     ) => {
       recordUndo({
         undoMessage: t(
@@ -879,9 +890,10 @@ export default function CalendarPage() {
     return () => cancelAnimationFrame(frame);
   }, [draftEvent, previewAnchor, isMobile]);
 
-  const draftSnapshotRef = useRef<{ blocks?: Block[] }>(
-    {},
-  );
+  const draftSnapshotRef = useRef<{
+    blocks?: Block[];
+    reminder?: ReminderSetting;
+  }>({});
 
   const handleDraftSave = useCallback(
     (
@@ -890,13 +902,15 @@ export default function CalendarPage() {
       parentId?: string | null,
       task?: boolean,
       spaceId?: string,
+      reminder?: ReminderSetting,
+      recurrence?: string,
     ) => {
       const targetSpaceId = spaceId ?? firstSpaceId;
       if (!draftEvent || !targetSpaceId) return;
       // Mark saving before the async create so the discard guards pass through
       // rather than prompting while the draft is being committed.
       savingDraftRef.current = true;
-      draftSnapshotRef.current = { blocks };
+      draftSnapshotRef.current = { blocks, reminder };
       createPage({
         ...(blocks ? deriveTitles(blocks) : { title: "" }),
         parentId: parentId ?? null,
@@ -905,6 +919,7 @@ export default function CalendarPage() {
         duration: draftEvent.duration,
         ...(draftEvent.allDay && { allDay: true }),
         task: task ?? true,
+        ...(recurrence && { recurrence }),
       });
     },
     [draftEvent, firstSpaceId, createPage],
@@ -3097,21 +3112,32 @@ export default function CalendarPage() {
 
       <EventPreview
         pageId={previewEntry?.pageId ?? previewPageId}
+        occurrence={isOccurrence(previewEntry) ? previewEntry : null}
+        onOccurrenceReschedule={rescheduleOccurrence}
+        onOccurrenceArchive={archiveOccurrence}
         anchor={previewAnchor}
         onClose={handlePreviewClose}
         sidebarMode={sidebarMode ?? false}
         onSidebarModeChange={setSidebarMode}
-        onDuplicate={(id) => duplicatePage(id, { select: true })}
+        onDuplicate={() => {
+          if (previewPageId)
+            void duplicatePage(previewPageId, { select: true });
+        }}
         draft={draftEvent}
         onDraftDiscard={closePreviewNow}
         onDraftSave={handleDraftSave}
-        onDraftScheduleChange={(scheduledAt, duration) =>
-          setDraftEvent((d) => (d ? { ...d, scheduledAt, duration } : d))
+        onDraftScheduleChange={(scheduledAt, duration, allDay) =>
+          setDraftEvent((d) =>
+            d
+              ? { ...d, scheduledAt, duration, allDay: allDay ?? d.allDay }
+              : d,
+          )
         }
         onDraftContentChange={setDraftHasContent}
         onArchived={recordArchiveUndo}
         onScheduleEdited={handlePreviewScheduleEdited}
         onTaskToggled={handlePreviewTaskToggled}
+        onToggleDone={handleToggleDone}
         calendarInteractionActive={
           activeDragPage !== null || resize !== null || createDrag !== null
         }

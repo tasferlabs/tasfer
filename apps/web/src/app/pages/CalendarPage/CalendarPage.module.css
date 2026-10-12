@@ -522,6 +522,41 @@ button.doneBox::after {
   flex-shrink: 0;
 }
 
+/* Fields sharing one row. The wide field takes nearly all the spare room; on
+   a panel too narrow for both, the narrow one wraps under it at full width. */
+.previewRowFields {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Sized by its content, so the row wraps only when the date and the duration
+   would not fit whole. */
+.previewWideField {
+  flex: 999 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+/* The repeat select truncates its label rather than wrapping off the switch. */
+.previewRepeatField {
+  flex: 999 1 8rem;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+/* Wide enough for most durations, so the date field doesn't jump as it
+   changes. */
+.previewNarrowField {
+  flex: 1 0 auto;
+  min-width: 7.5rem;
+}
+
 /* Read-only space name, sitting where a draft shows its space select. */
 .previewSpaceName {
   flex: 1;
@@ -533,6 +568,51 @@ button.doneBox::after {
   text-overflow: ellipsis;
 }
 
+/* Above an occurrence's notes while they are still the series': says so, and
+   offers a keyboard way to start this occurrence's own notes. */
+.previewSharedNotesHint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 6px 12px 0;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.previewSharedNotesAction {
+  padding: 0;
+  font-size: inherit;
+  color: var(--primary);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.previewSharedNotesAction:hover {
+  text-decoration: underline;
+}
+
+/* Stands in for an empty event body: covers the area so a click anywhere
+   starts the first line, with the text where that line will sit. */
+/* Stands in for the notes editor's own placeholder until the notes have a
+   line: same size, line box and color as the canvas paragraph placeholder
+   (padding and font family are set inline from the editor's). */
+.previewBodyHint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  padding: 8px 12px;
+  font-size: 1rem;
+  line-height: 1.5;
+  text-align: start;
+  color: var(--editor-placeholder);
+  background: none;
+  border: none;
+  cursor: text;
+}
+
 .previewTitleRow {
   display: flex;
   align-items: center;
@@ -540,27 +620,55 @@ button.doneBox::after {
   padding-inline: 12px;
 }
 
-/* Mobile: collapsed schedule summary that expands into the rows above. */
-.previewDetails {
+/* The event panel's field groups (see EventSection): each folds into a summary
+   line that opens onto its fields. They scroll together when open groups
+   outgrow the panel, ahead of the body editor below them — except in the
+   desktop event panel, which scrolls them with the title and notes. */
+.eventSections {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-block: 4px;
+}
+
+.eventSection {
   display: flex;
   flex-direction: column;
 }
 
-.previewDetailsSummary {
+.eventSectionSummary {
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 10px 12px;
+  padding: 8px 12px;
   background: none;
   border: none;
-  border-bottom: 1px solid var(--border);
+  border-radius: 6px;
   text-align: start;
   cursor: pointer;
 }
 
-.previewDetailsSummary:hover {
+.eventSectionSummary:hover {
   background-color: var(--accent);
+}
+
+.eventSectionSummary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+/* Open fields sit under the summary's text, so the group reads as one. */
+.eventSectionBody {
+  overflow: hidden;
+  padding-inline-start: 16px;
+}
+
+/* The Task / Page switch under a draft's title: it decides which fields the
+   groups below offer, so it sits above them. */
+.eventTypeRow {
+  padding-block: 4px;
+  padding-inline: 36px 12px;
 }
 
 .previewDetailsSummaryText {
@@ -597,8 +705,16 @@ button.doneBox::after {
   transform: rotate(180deg);
 }
 
-.previewDetailsBody {
-  overflow: hidden;
+.previewAllDayToggle {
+  flex: 1 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+  color: var(--foreground);
+  cursor: pointer;
 }
 
 .previewTaskToggle {
@@ -632,7 +748,8 @@ button.doneBox::after {
 }
 
 .previewTypeToggleGroup {
-  display: flex;
+  /* Hug the two options rather than stretching across the row. */
+  display: inline-flex;
   gap: 2px;
   background-color: var(--accent);
   border-radius: 6px;
@@ -681,7 +798,24 @@ button.doneBox::after {
 .previewEditorArea {
   flex: 1;
   overflow: hidden;
+  /* Open field groups push the notes down, never shrink them out of use. */
+  min-height: 128px;
+}
+
+/* Desktop body of an existing event: title, field groups and notes scroll
+   together. The notes fill whatever height is left, and keep a usable height
+   when open groups push them below the fold. */
+.previewEventScroll {
+  flex: 1;
   min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.previewEventScroll > .eventSections {
+  flex: none;
+  overflow: visible;
 }
 
 /* Draft title field leads the desktop popover, above the schedule rows. */
@@ -718,6 +852,12 @@ button.doneBox::after {
   flex-shrink: 0;
   padding: 6px 8px;
   border-bottom: 1px solid var(--border);
+}
+
+.draftTopBarEnd {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .draftTopBarAction {
@@ -1754,4 +1894,9 @@ button.doneBox::after {
   .weekTimeLabel {
     padding-inline-end: 4px;
   }
+}
+
+/* The preview's done toggle, once the task is ticked off. */
+.previewDoneBtnChecked {
+  color: var(--primary);
 }
