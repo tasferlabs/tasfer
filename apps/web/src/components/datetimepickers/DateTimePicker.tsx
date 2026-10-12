@@ -283,6 +283,8 @@ const EgDateTimePicker = React.forwardRef(
             />
           </div>
           <div className="flex items-center ms-auto">
+            {/* A required value can't be cleared, so it offers no Clear. */}
+            {!required && (
             <Button
               type="button"
               variant="ghost"
@@ -300,6 +302,7 @@ const EgDateTimePicker = React.forwardRef(
             >
               <X className={size === 'small' ? 'size-4' : 'size-5'} />
             </Button>
+            )}
 
             <Button
               type="button"
