@@ -894,6 +894,7 @@ import {
   createDoc,
   createEditor,
   baseSchema,
+  bodyBlocksWindow,
   titleBlockWindow,
 } from "@tasfer/editor";
 
@@ -912,6 +913,13 @@ const title = createEditor({
   schema: baseSchema.restrict({ blocks: ["heading1"], marks: [] }),
   window: titleBlockWindow(),
 });
+
+// Or split the page: the body editor shows everything except the title.
+const bodyOnly = createEditor({
+  element: bodyOnlyEl,
+  doc,
+  window: bodyBlocksWindow(),
+});
 ```
 
 - `titleBlockWindow()` scopes to the document's **title block** — the first
@@ -923,6 +931,16 @@ const title = createEditor({
   inert), merge into a neighbour (Backspace/Delete at the edges no-op), gain
   blocks from a paste (it flattens to inline text), and the caret cannot leave
   the window. It never mutates any block but its own.
+- `bodyBlocksWindow()` is the other half of a split view: every block **after**
+  the title block (the whole doc when it has no text block). Pair it with a
+  `titleBlockWindow()` editor on the same doc to show the title and the body as
+  separate surfaces. Blocks before the title belong to neither half. A doc that
+  is only its title gives an empty body window: nothing renders and the editor
+  holds no caret until you insert a block after the title (e.g.
+  `c.insertBlock({ type: "paragraph" }, { block: titleId, side: "after" })`).
+- No windowed editor merges across its window's edge: Backspace at the start of
+  the first block in the window, or Delete at the end of the last, does nothing
+  instead of joining a block the editor doesn't show.
 - A window is a **view/authoring concern only** — never a storage one. The doc,
   reducer, and sync ignore it, so a windowed and a full editor on one doc always
   converge. Pair it with `restrict` to also constrain the single block's type

@@ -527,10 +527,12 @@ export {
 
 // View windows — scope an editor to a subset of a shared doc's blocks (the
 // `window` option on `mountEditor`/`createEditor`/`useEditor`). `titleBlockWindow`
-// builds a single-block title surface (pair with `Schema.restrict`); two editors
-// on one `Doc` showing different windows stay live-synced through the doc.
+// builds a single-block title surface (pair with `Schema.restrict`) and
+// `bodyBlocksWindow` the rest of the page; two editors on one `Doc` showing
+// different windows stay live-synced through the doc.
 export {
   blockIdWindow,
+  bodyBlocksWindow,
   titleBlockIndex,
   titleBlockWindow,
 } from "./view-window";

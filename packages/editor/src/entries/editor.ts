@@ -1571,7 +1571,16 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     if (!window) return state;
     const blocks = state.document.page.blocks;
     const included = window.select(blocks);
-    if (included.size === 0) return state;
+    // An empty window (a body view over a page that is only its title) has no
+    // block to hold a caret. Drop it, so keystrokes can't land in a block this
+    // editor does not show.
+    if (included.size === 0) {
+      if (!state.document.cursor && !state.document.selection) return state;
+      return {
+        ...state,
+        document: { ...state.document, cursor: null, selection: null },
+      };
+    }
     const sorted = [...included].sort((a, b) => a - b);
     const first = sorted[0];
     const last = sorted[sorted.length - 1];
