@@ -485,6 +485,10 @@ if (!gotTheLock) {
 // ── App lifecycle ──────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
+  // Windows shows a notification only for an app whose user model id matches
+  // its Start-menu shortcut — the appId electron-builder gives the NSIS one.
+  // Without it, event reminders would be dropped silently.
+  if (process.platform === "win32") app.setAppUserModelId("app.tasfer");
   // Set dock icon on macOS in dev only — production uses the .icns from the .app bundle
   if (process.platform === "darwin" && isDev) {
     const dockIcon = nativeImage.createFromPath(
@@ -570,6 +574,13 @@ app.whenReady().then(() => {
     mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize();
   });
   ipcMain.handle("app:close", () => mainWindow?.close());
+  // Bring the window back from the tray — a clicked event reminder opens it.
+  ipcMain.handle("app:show", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (process.platform === "darwin") app.dock?.show();
+    mainWindow.show();
+    mainWindow.focus();
+  });
 
   createTray();
   createWindow();

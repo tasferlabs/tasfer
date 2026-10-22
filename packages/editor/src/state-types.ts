@@ -1,4 +1,5 @@
 import type { ActionBus } from "./action-bus";
+import type { KeymapOverrides } from "./keymap";
 import type { DecorationLayers } from "./rendering/decorations";
 import type { MarkRegistry } from "./rendering/marks/Mark";
 import type { NodeRegistry } from "./rendering/nodes/Node";
@@ -370,7 +371,16 @@ export interface ImageHoverState {
  * the affordance ("this edge can be dragged sideways"), never a raw CSS value.
  */
 export type RegionHoverCursor =
-  "ew-resize" | "ns-resize" | "pointer" | "grab" | "text";
+  | "ew-resize"
+  | "ns-resize"
+  | "pointer"
+  | "grab"
+  // The closed hand, for chrome held mid-drag — a scrollbar thumb being pulled.
+  | "grabbing"
+  | "text"
+  // The plain arrow, for chrome that is grabbed rather than clicked or typed
+  // into — a scrollbar thumb — where the canvas's text caret would mislead.
+  | "default";
 
 /**
  * What the pointer is resting on, as the hit region under it describes itself.
@@ -614,6 +624,30 @@ export interface UIState {
   // by an opaque layer name; never persisted, never in undo. See
   // `rendering/decorations.ts`.
   readonly decorations: DecorationLayers;
+  /**
+   * The rungs expand-selection has climbed, so shrink can walk back down them.
+   * Only trusted while the page and selection are still what the last expand
+   * left (see `actions/selection-expansion.ts`). Never persisted, never in undo.
+   */
+  readonly selectionExpansion?: SelectionExpansionHistory | null;
+}
+
+/** A selection as expand/shrink-selection saves and restores it. */
+export interface SelectionSnapshot {
+  readonly cursor: CursorState | null;
+  readonly selection: SelectionState | null;
+  readonly contentSelection: ContentSelection | null;
+  readonly mode: EditorMode;
+}
+
+/** The ladder expand-selection has climbed in one editor. */
+export interface SelectionExpansionHistory {
+  /** The page the ladder was built on; any edit makes the history stale. */
+  readonly page: Page;
+  /** The selection the last expand produced. */
+  readonly current: SelectionSnapshot;
+  /** Every selection expand grew from, oldest first. */
+  readonly previous: readonly SelectionSnapshot[];
 }
 
 /**
@@ -834,6 +868,13 @@ export interface EditorState {
    * independently.
    */
   readonly resolvedNodeStrings: NodeStringsMap;
+  /**
+   * This instance's changes to the built-in chords (see `defaultKeymap`). Only
+   * the overrides are kept: the defaults are resolved per keydown, so `mod`
+   * follows the platform the event came from. Set at mount (`keymap`) and live
+   * via `setKeymap`.
+   */
+  readonly keymap: KeymapOverrides;
 }
 
 // Action result - all actions return state + operations
@@ -1161,12 +1202,17 @@ export interface TableBlockStyle extends TextStyle {
   readonly cellPaddingX: number;
   readonly cellPaddingY: number;
   /**
-   * Narrowest a column may be squeezed to before its text is allowed to
-   * overflow its own wrap width. A table always fits the page width (there is
-   * no horizontal scroll), so this is the floor that keeps a many-column table
-   * from collapsing its columns to slivers.
+   * Narrowest a column may be dragged to, and the floor no column is fitted
+   * under. A single unbreakable glyph wider than this overflows its wrap width
+   * and is clipped at the cell's edge.
    */
   readonly minColumnWidth: number;
+  /**
+   * The average column width below which a table stops shrinking to fit the
+   * page and grows wider than it instead, scrolling sideways. A table whose
+   * columns all fit at this width fills the page exactly, as before.
+   */
+  readonly overflowColumnWidth: number;
   /** Fill behind the cell the caret is in, marking the active cell. */
   readonly activeCellBackgroundColor: string;
   /**

@@ -8,8 +8,8 @@
  *
  * The shape, and why:
  *
- *     root  (type "table", authority "block")
- *       ├── slot "columns" → column nodes    { align? }
+ *     root  (type "table", authority "block")  { width? }
+ *       ├── slot "columns" → column nodes    { align?, width? }
  *       └── slot "rows"    → row nodes
  *              └── slot "cells" → cell nodes { columnId }, textFields { text }
  *
@@ -107,6 +107,33 @@ export function columnWidth(column: StructuredNode): number | null {
     Number.isFinite(width) &&
     width > 0 &&
     width < 1
+    ? width
+    : null;
+}
+
+/**
+ * The most a dragged table may be widened to, in page widths. A sanity bound on
+ * what a drag writes and what a reader accepts, not a layout rule.
+ */
+export const MAX_TABLE_WIDTH = 8;
+
+/**
+ * How wide someone dragged the whole table, in page widths (`1.5` is half again
+ * as wide as the page), or `null` when it is as wide as the page and its column
+ * count make it (see `tableGridWidth`).
+ *
+ * Page widths for the reason a column width is a fraction: the same document
+ * opens on a phone and a desktop. It lives on the root node, so a version that
+ * predates it keeps the attr and draws the table at its automatic width, with
+ * the columns in the same proportions. Values outside `(1, MAX_TABLE_WIDTH]`
+ * are read as "no width".
+ */
+export function tableWidth(root: StructuredNode | undefined): number | null {
+  const width = root?.attrs.width;
+  return typeof width === "number" &&
+    Number.isFinite(width) &&
+    width > 1 &&
+    width <= MAX_TABLE_WIDTH
     ? width
     : null;
 }

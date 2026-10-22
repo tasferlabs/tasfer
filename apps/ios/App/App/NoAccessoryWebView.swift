@@ -100,6 +100,28 @@ extension WKWebView {
         }
         return find(scrollView)
     }
+
+    /// Tell the keyboard the caret moved, so it re-reads the text around it and
+    /// refreshes the suggestion bar (e.g. offers corrections for the word the
+    /// caret now touches). WebKit only does this for caret moves made by a
+    /// finger inside the field; the canvas editor moves the caret with
+    /// JavaScript, which a web page cannot signal to the keyboard itself.
+    ///
+    /// Both the selection and text notifications are sent: the selection pair
+    /// alone may let the keyboard keep its cached context, while the text pair
+    /// makes it re-read. The web app calls this for caret moves with no content
+    /// change and after Backspace/Delete (which the editor applies itself), never
+    /// while typing, so no in-flight autocorrect session is disturbed.
+    func tasferNotifyKeyboardCaretMoved() {
+        guard let contentView = tasferContentView, contentView.isFirstResponder,
+            let input = contentView as? UITextInput,
+            let delegate = input.inputDelegate
+        else { return }
+        delegate.textWillChange(input)
+        delegate.selectionWillChange(input)
+        delegate.selectionDidChange(input)
+        delegate.textDidChange(input)
+    }
 }
 
 extension UIView {
@@ -598,6 +620,14 @@ final class KeyboardToolbarBridge: NSObject, WKScriptMessageHandler {
             // focused does iOS attach the formatting accessory; other inputs
             // keep the plain keyboard.
             webView.setTasferAccessoryEnabled((message.body as? NSNumber)?.boolValue ?? false)
+        case "KeyboardCaretMoved":
+            // The editor moved the caret with JavaScript (a canvas tap) or
+            // applied a Backspace/Delete itself. Give WebKit a beat to receive
+            // the new text and selection from the web process before the
+            // keyboard asks for them.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak webView] in
+                webView?.tasferNotifyKeyboardCaretMoved()
+            }
         default:
             guard let model = message.body as? [String: Any] else { return }
             webView.tasferKeyboardAccessory.applyModel(model)

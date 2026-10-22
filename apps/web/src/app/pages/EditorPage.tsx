@@ -1,4 +1,10 @@
 import type { SyncState } from "@/app/hooks/useP2PRoom";
+import {
+  formatRecurrence,
+  parseRecurrence,
+  shiftRule,
+} from "@/platform/recurrence";
+import { RepeatRow } from "./CalendarPage/RepeatRow";
 import DateTimePicker from "@/components/datetimepickers/DateTimePicker";
 import { Button } from "@/components/ui/button";
 import {
@@ -108,10 +114,12 @@ import {
 } from "../contexts/PageSettingsContext";
 import { useSpaces } from "../contexts/SpaceContext";
 import { useTreeExpand } from "../contexts/TreeExpandContext";
+import { useSpacePrefs } from "../contexts/SpacePrefsContext";
 import { useDebouncedSave } from "../hooks/useDebouncedSave";
 import useLocalStorage from "../hooks/useLocalStorage";
 import { useNavigationPrompt } from "../hooks/useNavigationPrompt";
 import useMobileLayout from "../hooks/useMobileLayout";
+import type { PageFrontier } from "@/platform/types";
 import style from "./EditorPage.module.css";
 
 const SnapshotRestore = lazy(() =>
@@ -158,6 +166,7 @@ export default function EditorPage() {
   );
   // State for loading page blocks once on mount
   const [pageSnapshot, setPageSnapshot] = useState<Block[] | null>(null);
+  const [pageFrontier, setPageFrontier] = useState<PageFrontier>();
   const [isLoading, setIsLoading] = useState(true);
   const [isError, setIsError] = useState(false);
   // Track if page was deleted by another user (via WebSocket)
@@ -207,6 +216,7 @@ export default function EditorPage() {
   const navigate = useNavigate();
   const { firstSpaceId } = useSpaces();
   const treeExpand = useTreeExpand();
+  const spacePrefs = useSpacePrefs();
   // Only consulted on the bare /page route, to pick a page to open.
   const { data: pages, isLoading: isLoadingPages } = useGetPages(
     firstSpaceId,
@@ -399,6 +409,7 @@ export default function EditorPage() {
           if (!hasVisibleBlocks) {
             // Page exists but has no content — mark as corrupted so user can recover from snapshots
             setPageSnapshot(blocks);
+            setPageFrontier(page.frontier);
             setCurrentTitle(page.title || "");
             currentTitleMdRef.current = page.titleMd || "";
             setPageSpaceId(page.spaceId ?? null);
@@ -409,6 +420,7 @@ export default function EditorPage() {
             return;
           }
           setPageSnapshot(blocks);
+          setPageFrontier(page.frontier);
           setCurrentTitle(page.title || "");
           currentTitleMdRef.current = page.titleMd || "";
           // Store the page's actual space ID for P2P sync routing
@@ -422,7 +434,9 @@ export default function EditorPage() {
           // debounced update path. Large documents should become interactive
           // before this full-content scan runs.
           debouncedWordCountUpdate(blocks);
-          // Expand all ancestor pages in the sidebar tree
+          // Reveal the page in the sidebar: open its space and every
+          // ancestor page.
+          if (page.spaceId) spacePrefs.expand(page.spaceId);
           if (page.parents && page.parents.length > 0) {
             treeExpand.expandMany(page.parents.map((p) => p.id));
           }
@@ -735,6 +749,7 @@ export default function EditorPage() {
         </div>
         <MountedEditor
           snapshot={pageSnapshot}
+          frontier={pageFrontier}
           className="w-full h-full"
           onContentChange={readonly ? undefined : handleContentChange}
           onContentUpdate={handleContentUpdate}
@@ -816,11 +831,14 @@ function ScheduleContent({
   pageId,
   scheduledAt,
   duration,
+  recurrence,
   readonly,
 }: {
   pageId: string;
   scheduledAt: string | null;
   duration: number | null;
+  /** The page's repeat rule, when it repeats. */
+  recurrence: string | null;
   readonly: boolean;
 }) {
   const { t } = useTranslation();
@@ -849,7 +867,29 @@ function ScheduleContent({
   );
 
   const handleRemoveSchedule = () => {
-    update({ id: pageId, scheduledAt: null, duration: null, allDay: null });
+    update({
+      id: pageId,
+      scheduledAt: null,
+      duration: null,
+      allDay: null,
+      // Without a date there is nothing for a rule to repeat from.
+      ...(recurrence && { recurrence: null }),
+    });
+  };
+
+  // A repeating event's start moving moves the whole series: its weekdays or
+  // day of the month go along with the new date.
+  const moveStart = (value: string | null) => {
+    const rule = parseRecurrence(recurrence);
+    if (!value || !scheduledAt || !rule) {
+      update({ id: pageId, scheduledAt: value });
+      return;
+    }
+    update({
+      id: pageId,
+      scheduledAt: value,
+      recurrence: formatRecurrence(shiftRule(rule, scheduledAt, value)),
+    });
   };
 
   return (
@@ -867,7 +907,7 @@ function ScheduleContent({
               value={field.value}
               onChange={(value) => {
                 field.onChange(value);
-                update({ id: pageId, scheduledAt: value });
+                moveStart(value);
               }}
               disabled={readonly}
               timezone={tz}
@@ -876,6 +916,22 @@ function ScheduleContent({
           )}
         />
       </div>
+
+      {scheduledAt && !readonly && (
+        <div className="space-y-2">
+          <label className="text-sm font-medium">
+            {t("calendar.repeat.label", "Repeat")}
+          </label>
+          <RepeatRow
+            value={recurrence}
+            start={scheduledAt}
+            timezone={tz}
+            onChange={(rule) => update({ id: pageId, recurrence: rule })}
+            className="flex items-center gap-2"
+            iconClassName="text-muted-foreground shrink-0"
+          />
+        </div>
+      )}
 
       <div className="space-y-2">
         <label className="text-sm font-medium">
@@ -1019,6 +1075,7 @@ function ScheduleTag({
       pageId={pageId}
       scheduledAt={page?.scheduledAt ?? null}
       duration={page?.duration ?? null}
+      recurrence={page?.recurrence ?? null}
       readonly={readonly}
     />
   );

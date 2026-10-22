@@ -37,7 +37,7 @@ const STUB_RECT = { x: 40, y: 12, height: 15 } as const;
 
 /** A non-textual block whose node places the caret inside its own content. */
 class NestedCaretNode extends AtomicNode {
-  readonly type = "nested-caret" as const;
+  readonly type: string = "nested-caret";
   protected intrinsicHeight(): number {
     return BLOCK_HEIGHT;
   }
@@ -52,6 +52,22 @@ class NestedCaretNode extends AtomicNode {
       y: c.origin.y + STUB_RECT.y,
       height: STUB_RECT.height,
     };
+  }
+}
+
+/**
+ * A block that has scrolled the caret's spot out of sight sideways (a wide
+ * table's hidden column): the rect comes back pinned to the window's right
+ * edge and flagged, the way `TableNode` reports it.
+ */
+class ScrolledAwayCaretNode extends NestedCaretNode {
+  readonly type: string = "scrolled-away-caret";
+  contentCaretRect(
+    layout: unknown,
+    point: ContentPoint,
+    c: { origin: { x: number; y: number } },
+  ): NodeCaretRect | null {
+    return { ...super.contentCaretRect(layout, point, c)!, offscreen: "right" };
   }
 }
 
@@ -172,6 +188,15 @@ function heightIndexFor(state: EditorState) {
 }
 
 describe("cursor layer — a caret the node owns", () => {
+  it("draws no local caret in content scrolled out of sight sideways", () => {
+    const state = stateWith(new ScrolledAwayCaretNode(), selectionIn("b1"));
+    const rec = recordingCtx();
+
+    renderCursorLayer(rec.ctx, session, state, viewport, styles);
+
+    expect(rec.fills()).toBe(0);
+  });
+
   it("paints a caret for a non-textual block whose node places one", () => {
     const state = stateWith(new NestedCaretNode(), selectionIn("b1"));
     const rec = recordingCtx();
@@ -318,6 +343,125 @@ describe("cursor layer — a peer's caret the node owns", () => {
 
     expect(hitAreas).toHaveLength(1);
     expect(hitAreas[0].contentPoint).toEqual(peerPoint);
+  });
+
+  describe("a peer in content scrolled out of sight sideways", () => {
+    const edgeX = styles.canvas.paddingLeft + STUB_RECT.x;
+
+    it("marks the window's edge on the caret's row instead of a caret", () => {
+      const state = stateWith(new ScrolledAwayCaretNode(), null, {
+        decorations: peerCaretLayer(peerPoint),
+      });
+      const hitAreas: IndicatorHitArea[] = [];
+      const rec = recordingCtx();
+
+      renderCursorLayer(
+        rec.ctx,
+        peerSession(hitAreas),
+        state,
+        viewport,
+        styles,
+      );
+
+      // No caret bar, no name label: only the pill and its chevron.
+      expect(rec.named("fillRect")).toHaveLength(0);
+      expect(hitAreas).toHaveLength(1);
+      const [pill] = hitAreas;
+      expect(pill.contentPoint).toEqual(peerPoint);
+      // Hugging the right edge from inside, centered on the caret's row.
+      expect(pill.x + pill.width).toBe(edgeX);
+      const rowMid =
+        styles.canvas.paddingTop + STUB_RECT.y + STUB_RECT.height / 2;
+      expect(pill.y + pill.height / 2).toBe(rowMid);
+      // The chevron's tip is on the edge, pointing out past it.
+      expect(rec.named("moveTo")[0].args).toEqual([edgeX, rowMid]);
+    });
+
+    it("steps a second peer on the same row in from the first", () => {
+      const state = stateWith(new ScrolledAwayCaretNode(), null, {
+        decorations: {
+          ...peerCaretLayer(peerPoint),
+          "presence:peer-3": [
+            { kind: "caret", point: peerPoint, color: "#00aaff" },
+          ],
+        },
+      });
+      const hitAreas: IndicatorHitArea[] = [];
+
+      renderCursorLayer(
+        recordingCtx().ctx,
+        peerSession(hitAreas),
+        state,
+        viewport,
+        styles,
+      );
+
+      expect(hitAreas).toHaveLength(2);
+      const [first, second] = hitAreas;
+      expect(second.x + second.width).toBeLessThan(first.x);
+    });
+
+    it("still gets the gutter pill once it is scrolled off the page too", () => {
+      const state = stateWith(new ScrolledAwayCaretNode(), null, {
+        decorations: peerCaretLayer(peerPoint),
+      });
+      const hitAreas: IndicatorHitArea[] = [];
+
+      renderCursorLayer(
+        recordingCtx().ctx,
+        peerSession(hitAreas),
+        state,
+        { ...viewport, height: 5 },
+        styles,
+      );
+
+      expect(hitAreas).toHaveLength(1);
+      expect(hitAreas[0].contentPoint).toEqual(peerPoint);
+      expect(hitAreas[0].x).toBeLessThan(styles.canvas.paddingLeft);
+    });
+  });
+
+  describe("the top padding a host reserves for its own chrome", () => {
+    const padded: EditorStyles = {
+      ...styles,
+      canvas: { ...styles.canvas, paddingTop: 48 },
+    };
+    const caretX = padded.canvas.paddingLeft + STUB_RECT.x;
+    const labelY = (rec: ReturnType<typeof recordingCtx>) =>
+      rec.named("roundRect")[0]?.args[1];
+
+    it("keeps the label out of the padding while it is on screen", () => {
+      const state = stateWith(new NestedCaretNode(), null, {
+        decorations: peerCaretLayer(peerPoint),
+      });
+      const rec = recordingCtx();
+
+      renderCursorLayer(rec.ctx, peerSession(), state, viewport, padded);
+
+      expect(labelY(rec)).toBe(48);
+    });
+
+    it("lets the label sit above its caret once the padding scrolled away", () => {
+      // Scrolled 50px: the caret lands 10px from the viewport top, inside the
+      // band the padding used to occupy. It must still paint, with its label
+      // above it rather than pushed down onto it.
+      const state = stateWith(new NestedCaretNode(), null, {
+        decorations: peerCaretLayer(peerPoint),
+      });
+      const rec = recordingCtx();
+
+      renderCursorLayer(
+        rec.ctx,
+        peerSession(),
+        state,
+        { ...viewport, scrollY: 50 },
+        padded,
+      );
+
+      const caret = rec.named("fillRect").find((c) => c.args[0] === caretX);
+      expect(caret?.args[1]).toBe(10);
+      expect(labelY(rec)).toBe(0);
+    });
   });
 });
 

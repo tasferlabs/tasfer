@@ -1,5 +1,6 @@
 export const INTERNAL_NOTE_SLUGS = [
   "accessibility",
+  "ai-stance",
   "compatibility",
   "crdt-compaction",
   "ethical-dilemma-of-tasfer-and-p2p-networks",

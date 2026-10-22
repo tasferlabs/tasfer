@@ -6,6 +6,19 @@ import {
   useSyncExternalStore,
 } from "react";
 import { getPlatform } from "@/platform";
+import {
+  LEGACY_PARENT_USAGE_KEY,
+  readLegacyParentUsage,
+} from "@/lib/parentUsage";
+import { LEGACY_FRECENCY_KEY, readLegacyFrecency } from "@/lib/paletteUsage";
+import {
+  LEGACY_RECENT_ZONES_KEY,
+  readLegacyRecentZones,
+} from "@/components/timezonepicker/timezoneData";
+import {
+  LEGACY_IGNORES_PREFIX,
+  readLegacyDocumentIgnores,
+} from "@/spell/documentIgnores";
 
 /**
  * Person-private preferences — the app-layer view of `platform.prefs`.
@@ -79,6 +92,60 @@ export const OWN_PREF_KEYS = {
   dateTimeWeekStart: "dateTime.weekStart",
   /** An IANA zone id, or "system" to follow whichever device is reading. */
   dateTimeTimezone: "dateTime.timezone",
+  /**
+   * Key PREFIX: `calendar.parentUsage.<spaceId>.<deviceKey>` → which pages
+   * that device files events under in that space (see `@/lib/parentUsage`).
+   * Every device's tally is added together to feed the event draft's "Recent"
+   * row and its pre-filled parent. One key per device because a tally is the
+   * one thing last-writer-wins gets wrong: two devices counting at once would
+   * each overwrite the other's counts (see `@/lib/deviceTally`). Mirrored as
+   * `PARENT_USAGE_PREF_PREFIX` there.
+   */
+  calendarParentUsagePrefix: "calendar.parentUsage.",
+  /** `boolean` — the draft parent picker's "Recent" row; absent means open. */
+  calendarRecentParentsOpen: "calendar.recentParentsOpen",
+  /** `string` — the space a new calendar event is drafted into. */
+  calendarEventSpace: "calendar.eventSpace",
+  /**
+   * Key PREFIX: `palette.usage.<deviceKey>` → how often and how lately that
+   * device picked each command palette item, for ranking. Per device for the
+   * same reason as the parent usage. Mirrored as `PALETTE_USAGE_PREF_PREFIX`
+   * in `@/lib/paletteUsage`.
+   */
+  paletteUsagePrefix: "palette.usage.",
+  /**
+   * Key PREFIX: `timezone.recents.<deviceKey>` → the zones that device picked
+   * lately; the timezone picker offers the latest few across all devices.
+   * Mirrored as `RECENT_ZONES_PREF_PREFIX` in the timezone picker's data.
+   */
+  timezoneRecentsPrefix: "timezone.recents.",
+  /**
+   * Key PREFIX: `spell.ignore.<pageId>.<word>` → `{ added: ms }` for a word
+   * ignored on that page only. One key per word, removal writes `null` — the
+   * same reason the personal dictionary does it. Mirrored as
+   * `IGNORES_PREF_PREFIX` in `src/spell/documentIgnores.ts`.
+   */
+  spellIgnorePrefix: "spell.ignore.",
+  /**
+   * Key PREFIX: `shortcut.<commandId>` → `string[]`, the chords that command
+   * answers in place of its defaults (`[]` for none); `null` puts it back on
+   * the defaults. One key per command, so two devices changing different
+   * shortcuts never overwrite each other. Read through `@/shortcuts`.
+   */
+  shortcutPrefix: "shortcut.",
+  /**
+   * Key PREFIX: `reminder.<pageId>` → minutes before the event starts, or
+   * `"off"`; `null` puts the event back on the default. One key per event so
+   * two devices changing two events never overwrite each other. Mirrored as
+   * `REMINDER_PREF_PREFIX` in `@/reminders/reminders`.
+   */
+  reminderPrefix: "reminder.",
+  /**
+   * The reminder a timed event gets until one is chosen for it: minutes
+   * before, or `"off"`. Absent means 10 minutes. Mirrored as
+   * `DEFAULT_REMINDER_KEY` in `@/reminders/reminders`.
+   */
+  reminderDefault: "reminders.default",
 } as const;
 
 /**
@@ -88,8 +155,13 @@ export const OWN_PREF_KEYS = {
  */
 const LEGACY: Array<{
   storageKey: string;
-  /** Returns the entries to seed, or nothing if the legacy value is unusable. */
-  read: (raw: string) => Array<[string, unknown]>;
+  /** Adopt every browser key starting with `storageKey`, not just that one. */
+  prefix?: boolean;
+  /**
+   * Returns the entries to seed, or nothing if the legacy value is unusable.
+   * Throws to leave the value in place for the next launch.
+   */
+  read: (raw: string, ctx: LegacyContext) => Array<[string, unknown]>;
 }> = [
   {
     storageKey: "tasfer.spacePrefs",
@@ -145,7 +217,53 @@ const LEGACY: Array<{
     read: (raw) =>
       raw && raw !== "system" ? [[OWN_PREF_KEYS.dateTimeTimezone, raw]] : [],
   },
+  // The event draft's parent picker kept its shortcut stats, its fold and
+  // the draft's space in this browser alone.
+  {
+    storageKey: LEGACY_PARENT_USAGE_KEY,
+    read: (raw, ctx) => readLegacyParentUsage(raw, requireDevice(ctx)),
+  },
+  {
+    storageKey: "tasfer:remember:event-space",
+    read: (raw) => (raw ? [[OWN_PREF_KEYS.calendarEventSpace, raw]] : []),
+  },
+  {
+    storageKey: "tasfer:remember:calendar-recent-parents",
+    read: (raw) =>
+      raw === "open" || raw === "closed"
+        ? [[OWN_PREF_KEYS.calendarRecentParentsOpen, raw === "open"]]
+        : [],
+  },
+  {
+    storageKey: LEGACY_FRECENCY_KEY,
+    read: (raw, ctx) => readLegacyFrecency(raw, requireDevice(ctx)),
+  },
+  {
+    storageKey: LEGACY_RECENT_ZONES_KEY,
+    read: (raw, ctx) => readLegacyRecentZones(raw, requireDevice(ctx)),
+  },
+  {
+    storageKey: LEGACY_IGNORES_PREFIX,
+    prefix: true,
+    read: (raw, ctx) => readLegacyDocumentIgnores(ctx.storageKey, raw),
+  },
 ];
+
+interface LegacyContext {
+  /** This device's key, or null if it could not be read. */
+  deviceKey: string | null;
+  /** The browser key the value came from (useful for prefix entries). */
+  storageKey: string;
+}
+
+/**
+ * A per-device key cannot be named without this device's key. Throwing leaves
+ * the legacy value in place, so the next launch can try again.
+ */
+function requireDevice(ctx: LegacyContext): string {
+  if (!ctx.deviceKey) throw new Error("device key unavailable");
+  return ctx.deviceKey;
+}
 
 interface Snapshot {
   values: Record<string, unknown>;
@@ -159,6 +277,29 @@ export class OwnPrefsStore {
   private snapshot: Snapshot = { values: {}, loaded: false };
   private listeners = new Set<Listener>();
   private unsubscribe?: () => void;
+  private device: string | null = null;
+
+  /**
+   * This device's public key, once `hydrate` has read it — the suffix of the
+   * keys only this device writes (see `@/lib/deviceTally`). Null before then.
+   */
+  get deviceKey(): string | null {
+    return this.device;
+  }
+
+  /**
+   * Every set value whose key starts with `prefix`, as `[key, value]` pairs.
+   * Keys holding `null` (a removed entry) are left out.
+   */
+  entries(prefix: string): Array<[string, unknown]> {
+    const found: Array<[string, unknown]> = [];
+    for (const [key, value] of Object.entries(this.snapshot.values)) {
+      if (key.startsWith(prefix) && value !== null && value !== undefined) {
+        found.push([key, value]);
+      }
+    }
+    return found;
+  }
 
   subscribe = (listener: Listener) => {
     this.listeners.add(listener);
@@ -201,10 +342,24 @@ export class OwnPrefsStore {
       );
     });
 
+    // Read side by side: neither waits on the other, and every own-pref
+    // reads as its fallback until both are in.
+    const [identity, stored] = await Promise.allSettled([
+      platform.identity.get(),
+      platform.prefs.getAll(),
+    ]);
+    if (identity.status === "fulfilled") {
+      this.device = identity.value.publicKey;
+    } else {
+      console.warn(
+        "[OwnPrefs] could not read this device's key:",
+        identity.reason,
+      );
+    }
     let values: Record<string, unknown> = {};
     try {
-      values = await platform.prefs.getAll();
-      values = await this.adoptLegacy(values);
+      if (stored.status === "rejected") throw stored.reason;
+      values = await this.adoptLegacy(stored.value);
     } catch (err) {
       console.warn("[OwnPrefs] could not read preferences:", err);
     }
@@ -268,33 +423,53 @@ export class OwnPrefsStore {
     const adopted = { ...values };
 
     for (const legacy of LEGACY) {
-      let raw: string | null = null;
+      let storageKeys: string[];
       try {
-        raw = localStorage.getItem(legacy.storageKey);
+        storageKeys = legacy.prefix
+          ? Object.keys(localStorage).filter((k) =>
+              k.startsWith(legacy.storageKey),
+            )
+          : [legacy.storageKey];
       } catch {
         return adopted; // Storage unavailable (private mode) — nothing to adopt.
       }
-      if (raw === null) continue;
 
-      try {
-        for (const [key, value] of legacy.read(raw)) {
-          if (key in adopted) continue;
-          if (await platform.prefs.seed(key, value)) adopted[key] = value;
+      for (const storageKey of storageKeys) {
+        let raw: string | null = null;
+        try {
+          raw = localStorage.getItem(storageKey);
+        } catch {
+          return adopted; // Storage unavailable (private mode) — nothing to adopt.
         }
-      } catch (err) {
-        // Left in place for the next launch. A seed that failed (worker
-        // restarting, storage error) recorded no answer anywhere, so dropping
-        // the copy now would lose the value outright rather than retry it.
-        console.warn(`[OwnPrefs] could not adopt ${legacy.storageKey}:`, err);
-        continue;
-      }
-      // Dropped whether or not it was adopted: if the register already held an
-      // answer for the key, this copy is a stale duplicate of a question that
-      // now has one place to live.
-      try {
-        localStorage.removeItem(legacy.storageKey);
-      } catch {
-        // Nothing to do; the seed is a no-op next time round.
+        if (raw === null) continue;
+
+        try {
+          const ctx = { deviceKey: this.device, storageKey };
+          // Seeded together: one old list can hold a few hundred words.
+          const seeds = legacy
+            .read(raw, ctx)
+            .filter(([key]) => !(key in adopted));
+          const took = await Promise.all(
+            seeds.map(([key, value]) => platform.prefs.seed(key, value)),
+          );
+          seeds.forEach(([key, value], i) => {
+            if (took[i]) adopted[key] = value;
+          });
+        } catch (err) {
+          // Left in place for the next launch. A seed that failed (worker
+          // restarting, storage error) recorded no answer anywhere, so dropping
+          // the copy now would lose the value outright rather than retry it.
+          console.warn(`[OwnPrefs] could not adopt ${storageKey}:`, err);
+          continue;
+        }
+        // Dropped whether or not it was adopted: if the register already held
+        // an answer for the key, this copy is a stale duplicate of a question
+        // that now has one place to live.
+        try {
+          localStorage.removeItem(storageKey);
+        } catch {
+          // Nothing to do; the seed is a no-op next time round.
+        }
       }
     }
     return adopted;

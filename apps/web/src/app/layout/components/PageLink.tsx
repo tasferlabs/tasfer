@@ -18,6 +18,7 @@ import {
   useGetPages,
 } from "../../api/pages.api";
 import { useConfirmation } from "../../components/ConfirmationDialog";
+import { useExportDialog } from "../../components/ExportDialogProvider";
 import { useImportDialog } from "../../components/ImportDialogProvider";
 import { MovePageDialog } from "../../components/MovePageDialog";
 import { RenameDialog } from "../../components/RenameDialog";
@@ -41,6 +42,7 @@ import {
   Archive,
   Download,
   Ellipsis,
+  Upload,
   FolderInput,
   LoaderCircle,
 } from "lucide-react";
@@ -136,6 +138,7 @@ export function PageLink({
 
   const { getConfirmation } = useConfirmation();
   const { openImport } = useImportDialog();
+  const { openExport } = useExportDialog();
   const navigate = useNavigate();
   const { id: currentPageId } = useParams<{ id: string }>();
   const wasDraggingRef = useRef(false);
@@ -375,6 +378,11 @@ export function PageLink({
     });
   }
 
+  function handleExport() {
+    if (!spaceId) return;
+    openExport(spaceId, data);
+  }
+
   function handleColorChange(newColor: string | null) {
     for (const x of menuTargets) updatePage({ id: x.page.id, color: newColor });
     // Optimistically update cache
@@ -606,6 +614,7 @@ export function PageLink({
             isDeleting={isDeleting}
             onAdd={handleAdd}
             onImport={handleImport}
+            onExport={handleExport}
             isCreating={isCreating}
             batchCount={batchCount}
             t={t}
@@ -651,6 +660,7 @@ export function PageLink({
                   isDeleting={isDeleting}
                   onAdd={handleAdd}
                   onImport={handleImport}
+                  onExport={handleExport}
                   isCreating={isCreating}
                   color={data.color}
                   batchCount={batchCount}
@@ -786,6 +796,7 @@ function PageLinkMenuContent({
   isDeleting,
   onAdd,
   onImport,
+  onExport,
   isCreating,
   color,
   batchCount,
@@ -799,15 +810,17 @@ function PageLinkMenuContent({
   isDeleting: boolean;
   onAdd: () => void;
   onImport: () => void;
+  onExport: () => void;
   isCreating: boolean;
   color: string | null | undefined;
   /** Rows the menu was opened on; 0 or 1 means the plain single-page menu. */
   batchCount: number;
   t: TFunction;
 }) {
-  // Rename, Add subpage and Import each need one page to aim at — a title to
-  // edit, a parent to nest under, a destination to import into — so they step
-  // aside for a selection rather than silently picking one row out of it.
+  // Rename, Add subpage, Import and Export each need one page to aim at — a
+  // title to edit, a parent to nest under, a destination to import into, a
+  // subtree to export — so they step aside for a selection rather than
+  // silently picking one row out of it.
   const isBatch = batchCount > 1;
   const count = batchCount || 1;
 
@@ -886,6 +899,18 @@ function PageLinkMenuContent({
               <Download size={18} />
               {t("import.title", "Import")}
             </Button>
+            <Button
+              variant="unstyled"
+              size="unstyled"
+              className={menuItemClass}
+              onClick={() => {
+                onClose();
+                onExport();
+              }}
+            >
+              <Upload size={18} />
+              {t("export.title", "Export")}
+            </Button>
           </>
         )}
         <Button
@@ -940,6 +965,7 @@ function PageLinkMenu({
   isDeleting,
   onAdd,
   onImport,
+  onExport,
   isCreating,
   batchCount,
   t,
@@ -955,6 +981,7 @@ function PageLinkMenu({
   isDeleting: boolean;
   onAdd: () => void;
   onImport: () => void;
+  onExport: () => void;
   isCreating: boolean;
   batchCount: number;
   t: TFunction;
@@ -982,6 +1009,7 @@ function PageLinkMenu({
     isDeleting,
     onAdd,
     onImport,
+    onExport,
     isCreating,
     color,
     batchCount,

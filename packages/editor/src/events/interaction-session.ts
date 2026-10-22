@@ -47,6 +47,22 @@ export interface TouchState {
   touchRadiusX: number;
   touchRadiusY: number;
   isTwoFingerScroll?: boolean;
+  /**
+   * The drag scrolls a block's content sideways rather than the page: set when
+   * the finger first moves mostly sideways over a block that can scroll that
+   * way (see `sidewaysScroll.ts`). `velocity` is px/ms, for the fling.
+   */
+  sideways?: { lastX: number; lastTime: number; velocity: number };
+}
+
+/**
+ * A sideways fling still coasting after the finger lifted: which block it
+ * scrolls, and how fast (px/ms, positive reveals more on the right).
+ */
+export interface SidewaysFling {
+  blockId: string;
+  velocity: number;
+  lastTime: number;
 }
 
 /** Double/triple tap detection for touch (the mouse counterpart lives on state.view.clickTracker). */
@@ -92,8 +108,16 @@ export interface InteractionSession {
   tapTracker: TouchTapTracker;
   /** This editor's interactive regions (chrome + future custom regions). */
   readonly regions: RegionRegistry;
-  /** Region that owns the live pointer — all moves/ups route here until release. */
-  captured: { region: Region; hit: unknown } | null;
+  /**
+   * Region that owns the live pointer — all moves/ups route here until release.
+   * `point` is where the pointer was last seen (canvas coords), for a drag that
+   * keeps acting while the pointer rests (`RegionDragSpec.onFrame`).
+   */
+  captured: {
+    region: Region;
+    hit: unknown;
+    point?: { x: number; y: number };
+  } | null;
   /**
    * Drag waiting on its touch hold timer (e.g. iOS-style scrollbar hold).
    * Promoted to `captured` by tickPendingCapture; cancelled by movement
@@ -209,6 +233,8 @@ export interface InteractionSession {
    * different target leaves this false and `dragend` does the removal.
    */
   textDragHandled: boolean;
+  /** A sideways fling in flight, stepped every frame until it stops. */
+  sidewaysFling: SidewaysFling | null;
 }
 
 export function createInteractionSession(
@@ -242,6 +268,7 @@ export function createInteractionSession(
     textDragArmed: false,
     textDragSource: null,
     textDragHandled: false,
+    sidewaysFling: null,
   };
 }
 

@@ -14,11 +14,20 @@ import { useSpaces } from "../contexts/SpaceContext";
 import { downloadFile } from "@/downloadFile";
 import { useTranslation } from "react-i18next";
 import { fetchImageBlob } from "@/lib/exportAssets";
-import { buildSpaceExport } from "@/lib/spaceExport";
+import { buildSpaceExport, sanitizeName } from "@/lib/spaceExport";
+import type { IListPage } from "../api/pages.api";
+import { ChevronRight } from "lucide-react";
+import { TitlePreview } from "../TitlePreview";
 
 interface ExportAllDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * With `page`, export only that page and its subpages from `spaceId`, and
+   * hide the space checklist. When omitted, the user picks whole spaces.
+   */
+  spaceId?: string;
+  page?: IListPage | null;
 }
 
 interface SpaceOption {
@@ -26,13 +35,20 @@ interface SpaceOption {
   name: string;
 }
 
-export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
+export function ExportAllDialog({
+  open,
+  onOpenChange,
+  spaceId,
+  page,
+}: ExportAllDialogProps) {
   const { t } = useTranslation();
   const { spaces } = useSpaces();
 
   const allSpaces: SpaceOption[] = React.useMemo(() => {
     return spaces.map((s) => ({ id: s.id, name: s.name }));
   }, [spaces]);
+
+  const pageSpace = page ? allSpaces.find((s) => s.id === spaceId) : undefined;
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [phase, setPhase] = useState<"select" | "exporting">("select");
@@ -66,7 +82,10 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
 
     try {
       const entries = await buildSpaceExport({
-        spaces: allSpaces.filter((s) => selected.has(s.id)),
+        spaces:
+          page && pageSpace
+            ? [{ ...pageSpace, rootPage: page }]
+            : allSpaces.filter((s) => selected.has(s.id)),
         source: {
           listPages: (spaceId, parentId) =>
             getPages(spaceId, parentId, { includeTasks: true }),
@@ -88,7 +107,10 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
       for (const entry of entries) zip.file(entry.path, entry.data);
 
       const blob = await zip.generateAsync({ type: "blob" });
-      await downloadFile(blob, "tasfer-export.zip", "application/zip");
+      const fileName = page
+        ? `${sanitizeName(page.title)}.zip`
+        : "tasfer-export.zip";
+      await downloadFile(blob, fileName, "application/zip");
 
       onOpenChange(false);
     } catch (err) {
@@ -102,7 +124,7 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
         setPhase("select");
       }
     }
-  }, [allSpaces, selected, onOpenChange]);
+  }, [allSpaces, selected, onOpenChange, page, pageSpace]);
 
   const handleCancel = useCallback(() => {
     if (phase === "exporting") {
@@ -125,45 +147,74 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
         }}
       >
         <DialogHeader>
-          <DialogTitle>{t("export.all", "Export all")}</DialogTitle>
+          <DialogTitle>
+            {page
+              ? t("export.page", "Export page")
+              : t("export.all", "Export all")}
+          </DialogTitle>
           <DialogDescription>
-            {phase === "select"
-              ? t(
-                  "export.selectSpaces",
-                  "Select spaces to export as a ZIP file.",
-                )
-              : t("export.exportingPages", "Exporting your pages...")}
+            {phase !== "select"
+              ? t("export.exportingPages", "Exporting your pages...")
+              : page
+                ? t(
+                    "export.pageAsZip",
+                    "Export this page and its subpages as a ZIP file.",
+                  )
+                : t(
+                    "export.selectSpaces",
+                    "Select spaces to export as a ZIP file.",
+                  )}
           </DialogDescription>
         </DialogHeader>
 
         {phase === "select" && (
           <>
-            <div className="space-y-2">
-              {allSpaces.map((space) => (
-                <label
-                  key={space.id}
-                  className="flex items-center gap-3 rounded-md px-3 py-2 hover:bg-accent cursor-pointer transition-colors"
-                >
-                  <input
-                    type="checkbox"
-                    checked={selected.has(space.id)}
-                    onChange={() => toggleSpace(space.id)}
-                    className="size-4 rounded border-border accent-primary"
+            {page ? (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="whitespace-nowrap text-muted-foreground">
+                  {t("export.exportingFrom", "Exporting")}
+                </span>
+                <span className="flex min-w-0 items-center gap-1 font-medium">
+                  <span className="truncate">
+                    {pageSpace?.name || t("common.untitled", "Untitled")}
+                  </span>
+                  <ChevronRight
+                    size={14}
+                    className="shrink-0 text-muted-foreground rtl:rotate-180"
                   />
-                  <span className="text-sm font-medium">
-                    {space.name || t("common.untitled", "Untitled")}
+                  <span className="truncate">
+                    <TitlePreview title={page.title} titleMd={page.titleMd} />
                   </span>
-                  <span className="text-xs text-muted-foreground ms-auto">
-                    {t("space.space", "Space")}
-                  </span>
-                </label>
-              ))}
-              {allSpaces.length === 0 && (
-                <p className="text-sm text-muted-foreground py-2">
-                  {t("space.noSpacesFound", "No spaces found.")}
-                </p>
-              )}
-            </div>
+                </span>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {allSpaces.map((space) => (
+                  <label
+                    key={space.id}
+                    className="flex items-center gap-3 rounded-md px-3 py-2 hover:bg-accent cursor-pointer transition-colors"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selected.has(space.id)}
+                      onChange={() => toggleSpace(space.id)}
+                      className="size-4 rounded border-border accent-primary"
+                    />
+                    <span className="text-sm font-medium">
+                      {space.name || t("common.untitled", "Untitled")}
+                    </span>
+                    <span className="text-xs text-muted-foreground ms-auto">
+                      {t("space.space", "Space")}
+                    </span>
+                  </label>
+                ))}
+                {allSpaces.length === 0 && (
+                  <p className="text-sm text-muted-foreground py-2">
+                    {t("space.noSpacesFound", "No spaces found.")}
+                  </p>
+                )}
+              </div>
+            )}
 
             {error && <p className="text-sm text-destructive">{error}</p>}
 
@@ -171,7 +222,10 @@ export function ExportAllDialog({ open, onOpenChange }: ExportAllDialogProps) {
               <Button variant="outline" onClick={handleCancel}>
                 {t("common.cancel", "Cancel")}
               </Button>
-              <Button onClick={handleExport} disabled={selected.size === 0}>
+              <Button
+                onClick={handleExport}
+                disabled={page ? !pageSpace : selected.size === 0}
+              >
                 {t("export.title", "Export")}
               </Button>
             </DialogFooter>

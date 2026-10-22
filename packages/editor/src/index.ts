@@ -46,6 +46,7 @@ export {
   type NodeRect,
   type NodeRegionCtx,
   NodeRegistry,
+  type NodeScrollCtx,
   paintTextRun,
   type PaintTextRunArgs,
   QuoteNode,
@@ -338,6 +339,15 @@ export {
   SELECT_ALL,
   SPLIT_BLOCK,
 } from "./actions/edit-actions";
+// Expand / shrink selection, and the per-node rung hook behind them.
+export type { SelectionRungRange } from "./actions/selection-expansion";
+export {
+  EXPAND_SELECTION,
+  EXPAND_SELECTION_STEP,
+  nextEnclosingRange,
+  selectFlatRange,
+  SHRINK_SELECTION,
+} from "./actions/selection-expansion";
 // Text-input event-layer actions: IME composition lifecycle + clipboard.
 export {
   COMPOSITION_END,
@@ -517,10 +527,12 @@ export {
 
 // View windows — scope an editor to a subset of a shared doc's blocks (the
 // `window` option on `mountEditor`/`createEditor`/`useEditor`). `titleBlockWindow`
-// builds a single-block title surface (pair with `Schema.restrict`); two editors
-// on one `Doc` showing different windows stay live-synced through the doc.
+// builds a single-block title surface (pair with `Schema.restrict`) and
+// `bodyBlocksWindow` the rest of the page; two editors on one `Doc` showing
+// different windows stay live-synced through the doc.
 export {
   blockIdWindow,
+  bodyBlocksWindow,
   titleBlockIndex,
   titleBlockWindow,
 } from "./view-window";
@@ -555,6 +567,24 @@ export { DEFAULT_TOKENS, mergeTheme, resolveTheme } from "./styles";
 // Key conventions — hosts that register their own shortcuts, or label them in
 // the UI, need the same ⌘-vs-Ctrl answer the built-in keymap uses.
 export { isApplePlatform } from "./platform";
+
+// Keymap — the built-in chords a host can rebind (`keymap` at mount,
+// `editor.setKeymap` live), and the chord syntax hosts share for their own
+// shortcuts: match a keydown, record one, compare two.
+export type {
+  Keymap,
+  KeymapCommand,
+  KeymapOverrides,
+  ShortcutEvent,
+} from "./keymap";
+export {
+  defaultKeymap,
+  KEYMAP_COMMANDS,
+  matchesShortcut,
+  normalizeShortcut,
+  parseShortcut,
+  shortcutFromEvent,
+} from "./keymap";
 
 // Link safety — a host that overrides OPEN_LINK, or renders a link's url in its
 // own chrome, must apply the same protocol allowlist the engine's own sinks do.

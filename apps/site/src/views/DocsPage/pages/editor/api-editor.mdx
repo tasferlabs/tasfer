@@ -23,8 +23,9 @@ const editor = createEditor(options: CreateEditorOptions): TasferEditor;
   { name: "blocks", type: "Block[]", desc: "Pre-parsed blocks to mount (e.g. restored from a snapshot). Mutually exclusive with markdown/doc — passing two is a type error (and throws at runtime)." },
   { name: "doc", type: "Doc", desc: "An existing CRDT document to edit (see createDoc). Mutually exclusive with blocks/markdown; sync and persistence flow through it." },
   { name: "schema", type: "Schema", desc: "Registered and allowed nodes & marks. Defaults to the math-free core baseSchema. A supplied doc carries its own data schema, but still pass the matching full schema so optional nodes and marks render." },
-  { name: "window", type: "ViewWindow", desc: "Scope this editor to a subset of the doc's blocks (e.g. titleBlockWindow() for a title-only surface over a shared doc). Omit for a full-document editor. A view/authoring concern only — sync is unaffected, so windowed and full editors on one doc converge. See Schema › View windows." },
+  { name: "window", type: "ViewWindow", desc: "Scope this editor to a subset of the doc's blocks (e.g. titleBlockWindow() for a title-only surface over a shared doc, bodyBlocksWindow() for everything after it). Omit for a full-document editor. A view/authoring concern only — sync is unaffected, so windowed and full editors on one doc converge. See Schema › View windows." },
   { name: "theme", type: "EditorTheme", desc: "Canvas color tokens, styles, and fonts. Defaults to the neutral palette." },
+  { name: "keymap", type: "KeymapOverrides", desc: "Rebind the built-in chords: { toggleStrong: [\"mod+shift+b\"] }. Each listed command takes these chords instead of its defaults; an empty list unbinds it. See Keyboard." },
   { name: "editable", type: "boolean", desc: "Set false for a read-only renderer. Default true." },
   { name: "autoHeight", type: "boolean", desc: "Grow the canvas to fit its content instead of filling the container, and never render a scrollbar (there is no scroll region). For compact, self-sizing surfaces like a title field or a single-line editor in a drawer — the host container must be free to grow vertically. Default false." },
   { name: "accessibilityTree", type: "boolean", desc: "Maintain a hidden, semantic DOM mirror of the document (headings, lists, code, marks) for screen readers — the canvas itself is opaque to assistive tech. Kept surgically in sync; only changed blocks are re-serialized. Default true; set false to opt out." },
@@ -35,6 +36,8 @@ const editor = createEditor(options: CreateEditorOptions): TasferEditor;
 ]} />
 
 <Callout kind="note" title="A `Doc` does not need an editor.">`createDoc` takes no `element` and touches no DOM, so a document can live entirely on its own — on a server, in a worker, or in a test — and still be read with `doc.getMarkdown()`, synced with `applyUpdate`, and persisted with `encodeState()`. `createEditor` is the *view* layer over it; you only need one where there is something to render into.</Callout>
+
+Restoring from a block snapshot and loading the op log afterwards (`createDoc({ blocks })`, then `doc.load(ops)`) leaves a window where the doc has the content but not the log. Pass `frontier: { clock, idCounter }` — the highest clock counter and op-id counter in that log — so edits made in that window get fresh ids and sort after everything already written. Blocks alone can't tell the doc either number. Restoring from `encodeState()` bytes needs nothing extra: they carry both.
 
 <h2 id="reading">Reading state</h2>
 
@@ -124,18 +127,52 @@ A handful of built-in actions are dispatched by the engine for hosts (and custom
 
 The editor consumes only the chords its keymap answers, and lets every other Ctrl/Cmd chord bubble to the host untouched — so an app-level listener for save, find, a command palette or a sidebar toggle works while the caret is in the canvas, with no editor configuration. "Cmd" below is ⌘ on Apple platforms and Ctrl elsewhere; chords are matched on the physical key (`KeyboardEvent.code`), so they survive a non-Latin layout.
 
+Of these, `undo`, `redo`, `selectAll`, `expandSelection`, `shrinkSelection`, the four mark toggles and `openContextMenu` are keymap commands you can move to other chords (see [Rebinding](#keymap)). Enter, Shift+Enter and the macOS emacs set are fixed, as is every caret and delete key.
+
 <PropsTable cols={["Chord", "Action", "Notes"]} rows={[
   { name: "Cmd+Z / Cmd+Shift+Z / Cmd+Y", type: "undo / redo", desc: "Always claimed." },
-  { name: "Cmd+A", type: "select all", desc: "Always claimed." },
-  { name: "Cmd+B / Cmd+I / Cmd+E", type: "toggle strong / emphasis / code", desc: "Claimed only while the schema registers and allows that mark: a title field built with restrict({ marks: [] }) lets Cmd+B through to the host." },
-  { name: "Cmd+Shift+X", type: "toggle strike", desc: "Same rule as the other marks. A plain Cmd+X is the native cut and is never claimed." },
+  { name: "Cmd+A", type: "selectAll", desc: "Always claimed." },
+  { name: "⌃⇧⌘→ / ⌃⇧⌘← (Apple), Shift+Alt+→ / Shift+Alt+← (elsewhere)", type: "expandSelection / shrinkSelection", desc: "Grow the selection one step — word → block → document, with nodes adding their own steps first (an equation's nesting, a code block's brackets, lines and indented blocks, a table's cell) — and step back down the same way. Shrink only walks back while nothing else has moved the selection or changed the page since the last expand. Fixed to the physical arrow: → always grows, also in right-to-left text." },
+  { name: "Cmd+B / Cmd+I / Cmd+E", type: "toggleStrong / toggleEmphasis / toggleCode", desc: "Claimed only while the schema registers and allows that mark: a title field built with restrict({ marks: [] }) lets Cmd+B through to the host." },
+  { name: "Cmd+Shift+X", type: "toggleStrike", desc: "Same rule as the other marks. A plain Cmd+X is the native cut and is never claimed." },
   { name: "Enter", type: "SPLIT_BLOCK", desc: "Continues the block: splits prose, adds a newline in a code block, moves down a table row. On an empty heading, list item, quote or equation it leaves that type for a paragraph. Deletes a selected text range first." },
   { name: "Shift+Enter", type: "EXIT_BLOCK", desc: "Leaves a block that holds its own lines — a code block, an equation, a table — for a paragraph below. Everywhere else it does what Enter does." },
-  { name: "Cmd+Enter, Shift+F10, Menu", type: "context menu", desc: "Dispatches OPEN_CONTEXT_MENU (see above)." },
+  { name: "Cmd+Enter, Shift+F10, Menu", type: "openContextMenu", desc: "Dispatches OPEN_CONTEXT_MENU (see above)." },
   { name: "Ctrl+A/E/B/F/P/N/H/D/K", type: "emacs caret moves", desc: "macOS only, bare Ctrl. Elsewhere these codes reach the host — Ctrl+F is its find." },
 ]} />
 
-Copy, cut and paste are not intercepted at all: they reach the browser's native clipboard events, which is what the `copy`/`cut`/`paste` methods above also drive. A chord with Alt held is never claimed either — on Windows that is AltGr, which types a character. There is no built-in save chord: what saving means is the host's decision, so listen for Cmd+S yourself and read `getMarkdown()` or the `Doc`.
+Copy, cut and paste are not intercepted at all: they reach the browser's native clipboard events, which is what the `copy`/`cut`/`paste` methods above also drive. A Ctrl/Cmd chord with Alt held is never claimed either — on Windows that is AltGr, which types a character. (Shift+Alt+arrow is an arrow key, not a character, so the selection chords above are unaffected.) There is no built-in save chord: what saving means is the host's decision, so listen for Cmd+S yourself and read `getMarkdown()` or the `Doc`.
+
+<h3 id="keymap">Rebinding</h3>
+
+Every command above can be moved to other chords — pass `keymap` at mount, or call `setKeymap` at any time (a settings screen applying a change takes effect on the next keydown). Only the commands you list change; the rest keep their defaults, and an empty list unbinds a command so its chord bubbles to the host. Each editor instance has its own keymap.
+
+```ts
+const editor = createEditor({
+  element,
+  keymap: { toggleStrong: ["mod+shift+b"], selectAll: [] },
+});
+
+// later — back to the defaults for everything
+editor.setKeymap({});
+```
+
+<PropsTable cols={["Method", "Signature", "Description"]} rows={[
+  { name: "setKeymap", type: "(overrides: KeymapOverrides) => void", desc: "Replace this editor's changes to the default chords. Commands left out go back to their defaults." },
+]} />
+
+A chord is a `+`-joined string: the modifiers `mod` (⌘ on Apple, Ctrl elsewhere), `ctrl`, `meta`/`cmd`, `alt`/`opt` and `shift`, then one key — a letter, digit or punctuation mark (matched on the physical key), or a key name such as `enter`, `tab`, `space`, `arrowright`, `f10` or `contextmenu`. A chord matches only with exactly its modifiers held. A rebound command takes its chord ahead of the fixed keys, so binding one onto ⌃A on a Mac overrides the emacs caret move there.
+
+The same syntax is exported for hosts that keep their own shortcuts alongside the editor's:
+
+<PropsTable cols={["Export", "Signature", "Description"]} rows={[
+  { name: "defaultKeymap", type: "(apple?: boolean) => Keymap", desc: "Every command's default chords on this platform (or the one asked for)." },
+  { name: "KEYMAP_COMMANDS", type: "readonly KeymapCommand[]", desc: "The rebindable command names, in a stable order." },
+  { name: "matchesShortcut", type: "(e: ShortcutEvent, chord: string, apple?: boolean) => boolean", desc: "Whether a keydown is exactly this chord." },
+  { name: "shortcutFromEvent", type: "(e: ShortcutEvent, apple?: boolean) => string | null", desc: "The chord a keydown spells, for recording a new binding: canonical order, the command key written mod. Null while only modifiers are down." },
+  { name: "normalizeShortcut", type: "(chord: string, apple?: boolean) => string | null", desc: "Rewrite a chord in canonical form so two spellings compare equal — for finding conflicts." },
+  { name: "parseShortcut", type: "(chord: string) => ParsedShortcut | null", desc: "Split a chord into its key and modifier flags. Null for an unknown modifier." },
+]} />
 
 <h2 id="facets">View & host facets</h2>
 
@@ -158,7 +195,7 @@ The everyday content/command/query surface lives flat on the handle. Two further
   { name: "host.openOverlay", type: "(o: { key, blockId, x, y, data? }) => void", desc: "Open a host-defined overlay. The engine stores { key, data } opaquely; the declaring node/mark reads it back by key. Dismiss with closeActiveMenu." },
   { name: "host.setNodeViewState", type: "(blockId: string, data: unknown | null) => void", desc: "Set/clear transient per-block canvas view-state (e.g. an upload spinner). Read by the painting node; not document content, no CRDT op." },
   { name: "host.closeActiveMenu", type: "() => void", desc: "Close whichever menu/overlay is open and notify subscribers." },
-  { name: "host.ownsPointerGesture", type: "() => boolean", desc: "Is a live pointer gesture the editor's own — a selection handle, a grabbed caret, a drag off the selection, a scrollbar or resize-handle drag? Ask before a page-level drag of your own (a drawer swipe) takes a touch that started on the canvas. Resolved synchronously at touchstart." },
+  { name: "host.ownsPointerGesture", type: "() => boolean", desc: "Is a live pointer gesture the editor's own — a selection handle, a grabbed caret, a drag off the selection, a scrollbar or resize-handle drag, or a sideways drag over a block wider than the page (a table with many columns)? Ask before a page-level drag of your own (a drawer swipe) takes a touch that started on the canvas. Resolved synchronously at touchstart." },
   { name: "host.clearLinkHover", type: "() => void", desc: "Dismiss the link hover tooltip. The engine keeps it set once the pointer crosses onto the interactive popover; the host clears it when the pointer leaves the popover." },
   { name: "host.restoreFromSnapshot", type: "(blocks: Block[]) => void", desc: "Replace the document from a block snapshot, generating and broadcasting ops." },
 ]} />

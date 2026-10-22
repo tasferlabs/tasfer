@@ -85,6 +85,34 @@ self.addEventListener("message", (event) => {
   }
 });
 
+// An event reminder was clicked (see `src/reminders/delivery.ts`). Hand its
+// route to an open Tasfer window so the app navigates in place, or open one on
+// it when none is left.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const route = (event.notification.data as { route?: unknown } | null)?.route;
+  if (typeof route !== "string") return;
+  event.waitUntil(
+    (async () => {
+      const windows = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      const client =
+        windows.find((w) => w.focused) ??
+        windows.find((w) => w.url.startsWith(self.registration.scope));
+      if (client) {
+        await client.focus();
+        client.postMessage({ type: "REMINDER_OPEN", route });
+        return;
+      }
+      await self.clients.openWindow(
+        new URL(route.replace(/^\//, ""), self.registration.scope).href,
+      );
+    })(),
+  );
+});
+
 // Precache static assets (injected by vite-plugin-pwa at build time)
 // Must be called before matchPrecache can be used
 precacheAndRoute(self.__WB_MANIFEST);

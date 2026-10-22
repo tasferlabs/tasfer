@@ -446,7 +446,12 @@ export function LinkDeviceDialog({ open, onOpenChange }: LinkDeviceDialogProps) 
         <Button className="w-full" onClick={handleShow} loading={isCreating}>
           {t("device.showCode", "Show a code on this device")}
         </Button>
-        <Button variant="outline" className="w-full" onClick={() => setStep("enter")}>
+        <Button variant="outline" className="w-full" onClick={() => {
+            // Phones have a camera to hand; elsewhere the scanner would only
+            // greet the user with a permission prompt or "no camera".
+            setScanning(isMobile);
+            setStep("enter");
+          }}>
           {t("device.enterCode", "Enter a code from another device")}
         </Button>
       </div>
@@ -551,8 +556,44 @@ export function LinkDeviceDialog({ open, onOpenChange }: LinkDeviceDialogProps) 
     </>
   );
 
+  const enterTab = (tab: "paste" | "scan") => {
+    const selected = (tab === "scan") === scanning;
+    return (
+      <button
+        type="button"
+        role="tab"
+        aria-selected={selected}
+        onClick={() => {
+          setErrorMsg("");
+          setScanning(tab === "scan");
+        }}
+        className={cn(
+          "flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all",
+          selected
+            ? "bg-background text-foreground shadow-sm"
+            : "text-muted-foreground hover:text-foreground",
+        )}
+      >
+        {tab === "scan" ? (
+          <QrCode className="size-3.5" />
+        ) : (
+          <ClipboardPaste className="size-3.5" />
+        )}
+        {tab === "scan"
+          ? t("scanner.scanQR", "Scan QR")
+          : t("onboarding.pasteCode", "Paste code")}
+      </button>
+    );
+  };
+
+  // Same switcher as joining a space, so both "take a code" screens read alike.
   const enterStep = (
     <>
+      <div role="tablist" className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
+        {enterTab("scan")}
+        {enterTab("paste")}
+      </div>
+
       <div className="flex flex-col gap-2">
         {scanning ? (
           <QRScannerView
@@ -578,23 +619,6 @@ export function LinkDeviceDialog({ open, onOpenChange }: LinkDeviceDialogProps) 
           />
         )}
         {errorMsg && <p className="text-xs text-destructive">{errorMsg}</p>}
-        <button
-          type="button"
-          onClick={() => {
-            setErrorMsg("");
-            setScanning((v) => !v);
-          }}
-          className="flex items-center gap-1.5 self-start text-xs text-muted-foreground transition-colors hover:text-foreground"
-        >
-          {scanning ? (
-            <ClipboardPaste className="size-3.5" />
-          ) : (
-            <QrCode className="size-3.5" />
-          )}
-          {scanning
-            ? t("device.typeInstead", "Paste the code instead")
-            : t("device.scanInstead", "Scan the QR code instead")}
-        </button>
       </div>
 
       <div className="flex items-center justify-between border-t border-border pt-3.5">

@@ -28,6 +28,12 @@
  * Both remaining sides live in space the table already owns — the page's right
  * gutter and the block's own bottom margin — so a strip never displaces text
  * and never covers a cell a click was aimed at.
+ *
+ * A table wider than the page scrolls sideways, and the strips follow what is
+ * on screen: the bottom one spans only the part of the grid in view, and the
+ * right one appears once the grid's right edge has been scrolled into view —
+ * a strip at the page's edge while more columns hide behind it would add a
+ * column somewhere the user cannot see.
  */
 
 import type { TableLayout } from "./geometry";
@@ -52,7 +58,8 @@ export interface TableEdgeStrip extends TableEdgeBox {
    * grid's own border: a 12px target is a fussy thing to hit, and the space
    * between the grid and the strip is dead pixels the pointer crosses on its
    * way. It never reaches back OVER the grid, so a click aimed at the last
-   * column's text is never taken.
+   * column's text is never taken. The right one starts a few pixels out, past
+   * the grab band of the grid's right edge, which widens the table.
    */
   readonly hit: TableEdgeBox;
 }
@@ -72,6 +79,12 @@ const STRIP_MIN_THICKNESS = 8;
  * table.
  */
 const STRIP_REACH = 28;
+/**
+ * How far out from the grid's right edge the right strip's catchment begins:
+ * just past the edge's own resize band (4px each side for a mouse), which the
+ * strip would otherwise cover, outranking it.
+ */
+const RIGHT_EDGE_GRAB = 5;
 
 /** Whether `p` is inside `box`. */
 export function withinEdgeBox(box: TableEdgeBox, p: Point): boolean {
@@ -85,6 +98,7 @@ export function withinEdgeBox(box: TableEdgeBox, p: Point): boolean {
 
 /**
  * The strips a table at `origin` offers, given the page's right gutter.
+ * `layout` is the layout as shown — scrolled, for a table wider than the page.
  *
  * An edge with too little room around it is left out rather than drawn cramped
  * — the bottom margin and the gutter are both theme values a host can shrink,
@@ -99,11 +113,19 @@ export function tableEdgeStrips(
 
   const gridTop = origin.y + layout.gridTop;
   const gridBottom = gridTop + layout.gridHeight;
-  const gridRight = origin.x + layout.gridWidth;
+  const gridLeft = origin.x + layout.gridX;
+  const gridRight = gridLeft + layout.gridWidth;
+  // The page-width window a scrolled table is seen through.
+  const windowRight = origin.x + layout.maxWidth;
+  const visibleLeft = Math.max(gridLeft, origin.x);
+  const visibleWidth = Math.min(gridRight, windowRight) - visibleLeft;
   const strips: TableEdgeStrip[] = [];
 
   const rightReach = Math.min(gutterRight, STRIP_REACH);
-  if (rightReach - STRIP_GAP >= STRIP_MIN_THICKNESS) {
+  // A pixel of slack: the scroll offset is rounded when drawn, so a table
+  // scrolled all the way can stop a fraction short of the window's edge.
+  const rightEdgeInView = gridRight <= windowRight + 1;
+  if (rightEdgeInView && rightReach - STRIP_GAP >= STRIP_MIN_THICKNESS) {
     strips.push({
       edge: "right",
       x: gridRight + STRIP_GAP,
@@ -111,9 +133,9 @@ export function tableEdgeStrips(
       width: Math.min(STRIP_THICKNESS, rightReach - STRIP_GAP),
       height: layout.gridHeight,
       hit: {
-        x: gridRight,
+        x: gridRight + RIGHT_EDGE_GRAB,
         y: gridTop,
-        width: rightReach,
+        width: rightReach - RIGHT_EDGE_GRAB,
         height: layout.gridHeight,
       },
     });
@@ -127,17 +149,17 @@ export function tableEdgeStrips(
   if (bottomReach - STRIP_GAP >= STRIP_MIN_THICKNESS) {
     strips.push({
       edge: "bottom",
-      x: origin.x,
+      x: visibleLeft,
       y: gridBottom + STRIP_GAP,
-      width: layout.gridWidth,
+      width: visibleWidth,
       height: Math.min(STRIP_THICKNESS, bottomReach - STRIP_GAP),
       // One pixel clear of the grid's own bottom hairline, which the column
       // resize bands still answer for — this region outranks them, and the
       // corner where the two meet should stay a resize target.
       hit: {
-        x: origin.x,
+        x: visibleLeft,
         y: gridBottom + 1,
-        width: layout.gridWidth,
+        width: visibleWidth,
         height: bottomReach - 1,
       },
     });

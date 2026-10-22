@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { withAiDash } from "@/components/AiDash";
 import { Link } from "@/components/Link";
 import { DirArrow } from "@/components/DirArrow";
 import { PkgMgrProvider } from "@/views/DocsPage/docsComponents";
@@ -50,10 +51,10 @@ export default function InternalsIndex() {
                 {t("internals.archive.title", "Internal notes")}
               </h1>
               <p className="ix-lede">
-                {t(
+                {withAiDash(t(
                   "internals.archive.lede",
                   "How Tasfer got built — the design notes, architecture decisions, and plans behind the editor, written as the work happened.",
-                )}
+                ))}
               </p>
             </header>
             <ul className="ix-list">

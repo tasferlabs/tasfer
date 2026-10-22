@@ -28,6 +28,7 @@ import {
 import i18next from "i18next";
 import { useEffect } from "react";
 import { cssVarsToTheme } from "../editorTheme";
+import { useLiveKeymap } from "../shortcuts/ShortcutsContext";
 import { getAppFontRegistry, onAppFontRegistryChange } from "../fonts";
 
 /**
@@ -129,7 +130,8 @@ export function useLiveEditorTheme<
  * Mount an editor on the app's shared core: it wraps `@tasfer/react`'s
  * `useEditor` with this app's {@link appEditorTheme} and {@link editorStrings}
  * defaults, then wires {@link useLiveEditorTheme} so dark-mode and font-registry
- * changes restyle it. This is the ONE place the body {@link PageEditor} and the
+ * changes restyle it, and {@link useLiveKeymap} so it answers the person's own
+ * shortcuts. This is the ONE place the body {@link PageEditor} and the
  * {@link TitleEditor} share, so both render identically and gain editor features
  * together.
  *
@@ -149,5 +151,6 @@ export function useEditorCore<
     theme: appEditorTheme(options.theme),
   } as UseEditorOptions<D>);
   useLiveEditorTheme(result.editor);
+  useLiveKeymap(result.editor);
   return result;
 }

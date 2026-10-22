@@ -75,6 +75,12 @@ import {
   routeCapturedEnd,
   routeCapturedMove,
 } from "./regions";
+import {
+  canScrollSidewaysAt,
+  scrollSidewaysAt,
+  sidewaysDragVelocity,
+  startSidewaysFling,
+} from "./sidewaysScroll";
 
 /**
  * Tear down the cursor-drag magnifier if one is up: emit the matching
@@ -134,9 +140,26 @@ function isPointNearCaret(
 }
 
 /**
+ * Where the touch began, on the content as it sits now. The page may have
+ * scrolled a little before the drag showed itself to be sideways, and the
+ * block being scrolled is the one the finger landed on, so the start point is
+ * carried along with the page.
+ */
+function sidewaysPoint(
+  touch: { startX: number; startY: number; startScrollY: number },
+  viewport: ViewportState,
+): { x: number; y: number } {
+  return {
+    x: touch.startX,
+    y: touch.startY - (viewport.scrollY - touch.startScrollY),
+  };
+}
+
+/**
  * Would a touch starting at `point` begin a gesture this editor owns — a
- * selection handle, a grabbed caret, a drag off the existing selection, or any
- * other interactive region (scrollbar thumb, image resize handle)?
+ * selection handle, a grabbed caret, a drag off the existing selection, any
+ * other interactive region (scrollbar thumb, image resize handle), or a block
+ * wider than the page that a sideways drag would scroll?
  *
  * A pure hit test — it starts nothing and mutates nothing — and one answered
  * SYNCHRONOUSLY at `touchstart`:
@@ -152,6 +175,8 @@ export function touchStartsOwnedGesture(
   const { state, viewport, visibility } = ctx;
   if (state.ui.mode === "suspended") return false;
   if (hitTestAllRegions(point, "touch", ctx)) return true;
+  // A block wider than the page takes a sideways drag as its own scroll.
+  if (canScrollSidewaysAt(point, ctx)) return true;
   const onSelection = isPointWithinSelectionRects(
     point.x,
     point.y,
@@ -177,6 +202,9 @@ export function handleTouchStart(
   if (state.ui.mode === "suspended") {
     return state;
   }
+
+  // A finger landing stops a sideways fling, as it stops the page's momentum.
+  session.sidewaysFling = null;
 
   // A new touch replaces `session.touch` wholesale below (a second finger for
   // two-finger scroll, or a fresh single touch), which would strand a live
@@ -623,6 +651,26 @@ export function handleTouchMove(
     if (!session.touch.hasMoved && totalMovement > MOVEMENT_THRESHOLD) {
       session.touch.hasMoved = true;
 
+      // A drag that starts out mostly sideways over a block wider than the
+      // page scrolls that block instead of the page, for the whole gesture.
+      if (
+        deltaX > deltaY &&
+        !session.touch.isLongPress &&
+        canScrollSidewaysAt(sidewaysPoint(session.touch, viewport), {
+          state,
+          viewport,
+          documentHeight,
+          session,
+          visibility,
+        })
+      ) {
+        session.touch.sideways = {
+          lastX: session.touch.startX,
+          lastTime: session.touch.lastTime,
+          velocity: 0,
+        };
+      }
+
       // Cancel any pending hold-to-drag capture (user is scrolling, not holding)
       session.pendingCapture = null;
 
@@ -659,6 +707,23 @@ export function handleTouchMove(
       session.touch.lastY = canvasY;
       session.touch.lastTime = currentTime;
       return state;
+    }
+
+    const sideways = session.touch.sideways;
+    if (sideways) {
+      const scrolled = scrollSidewaysAt(
+        sidewaysPoint(session.touch, viewport),
+        sideways.lastX - canvasX,
+        { state, viewport, documentHeight, session, visibility },
+      );
+      session.touch.sideways = {
+        lastX: canvasX,
+        lastTime: currentTime,
+        velocity: sidewaysDragVelocity(sideways, canvasX, currentTime),
+      };
+      session.touch.lastY = canvasY;
+      session.touch.lastTime = currentTime;
+      return scrolled ?? state;
     }
 
     // Default: Handle scrolling
@@ -1355,6 +1420,18 @@ export function handleTouchEnd(
       },
       ops,
     };
+  }
+
+  // A sideways drag coasts the block it was scrolling, never the page.
+  const sideways = session.touch?.sideways;
+  if (session.touch && sideways) {
+    startSidewaysFling(
+      sidewaysPoint(session.touch, viewport),
+      sideways.velocity,
+      { state, viewport, documentHeight, session, visibility },
+    );
+    session.touch = null;
+    return { state, ops };
   }
 
   // Implement momentum scrolling with the tracked velocity

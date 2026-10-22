@@ -1,6 +1,6 @@
 import { useMemo, useRef, useEffect, useLayoutEffect, useState, useCallback } from "react";
 import { TopActionBarPortal } from "../../layout/TopActionBarSlot";
-import { useNavigate, useBlocker } from "react-router-dom";
+import { useBlocker } from "react-router-dom";
 import { useConfirmation } from "@/app/components/ConfirmationDialog";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -13,6 +13,7 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { useTranslation } from "react-i18next";
+import { useShortcuts } from "@/shortcuts/ShortcutsContext";
 import i18next from "i18next";
 import { useSpaces } from "../../contexts/SpaceContext";
 import useLocalStorage from "../../hooks/useLocalStorage";
@@ -21,6 +22,11 @@ import type { Block } from "@tasfer/editor";
 import { deriveTitles, findTitleBlock } from "@/lib/pageTitle";
 import { getResolvedTimezone } from "@/lib/dateTimePreferences";
 import { useDateTimePrefs } from "@/app/contexts/DateTimePrefsContext";
+import { useOwnPrefsStore } from "@/app/contexts/OwnPrefsContext";
+import {
+  reminderPrefKey,
+  type ReminderSetting,
+} from "@/reminders/reminders";
 import { getPlatform } from "@/platform";
 import {
   useGetCalendarPages,
@@ -29,10 +35,13 @@ import {
   useRestorePage,
   useUpdatePage,
   updatePage as updatePageApi,
+  updateOccurrence,
   type ICalendarPage,
+  type IPage,
 } from "../../api/pages.api";
 import { useToast } from "../../components/Toast";
 import { useCalendarUndo } from "./useCalendarUndo";
+import { isOccurrence, useOccurrenceActions } from "./useOccurrenceActions";
 import {
   DEFAULT_HOUR_HEIGHT,
   TOTAL_HOURS,
@@ -55,24 +64,32 @@ import {
   pxToMinutes,
   snapPx,
   snapStartMin,
-  pageToStartMin,
+  pageStartMinOnDay,
+  clipToDay,
+  clampDragStartMin,
+  maxResizeMinutes,
+  eventDayKeys,
+  dayKey,
   layoutCalendarIntervals,
   getEventLaneInsets,
   type CalendarEventLayout,
   shortDayName,
   formatMonthLong,
-  zonedWallDate,
   wallDateToUtcIso,
   wallMsToInstantMs,
+  allDayStartIso,
+  MINUTES_PER_DAY,
   wallNow,
   type ViewMode,
 } from "./utils";
 import { triggerHaptic } from "@/platform/bridge";
 import { EventCard } from "./EventCard";
-import { EventPreview } from "./EventPreview";
+import { AllDayRow } from "./AllDayRow";
+import { EventPreview, type ScheduleFields } from "./EventPreview";
 import { DateTimePickerOverlay } from "@/components/datetimepickers/DateTimePickerOverlay";
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { DateTime } from "luxon";
+import { useEventLink } from "./useEventLink";
 import style from "./CalendarPage.module.css";
 import clsx from "clsx";
 
@@ -81,6 +98,8 @@ import clsx from "clsx";
 export interface DraftEvent {
   scheduledAt: string;
   duration: number;
+  /** Sits in the all-day row; `scheduledAt` is the start of its day. */
+  allDay?: boolean;
 }
 
 // ── Create-drag state ──
@@ -114,6 +133,8 @@ interface ZoomAnchor {
 interface ResizeState {
   pageId: string;
   originalDuration: number;
+  // Minutes from the start of the day the bottom edge is dragged on; negative
+  // for the piece of an event that started the day before.
   originalStartMin: number;
   startY: number;
   startScrollTop: number;
@@ -123,10 +144,10 @@ interface ResizeState {
 
 export default function CalendarPage() {
   const { t } = useTranslation();
+  const shortcuts = useShortcuts();
   // Re-render when this person changes a date or time setting on any device.
   useDateTimePrefs();
   const isRtl = i18next.dir() === "rtl";
-  const navigate = useNavigate();
   const { getConfirmation } = useConfirmation();
   const { isMobile } = useMobileLayout();
   const { firstSpaceId } = useSpaces();
@@ -214,6 +235,7 @@ export default function CalendarPage() {
   // (in-page + route) don't fire during the create → onSuccess window.
   const savingDraftRef = useRef(false);
   const queryClient = useQueryClient();
+  const ownPrefs = useOwnPrefsStore();
 
   // Tear down the preview without asking. Only for paths that already carry an
   // explicit discard intent (the draft footer's Cancel); everything else goes
@@ -275,6 +297,15 @@ export default function CalendarPage() {
   const handlePreviewClose = useCallback(() => {
     guardDiscard(closePreviewNow);
   }, [guardDiscard, closePreviewNow]);
+
+  // A clicked reminder lands here: go to the event's day and open it.
+  useEventLink((entryId, day) => {
+    guardDiscard(() => {
+      setSelectedDate(day);
+      setPreviewPageId(entryId);
+      setPreviewAnchor(null);
+    });
+  });
 
   // Apply a mini-calendar date pick, guarding an in-progress draft. On cancel,
   // revert the overlay fields back to the current selection so the picker
@@ -378,10 +409,62 @@ export default function CalendarPage() {
   }, [prevDate, nextDate, viewMode]);
 
   const weekDays = useMemo(() => getWeekDays(selectedDate), [selectedDate]);
+  const selectedDays = useMemo(() => [selectedDate], [selectedDate]);
   const prevWeekDays = useMemo(() => getWeekDays(prevDate), [prevDate]);
   const nextWeekDays = useMemo(() => getWeekDays(nextDate), [nextDate]);
 
   const { data: pages } = useGetCalendarPages(start, end);
+
+  // Calendar entries are keyed by entry id, which for an occurrence of a
+  // repeating event is not a page id (see PageCalendarItem.id). Everything that
+  // acts on an entry looks it up here first.
+  const findEntry = useCallback(
+    (id: string) => pages?.find((p) => p.id === id),
+    [pages],
+  );
+  // The previewed entry, kept while it scrolls out of the loaded range so the
+  // open preview doesn't lose track of which occurrence it shows.
+  const previewEntryRef = useRef<ICalendarPage | null>(null);
+  const foundPreviewEntry = useMemo(() => {
+    if (!previewPageId || !pages) return undefined;
+    const exact = pages.find((p) => p.id === previewPageId);
+    if (exact) return exact;
+    // The entry can change id under an open preview. Follow it:
+    const last =
+      previewEntryRef.current?.id === previewPageId
+        ? previewEntryRef.current
+        : null;
+    return (
+      // - the same occurrence, now under its own notes page's id;
+      (last?.seriesId
+        ? pages.find(
+            (p) =>
+              p.seriesId === last.seriesId &&
+              p.occurrenceStart === last.occurrenceStart,
+          )
+        : undefined) ??
+      // - a series set back to "does not repeat", now one plain event;
+      (last?.seriesId
+        ? pages.find((p) => p.id === last.seriesId)
+        : undefined) ??
+      // - a plain event that now repeats, as its first occurrence.
+      pages.find(
+        (p) =>
+          p.seriesId === previewPageId && p.occurrenceStart === p.seriesStart,
+      )
+    );
+  }, [pages, previewPageId]);
+  if (foundPreviewEntry) previewEntryRef.current = foundPreviewEntry;
+  const previewEntry =
+    foundPreviewEntry ??
+    (previewEntryRef.current?.id === previewPageId
+      ? previewEntryRef.current
+      : null);
+  useEffect(() => {
+    if (foundPreviewEntry && foundPreviewEntry.id !== previewPageId) {
+      setPreviewPageId(foundPreviewEntry.id);
+    }
+  }, [foundPreviewEntry, previewPageId]);
 
   // ── Undo / redo for calendar-level edits ──
   // Only what the calendar itself does to a page: moves, resizes, creations,
@@ -393,6 +476,19 @@ export default function CalendarPage() {
     redo: popRedo,
   } = useCalendarUndo();
   const { toast } = useToast();
+
+  const {
+    reschedule: rescheduleOccurrence,
+    archive: archiveOccurrence,
+    scopeDialog,
+  } = useOccurrenceActions({
+    recordUndo,
+    onArchived: (entry) => {
+      if (previewEntry?.seriesId && previewEntry.seriesId === entry.seriesId) {
+        closePreviewNow();
+      }
+    },
+  });
 
   const { mutate: deletePage } = useDeletePage({
     onSuccess: (_data, variables) => {
@@ -447,7 +543,12 @@ export default function CalendarPage() {
   const { mutate: createPage } = useCreatePage({
     onSuccess: async (newPage) => {
       // Save draft title and body to the new page
-      const { blocks } = draftSnapshotRef.current;
+      const { blocks, reminder } = draftSnapshotRef.current;
+      // Before the panel switches to the new event, so its reminder row opens
+      // on what was picked in the draft.
+      if (reminder !== undefined) {
+        ownPrefs.set(reminderPrefKey(newPage.id), reminder);
+      }
       if (blocks) {
         await updatePageApi({
           id: newPage.id,
@@ -499,10 +600,20 @@ export default function CalendarPage() {
               ...(variables.duration !== undefined && {
                 duration: variables.duration,
               }),
+              ...(variables.allDay !== undefined && {
+                allDay: variables.allDay,
+              }),
+              ...(variables.done !== undefined && { done: variables.done }),
             };
           });
         },
       );
+      // The preview reads the page itself; its done toggle answers at once too.
+      if (variables.done !== undefined) {
+        queryClient.setQueryData<IPage>(["page", variables.id], (old) =>
+          old ? { ...old, done: variables.done } : old,
+        );
+      }
 
       return { previousData };
     },
@@ -525,8 +636,8 @@ export default function CalendarPage() {
   const handlePreviewScheduleEdited = useCallback(
     (
       pageId: string,
-      before: { scheduledAt: string | null; duration: number | null },
-      after: { scheduledAt: string | null; duration: number | null },
+      before: ScheduleFields,
+      after: ScheduleFields,
     ) => {
       recordUndo({
         undoMessage: t(
@@ -558,8 +669,60 @@ export default function CalendarPage() {
     [recordUndo, updatePage, t],
   );
 
+  // Tick a task off, or back on, from its card or its preview. Each
+  // occurrence of a repeating task is ticked off on its own.
+  const handleToggleDone = useCallback(
+    (entryId: string) => {
+      const entry = findEntry(entryId);
+      if (!entry?.task) return;
+      const done = !entry.done;
+      const message = (isDone: boolean) =>
+        isDone
+          ? t("calendar.undo.markedDone", "Task marked done")
+          : t("calendar.undo.markedNotDone", "Task marked not done");
+      let write: (value: boolean) => void;
+      if (isOccurrence(entry)) {
+        const { seriesId, occurrenceStart } = entry;
+        write = (value) => {
+          queryClient.setQueriesData<ICalendarPage[]>(
+            { queryKey: ["calendar-pages"] },
+            (old) =>
+              old?.map((p) =>
+                p.seriesId === seriesId && p.occurrenceStart === occurrenceStart
+                  ? { ...p, done: value }
+                  : p,
+              ),
+          );
+          void updateOccurrence({
+            seriesId,
+            occurrenceStart,
+            done: value,
+          }).then(() =>
+            queryClient.invalidateQueries({ queryKey: ["calendar-pages"] }),
+          );
+        };
+      } else {
+        write = (value) => updatePage({ id: entry.pageId, done: value });
+      }
+      write(done);
+      recordUndo({
+        undoMessage: message(!done),
+        redoMessage: message(done),
+        pageId: entry.seriesId ?? entry.pageId,
+        undo: () => write(!done),
+        redo: () => write(done),
+      });
+    },
+    [findEntry, recordUndo, updatePage, queryClient, t],
+  );
+
   const handleEventDelete = useCallback(
     async (pageId: string) => {
+      const entry = findEntry(pageId);
+      if (isOccurrence(entry)) {
+        await archiveOccurrence(entry);
+        return;
+      }
       let hasChildren = false;
       try {
         hasChildren = (await getPlatform().pages.get(pageId)).hasChildren;
@@ -588,7 +751,14 @@ export default function CalendarPage() {
         );
       }
     },
-    [deletePage, getConfirmation, recordArchiveUndo, t],
+    [
+      deletePage,
+      getConfirmation,
+      recordArchiveUndo,
+      t,
+      findEntry,
+      archiveOccurrence,
+    ],
   );
 
   const createPageAtTime = useCallback(
@@ -612,6 +782,22 @@ export default function CalendarPage() {
     [firstSpaceId, selectedDate, guardDiscard],
   );
 
+  const createAllDayDraft = useCallback(
+    (day: Date) => {
+      if (!firstSpaceId) return;
+      guardDiscard(() => {
+        setDraftEvent({
+          scheduledAt: allDayStartIso(day),
+          duration: MINUTES_PER_DAY,
+          allDay: true,
+        });
+        setPreviewPageId(null);
+        setPreviewAnchor(null);
+      });
+    },
+    [firstSpaceId, guardDiscard],
+  );
+
   // Duplicate an existing event into a new page: copies its title, parent,
   // color, duration, and task flag, but NOT its body — a duplicated event is a
   // fresh occasion, not a second copy of the original's notes. `scheduledAt`
@@ -625,25 +811,34 @@ export default function CalendarPage() {
     ) => {
       if (!firstSpaceId) return;
       const platform = getPlatform();
+      // An occurrence of a repeating event duplicates into a one-off event at
+      // that occurrence's time, filed where its series is.
+      const entry = findEntry(sourceId);
       let src;
       try {
-        src = await platform.pages.get(sourceId);
+        src = await platform.pages.get(entry?.pageId ?? sourceId);
       } catch {
         return;
       }
+      const occurrence = isOccurrence(entry) ? entry : null;
       const newPage = await platform.pages.create({
         title: src.title,
         titleMd: src.titleMd,
-        parentId: src.parentId,
+        parentId: occurrence ? occurrence.parentId : src.parentId,
         spaceId: src.spaceId ?? firstSpaceId,
-        scheduledAt: opts?.scheduledAt ?? src.scheduledAt ?? undefined,
-        duration: src.duration ?? undefined,
-        allDay: src.allDay ?? undefined,
+        scheduledAt:
+          opts?.scheduledAt ??
+          occurrence?.scheduledAt ??
+          src.scheduledAt ??
+          undefined,
+        duration: (occurrence ?? src).duration ?? undefined,
+        allDay: (occurrence ?? src).allDay ?? undefined,
         task: src.task,
       });
       // Color isn't part of the create payload, so apply it in a follow-up.
-      if (src.color) {
-        await updatePageApi({ id: newPage.id, color: src.color });
+      const color = occurrence?.color ?? src.color;
+      if (color) {
+        await updatePageApi({ id: newPage.id, color });
       }
       // Carry the heading over as content, not just as the title columns: those
       // columns are a derived cache of the doc, so a copy whose doc was left
@@ -667,7 +862,7 @@ export default function CalendarPage() {
         setPreviewAnchor(null);
       }
     },
-    [firstSpaceId, queryClient, recordCreateUndo, t],
+    [firstSpaceId, queryClient, recordCreateUndo, t, findEntry],
   );
 
   // After the draft card renders, resolve its position as the anchor
@@ -683,7 +878,7 @@ export default function CalendarPage() {
         // the new event up near the top of the timeline where it stays visible
         // (and draggable) above the sheet.
         const timeline = timelineRef.current;
-        if (isMobile && timeline) {
+        if (isMobile && timeline && !draftEvent.allDay) {
           const cardRect = el.getBoundingClientRect();
           const tlRect = timeline.getBoundingClientRect();
           const target =
@@ -695,9 +890,10 @@ export default function CalendarPage() {
     return () => cancelAnimationFrame(frame);
   }, [draftEvent, previewAnchor, isMobile]);
 
-  const draftSnapshotRef = useRef<{ blocks?: Block[] }>(
-    {},
-  );
+  const draftSnapshotRef = useRef<{
+    blocks?: Block[];
+    reminder?: ReminderSetting;
+  }>({});
 
   const handleDraftSave = useCallback(
     (
@@ -706,20 +902,24 @@ export default function CalendarPage() {
       parentId?: string | null,
       task?: boolean,
       spaceId?: string,
+      reminder?: ReminderSetting,
+      recurrence?: string,
     ) => {
       const targetSpaceId = spaceId ?? firstSpaceId;
       if (!draftEvent || !targetSpaceId) return;
       // Mark saving before the async create so the discard guards pass through
       // rather than prompting while the draft is being committed.
       savingDraftRef.current = true;
-      draftSnapshotRef.current = { blocks };
+      draftSnapshotRef.current = { blocks, reminder };
       createPage({
         ...(blocks ? deriveTitles(blocks) : { title: "" }),
         parentId: parentId ?? null,
         spaceId: targetSpaceId,
         scheduledAt: draftEvent.scheduledAt,
         duration: draftEvent.duration,
+        ...(draftEvent.allDay && { allDay: true }),
         task: task ?? true,
+        ...(recurrence && { recurrence }),
       });
     },
     [draftEvent, firstSpaceId, createPage],
@@ -739,7 +939,7 @@ export default function CalendarPage() {
     }
     // Include draft event as a temporary calendar page
     if (draftEvent) {
-      timedPages.push({
+      (draftEvent.allDay ? allDayPages : timedPages).push({
         id: "__draft__",
         title: "",
         parentId: null,
@@ -747,9 +947,15 @@ export default function CalendarPage() {
         color: null,
         scheduledAt: draftEvent.scheduledAt,
         duration: draftEvent.duration,
-        allDay: false,
+        allDay: !!draftEvent.allDay,
         recurrenceId: null,
+        pageId: "__draft__",
+        recurrence: null,
+        seriesId: null,
+        occurrenceStart: null,
+        seriesStart: null,
         task: true,
+        done: false,
         path: null,
         createdAt: new Date().toISOString(),
       });
@@ -757,21 +963,52 @@ export default function CalendarPage() {
     return { timedPages, allDayPages };
   }, [pages, draftEvent]);
 
-  // Group timed pages by day (for week view)
+  // Group timed pages by day. An event that runs past midnight is listed on
+  // every day it covers, and each day draws its own piece of it.
   const pagesByDay = useMemo(() => {
     const map = new Map<string, ICalendarPage[]>();
     for (const page of timedPages) {
-      const d = zonedWallDate(page.scheduledAt);
-      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(page);
+      for (const key of eventDayKeys(page.scheduledAt, page.duration || 60)) {
+        if (!map.has(key)) map.set(key, []);
+        map.get(key)!.push(page);
+      }
     }
     return map;
   }, [timedPages]);
 
   function getPagesForDay(date: Date): ICalendarPage[] {
-    const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
-    return pagesByDay.get(key) || [];
+    return pagesByDay.get(dayKey(date)) || [];
+  }
+
+  // The part of an event drawn on `day`, as a layout interval.
+  function dayInterval(page: ICalendarPage, day: Date) {
+    const clipped = clipToDay(
+      pageStartMinOnDay(page, day),
+      page.duration || 60,
+    );
+    return {
+      id: page.id,
+      startMinutes: clipped?.startMinutes ?? 0,
+      duration: clipped ? clipped.endMinutes - clipped.startMinutes : 0,
+    };
+  }
+
+  // Where the move-drag ghost sits: the day it would land on and its new start
+  // in minutes from that day's start (negative when it would still start the
+  // day before).
+  function getDragGhost() {
+    if (!activeDragPage || !dragSourceDay) return null;
+    const duration = activeDragPage.duration || 60;
+    const oldStartMin = pageStartMinOnDay(activeDragPage, dragSourceDay);
+    return {
+      day: dragTargetDay || dragSourceDay,
+      startMinutes: clampDragStartMin(
+        oldStartMin,
+        oldStartMin + dragDeltaMinutes,
+        duration,
+      ),
+      duration,
+    };
   }
 
   function getTransientIntervalsForDay(day: Date) {
@@ -789,35 +1026,29 @@ export default function CalendarPage() {
       });
     }
 
-    if (activeDragPage) {
-      const dragDay =
-        dragTargetDay || zonedWallDate(activeDragPage.scheduledAt);
-      if (isSameDay(dragDay, day)) {
-        const startMinutes = Math.max(
-          0,
-          Math.min(
-            pageToStartMin(activeDragPage) + dragDeltaMinutes,
-            TOTAL_HOURS * 60 - SNAP_MINUTES,
-          ),
-        );
-        intervals.push({
-          id: "__drag_ghost__",
-          startMinutes,
-          duration: activeDragPage.duration || 60,
-        });
-      }
+    const ghost = getDragGhost();
+    const ghostPiece =
+      ghost && isSameDay(ghost.day, day)
+        ? clipToDay(ghost.startMinutes, ghost.duration)
+        : null;
+    if (ghostPiece) {
+      intervals.push({
+        id: "__drag_ghost__",
+        startMinutes: ghostPiece.startMinutes,
+        duration: ghostPiece.endMinutes - ghostPiece.startMinutes,
+      });
     }
 
     return intervals;
   }
 
-  function getLaidOutPages(dayPages: ICalendarPage[], day?: Date) {
+  function getLaidOutPages(dayPages: ICalendarPage[], day: Date) {
     const displayPages = dayPages.map((page) =>
       resize?.pageId === page.id && resizeDuration !== null
         ? { ...page, duration: resizeDuration }
         : page,
     );
-    const transientIntervals = day ? getTransientIntervalsForDay(day) : [];
+    const transientIntervals = getTransientIntervalsForDay(day);
     const layouts = layoutCalendarIntervals(
       [
         ...displayPages
@@ -827,11 +1058,7 @@ export default function CalendarPage() {
               page.id !== activeDragPage.id ||
               transientIntervals.length === 0,
           )
-          .map((page) => ({
-            id: page.id,
-            startMinutes: pageToStartMin(page),
-            duration: page.duration || 60,
-          })),
+          .map((page) => dayInterval(page, day)),
         ...transientIntervals,
       ],
     );
@@ -845,11 +1072,7 @@ export default function CalendarPage() {
   ): CalendarEventLayout | undefined {
     const intervals = getPagesForDay(day)
       .filter((page) => page.id !== excludedPageId)
-      .map((page) => ({
-        id: page.id,
-        startMinutes: pageToStartMin(page),
-        duration: page.duration || 60,
-      }));
+      .map((page) => dayInterval(page, day));
     intervals.push(interval);
     return layoutCalendarIntervals(intervals).get(interval.id);
   }
@@ -902,6 +1125,9 @@ export default function CalendarPage() {
   const [activeDragPage, setActiveDragPage] = useState<ICalendarPage | null>(
     null,
   );
+  // The day of the piece that was grabbed. An event past midnight is drawn on
+  // two days, and the drag moves it relative to the piece under the pointer.
+  const [dragSourceDay, setDragSourceDay] = useState<Date | null>(null);
   // Mirrors `activeDragPage` for the native listeners that must not zoom or
   // create while a move-drag owns the pointers.
   const dragActiveRef = useRef(false);
@@ -1000,9 +1226,7 @@ export default function CalendarPage() {
             // In day view, track the accumulated target day so handleDragEnd
             // knows which day to save the event to
             if (viewMode === "day") {
-              const base =
-                edgeDragTargetDayRef.current ||
-                zonedWallDate(activeDragPage!.scheduledAt);
+              const base = edgeDragTargetDayRef.current || dragSourceDay!;
               const newTarget = new Date(base);
               newTarget.setDate(newTarget.getDate() + edgeDir!);
               edgeDragTargetDayRef.current = newTarget;
@@ -1066,7 +1290,7 @@ export default function CalendarPage() {
       window.removeEventListener("keyup", handleModifierKey);
       clearEdgeDragTimer();
     };
-  }, [activeDragPage, viewMode, weekDays, clearEdgeDragTimer, isRtl, setDragDuplicate]);
+  }, [activeDragPage, dragSourceDay, viewMode, weekDays, clearEdgeDragTimer, isRtl, setDragDuplicate]);
 
   // Turn a raw pixel offset into a minute delta whose result lands on the grid:
   // snap `start + rawDelta` absolutely, then subtract the start so the existing
@@ -1080,13 +1304,15 @@ export default function CalendarPage() {
 
   function handleDragStart(event: DragStartEvent) {
     const page = event.active.data.current?.page as ICalendarPage | undefined;
-    if (page) {
+    const day = event.active.data.current?.day as Date | undefined;
+    if (page && day) {
       triggerHaptic("medium");
       setActiveDragPage(page);
+      setDragSourceDay(day);
       setDragDeltaMinutes(0);
       dragDeltaMinutesRef.current = 0;
       dragDeltaPxRef.current = 0;
-      dragStartMinRef.current = pageToStartMin(page);
+      dragStartMinRef.current = pageStartMinOnDay(page, day);
       setDragTargetDay(null);
       const ae = event.activatorEvent as
         | {
@@ -1113,18 +1339,18 @@ export default function CalendarPage() {
   function handleDragEnd(_event: DragEndEvent) {
     clearEdgeDragTimer();
     edgeDragTargetDayRef.current = null;
-    if (activeDragPage) {
-      const oldStartMin = pageToStartMin(activeDragPage);
-      let newStartMin = oldStartMin + dragDeltaMinutesRef.current;
-      newStartMin = Math.max(
-        0,
-        Math.min(newStartMin, TOTAL_HOURS * 60 - SNAP_MINUTES),
+    if (activeDragPage && dragSourceDay) {
+      const oldStartMin = pageStartMinOnDay(activeDragPage, dragSourceDay);
+      const newStartMin = clampDragStartMin(
+        oldStartMin,
+        oldStartMin + dragDeltaMinutesRef.current,
+        activeDragPage.duration || 60,
       );
 
-      const targetDate =
-        dragTargetDay || zonedWallDate(activeDragPage.scheduledAt);
+      const targetDate = dragTargetDay || dragSourceDay;
       const scheduledDate = new Date(targetDate);
       scheduledDate.setHours(0, 0, 0, 0);
+      // A negative start rolls back into the previous day.
       scheduledDate.setMinutes(newStartMin);
 
       const newISO = wallDateToUtcIso(scheduledDate);
@@ -1137,6 +1363,15 @@ export default function CalendarPage() {
         if (activeDragPage.id === "__draft__") {
           setDraftEvent((prev) =>
             prev ? { ...prev, scheduledAt: newISO } : prev,
+          );
+        } else if (isOccurrence(activeDragPage)) {
+          void rescheduleOccurrence(
+            activeDragPage,
+            { scheduledAt: newISO },
+            {
+              undoMessage: t("calendar.undo.moveUndone", "Page moved back"),
+              redoMessage: t("calendar.undo.moveRedone", "Page moved again"),
+            },
           );
         } else {
           const movedId = activeDragPage.id;
@@ -1153,6 +1388,7 @@ export default function CalendarPage() {
       }
     }
     setActiveDragPage(null);
+    setDragSourceDay(null);
     setDragDeltaMinutes(0);
     dragDeltaMinutesRef.current = 0;
     dragDeltaPxRef.current = 0;
@@ -1166,6 +1402,7 @@ export default function CalendarPage() {
     edgeDragTransitionCancelRef.current?.();
     edgeDragTargetDayRef.current = null;
     setActiveDragPage(null);
+    setDragSourceDay(null);
     setDragDeltaMinutes(0);
     dragDeltaMinutesRef.current = 0;
     dragDeltaPxRef.current = 0;
@@ -1181,7 +1418,11 @@ export default function CalendarPage() {
   const resizeDurationRef = useRef<number | null>(null);
   const resizeCleanupRef = useRef<(() => void) | null>(null);
 
-  function handleResizeStart(pageId: string, e: React.PointerEvent) {
+  function handleResizeStart(
+    pageId: string,
+    e: React.PointerEvent,
+    day: Date,
+  ) {
     const page = timedPages.find((p) => p.id === pageId);
     if (!page) return;
     e.preventDefault();
@@ -1192,7 +1433,7 @@ export default function CalendarPage() {
     const state: ResizeState = {
       pageId,
       originalDuration: page.duration || 60,
-      originalStartMin: pageToStartMin(page),
+      originalStartMin: pageStartMinOnDay(page, day),
       startY: e.clientY,
       startScrollTop: timelineRef.current?.scrollTop ?? 0,
     };
@@ -1228,7 +1469,7 @@ export default function CalendarPage() {
         MIN_DRAG_MINUTES,
         r.originalDuration + deltaMin,
       );
-      const maxDuration = TOTAL_HOURS * 60 - r.originalStartMin;
+      const maxDuration = maxResizeMinutes(r.originalStartMin);
       const clamped = Math.min(newDuration, maxDuration);
       resizeDurationRef.current = clamped;
       setResizeDuration(clamped);
@@ -1240,6 +1481,18 @@ export default function CalendarPage() {
       if (r && d !== null && d !== r.originalDuration) {
         if (r.pageId === "__draft__") {
           setDraftEvent((prev) => (prev ? { ...prev, duration: d } : prev));
+        } else if (isOccurrence(page)) {
+          void rescheduleOccurrence(
+            page,
+            { duration: d },
+            {
+              undoMessage: t("calendar.undo.resizeUndone", "Duration restored"),
+              redoMessage: t(
+                "calendar.undo.resizeRedone",
+                "Duration changed again",
+              ),
+            },
+          );
         } else {
           const resizedId = r.pageId;
           const previousDuration = r.originalDuration;
@@ -1773,7 +2026,7 @@ export default function CalendarPage() {
               );
               const duration = Math.min(
                 Math.max(MIN_DRAG_MINUTES, r.originalDuration + deltaMin),
-                TOTAL_HOURS * 60 - r.originalStartMin,
+                maxResizeMinutes(r.originalStartMin),
               );
               resizeDurationRef.current = duration;
               setResizeDuration(duration);
@@ -2139,57 +2392,46 @@ export default function CalendarPage() {
       )
         return;
 
-      const mod = e.metaKey || e.ctrlKey;
-      if (mod && (e.key === "z" || e.key === "Z")) {
+      // Each on the chords the person bound in Settings → Shortcuts. Undo and
+      // redo share the editor's bindings, so one change covers both.
+      if (shortcuts.matches("undo", e)) {
         e.preventDefault();
-        void (e.shiftKey ? runRedo() : runUndo());
+        void runUndo();
         return;
       }
-      if (mod && (e.key === "y" || e.key === "Y")) {
+      if (shortcuts.matches("redo", e)) {
         e.preventDefault();
         void runRedo();
         return;
       }
-      // The single-letter shortcuts below must not swallow the browser's own
-      // modifier combos (⌘P, ⌘T).
-      if (mod || e.altKey) return;
-
-      switch (e.key) {
-        case "p":
-          e.preventDefault();
-          goToDay(-1);
-          break;
-        case "n":
-          e.preventDefault();
-          goToDay(1);
-          break;
-        case "t":
-          e.preventDefault();
-          goToToday();
-          break;
-        case "c": {
-          e.preventDefault();
-          // Land where the user is looking: the next quarter-hour when today is
-          // on screen, the start of the working day otherwise. The draft opens
-          // with the title focused, so a whole event is "c", type, ⌘↵ — no
-          // pointer, and no drag to place a card the fields can restate.
-          const start = isToday
-            ? Math.ceil(nowMinutes / SNAP_MINUTES) * SNAP_MINUTES
-            : KEYBOARD_CREATE_START_MINUTES;
-          createPageAtTime(
-            Math.min(start, TOTAL_HOURS * 60 - KEYBOARD_CREATE_MINUTES),
-            KEYBOARD_CREATE_MINUTES,
-          );
-          break;
-        }
-        case "1":
-          e.preventDefault();
-          setViewMode("day");
-          break;
-        case "2":
-          e.preventDefault();
-          setViewMode("week");
-          break;
+      if (shortcuts.matches("calendar.previous", e)) {
+        e.preventDefault();
+        goToDay(-1);
+      } else if (shortcuts.matches("calendar.next", e)) {
+        e.preventDefault();
+        goToDay(1);
+      } else if (shortcuts.matches("calendar.today", e)) {
+        e.preventDefault();
+        goToToday();
+      } else if (shortcuts.matches("calendar.newEvent", e)) {
+        e.preventDefault();
+        // Land where the user is looking: the next quarter-hour when today is
+        // on screen, the start of the working day otherwise. The draft opens
+        // with the title focused, so a whole event is "c", type, ⌘↵ — no
+        // pointer, and no drag to place a card the fields can restate.
+        const start = isToday
+          ? Math.ceil(nowMinutes / SNAP_MINUTES) * SNAP_MINUTES
+          : KEYBOARD_CREATE_START_MINUTES;
+        createPageAtTime(
+          Math.min(start, TOTAL_HOURS * 60 - KEYBOARD_CREATE_MINUTES),
+          KEYBOARD_CREATE_MINUTES,
+        );
+      } else if (shortcuts.matches("calendar.dayView", e)) {
+        e.preventDefault();
+        setViewMode("day");
+      } else if (shortcuts.matches("calendar.weekView", e)) {
+        e.preventDefault();
+        setViewMode("week");
       }
     }
 
@@ -2204,6 +2446,7 @@ export default function CalendarPage() {
     nowMinutes,
     runUndo,
     runRedo,
+    shortcuts,
   ]);
 
   const noopHandler = useCallback(() => {}, []);
@@ -2242,12 +2485,14 @@ export default function CalendarPage() {
           <EventCard
             key={page.id}
             page={page}
+            day={dayDate}
             layout={layout}
             hourHeight={hourHeight}
             onResizeStart={handleResizeStart}
             onEventClick={handleEventClick}
             onDuplicate={(id) => duplicatePage(id, { select: true })}
             onDelete={handleEventDelete}
+            onToggleDone={handleToggleDone}
             compact={viewMode === "week"}
             isDraft={page.id === "__draft__"}
           />
@@ -2256,24 +2501,20 @@ export default function CalendarPage() {
         {/* Move-drag ghost */}
         {activeDragPage &&
           (() => {
-            const ghostDay =
-              dragTargetDay || zonedWallDate(activeDragPage.scheduledAt);
-            if (!isSameDay(ghostDay, dayDate)) return null;
-            const oldStartMin = pageToStartMin(activeDragPage);
-            const duration = activeDragPage.duration || 60;
-            let newStartMin = oldStartMin + dragDeltaMinutes;
-            newStartMin = Math.max(
-              0,
-              Math.min(newStartMin, TOTAL_HOURS * 60 - SNAP_MINUTES),
-            );
-            const top = (newStartMin / 60) * hourHeight;
-            const height = (duration / 60) * hourHeight;
+            const ghost = getDragGhost();
+            if (!ghost || !isSameDay(ghost.day, dayDate)) return null;
+            const { startMinutes: newStartMin, duration } = ghost;
+            const piece = clipToDay(newStartMin, duration);
+            if (!piece) return null;
+            const top = (piece.startMinutes / 60) * hourHeight;
+            const height =
+              ((piece.endMinutes - piece.startMinutes) / 60) * hourHeight;
             const layout = getTransientLayout(
               dayDate,
               {
                 id: "__drag_ghost__",
-                startMinutes: newStartMin,
-                duration,
+                startMinutes: piece.startMinutes,
+                duration: piece.endMinutes - piece.startMinutes,
               },
               activeDragPage.id,
             );
@@ -2421,6 +2662,27 @@ export default function CalendarPage() {
     );
   }
 
+  // Creation from the all-day row follows the hour grid's rule: not while a
+  // popover preview is open, nor on the press that closed one.
+  const canCreateAllDay = () =>
+    !(
+      (!sidebarMode && (previewPageId || draftEvent)) ||
+      previewJustClosedRef.current
+    );
+
+  const allDayRow = (days: Date[]) => (
+    <AllDayRow
+      days={days}
+      pages={allDayPages}
+      canCreate={canCreateAllDay}
+      onCreate={createAllDayDraft}
+      onEventClick={handleEventClick}
+      onDuplicate={(id) => duplicatePage(id, { select: true })}
+      onDelete={handleEventDelete}
+      onToggleDone={handleToggleDone}
+    />
+  );
+
   return (
     <div className={style.container}>
       <TopActionBarPortal>
@@ -2528,33 +2790,6 @@ export default function CalendarPage() {
         </div>
       </TopActionBarPortal>
 
-      {allDayPages.length > 0 && (
-        <div className={style.allDaySection}>
-          {allDayPages.map((page) => (
-            <div
-              key={page.id}
-              className={style.allDayBadge}
-              onClick={() => navigate(`/page/${page.id}`)}
-              style={(() => {
-                const c =
-                  page.color ??
-                  (page.path &&
-                    [...page.path].reverse().find((p) => p.color)?.color) ??
-                  null;
-                return c
-                  ? {
-                      backgroundColor: `color-mix(in srgb, ${c}, transparent 85%)`,
-                      color: c,
-                    }
-                  : undefined;
-              })()}
-            >
-              {page.title || t("common.untitled", "Untitled")}
-            </div>
-          ))}
-        </div>
-      )}
-
       <DndContext
         sensors={sensors}
         onDragStart={handleDragStart}
@@ -2582,6 +2817,7 @@ export default function CalendarPage() {
                 </span>
               </div>
             </div>
+            {allDayRow(selectedDays)}
             <div
               className={style.timeline}
               ref={timelineRef}
@@ -2610,6 +2846,7 @@ export default function CalendarPage() {
                       <EventCard
                         key={page.id}
                         page={page}
+                        day={prevDate}
                         layout={layout}
                         hourHeight={hourHeight}
                         onResizeStart={noopHandler}
@@ -2650,6 +2887,7 @@ export default function CalendarPage() {
                         <EventCard
                           key={page.id}
                           page={page}
+                          day={selectedDate}
                           layout={layout}
                           hourHeight={hourHeight}
                           onResizeStart={handleResizeStart}
@@ -2658,6 +2896,7 @@ export default function CalendarPage() {
                             duplicatePage(id, { select: true })
                           }
                           onDelete={handleEventDelete}
+                          onToggleDone={handleToggleDone}
                           isDraft={page.id === "__draft__"}
                         />
                       ),
@@ -2680,24 +2919,21 @@ export default function CalendarPage() {
                     {/* Move-drag ghost preview on grid */}
                     {activeDragPage &&
                       (() => {
-                        const oldStartMin = pageToStartMin(activeDragPage);
-                        const duration = activeDragPage.duration || 60;
-                        let newStartMin = oldStartMin + dragDeltaMinutes;
-                        newStartMin = Math.max(
-                          0,
-                          Math.min(
-                            newStartMin,
-                            TOTAL_HOURS * 60 - SNAP_MINUTES,
-                          ),
-                        );
-                        const top = (newStartMin / 60) * hourHeight;
-                        const height = (duration / 60) * hourHeight;
+                        const ghost = getDragGhost();
+                        if (!ghost) return null;
+                        const { startMinutes: newStartMin, duration } = ghost;
+                        const piece = clipToDay(newStartMin, duration);
+                        if (!piece) return null;
+                        const top = (piece.startMinutes / 60) * hourHeight;
+                        const height =
+                          ((piece.endMinutes - piece.startMinutes) / 60) *
+                          hourHeight;
                         const layout = getTransientLayout(
                           selectedDate,
                           {
                             id: "__drag_ghost__",
-                            startMinutes: newStartMin,
-                            duration,
+                            startMinutes: piece.startMinutes,
+                            duration: piece.endMinutes - piece.startMinutes,
                           },
                           activeDragPage.id,
                         );
@@ -2801,6 +3037,7 @@ export default function CalendarPage() {
                       <EventCard
                         key={page.id}
                         page={page}
+                        day={nextDate}
                         layout={layout}
                         hourHeight={hourHeight}
                         onResizeStart={noopHandler}
@@ -2833,6 +3070,7 @@ export default function CalendarPage() {
               className={style.timeline}
               ref={timelineRef}
             >
+            <div className={style.weekHeaderSticky}>
             <div className={style.weekHeader}>
               <div className={style.weekTimeLabelSpacer} />
               {weekDays.map((day, i) => (
@@ -2850,6 +3088,8 @@ export default function CalendarPage() {
                   <span className={style.weekDayNumber}>{day.getDate()}</span>
                 </div>
               ))}
+            </div>
+            {allDayRow(weekDays)}
             </div>
               <div className={style.swipeStrip} onTouchStart={handleSwipeTouchStart} onTouchEnd={handleSwipeTouchEnd} onTouchCancel={handleSwipeTouchEnd}>
               <div className={style.swipeTrack} ref={swipeTrackRef}>
@@ -2871,26 +3111,38 @@ export default function CalendarPage() {
       </DndContext>
 
       <EventPreview
-        pageId={previewPageId}
+        pageId={previewEntry?.pageId ?? previewPageId}
+        occurrence={isOccurrence(previewEntry) ? previewEntry : null}
+        onOccurrenceReschedule={rescheduleOccurrence}
+        onOccurrenceArchive={archiveOccurrence}
         anchor={previewAnchor}
         onClose={handlePreviewClose}
         sidebarMode={sidebarMode ?? false}
         onSidebarModeChange={setSidebarMode}
-        onDuplicate={(id) => duplicatePage(id, { select: true })}
+        onDuplicate={() => {
+          if (previewPageId)
+            void duplicatePage(previewPageId, { select: true });
+        }}
         draft={draftEvent}
         onDraftDiscard={closePreviewNow}
         onDraftSave={handleDraftSave}
-        onDraftScheduleChange={(scheduledAt, duration) =>
-          setDraftEvent((d) => (d ? { ...d, scheduledAt, duration } : d))
+        onDraftScheduleChange={(scheduledAt, duration, allDay) =>
+          setDraftEvent((d) =>
+            d
+              ? { ...d, scheduledAt, duration, allDay: allDay ?? d.allDay }
+              : d,
+          )
         }
         onDraftContentChange={setDraftHasContent}
         onArchived={recordArchiveUndo}
         onScheduleEdited={handlePreviewScheduleEdited}
         onTaskToggled={handlePreviewTaskToggled}
+        onToggleDone={handleToggleDone}
         calendarInteractionActive={
           activeDragPage !== null || resize !== null || createDrag !== null
         }
       />
+      {scopeDialog}
     </div>
   );
 }

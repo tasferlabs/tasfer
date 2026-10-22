@@ -79,8 +79,8 @@ function byActivity(a: DeviceInfo, b: DeviceInfo): number {
  *
  * Pausing is person-private and reversible: it replicates to this person's own
  * devices (so a device paused on the laptop is paused on the phone too), the
- * paused device is never told, and resuming lets the two catch up through the
- * ordinary handshake. It is housekeeping — one fewer connection to keep alive —
+ * paused device can resume itself from its own row, and resuming lets the two
+ * catch up through the ordinary handshake. It is housekeeping — one fewer connection to keep alive —
  * and deliberately not offered as a way to cut a device off: what it already
  * holds, it keeps.
  */
@@ -214,13 +214,13 @@ function DeviceManager({
             ? t("device.pauseBodyPending", {
                 count: stranded,
                 defaultValue_one:
-                  "Your devices stop connecting to it until you resume. It last reported {{count, number}} change that never reached this device, and that change stays on it meanwhile.",
+                  "Your devices stop syncing with it until you resume. It last reported {{count, number}} change that never reached this device, and that change stays on it meanwhile.",
                 defaultValue_other:
-                  "Your devices stop connecting to it until you resume. It last reported {{count, number}} changes that never reached this device, and those changes stay on it meanwhile.",
+                  "Your devices stop syncing with it until you resume. It last reported {{count, number}} changes that never reached this device, and those changes stay on it meanwhile.",
               })
             : t(
                 "device.pauseBody",
-                "Your devices stop connecting to it until you resume. Anything written on it while it is paused stays there.",
+                "Your devices stop syncing with it until you resume. Anything written on it while it is paused stays there.",
               ),
         confirmText: t("device.pauseConfirm", "Pause"),
       });
@@ -238,7 +238,7 @@ function DeviceManager({
   const title = t("device.sectionTitle", "Your devices");
   const description = t(
     "device.manageDescription",
-    "Pausing a device stops your devices dialling it until you resume. Nothing on it is deleted, and it is never told.",
+    "Pausing a device stops it syncing with your other devices until you resume it, from here or from the device itself. Nothing on it is deleted.",
   );
 
   const Title = isMobile ? DrawerTitle : DialogTitle;
@@ -359,12 +359,8 @@ function DeviceRow({
         </p>
         <p className={styles.meta}>
           {device.current && device.syncPaused ? (
-            // A device cannot pause or resume itself, so this one can only
-            // report the decision and say where it can be undone.
-            t(
-              "device.pausedHere",
-              "Paused from another of your devices — resume it there.",
-            )
+            // Paused from a sibling; the button beside it undoes that here.
+            t("device.pausedHere", "Paused from another of your devices.")
           ) : device.current ? (
             // "Last active" is last contact with another device, and a device
             // never dials itself — so the one asking has no such moment, and
@@ -381,21 +377,22 @@ function DeviceRow({
           )}
         </p>
       </div>
-      {/* The device answering has nothing to pause: it is the one asking. */}
-      {!device.current &&
+      {/* The device answering has nothing to pause: it is the one asking. It
+          can still resume itself when a sibling paused it. */}
+      {(!device.current || device.syncPaused) &&
         (device.syncPaused ? (
           <Button
             variant="outline"
             size="sm"
             disabled={busy}
             onClick={() => onSetPaused(device, false)}
-            aria-label={t(
-              "device.resumeLabel",
-              "Resume syncing with {{name}}",
-              {
-                name,
-              },
-            )}
+            aria-label={
+              device.current
+                ? t("device.resumeHereLabel", "Resume syncing on this device")
+                : t("device.resumeLabel", "Resume syncing with {{name}}", {
+                    name,
+                  })
+            }
           >
             <Play size={14} aria-hidden />
             {t("device.resume", "Resume")}

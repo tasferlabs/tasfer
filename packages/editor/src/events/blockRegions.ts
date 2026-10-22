@@ -12,6 +12,7 @@
 
 import {
   AtomicNode,
+  type Node,
   type NodeHitRegion,
   type NodeRegionCtx,
   TOGGLE_TODO_CHECKED,
@@ -72,12 +73,21 @@ function bindNodeRegion(hitRegion: NodeHitRegion): Region | null {
   }
 }
 
+/** The block under a point: its node and the context its region hooks take. */
+export interface BlockAtPoint {
+  readonly node: Node | undefined;
+  readonly c: NodeRegionCtx;
+}
+
 /**
- * Collect the bound regions of the block under the point. One walk over the
- * visible blocks (same accumulation as getAtomicBlockAtPoint), honoring an
- * atomic block's interactive box bleeding above its flow box.
+ * The block under the point. One walk over the visible blocks (same
+ * accumulation as getAtomicBlockAtPoint), honoring an atomic block's
+ * interactive box bleeding above its flow box.
  */
-function nodeRegionsAtPoint(p: RegionPoint, ctx: RegionCtx): Region[] {
+export function blockAtPoint(
+  p: RegionPoint,
+  ctx: RegionCtx,
+): BlockAtPoint | null {
   const { state, viewport } = ctx;
   const styles = getEditorStyles(state);
   const maxWidth =
@@ -118,17 +128,22 @@ function nodeRegionsAtPoint(p: RegionPoint, ctx: RegionCtx): Region[] {
       node instanceof AtomicNode ? node.hitTestBox(layoutCtx, origin, p) : null;
     const top = atomicHit ? Math.min(currentY, atomicHit.y) : currentY;
     if (p.y >= top && p.y < currentY + blockHeight) {
-      if (!node?.regions) return [];
-      const c: NodeRegionCtx = { ...layoutCtx, state, viewport, origin };
-      return node
-        .regions(c)
-        .map(bindNodeRegion)
-        .filter((r): r is Region => r !== null);
+      return { node, c: { ...layoutCtx, state, viewport, origin } };
     }
 
     currentY += blockHeight;
   }
-  return [];
+  return null;
+}
+
+/** Collect the bound regions of the block under the point. */
+function nodeRegionsAtPoint(p: RegionPoint, ctx: RegionCtx): Region[] {
+  const hit = blockAtPoint(p, ctx);
+  if (!hit?.node?.regions) return [];
+  return hit.node
+    .regions(hit.c)
+    .map(bindNodeRegion)
+    .filter((r): r is Region => r !== null);
 }
 
 /**

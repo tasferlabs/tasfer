@@ -40,6 +40,7 @@ const nextConfig: NextConfig = {
 // Plugins are path/name strings (not imported functions): Turbopack requires
 // MDX loader options to be serializable. remarkCodeMeta (meta string → data-meta
 // attribute for CodeFence) lives in scripts/remark-code-meta.mjs.
+// remarkAiDash (em dash → <AiDash />) lives in scripts/remark-ai-dash.mjs.
 const withMDX = createMDX({
   options: {
     remarkPlugins: [
@@ -47,6 +48,7 @@ const withMDX = createMDX({
       "remark-frontmatter",
       "remark-mdx-frontmatter",
       fileURLToPath(new URL("./scripts/remark-code-meta.mjs", import.meta.url)),
+      fileURLToPath(new URL("./scripts/remark-ai-dash.mjs", import.meta.url)),
     ],
   },
 });

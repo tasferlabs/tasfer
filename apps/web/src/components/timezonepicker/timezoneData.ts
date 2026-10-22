@@ -1,4 +1,12 @@
 import { DateTime } from "luxon";
+import type { FrecencyEntry } from "@/lib/actionRanking";
+import {
+  readTally,
+  trimTally,
+  updateOwnTally,
+  type Tally,
+  type TallyPrefs,
+} from "@/lib/deviceTally";
 
 /** One selectable IANA time zone, prepared for display and search. */
 export interface ZoneEntry {
@@ -214,30 +222,56 @@ export function timeOfDayColor(hourOfDay: number): string {
   return "var(--timeofday-night)";
 }
 
-const RECENT_ZONES_KEY = "tasfer.timezonePicker.recents";
+/**
+ * Key PREFIX: `timezone.recents.<deviceKey>` → the zones that device picked,
+ * with when. In the own-prefs register so a zone picked on the laptop is a
+ * recent on the phone too; one key per device so two devices picking at once
+ * both keep theirs (see `@/lib/deviceTally`). Mirrored in `OWN_PREF_KEYS`.
+ */
+export const RECENT_ZONES_PREF_PREFIX = "timezone.recents.";
+
+/** Where this device kept its recents before they moved to the register. */
+export const LEGACY_RECENT_ZONES_KEY = "tasfer.timezonePicker.recents";
+
 const MAX_RECENT_ZONES = 3;
 
-export function readRecentZones(): string[] {
-  try {
-    const raw = localStorage.getItem(RECENT_ZONES_KEY);
-    const parsed: unknown = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed)
-      ? parsed.filter((item): item is string => typeof item === "string")
-      : [];
-  } catch {
-    // localStorage unavailable (private mode) — recents are just a nicety.
-    return [];
-  }
+const latestFirst = (a: FrecencyEntry, b: FrecencyEntry) => b.last - a.last;
+
+/** The latest few zones picked on any of the person's devices, newest first. */
+export function readRecentZones(prefs: TallyPrefs): string[] {
+  return Object.entries(readTally(prefs, RECENT_ZONES_PREF_PREFIX))
+    .sort(([, a], [, b]) => latestFirst(a, b))
+    .slice(0, MAX_RECENT_ZONES)
+    .map(([zoneId]) => zoneId);
 }
 
-export function pushRecentZone(zoneId: string): void {
-  try {
-    const next = [zoneId, ...readRecentZones().filter((id) => id !== zoneId)];
-    localStorage.setItem(
-      RECENT_ZONES_KEY,
-      JSON.stringify(next.slice(0, MAX_RECENT_ZONES)),
-    );
-  } catch {
-    // Ignore storage failures; recents are just a nicety.
-  }
+export function pushRecentZone(
+  prefs: TallyPrefs,
+  zoneId: string,
+  now: number = Date.now(),
+): void {
+  updateOwnTally(prefs, RECENT_ZONES_PREF_PREFIX, (own) => {
+    own[zoneId] = { count: (own[zoneId]?.count ?? 0) + 1, last: now };
+    return trimTally(own, MAX_RECENT_ZONES, latestFirst);
+  });
+}
+
+/**
+ * The newest-first list this device kept in `localStorage`, adopted as its
+ * own tally. It carried no times, so the order is kept with small stand-in
+ * ones that any real pick outranks.
+ */
+export function readLegacyRecentZones(
+  raw: string,
+  deviceKey: string,
+): Array<[string, unknown]> {
+  const parsed: unknown = JSON.parse(raw);
+  if (!Array.isArray(parsed)) return [];
+  const zones = parsed.filter((z): z is string => typeof z === "string");
+  if (zones.length === 0) return [];
+  const tally: Tally = {};
+  zones.forEach((zoneId, i) => {
+    tally[zoneId] = { count: 1, last: zones.length - i };
+  });
+  return [[RECENT_ZONES_PREF_PREFIX + deviceKey, tally]];
 }

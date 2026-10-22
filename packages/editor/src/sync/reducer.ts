@@ -758,16 +758,19 @@ export function getVisibleBlocks(
  * and far too heavy to persist.
  */
 export function cleanSnapshotForSave(blocks: Block[]): Block[] {
-  // Drop the transient render hints (`cachedLayout` and the neighbour-type
-  // stamps) — all are derived from the live view and recomputed on load.
+  // Drop the transient render hints (`cachedLayout`, the neighbour-type stamps
+  // and the `originalIndex` that `getVisibleBlocks` stamps in place on a
+  // full-document view) — all are derived from the live view and recomputed on
+  // load.
   return blocks.map(
     ({
       cachedLayout: _l,
       prevType: _p,
       nextType: _n,
       prevIsFirst: _f,
+      originalIndex: _i,
       ...rest
-    }) => {
+    }: Block & { originalIndex?: number }) => {
       if (!rest.structuredContent) return rest as Block;
       const structuredContent: Record<
         string,

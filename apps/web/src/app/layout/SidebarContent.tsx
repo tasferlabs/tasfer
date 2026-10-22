@@ -72,7 +72,7 @@ import type { IParentsStack } from "./components/PagesLinks";
 // import pageLinkStyle from "./components/PagesLinks.module.css";
 import { detectAdapterDetailed } from "@/platform";
 import { ShortcutTooltip } from "../components/ShortcutTooltip";
-import { CommandShortcutKeys } from "../components/ShortcutKeys";
+import { CommandKeys } from "../components/ShortcutKeys";
 import {
   logicalTreeKey,
   readTreeRows,
@@ -976,7 +976,7 @@ export function SidebarContent({
               {!isMobile && (
                 <ShortcutTooltip
                   label={t("sidebar.close", "Close sidebar")}
-                  commandKey=";"
+                  commandId="app.toggleSidebar"
                 >
                   <Button
                     variant="ghost"
@@ -996,7 +996,7 @@ export function SidebarContent({
             <div className={style.appSidebarHeader}>
               <ShortcutTooltip
                 label={t("sidebar.close", "Close sidebar")}
-                commandKey=";"
+                commandId="app.toggleSidebar"
               >
                 <Button
                   variant="ghost"
@@ -1015,7 +1015,7 @@ export function SidebarContent({
           {shouldOverlaySidebarClose && (
             <ShortcutTooltip
               label={t("sidebar.close", "Close sidebar")}
-              commandKey=";"
+              commandId="app.toggleSidebar"
             >
               <Button
                 variant="ghost"
@@ -1061,7 +1061,7 @@ export function SidebarContent({
                     <Search size={20} />
                   </div>
                   {t("sidebar.search", "Search")}
-                  {isFine && <CommandShortcutKeys commandKey="K" />}
+                  {isFine && <CommandKeys id="app.commandPalette" />}
                 </Button>
                 <SidebarNavLink to="/settings">
                   <div className={style.appNavigationLinkIcon}>

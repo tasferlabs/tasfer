@@ -174,6 +174,79 @@ describe("createDoc", () => {
     ).toBe(contentId);
   });
 
+  it("keeps a local op listed after one minted later than it", () => {
+    // The shape a paste emitted: the attachment is minted before the anchor
+    // text that carries it, but listed after it. The version vector is max-only
+    // per peer, so judging each op against the vector the previous op advanced
+    // skipped the attachment — it reached the log but never the doc's state.
+    const pageId = "page-order";
+    const peer = "p-order";
+    const blockId = `${peer}:1`;
+    const contentId = `${peer}:3`;
+    const blockInsert: Operation = {
+      op: "block_insert",
+      id: `${peer}:2`,
+      clock: { counter: 1, peerId: peer },
+      pageId,
+      orderKey: "a0",
+      blockId,
+      blockType: "paragraph",
+    };
+    const contentInit: Operation = {
+      op: "content_edit",
+      id: `${peer}:4`,
+      clock: { counter: 2, peerId: peer },
+      pageId,
+      blockId,
+      contentId,
+      edit: {
+        kind: "document_init",
+        document: {
+          version: 1,
+          kind: "math",
+          rootId: contentId,
+          nodes: {
+            [contentId]: {
+              id: contentId,
+              type: "root",
+              placement: { parentId: null, slot: "", orderKey: "" },
+              attrs: {},
+              textFields: {},
+            },
+          },
+        },
+      },
+    };
+    const textInsert: Operation = {
+      op: "text_insert",
+      id: `${peer}:6`,
+      clock: { counter: 3, peerId: peer },
+      pageId,
+      blockId,
+      afterCharId: null,
+      charRuns: [{ peerId: peer, startCounter: 5, text: "￼" }],
+    };
+    const markSet: Operation = {
+      op: "mark_set",
+      id: `${peer}:7`,
+      clock: { counter: 4, peerId: peer },
+      pageId,
+      blockId,
+      charIds: [`${peer}:5`],
+      format: { type: "math", attrs: { contentId } },
+      value: true,
+    };
+    const doc = createDoc({ pageId, ops: [] });
+    doc._ingestLocal([blockInsert], "editor");
+    doc._ingestLocal([textInsert, contentInit, markSet], "editor");
+
+    expect(doc.getOperations()).toHaveLength(4);
+    expect(doc.getRawBlocks()[0]?.structuredContent?.[contentId]).toBeDefined();
+    expect(doc.getRawBlocks()).toEqual(
+      rebuildState(pageId, doc.getOperations()).blocks,
+    );
+  });
+
   it("round-trips through encodeState / createDoc(bytes)", () => {
     const [batch] = makePeerBatches("p-eee", ["persisted"]);
     const original = createDoc({ pageId: "page-9", ops: [] });
@@ -409,5 +482,65 @@ describe("createDoc", () => {
     const afterCounter = Number(doc._binding.nextId().split(":")[1]);
     const loadedMax = Math.max(...ops.map((o) => Number(o.id.split(":")[1])));
     expect(afterCounter).toBeGreaterThan(loadedMax);
+  });
+
+  it("frontier keeps edits made before load() unique and causally ahead", () => {
+    // A doc seeded from blocks alone can't see the ids spent on operations
+    // (here the delete) or any clock, so without a frontier its first local
+    // op would reuse an existing id and carry clock 1.
+    const binding = createCRDTbinding("page-1", "p-frontier");
+    const engine = createSyncEngine(binding);
+    const blockInsert = engine.createBlockInsert("a0", "paragraph");
+    engine.emit([blockInsert]);
+    const textInsert = engine.insertText(blockInsert.blockId, 0, "hello");
+    engine.emit([textInsert]);
+    const textDelete = engine.deleteText(blockInsert.blockId, 3, 5);
+    engine.emit([textDelete]);
+    const ops = [blockInsert, textInsert, textDelete];
+
+    const folded = createDoc({ pageId: "page-1", ops });
+    const counterOf = (id: string) => Number(id.split(":")[1]);
+    const maxId = Math.max(...ops.map((o) => counterOf(o.id)));
+    const maxClock = Math.max(...ops.map((o) => o.clock.counter));
+
+    const doc = createDoc({
+      pageId: "page-1",
+      peerId: "p-frontier",
+      blocks: structuredClone(folded.getRawBlocks()),
+      frontier: { clock: maxClock, idCounter: maxId },
+    });
+
+    expect(counterOf(doc._binding.nextId())).toBeGreaterThan(maxId);
+    expect(doc._binding.getClock().counter).toBeGreaterThan(maxClock);
+  });
+
+  it("load() keeps every op when storage returns one origin out of id order", () => {
+    // Storage sorts by clock, and clock and id counter can disagree: an edit
+    // made before the persisted log loaded carries a high id but a low clock,
+    // so it comes back first. The lower-id ops after it must still be logged,
+    // or a later rebuild from the log loses their content.
+    const binding = createCRDTbinding("page-1", "p-order");
+    const engine = createSyncEngine(binding);
+    const blockInsert = engine.createBlockInsert("a0", "paragraph");
+    engine.emit([blockInsert]);
+    const textInsert = engine.insertText(blockInsert.blockId, 0, "early");
+    engine.emit([textInsert]);
+    const late = engine.insertText(blockInsert.blockId, 5, " late");
+    engine.emit([late]);
+    const ops = [blockInsert, textInsert, late];
+
+    const folded = createDoc({ pageId: "page-1", ops });
+    const doc = createDoc({
+      pageId: "page-1",
+      blocks: structuredClone(folded.getRawBlocks()),
+    });
+    doc.load([late, blockInsert, textInsert]);
+
+    expect(doc.getOperations().map((o) => o.id)).toEqual(
+      folded.getOperations().map((o) => o.id),
+    );
+    expect(serializeVV(doc.getVersionVector())).toEqual(
+      serializeVV(folded.getVersionVector()),
+    );
   });
 });

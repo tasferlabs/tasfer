@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, type SVGProps } from "react";
+import { AiDash, withAiDash } from "@/components/AiDash";
 import { Link } from "@/components/Link";
 import BrandMark from "@/components/BrandMark";
 import { REPO_URL, SiteHeader } from "@/components/SiteHeader";
@@ -100,6 +101,22 @@ const Icons = {
     >
       <path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07L11.5 4.5" />
       <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07L12.5 19.5" />
+    </svg>
+  ),
+  Asterisk: (p: SVGProps<SVGSVGElement>) => (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={24}
+      height={24}
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      className="lucide lucide-asterisk preview-icon"
+      {...p}
+    >
+      <path d="M12 5v14M18.065 8.496l-12.125 7M5.94 8.504l12.125 7" />
     </svg>
   ),
 };
@@ -432,7 +449,7 @@ function RelayDiagram() {
       <div className="lp-relay-controls">
         <p className="lp-relay-caption">
           <strong>
-            {step + 1}/3 — {cur.label}.
+            {step + 1}/3 <AiDash /> {cur.label}.
           </strong>{" "}
           {cur.caption}
         </p>
@@ -637,19 +654,8 @@ export default function HomePage() {
               </a>
             </div>
 
-            <div className="lp-hero-meta">
-              <span className="lp-hero-tagline">
-                {t("home.lp.hero.metaTailOpenSource", "Open source project")}
-              </span>
-              <span>
-                {t(
-                  "home.lp.hero.metaTail",
-                  "0 accounts · 0 trackers · you choose what to share",
-                )}
-              </span>
-            </div>
             <p className="lp-hero-beta">
-              <span className="lp-hero-beta-dot" aria-hidden="true" />
+              <Icons.Asterisk className="lp-hero-beta-dot" aria-hidden="true" />
               <span>
                 <strong>{t("home.lp.hero.betaTitle", "Public beta.")}</strong>{" "}
                 {t(
@@ -681,9 +687,6 @@ export default function HomePage() {
                 "An app you write in. Notes, drafts, journals stored on your device, encrypted end-to-end in transit, synced device-to-device with no central server and no account.",
               )}
             </p>
-            <blockquote className="lp-pullquote">
-              {t("home.lp.define.pull", "The place to write your thoughts")}
-            </blockquote>
             <dl className="lp-define-facts">
               <div className="lp-define-fact">
                 <dt>{t("home.lp.define.fact.storageK", "storage")}</dt>
@@ -730,10 +733,10 @@ export default function HomePage() {
                   )}
                 </p>
                 <p>
-                  {t(
+                  {withAiDash(t(
                     "home.lp.premise.p2",
                     "And yet — every free notes app, every free document, every free AI assistant is a trade. Your thoughts, in plain text, on a machine you will never see, indexed by software you will never read, owned by a company that will outlive you or be outlived by you. The bargain is so quiet you forget you took it.",
-                  )}
+                  ))}
                 </p>
                 <blockquote className="lp-pullquote">
                   {t(
@@ -767,31 +770,31 @@ export default function HomePage() {
                 <strong>
                   {t("home.lp.mechanism.p1strong", "On your device.")}
                 </strong>
-                {t(
+                {withAiDash(t(
                   "home.lp.mechanism.p1",
-                  ' Every keystroke lands in your own storage, instantly — no round-trip, no "saving" spinner reporting back to a server somewhere. Tasfer works on a plane, in a basement, in a Faraday cage.',
-                )}
+                  " Every keystroke lands in your own storage, instantly — no round-trip to a server somewhere. Tasfer works on a plane, in a basement, in a Faraday cage.",
+                ))}
               </p>
               <p>
                 <strong>
                   {t("home.lp.mechanism.p2strong", "Between your devices.")}
                 </strong>
-                {t(
+                {withAiDash(t(
                   "home.lp.mechanism.p2",
                   " When you sync, traffic flows peer-to-peer, encrypted with keys that never leave your hardware. Your laptop talks to your phone the way two friends meet — in person, with no third party in the room.",
-                )}
+                ))}
               </p>
               <p>
                 <strong>
-                  {t(
+                  {withAiDash(t(
                     "home.lp.mechanism.p3strong",
                     "Through a stateless relay — only when a direct path can't be made.",
-                  )}
+                  ))}
                 </strong>
-                {t(
+                {withAiDash(t(
                   "home.lp.mechanism.p3",
                   " It forwards bytes it cannot decrypt. No accounts. No logs. No memory of who connected to whom. It introduces, then forgets. And if you don't trust ours, point Tasfer at your own — it's a config field.",
-                )}
+                ))}
               </p>
             </div>
           </div>
@@ -808,7 +811,7 @@ export default function HomePage() {
               <div className="lp-pillar" key={p.name}>
                 <div className="lp-pillar-icon">{p.icon}</div>
                 <h3 className="lp-pillar-name">{p.name}</h3>
-                <p className="lp-pillar-body">{p.body}</p>
+                <p className="lp-pillar-body">{withAiDash(p.body)}</p>
               </div>
             ))}
           </div>
@@ -825,7 +828,7 @@ export default function HomePage() {
               {refusals.map(([n, name, detail]) => (
                 <li className="lp-refusal-item" key={name}>
                   <span className="lp-refusal-name">{name}</span>
-                  <span className="lp-refusal-detail">{detail}</span>
+                  <span className="lp-refusal-detail">{withAiDash(detail)}</span>
                 </li>
               ))}
             </ul>
@@ -913,10 +916,10 @@ export default function HomePage() {
               <em>{t("home.lp.finale.titleEm", "Your rules.")}</em>
             </h2>
             <p className="lp-finale-sub">
-              {t(
+              {withAiDash(t(
                 "home.lp.finale.sub",
                 "Install it. Fork it. Swap the relay. Take it offline for a year. Hand it to a friend. Bury it. Walk away. The choice was always supposed to be yours — Tasfer is the editor that finally agrees.",
-              )}
+              ))}
             </p>
             <div className="lp-finale-actions">
               <a className="lp-btn lp-btn-primary" href={APP_OPEN_URL}>
@@ -956,9 +959,7 @@ export default function HomePage() {
               {t("home.lp.footer.manifesto", "manifesto")}
             </Link>
             <Link to="/docs">{t("home.lp.footer.docs", "docs")}</Link>
-            <Link to="/download">
-              {t("home.lp.nav.download", "download")}
-            </Link>
+            <Link to="/download">{t("home.lp.nav.download", "download")}</Link>
             <a href={REPO_URL} target="_blank" rel="noreferrer">
               {t("home.lp.footer.source", "source")}
             </a>

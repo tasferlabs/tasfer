@@ -27,6 +27,7 @@ export const DateTimeInput = React.forwardRef(
       incrementValue,
       size = 'medium',
       className,
+      hour12 = false,
     }: {
       granularity: keyof DateTime<boolean>;
       value: string;
@@ -43,6 +44,8 @@ export const DateTimeInput = React.forwardRef(
       incrementValue: (granularity: keyof DateTime<boolean>, value: number) => void;
       size?: 'small' | 'medium';
       className?: string;
+      /** An hour field on a 12-hour clock: accepts 1–12 instead of 0–23. */
+      hour12?: boolean;
     },
     ref
   ) => {
@@ -57,16 +60,20 @@ export const DateTimeInput = React.forwardRef(
       }
 
       const valueNum = toNumberOrNull(value) || 0;
-      const minValue = getGranularityMinValue(granularity);
-      const maxValue =
-        granularity === 'day'
+      const minValue = hour12 ? 1 : getGranularityMinValue(granularity);
+      const maxValue = hour12
+        ? 12
+        : granularity === 'day'
           ? year && month
             ? getGranularityMaxValue(granularity, year, month)
             : 31
           : getGranularityMaxValue(granularity);
 
       if (value === '0'.repeat(getGranularityPlaceholder(granularity).length)) {
-        if (granularity !== 'hour' && granularity !== 'minute') {
+        // A 12-hour clock has no 0 o'clock; it is 12.
+        if (hour12) {
+          onChange('12');
+        } else if (granularity !== 'hour' && granularity !== 'minute') {
           onChange(padValue('1', granularity));
         } else {
           onChange(padValue('0', granularity));
@@ -80,7 +87,7 @@ export const DateTimeInput = React.forwardRef(
       } else if (valueNum > maxValue) {
         onChange(padValue(maxValue.toString(), granularity));
       } else if (valueNum < minValue && value !== '' && pad) {
-        onChange(padValue(minValue.toString(), granularity));
+        onChange(padValue((hour12 ? 12 : minValue).toString(), granularity));
       } else {
         onChange(value);
       }

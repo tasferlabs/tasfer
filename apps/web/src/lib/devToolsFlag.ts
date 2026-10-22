@@ -106,6 +106,7 @@ export function setDevToolsEnabled(value: boolean): void {
   } catch {
     // Persisting failed; the in-memory value still drives this session.
   }
+  flagChannel?.postMessage({ t: "set", enabled } satisfies FlagMsg);
   for (const fn of listeners) fn();
 }
 
@@ -136,3 +137,52 @@ export function unlockDevTools(): void {
   for (const fn of listeners) fn();
 }
 
+
+// ─── The engine's SharedWorker ───────────────────────────────────────────────
+//
+// In the browser the engine and its Replicator run in a SharedWorker, which has
+// neither `localStorage` nor a native bridge, so it cannot resolve the flag on
+// its own and would never log the network. The tabs tell it instead: the
+// worker asks when it starts, every tab answers with its value, and a tab
+// announces each toggle. Only the worker adopts what it hears; a tab resolves
+// its own value as above.
+
+type FlagMsg = { t: "ask" } | { t: "set"; enabled: boolean };
+
+/** Whether this code runs in a SharedWorker (the browser's engine host). */
+export function inSharedWorker(): boolean {
+  const scope = (globalThis as { SharedWorkerGlobalScope?: abstract new () => unknown })
+    .SharedWorkerGlobalScope;
+  return typeof scope === "function" && globalThis instanceof scope;
+}
+
+/**
+ * Only in a tab or the worker: the headless CLI (plain Node) has no worker to
+ * tell, and an open channel there would keep the process alive.
+ */
+const flagChannel: BroadcastChannel | null = (() => {
+  if (typeof BroadcastChannel === "undefined") return null;
+  if (typeof window === "undefined" && !inSharedWorker()) return null;
+  try {
+    return new BroadcastChannel("tasfer:devtools-flag");
+  } catch {
+    return null;
+  }
+})();
+
+if (flagChannel) {
+  if (inSharedWorker()) {
+    flagChannel.onmessage = (e: MessageEvent<FlagMsg>) => {
+      if (e.data?.t !== "set" || e.data.enabled === enabled) return;
+      enabled = e.data.enabled;
+      for (const fn of listeners) fn();
+    };
+    flagChannel.postMessage({ t: "ask" } satisfies FlagMsg);
+  } else {
+    flagChannel.onmessage = (e: MessageEvent<FlagMsg>) => {
+      if (e.data?.t === "ask") flagChannel.postMessage({ t: "set", enabled } satisfies FlagMsg);
+    };
+    // A worker that is already running asked before this tab existed.
+    flagChannel.postMessage({ t: "set", enabled } satisfies FlagMsg);
+  }
+}

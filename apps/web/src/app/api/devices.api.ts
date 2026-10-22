@@ -22,8 +22,9 @@ export async function setDeviceNote(
  * Pause or resume syncing with one of this person's devices.
  *
  * The decision travels with the person, so a device paused here is paused on
- * their other machines too. It is reversible and tells the device nothing: it
- * simply stops being dialed, and picks up where it left off when resumed.
+ * their other machines too — the paused one included, which shows it and may
+ * resume itself. Only settings cross while it is paused; documents pick up
+ * where they left off when it is resumed.
  */
 export async function setDeviceSyncPaused(
   publicKey: string,

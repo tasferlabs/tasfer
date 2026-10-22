@@ -77,8 +77,8 @@ export {
   type NodeCaretRect,
   type NodeContentCaretCtx,
   type NodeContentHitCtx,
-  type NodeContentSelectionGeometry,
   type NodeContentHitOptions,
+  type NodeContentSelectionGeometry,
   type NodeHitRegion,
   type NodeLayout,
   type NodeLayoutCtx,
@@ -87,6 +87,7 @@ export {
   type NodeRect,
   type NodeRegionCtx,
   NodeRegistry,
+  type NodeScrollCtx,
   type Point,
 } from "./Node";
 export { UnknownNode } from "./UnknownNode";

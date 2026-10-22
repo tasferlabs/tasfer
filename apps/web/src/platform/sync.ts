@@ -24,6 +24,8 @@
  *     space created after linking reach the devices linked before it existed.
  *     They also exchange `own-state`, the person-private decisions that no op
  *     can carry because co-members must not see them (see {@link OwnStateMsg}).
+ *     A paused sibling is still dialed, but its link carries `own-state` and
+ *     nothing else — enough for a resume made at either end to arrive.
  *
  * Protocol:
  *   1. Connect to each admitted peer via deterministic topic
@@ -558,6 +560,12 @@ interface PeerConnection {
   versionCompatible?: boolean;
 }
 
+/**
+ * What a link to an admitted peer may carry. `sync` is everything; `own-state`
+ * is a paused sibling, kept reachable only so that resuming it can arrive.
+ */
+type PeerAdmission = "sync" | "own-state";
+
 /** Represents a local peer's membership in a page's awareness room — who is present, their display info, and the latest cursor/selection state for each remote participant. */
 interface RoomState {
   pageId: string;
@@ -728,6 +736,13 @@ export class Replicator {
   private paused = false;
 
   /**
+   * Admitted peers whose link carries `own-state` and nothing else: our own
+   * devices on either side of a sync pause. Every other message is dropped in
+   * both directions, and the link does not count as a connection.
+   */
+  private ownStateOnly = new Set<string>();
+
+  /**
    * Catch-up in flight: spaceId → the peers whose `sync-data` we are waiting
    * for, each with the pull's token and its expiry timer. A token is compared
    * on settle so a late reply cannot clear a pull sent after it.
@@ -772,8 +787,9 @@ export class Replicator {
   }
 
   /**
-   * The peers we are allowed to dial: every member of every active space we
-   * belong to, minus ourselves and minus locally revoked peers.
+   * The peers we are allowed to dial, and what each link may carry: every
+   * member of every active space we belong to, minus ourselves and minus
+   * locally revoked peers.
    *
    * This is the single admission rule for the whole replicator — membership
    * grants the connection, and a peer record only ever takes it away. Nothing
@@ -781,8 +797,14 @@ export class Replicator {
    * someone already connected. `getSpaceIds` already restricts to active
    * spaces we are a member of, so a space we merely hold ops for (archived, or
    * one we left) admits no one.
+   *
+   * A paused sibling is the one revoked peer that stays, as `own-state` only.
+   * The pause lives in the person's own preferences, so the way to lift it is
+   * a preference change — and a paused device resuming itself can only hand
+   * that change over on a link to the devices that are refusing it. The link
+   * carries nothing else (see {@link ownStateOnly}).
    */
-  private async admittedPeers(): Promise<Set<string>> {
+  private async admittedPeers(): Promise<Map<string, PeerAdmission>> {
     const [peerRecords, spaceIds, ownDevices] = await Promise.all([
       this.host.getPeerRecords(),
       this.host.getSpaceIds(),
@@ -797,8 +819,7 @@ export class Replicator {
     // A record that names US is this person pausing this machine from another
     // of their own (the register replicates to every device, the paused one
     // included). Honour it from this end too: the sibling that decided it is
-    // already refusing us, so dialing it would be a connection that can only
-    // be declined, retried, and declined again. Co-members are untouched —
+    // syncing nothing with us, so neither do we. Co-members are untouched —
     // this says which of the person's machines talk to each other, not who we
     // are allowed to know.
     const pausedHere = revoked.has(this.localPublicKey);
@@ -806,7 +827,7 @@ export class Replicator {
     const memberLists = await Promise.all(
       spaceIds.map((spaceId) => this.host.getSpaceMembers(spaceId)),
     );
-    const admitted = new Set<string>();
+    const admitted = new Map<string, PeerAdmission>();
     // Our own devices need no space in common: they are this person's other
     // replicas, and a space that exists on only one of them is exactly the
     // case they have to connect for.
@@ -817,14 +838,47 @@ export class Replicator {
       for (const member of members) {
         if (member.publicKey === this.localPublicKey) continue;
         if (revoked.has(member.publicKey)) continue;
-        admitted.add(member.publicKey);
+        admitted.set(member.publicKey, "sync");
       }
     }
     // Applied after the lists, not inside them: a sibling is usually a member
-    // of our spaces as well, so dropping it from the own-devices list alone
-    // would leave it admitted by every space we share with it.
-    if (pausedHere) for (const publicKey of ownDevices) admitted.delete(publicKey);
+    // of our spaces as well, so narrowing it in the own-devices list alone
+    // would leave it fully admitted by every space we share with it.
+    for (const publicKey of ownDevices) {
+      if (publicKey === this.localPublicKey) continue;
+      if (pausedHere || revoked.has(publicKey)) {
+        admitted.set(publicKey, "own-state");
+      }
+    }
     return admitted;
+  }
+
+  /**
+   * Record what a link to an admitted peer may carry, and bring a live
+   * connection in line with it. Returns true when the link just widened from
+   * `own-state` to full sync, which the caller has to catch up.
+   *
+   * Narrowing works in place rather than by hanging up: the other side learns
+   * of the same pause over this very link, and a reconnect would only race it.
+   */
+  private applyAdmission(publicKey: string, admission: PeerAdmission): boolean {
+    const wasOwnStateOnly = this.ownStateOnly.has(publicKey);
+    if (admission === "own-state") {
+      if (wasOwnStateOnly) return false;
+      this.ownStateOnly.add(publicKey);
+      if (this.peers.has(publicKey)) {
+        this.peers.get(publicKey)!.sharedSpaces.clear();
+        this.settlePeerPulls(publicKey);
+        this.settlePeerAssetRequests(publicKey);
+        this.removeConnectionPresence(publicKey);
+        this.emitConnectedPeers();
+        this.updateConnectionState();
+      }
+      return false;
+    }
+    if (!wasOwnStateOnly) return false;
+    this.ownStateOnly.delete(publicKey);
+    return true;
   }
 
   /** Whether a peer is another device of this person (certified under our root). */
@@ -850,11 +904,16 @@ export class Replicator {
       }
     }
 
+    const widened = new Set<string>();
+    for (const [publicKey, admission] of activePeers) {
+      if (this.applyAdmission(publicKey, admission)) widened.add(publicKey);
+    }
+
     if (this.paused) return;
 
-    for (const publicKey of activePeers) {
+    for (const publicKey of activePeers.keys()) {
       try {
-        await this.connectAdmittedPeer(publicKey);
+        await this.connectAdmittedPeer(publicKey, widened.has(publicKey));
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error(
@@ -874,19 +933,37 @@ export class Replicator {
    * active space with us is refused no matter who named it.
    */
   async addPeer(publicKey: string): Promise<void> {
-    if (!(await this.admittedPeers()).has(publicKey)) {
+    const admission = (await this.admittedPeers()).get(publicKey);
+    if (!admission) {
       console.warn(
         `[Sync] refusing to connect to ${publicKey.slice(0, 8)}: shares no active space with us`,
       );
       return;
     }
-    await this.connectAdmittedPeer(publicKey);
+    const widened = this.applyAdmission(publicKey, admission);
+    await this.connectAdmittedPeer(publicKey, widened);
   }
 
-  /** {@link addPeer} past the admission check — for callers that just made it. */
-  private async connectAdmittedPeer(publicKey: string): Promise<void> {
+  /**
+   * {@link addPeer} past the admission check — for callers that just made it.
+   * `widened` says the link was carrying `own-state` only until now.
+   */
+  private async connectAdmittedPeer(
+    publicKey: string,
+    widened = false,
+  ): Promise<void> {
     const existing = this.peers.get(publicKey);
     if (existing) {
+      // Nothing to renegotiate on a link that carries no spaces.
+      if (this.ownStateOnly.has(publicKey)) return;
+      if (widened) {
+        // Resumed: catch up from nothing, as a first hello would, and send one
+        // so the other side does the same once it has the resume too. Before
+        // their hello arrives the handshake is still ahead of us and will do it.
+        this.sendHello(existing.netPeer);
+        if (existing.versionCompatible === true) await this.startSync(existing);
+        return;
+      }
       // Already connected — recompute local sharedSpaces and push data only
       // for spaces that are newly shared (bootstrapping), not all of them.
       const prev = new Set(existing.sharedSpaces);
@@ -919,6 +996,7 @@ export class Replicator {
 
   /** Disconnect from a peer */
   async removePeer(publicKey: string): Promise<void> {
+    this.ownStateOnly.delete(publicKey);
     const conn = this.peers.get(publicKey);
     if (conn) {
       conn.cleanup();
@@ -1170,8 +1248,9 @@ export class Replicator {
     };
   }
 
+  /** Peers we sync with — a paused sibling's own-state link is not one. */
   getConnectedPeers(): string[] {
-    return Array.from(this.peers.keys());
+    return [...this.peers.keys()].filter((pk) => !this.ownStateOnly.has(pk));
   }
 
   onConnectedPeersChange(cb: (peers: string[]) => void): () => void {
@@ -1333,7 +1412,9 @@ export class Replicator {
       // would hold the pull open to the backstop for an answer that is not
       // coming. With none reachable the answer is already known.
       const reachable = [...this.peers.values()].filter(
-        (conn) => conn.versionCompatible === true,
+        (conn) =>
+          conn.versionCompatible === true &&
+          !this.ownStateOnly.has(conn.publicKey),
       );
       if (reachable.length === 0) {
         resolve(false);
@@ -1608,6 +1689,7 @@ export class Replicator {
       // Binary asset-data frames start with BINARY_ASSET_TAG, not '{' (0x7B)
       if (data[0] === BINARY_ASSET_TAG) {
         if (this.peers.get(remotePubKey)?.versionCompatible !== true) return;
+        if (this.ownStateOnly.has(remotePubKey)) return;
         void this.handleBinaryAssetData(data).catch((e) => {
           console.error("[Sync] asset frame rejected:", e);
         });
@@ -1712,6 +1794,15 @@ export class Replicator {
     if (
       msg.type !== "hello" &&
       this.peers.get(fromPubKey)?.versionCompatible !== true
+    ) {
+      return;
+    }
+    // A paused sibling's link carries own-state and nothing else, whatever the
+    // far end still believes about the pause.
+    if (
+      this.ownStateOnly.has(fromPubKey) &&
+      msg.type !== "hello" &&
+      msg.type !== "own-state"
     ) {
       return;
     }
@@ -1850,22 +1941,32 @@ export class Replicator {
       return;
     }
 
+    // A paused sibling: hand over the person-private state, which is how a
+    // resume made on either side reaches the other, and nothing more. Not
+    // recorded as contact either — "last active" stays the last real sync.
+    if (this.ownStateOnly.has(fromPubKey)) {
+      await this.sendOwnState(conn);
+      return;
+    }
+
     await this.host.updatePeerLastSeen(fromPubKey);
+    await this.startSync(conn);
+  }
+
+  /**
+   * Everything an accepted hello sets going on a full link: own-state, a pull
+   * per shared space, and room announcements. Also run when a paused sibling's
+   * link widens again, which is a first hello in all but name.
+   */
+  private async startSync(conn: PeerConnection): Promise<void> {
+    const fromPubKey = conn.publicKey;
     await this.recomputeSharedSpaces(conn);
 
     // Our own device: trade the person-private state in full before anything
     // else. This is the only catch-up it gets — no version vector covers it —
     // and doing it first means a space this device filed away is already
     // filed on both sides by the time the pulls below run.
-    if (await this.isOwnDevice(fromPubKey)) {
-      const [states, prefs] = await Promise.all([
-        this.host.getOwnSpaceStates(),
-        this.host.getOwnPrefs(),
-      ]);
-      if (states.length > 0 || prefs.length > 0) {
-        this.sendDirect(conn, { type: "own-state", spaces: states, prefs });
-      }
-    }
+    if (await this.isOwnDevice(fromPubKey)) await this.sendOwnState(conn);
 
     const shared = conn.sharedSpaces;
 
@@ -2102,6 +2203,17 @@ export class Replicator {
   }
 
   // --- Own-device state ---
+
+  /** Send a sibling all of our person-private state, if there is any. */
+  private async sendOwnState(conn: PeerConnection): Promise<void> {
+    const [states, prefs] = await Promise.all([
+      this.host.getOwnSpaceStates(),
+      this.host.getOwnPrefs(),
+    ]);
+    if (states.length > 0 || prefs.length > 0) {
+      this.sendDirect(conn, { type: "own-state", spaces: states, prefs });
+    }
+  }
 
   /**
    * Adopt a sibling's person-private state.
@@ -2537,6 +2649,9 @@ export class Replicator {
   /** Send a message directly to a specific connected peer (with logging). */
   private sendDirect(conn: PeerConnection, msg: Message) {
     if (conn.versionCompatible !== true) return;
+    if (this.ownStateOnly.has(conn.publicKey) && msg.type !== "own-state") {
+      return;
+    }
     const data = encode(msg);
     logNet("send", conn.publicKey, msg, data.byteLength);
     conn.netPeer.send(data);
@@ -2546,6 +2661,7 @@ export class Replicator {
     const data = encode(msg);
     for (const conn of this.peers.values()) {
       if (conn.versionCompatible !== true) continue;
+      if (this.ownStateOnly.has(conn.publicKey)) continue;
       if (conn.sharedSpaces.has(spaceId)) {
         logNet("send", conn.publicKey, msg, data.byteLength);
         conn.netPeer.send(data);
@@ -2557,6 +2673,7 @@ export class Replicator {
     // peerId might be a truncated public key (first 32 chars) — match by prefix
     for (const conn of this.peers.values()) {
       if (conn.versionCompatible !== true) continue;
+      if (this.ownStateOnly.has(conn.publicKey)) continue;
       if (conn.publicKey === peerId || conn.publicKey.startsWith(peerId)) {
         const data = encode(msg);
         logNet("send", conn.publicKey, msg, data.byteLength);
@@ -2577,9 +2694,15 @@ export class Replicator {
   }
 
   private updateConnectionState() {
-    if (this.peers.size > 0) {
+    // A paused sibling is reachable but not synced with, so its link counts
+    // neither as connected nor as a connection still on its way.
+    const syncing = (publicKey: string) => !this.ownStateOnly.has(publicKey);
+    if ([...this.peers.keys()].some(syncing)) {
       this.setConnectionState("connected");
-    } else if (this.topics.size > 0 || this.rooms.size > 0) {
+    } else if (
+      [...this.topics.values()].some((entry) => syncing(entry.remotePubKey)) ||
+      this.rooms.size > 0
+    ) {
       this.setConnectionState("connecting");
     } else {
       this.setConnectionState("disconnected");
@@ -2601,6 +2724,7 @@ export class Replicator {
       conn.netPeer.close();
     }
     this.peers.clear();
+    this.ownStateOnly.clear();
     this.emitConnectedPeers();
     this.settleAllPulls();
 

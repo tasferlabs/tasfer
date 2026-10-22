@@ -32,6 +32,7 @@ export {
   registerTableCommands,
   setColumnAlign,
   setColumnWidths,
+  setTableWidth,
   TABLE_DELETE_COLUMN,
   TABLE_DELETE_ROW,
   TABLE_INSERT_COLUMN,
@@ -158,6 +159,7 @@ export {
   COLUMNS_SLOT,
   columnWidth,
   getTableDocument,
+  MAX_TABLE_WIDTH,
   readTable,
   ROW_NODE,
   ROWS_SLOT,
@@ -170,6 +172,7 @@ export {
   type TableRowView,
   type TableSeed,
   type TableView,
+  tableWidth,
   validateTableDocument,
 } from "./structured";
 export {

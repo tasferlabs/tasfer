@@ -1,5 +1,6 @@
 import { clsx } from "clsx";
-import { commandModifierLabel } from "@/lib/shortcutLabel";
+import { shortcutKeycaps } from "@/shortcuts/keycaps";
+import { useShortcutBindings } from "@/shortcuts/ShortcutsContext";
 
 const keycapClass =
   "rounded border border-border bg-muted px-1.5 py-0.5 font-[inherit] text-[0.7rem] leading-none text-muted-foreground";
@@ -32,19 +33,22 @@ export function ShortcutKeys({
 }
 
 /**
- * A chord on the platform's command modifier: ⌘ then `commandKey` on Apple,
- * Ctrl then `commandKey` elsewhere. `commandKey` is the printed key, e.g. "K".
+ * The first chord a command is bound to, as keycaps — so a hint follows the
+ * person's own binding. Renders nothing for a command left without one.
  */
-export function CommandShortcutKeys({
-  commandKey,
+export function CommandKeys({
+  id,
   className,
 }: {
-  commandKey: string;
+  id: string;
   className?: string;
 }) {
+  const shortcuts = useShortcutBindings();
+  const chord = shortcuts.bindings(id)[0];
+  if (!chord) return null;
   return (
     <ShortcutKeys
-      keys={[commandModifierLabel(), commandKey]}
+      keys={shortcutKeycaps(chord, shortcuts.apple)}
       className={className}
     />
   );

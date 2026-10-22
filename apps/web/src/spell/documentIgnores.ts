@@ -1,79 +1,129 @@
-import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { useMemo } from "react";
+import type { OwnPrefsStore } from "@/app/contexts/OwnPrefsContext";
+import { usePrefEntries } from "@/lib/usePrefEntries";
 import { normalizeWordKey } from "./personalDictionary";
 
 /**
- * Words ignored "for this document only". Per device, in localStorage: the
- * choice is about this reading session, not about the person's vocabulary
- * (that is the personal dictionary), so it does not replicate.
+ * Words ignored "for this document only" — a decision about one page rather
+ * than about the person's vocabulary (that is the personal dictionary).
+ *
+ * Kept in the own-prefs register, so a word waved through on the laptop is not
+ * flagged again on the phone. One key per word, `null` once removed, for the
+ * same reason the personal dictionary does it: the register is last-writer-wins
+ * per key and cannot delete, so a single list per page would let two devices
+ * overwrite each other's additions.
  */
 
-const KEY_PREFIX = "tasfer.spell.ignored.";
+/**
+ * Key PREFIX: `spell.ignore.<pageId>.<word>` → `{ added: ms }`. Mirrored in
+ * `OWN_PREF_KEYS` so this module stays importable without the React context
+ * module.
+ */
+export const IGNORES_PREF_PREFIX = "spell.ignore.";
+
+/** Where this device kept a page's list before it moved to the register. */
+export const LEGACY_IGNORES_PREFIX = "tasfer.spell.ignored.";
+
 const CAP = 200;
-/** Same-tab change signal; `storage` events only fire in OTHER tabs. */
-const EVENT = "tasfer:spell-ignored";
 
-function storageKey(pageId: string): string {
-  return KEY_PREFIX + pageId;
+type IgnorePrefs = Pick<
+  OwnPrefsStore,
+  "entries" | "set" | "getSnapshot" | "subscribe"
+>;
+
+interface IgnoreEntry {
+  added: number;
 }
 
-function readRaw(pageId: string): string | null {
-  try {
-    return localStorage.getItem(storageKey(pageId));
-  } catch {
-    return null;
+function pagePrefix(pageId: string): string {
+  return `${IGNORES_PREF_PREFIX}${pageId}.`;
+}
+
+/** The page's ignored words, oldest first, as `[word, added]` pairs. */
+function readEntries(
+  prefs: IgnorePrefs,
+  pageId: string,
+): Array<[string, number]> {
+  return toWords(prefs.entries(pagePrefix(pageId)), pageId);
+}
+
+function toWords(
+  entries: ReadonlyArray<readonly [string, unknown]>,
+  pageId: string,
+): Array<[string, number]> {
+  const prefix = pagePrefix(pageId);
+  const words: Array<[string, number]> = [];
+  for (const [key, value] of entries) {
+    const added = (value as Partial<IgnoreEntry>).added;
+    words.push([
+      key.slice(prefix.length),
+      typeof added === "number" ? added : 0,
+    ]);
   }
+  return words.sort((a, b) => a[1] - b[1]);
 }
 
-function parse(raw: string | null): string[] {
-  if (!raw) return [];
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed)
-      ? parsed.filter((w): w is string => typeof w === "string")
-      : [];
-  } catch {
-    return [];
-  }
+const EMPTY: ReadonlySet<string> = new Set();
+
+/** The page's ignored words, in key form. */
+export function readDocumentIgnores(
+  prefs: IgnorePrefs | null,
+  pageId: string,
+): ReadonlySet<string> {
+  // Onboarding renders the editor with no own-prefs store above it.
+  if (!prefs) return EMPTY;
+  return new Set(readEntries(prefs, pageId).map(([word]) => word));
 }
 
-function write(pageId: string, words: string[]): void {
-  try {
-    if (words.length === 0) localStorage.removeItem(storageKey(pageId));
-    else localStorage.setItem(storageKey(pageId), JSON.stringify(words));
-  } catch {
-    // Storage unavailable (private mode, quota): the ignore lasts for the
-    // in-memory checker run only, which is still what the person asked for.
-  }
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent(EVENT, { detail: pageId }));
-  }
-}
-
-/** Non-hook read, for the checker's `ignoredInDocument` callback. Words are in key form. */
-export function readDocumentIgnores(pageId: string): ReadonlySet<string> {
-  return new Set(parse(readRaw(pageId)));
-}
-
-export function addDocumentIgnore(pageId: string, word: string): void {
+export function addDocumentIgnore(
+  prefs: IgnorePrefs,
+  pageId: string,
+  word: string,
+  now: number = Date.now(),
+): void {
   const key = normalizeWordKey(word);
   if (!key) return;
-  const words = parse(readRaw(pageId)).filter((w) => w !== key);
-  words.push(key);
+  prefs.set(pagePrefix(pageId) + key, { added: now } satisfies IgnoreEntry);
   // Oldest first out: a 200-word ignore list is a document nobody is
   // proof-reading any more.
-  while (words.length > CAP) words.shift();
-  write(pageId, words);
+  const entries = readEntries(prefs, pageId);
+  for (const [old] of entries.slice(0, Math.max(0, entries.length - CAP))) {
+    prefs.set(pagePrefix(pageId) + old, null);
+  }
 }
 
-export function removeDocumentIgnore(pageId: string, word: string): void {
+export function removeDocumentIgnore(
+  prefs: IgnorePrefs,
+  pageId: string,
+  word: string,
+): void {
   const key = normalizeWordKey(word);
-  const words = parse(readRaw(pageId));
-  const next = words.filter((w) => w !== key);
-  if (next.length !== words.length) write(pageId, next);
+  if (readDocumentIgnores(prefs, pageId).has(key)) {
+    prefs.set(pagePrefix(pageId) + key, null);
+  }
 }
 
-export function clearDocumentIgnores(pageId: string): void {
-  write(pageId, []);
+export function clearDocumentIgnores(prefs: IgnorePrefs, pageId: string): void {
+  for (const [word] of readEntries(prefs, pageId)) {
+    prefs.set(pagePrefix(pageId) + word, null);
+  }
+}
+
+/**
+ * The list this device kept for one page in `localStorage`, one register entry
+ * per word. It carried no times, so the order is kept with small stand-in ones
+ * that any real ignore outranks.
+ */
+export function readLegacyDocumentIgnores(
+  storageKey: string,
+  raw: string,
+): Array<[string, unknown]> {
+  const pageId = storageKey.slice(LEGACY_IGNORES_PREFIX.length);
+  const parsed: unknown = JSON.parse(raw);
+  if (!pageId || !Array.isArray(parsed)) return [];
+  return parsed
+    .filter((w): w is string => typeof w === "string" && w.length > 0)
+    .map((word, i) => [pagePrefix(pageId) + word, { added: i + 1 }]);
 }
 
 export interface DocumentIgnores {
@@ -84,43 +134,30 @@ export interface DocumentIgnores {
 }
 
 /**
- * The ignore list of one page, re-rendering when it changes here or in
- * another tab.
+ * The ignore list of one page, re-rendering when it changes here or on
+ * another of the person's devices. `ignored` keeps its identity until this
+ * page's words change, so a write to any other preference does not re-check
+ * the document. Without a prefs store (onboarding) the list is empty and
+ * changes are dropped.
  */
-export function useDocumentIgnores(pageId: string): DocumentIgnores {
-  const subscribe = useCallback(
-    (onChange: () => void) => {
-      if (typeof window === "undefined") return () => {};
-      const onStorage = (e: StorageEvent) => {
-        if (e.key === null || e.key === storageKey(pageId)) onChange();
-      };
-      const onLocal = (e: Event) => {
-        if ((e as CustomEvent<string>).detail === pageId) onChange();
-      };
-      window.addEventListener("storage", onStorage);
-      window.addEventListener(EVENT, onLocal);
-      return () => {
-        window.removeEventListener("storage", onStorage);
-        window.removeEventListener(EVENT, onLocal);
-      };
-    },
-    [pageId],
-  );
-  // The raw string is the snapshot: equal text means equal list, and the
-  // parsed Set is derived once per change below.
-  const raw = useSyncExternalStore(
-    subscribe,
-    () => readRaw(pageId),
-    () => null,
-  );
-  const ignored = useMemo(() => new Set(parse(raw)), [raw]);
+export function useDocumentIgnores(
+  prefs: IgnorePrefs | null,
+  pageId: string,
+): DocumentIgnores {
+  const entries = usePrefEntries(prefs, pagePrefix(pageId));
   return useMemo(
     () => ({
-      ignored,
-      add: (word: string) => addDocumentIgnore(pageId, word),
-      remove: (word: string) => removeDocumentIgnore(pageId, word),
-      clear: () => clearDocumentIgnores(pageId),
+      ignored: new Set(toWords(entries, pageId).map(([word]) => word)),
+      add: (word: string) => {
+        if (prefs) addDocumentIgnore(prefs, pageId, word);
+      },
+      remove: (word: string) => {
+        if (prefs) removeDocumentIgnore(prefs, pageId, word);
+      },
+      clear: () => {
+        if (prefs) clearDocumentIgnores(prefs, pageId);
+      },
     }),
-    [ignored, pageId],
+    [prefs, pageId, entries],
   );
 }

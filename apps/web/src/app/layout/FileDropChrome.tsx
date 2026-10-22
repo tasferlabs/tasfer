@@ -55,7 +55,7 @@ function DropImportOverlay({ visible }: { visible: boolean }) {
           <p className="text-sm text-muted-foreground">
             {t(
               "import.dropToImportHint",
-              "Markdown, text, or ZIP files become pages",
+              "Markdown, text, or ZIP files and folders become pages",
             )}
           </p>
         </div>

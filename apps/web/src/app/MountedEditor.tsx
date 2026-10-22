@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
 import { getPlatform } from "@/platform";
+import type { PageFrontier } from "@/platform/types";
 import { getBridge } from "@/platform/bridge";
 import {
   CLOSE_CONTEXT_MENU,
@@ -38,13 +39,13 @@ import {
   REGION_DRAG_START,
   SCROLL,
   TEXT_INPUT,
-  isApplePlatform,
   mergeRegister,
   type Block,
   type ContentPoint,
   type CursorDragInfo,
   type Decoration,
   type DocPoint,
+  type ViewWindow,
 } from "@tasfer/editor";
 import { downloadFile } from "@/downloadFile";
 import { exportBaseName } from "@/lib/exportFileName";
@@ -121,9 +122,11 @@ import {
   useState,
   type ComponentType,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { useShortcuts } from "@/shortcuts/ShortcutsContext";
 import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
 import { TableTools } from "../editor/TableTools";
 import { TableToolsContext, useTableTools } from "../editor/tableContext";
@@ -221,6 +224,7 @@ import { useEditorCore } from "./editorCore";
 import {
   useCollaborativeDoc,
   type CollaborativeDoc,
+  type UseCollaborativeDocOptions,
 } from "./useCollaborativeDoc";
 
 function toolbarBlockTypeFromQueryBlock(
@@ -970,7 +974,7 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
   // Resting state is a caption, not a control: no border, no background. The
   // chevron stays put, though — it is the only thing that says the language can
   // be changed at all, and a label that only reveals itself on hover is a
-  // control nobody finds. Hover just promotes the text to foreground. The
+  // control nobody finds. Hover promotes text and chevron to foreground. The
   // `[&>…]` overrides retune the shared combobox trigger (h-9, full width, 14px
   // text, bordered) to band scale.
   const triggerClassName = cn(
@@ -982,7 +986,9 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
     "h-auto w-auto cursor-pointer justify-end gap-0.5 rounded border-0 bg-transparent dark:bg-transparent px-1 py-0 shadow-none",
     "text-muted-foreground transition-colors hover:text-foreground focus-within:ring-0",
     "[&>span]:flex-none [&>span]:text-[11px] [&>span]:leading-none",
-    "[&>svg]:size-3",
+    // The shared trigger pins its chevron to `text-muted-foreground`; inherit
+    // instead so the arrow lights up with the label on hover.
+    "[&>svg]:size-3 [&>svg]:text-current",
   );
 
   // Shown wherever the picker is not reachable: a readonly document, and mobile
@@ -1348,6 +1354,11 @@ function loadCursorPosition(pageId: string): StoredCursorPosition | null {
 
 interface MountedEditorProps {
   snapshot: Block[];
+  /**
+   * The op log's frontier when `snapshot` was read (`PageFull.frontier`).
+   * Editable mounts need it — see `UseCollaborativeDocOptions.frontier`.
+   */
+  frontier?: PageFrontier;
   className?: string;
   /** Called when content changes locally (for saving). */
   onContentChange?: (blocks: Block[]) => void;
@@ -1373,7 +1384,10 @@ interface MountedEditorProps {
   onEditorReady?: (editor: MountedEditorInstance["editor"] | null) => void;
   /** When true, editor is read-only - no editing, no CRDT sync, no native bridge updates */
   readonly?: boolean;
-  /** Override default canvas padding */
+  /**
+   * Override default canvas padding. Setting a side padding also opts out of
+   * the page-width gutter (and `onHorizontalPaddingChange`).
+   */
   padding?: Partial<{
     paddingTop: number;
     paddingBottom: number;
@@ -1393,6 +1407,17 @@ interface MountedEditorProps {
    * column. Fired on mount and whenever the padding changes.
    */
   onHorizontalPaddingChange?: (paddingPx: number) => void;
+  /**
+   * Show only part of the page (e.g. `bodyBlocksWindow()` beside a
+   * `TitleEditor`). Must be stable for the editor's lifetime — a module
+   * constant or a memo. Omit for the full page.
+   */
+  viewWindow?: ViewWindow;
+  /**
+   * A shared doc owned by a {@link PageDocScope} above, for when other surfaces
+   * (a `TitleEditor`) edit the same page. Omit to have this editor own its doc.
+   */
+  collab?: CollaborativeDoc;
 }
 
 // Find-in-document highlight colors (host-owned now that the engine paints
@@ -1504,6 +1529,23 @@ function postKeyboardToolbar(model: NativeMobileToolbarModel): void {
   ).webkit?.messageHandlers?.KeyboardToolbar?.postMessage(model);
 }
 
+/** Tell the native `KeyboardCaretMoved` handler that the editor moved the caret
+ * or deleted text with JavaScript. WebKit refreshes the keyboard's suggestion
+ * bar only after moves and edits it made itself, so without this a tap or a
+ * Backspace back onto an earlier word keeps the old suggestions. No-op off iOS
+ * / when the handler isn't registered. */
+function postKeyboardCaretMoved(): void {
+  (
+    window as {
+      webkit?: {
+        messageHandlers?: {
+          KeyboardCaretMoved?: { postMessage(m: unknown): void };
+        };
+      };
+    }
+  ).webkit?.messageHandlers?.KeyboardCaretMoved?.postMessage(null);
+}
+
 // The accessory enable flag (`postKeyboardAccessoryFocus`) lives in
 // `mobileToolbarSuppression.ts`, shared with compact surfaces (TitleEditor)
 // that disable the accessory while they hold focus.
@@ -1548,12 +1590,28 @@ function isFocusedPageRow(el: Element | null): boolean {
  * teardown/rebuild.
  */
 export function MountedEditor(props: MountedEditorProps) {
-  return (
-    <CollaborativeEditor
-      key={`${props.pageId}::${props.readonly ? "ro" : "rw"}`}
-      {...props}
-    />
-  );
+  const key = `${props.pageId}::${props.readonly ? "ro" : "rw"}`;
+  if (props.collab) {
+    return <PageEditor key={key} {...props} collab={props.collab} />;
+  }
+  return <CollaborativeEditor key={key} {...props} />;
+}
+
+/**
+ * Owns one page's shared {@link Doc} (as {@link CollaborativeEditor} does) and
+ * hands it to `children`, so several surfaces — a `TitleEditor` and a windowed
+ * `MountedEditor` passed `collab` — edit one page with sync wired once. The
+ * surfaces render inside it, so they are torn down before the doc. Key it per
+ * page, so a page switch builds a fresh doc.
+ */
+export function PageDocScope({
+  children,
+  ...options
+}: UseCollaborativeDocOptions & {
+  children: (collab: CollaborativeDoc) => ReactNode;
+}) {
+  const collab = useCollaborativeDoc(options);
+  return <>{children(collab)}</>;
 }
 
 /**
@@ -1568,6 +1626,7 @@ function CollaborativeEditor(props: MountedEditorProps) {
     pageId: props.pageId,
     spaceId: props.spaceId,
     snapshot: props.snapshot,
+    frontier: props.frontier,
     readonly: props.readonly ?? false,
     onSyncStateChange: props.onSyncStateChange,
   });
@@ -1603,10 +1662,12 @@ function PageEditor({
   placeholderOverrides,
   onScroll,
   onHorizontalPaddingChange,
+  viewWindow,
 }: PageEditorProps) {
   const { setOnOpenFind, fontStyle, editorWidth, density } = usePageSettings();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { t } = useTranslation();
+  const shortcuts = useShortcuts();
   const mountedRef = useRef<MountedEditorInstance | null>(null);
   // The shared doc is owned above us by useCollaborativeDoc; we're a view over it.
   const doc = collab.doc;
@@ -2292,6 +2353,7 @@ function PageEditor({
   const { containerRef, editor } = useEditorCore({
     doc,
     schema: appSchema,
+    window: viewWindow,
     editable: !readonly,
     // Desktop squiggles come from our own checker (SpellcheckLayer); the
     // browser's spellcheck/autocorrect on the hidden input would waste CPU on
@@ -2342,10 +2404,13 @@ function PageEditor({
   // "narrow" reading column is expressed as symmetric horizontal padding
   // computed from the measured canvas width, recomputed on resize. The width
   // control is desktop-only; on mobile this falls through to the engine's
-  // default gutter. setTheme reflows text without a re-mount.
+  // default gutter. setTheme reflows text without a re-mount. A host that sets
+  // its own side padding (a compact panel, not a page) keeps it.
+  const fixedHorizontalPadding =
+    padding?.paddingLeft !== undefined || padding?.paddingRight !== undefined;
   useEffect(() => {
     const el = wrapperRef.current;
-    if (!editor || !el) return;
+    if (!editor || !el || fixedHorizontalPadding) return;
     let previousHorizontal: number | null = null;
     const apply = () => {
       const horizontal = horizontalPaddingForWidth(
@@ -2366,7 +2431,7 @@ function PageEditor({
     const observer = new ResizeObserver(apply);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [editor, editorWidth]);
+  }, [editor, editorWidth, fixedHorizontalPadding]);
 
   // Push the display-density scale (line-spacing multiplier page setting) into
   // the live editor. It scales the flow-text line heights and inter-block gaps;
@@ -2468,9 +2533,42 @@ function PageEditor({
         setKeyboardOpen(false);
       }
     });
+    // iOS native: the keyboard only re-reads the text around the caret after an
+    // edit or move it made itself, so it never hears of the editor's own: a
+    // caret move with no content change (a canvas tap, an arrow key), or a
+    // Backspace/Delete, which the editor applies itself and then rewrites the
+    // input surface. Backing into the previous word then shows no suggestions
+    // for it. Tell native once the editor has written the new text and caret
+    // into its input surface (two frames, then a task, so WebKit has also
+    // handed them to the native side), coalescing a burst into one notice.
+    let caretNotice = 0;
+    const scheduleCaretNotice = () => {
+      const token = ++caretNotice;
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() =>
+          setTimeout(() => {
+            if (token === caretNotice) postKeyboardCaretMoved();
+          }, 0),
+        ),
+      );
+    };
+    const offCaretMove = IS_IOS_NATIVE
+      ? editor?.on("selectionchange", (s) => {
+          if (s.isFocused && s.selection.empty) scheduleCaretNotice();
+        })
+      : undefined;
+    // Capture phase: the editor stops the key's propagation at its surface.
+    const wrapper = IS_IOS_NATIVE ? wrapperRef.current : null;
+    const onDeleteKey = (e: KeyboardEvent) => {
+      if (e.key === "Backspace" || e.key === "Delete") scheduleCaretNotice();
+    };
+    wrapper?.addEventListener("keydown", onDeleteKey, true);
     return () => {
       offFocus?.();
       offBlur?.();
+      offCaretMove?.();
+      wrapper?.removeEventListener("keydown", onDeleteKey, true);
+      caretNotice++;
       // The editor is going away; never leave the accessory enabled for whatever
       // input gains focus next (e.g. on another page with no editor mounted).
       if (IS_IOS_NATIVE) postKeyboardAccessoryFocus(false);
@@ -3203,15 +3301,20 @@ function PageEditor({
         "offset" in selectionRange
           ? (selectionRange.offset ?? 0)
           : null);
+      // A tree caret is in math by definition — a display equation, or an
+      // inline chip's own formula. Its offset is formula-local, so it must not
+      // be probed against the host block's flat marks: that only matched by
+      // coincidence and lost the math row as the formula grew past one char.
       const inlineMathChip =
-        caretOffset !== null && activeBlock != null
+        treeMath === null && caretOffset !== null && activeBlock != null
           ? inlineMathChipAt(
               mounted.editor.query.marks,
               activeBlock.id,
               caretOffset,
             )
           : undefined;
-      const insideInlineMath = inlineMathChip !== undefined;
+      const insideInlineMath =
+        treeMath !== null || inlineMathChip !== undefined;
       const canOpenMathCommands =
         (snapshot.selection.empty || treeMath !== null) &&
         (rawBlockType === "math" || insideInlineMath);
@@ -3443,14 +3546,13 @@ function PageEditor({
       // Don't intercept when a dialog or drawer is open
       if (document.querySelector('[role="dialog"]')) return;
 
-      // ⌘F on Apple, Ctrl+F elsewhere — not either-or: bare ⌃F is the caret's
-      // forward-character move on macOS, which the editor now honors. Matched on
-      // `code` so a non-Latin layout still reaches find.
-      const isCmd = isApplePlatform() ? e.metaKey : e.ctrlKey;
-      if (isCmd && e.code === "KeyF") {
+      // ⌘F on Apple, Ctrl+F elsewhere by default — not either-or: bare ⌃F is
+      // the caret's forward-character move on macOS, which the editor honors.
+      // Matched on the physical key, so a non-Latin layout still reaches find.
+      if (shortcuts.matches("editor.find", e)) {
         e.preventDefault();
         setFindBarOpen(true);
-      } else if (isCmd && e.code === "KeyS" && !e.shiftKey && !e.altKey) {
+      } else if (shortcuts.matches("editor.saveMarkdown", e)) {
         // ⌘S downloads the page as Markdown. The engine lets the chord
         // through — what saving means is the host's call — and the browser's
         // own "save page" dialog is never what was meant here. Held down, it
@@ -3476,7 +3578,7 @@ function PageEditor({
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [shortcuts]);
 
   // Search logic — compute matches when the find query changes.
   const performSearch = useCallback((text: string) => {
