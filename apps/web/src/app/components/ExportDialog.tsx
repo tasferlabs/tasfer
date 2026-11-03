@@ -83,10 +83,12 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
       const pageData = await getPage(pageId);
       const meta: PageMetadata = {};
       if (pageData.task) meta.task = true;
+      if (pageData.done) meta.done = true;
       if (pageData.scheduledAt) meta.scheduledAt = pageData.scheduledAt;
       if (pageData.duration != null) meta.duration = pageData.duration;
       if (pageData.allDay != null) meta.allDay = pageData.allDay;
       if (pageData.color) meta.color = pageData.color;
+      if (pageData.recurrence) meta.recurrence = pageData.recurrence;
       return Object.keys(meta).length > 0 ? meta : undefined;
     } catch {
       return undefined;

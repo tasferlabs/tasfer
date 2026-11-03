@@ -25,6 +25,7 @@ import { SidebarPanelProvider } from "../contexts/SidebarPanelContext";
 import { OwnPrefsProvider } from "../contexts/OwnPrefsContext";
 import { DateTimePrefsProvider } from "../contexts/DateTimePrefsContext";
 import { SpellProvider } from "@/spell/SpellProvider";
+import { RemindersProvider } from "@/reminders/RemindersContext";
 import { ShortcutsProvider, useShortcuts } from "@/shortcuts/ShortcutsContext";
 import { useGetArchivedSpaces } from "../api/spaces.api";
 import { SpaceProvider, useSpaces } from "../contexts/SpaceContext";
@@ -81,7 +82,9 @@ export default function Layout() {
                                   <ExportDialogProvider>
                                     <PeerVersionProvider>
                                       <ActionCenterProvider>
-                                        <LayoutInner />
+                                        <RemindersProvider>
+                                          <LayoutInner />
+                                        </RemindersProvider>
                                       </ActionCenterProvider>
                                     </PeerVersionProvider>
                                   </ExportDialogProvider>

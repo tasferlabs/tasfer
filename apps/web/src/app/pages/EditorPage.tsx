@@ -1,4 +1,10 @@
 import type { SyncState } from "@/app/hooks/useP2PRoom";
+import {
+  formatRecurrence,
+  parseRecurrence,
+  shiftRule,
+} from "@/platform/recurrence";
+import { RepeatRow } from "./CalendarPage/RepeatRow";
 import DateTimePicker from "@/components/datetimepickers/DateTimePicker";
 import { Button } from "@/components/ui/button";
 import {
@@ -825,11 +831,14 @@ function ScheduleContent({
   pageId,
   scheduledAt,
   duration,
+  recurrence,
   readonly,
 }: {
   pageId: string;
   scheduledAt: string | null;
   duration: number | null;
+  /** The page's repeat rule, when it repeats. */
+  recurrence: string | null;
   readonly: boolean;
 }) {
   const { t } = useTranslation();
@@ -858,7 +867,29 @@ function ScheduleContent({
   );
 
   const handleRemoveSchedule = () => {
-    update({ id: pageId, scheduledAt: null, duration: null, allDay: null });
+    update({
+      id: pageId,
+      scheduledAt: null,
+      duration: null,
+      allDay: null,
+      // Without a date there is nothing for a rule to repeat from.
+      ...(recurrence && { recurrence: null }),
+    });
+  };
+
+  // A repeating event's start moving moves the whole series: its weekdays or
+  // day of the month go along with the new date.
+  const moveStart = (value: string | null) => {
+    const rule = parseRecurrence(recurrence);
+    if (!value || !scheduledAt || !rule) {
+      update({ id: pageId, scheduledAt: value });
+      return;
+    }
+    update({
+      id: pageId,
+      scheduledAt: value,
+      recurrence: formatRecurrence(shiftRule(rule, scheduledAt, value)),
+    });
   };
 
   return (
@@ -876,7 +907,7 @@ function ScheduleContent({
               value={field.value}
               onChange={(value) => {
                 field.onChange(value);
-                update({ id: pageId, scheduledAt: value });
+                moveStart(value);
               }}
               disabled={readonly}
               timezone={tz}
@@ -885,6 +916,22 @@ function ScheduleContent({
           )}
         />
       </div>
+
+      {scheduledAt && !readonly && (
+        <div className="space-y-2">
+          <label className="text-sm font-medium">
+            {t("calendar.repeat.label", "Repeat")}
+          </label>
+          <RepeatRow
+            value={recurrence}
+            start={scheduledAt}
+            timezone={tz}
+            onChange={(rule) => update({ id: pageId, recurrence: rule })}
+            className="flex items-center gap-2"
+            iconClassName="text-muted-foreground shrink-0"
+          />
+        </div>
+      )}
 
       <div className="space-y-2">
         <label className="text-sm font-medium">
@@ -1028,6 +1075,7 @@ function ScheduleTag({
       pageId={pageId}
       scheduledAt={page?.scheduledAt ?? null}
       duration={page?.duration ?? null}
+      recurrence={page?.recurrence ?? null}
       readonly={readonly}
     />
   );

@@ -70,4 +70,11 @@ export const plugins = {
     // height formula in MountedEditor). window.innerHeight stays constant.
     resize: "none",
   },
+  // Event reminders (src/reminders/delivery.ts). The icon is the white-on-clear
+  // mark Android tints in the status bar (res/drawable-*/ic_stat_tasfer.png);
+  // the presentation options make iOS show a reminder while the app is open.
+  LocalNotifications: {
+    smallIcon: "ic_stat_tasfer",
+    presentationOptions: ["banner", "list", "sound"],
+  },
 };

@@ -102,10 +102,6 @@ export const OWN_PREF_KEYS = {
    * `PARENT_USAGE_PREF_PREFIX` there.
    */
   calendarParentUsagePrefix: "calendar.parentUsage.",
-  /** `boolean` — the draft parent picker's "Recent" row; absent means open. */
-  calendarRecentParentsOpen: "calendar.recentParentsOpen",
-  /** `boolean` — the draft parent picker's page tree; absent means open. */
-  calendarParentTreeOpen: "calendar.parentTreeOpen",
   /** `string` — the space a new calendar event is drafted into. */
   calendarEventSpace: "calendar.eventSpace",
   /**
@@ -135,6 +131,19 @@ export const OWN_PREF_KEYS = {
    * shortcuts never overwrite each other. Read through `@/shortcuts`.
    */
   shortcutPrefix: "shortcut.",
+  /**
+   * Key PREFIX: `reminder.<pageId>` → minutes before the event starts, or
+   * `"off"`; `null` puts the event back on the default. One key per event so
+   * two devices changing two events never overwrite each other. Mirrored as
+   * `REMINDER_PREF_PREFIX` in `@/reminders/reminders`.
+   */
+  reminderPrefix: "reminder.",
+  /**
+   * The reminder a timed event gets until one is chosen for it: minutes
+   * before, or `"off"`. Absent means 10 minutes. Mirrored as
+   * `DEFAULT_REMINDER_KEY` in `@/reminders/reminders`.
+   */
+  reminderDefault: "reminders.default",
 } as const;
 
 /**
@@ -171,8 +180,7 @@ const LEGACY: Array<{
   },
   {
     storageKey: "tasfer:p2p-tutorial-seen",
-    read: (raw) =>
-      raw === "1" ? [[OWN_PREF_KEYS.p2pTutorialSeen, true]] : [],
+    read: (raw) => (raw === "1" ? [[OWN_PREF_KEYS.p2pTutorialSeen, true]] : []),
   },
   // The Date & Time tab wrote each of these as its own browser key. A value
   // equal to the default is not adopted: "system" and Monday are what an unset
@@ -206,8 +214,9 @@ const LEGACY: Array<{
     read: (raw) =>
       raw && raw !== "system" ? [[OWN_PREF_KEYS.dateTimeTimezone, raw]] : [],
   },
-  // The event draft's parent picker kept its shortcut stats, its two folds and
-  // the draft's space in this browser alone.
+  // The event draft's parent picker kept its shortcut stats, its fold and
+  // the draft's space in this browser alone. The fold is gone, so its old
+  // value is only dropped, not adopted.
   {
     storageKey: LEGACY_PARENT_USAGE_KEY,
     read: (raw, ctx) => readLegacyParentUsage(raw, requireDevice(ctx)),
@@ -218,17 +227,7 @@ const LEGACY: Array<{
   },
   {
     storageKey: "tasfer:remember:calendar-recent-parents",
-    read: (raw) =>
-      raw === "open" || raw === "closed"
-        ? [[OWN_PREF_KEYS.calendarRecentParentsOpen, raw === "open"]]
-        : [],
-  },
-  {
-    storageKey: "tasfer:remember:calendar-parent-tree",
-    read: (raw) =>
-      raw === "open" || raw === "closed"
-        ? [[OWN_PREF_KEYS.calendarParentTreeOpen, raw === "open"]]
-        : [],
+    read: () => [],
   },
   {
     storageKey: LEGACY_FRECENCY_KEY,

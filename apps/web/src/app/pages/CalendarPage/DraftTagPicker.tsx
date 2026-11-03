@@ -2,13 +2,19 @@ import {
   Fragment,
   useCallback,
   useEffect,
-  useId,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
-import { ChevronRight, FileText, History, Search, X } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  FolderTree,
+  History,
+  Search,
+  X,
+} from "lucide-react";
 import { useQueries } from "@tanstack/react-query";
 import i18next from "i18next";
 import { useTranslation } from "react-i18next";
@@ -18,11 +24,7 @@ import {
   type IListPage,
   type ISearchPage,
 } from "../../api/pages.api";
-import {
-  OWN_PREF_KEYS,
-  useOwnPref,
-  useOwnPrefsStore,
-} from "@/app/contexts/OwnPrefsContext";
+import { useOwnPrefsStore } from "@/app/contexts/OwnPrefsContext";
 import {
   forgetParent,
   getRecentParents,
@@ -119,19 +121,6 @@ export function DraftTagPicker({
     () => [null, ...drillPath.map((p) => p.id)],
     [drillPath],
   );
-
-  // Whether the shortcut row is showing. Folding it away is a standing choice
-  // about how this person files, not one draft's, so it outlives the draft and
-  // follows them to their other devices.
-  const recentFold = useOwnPref(OWN_PREF_KEYS.calendarRecentParentsOpen, true);
-  const recentOpen = recentFold.value;
-  const toggleRecent = () => recentFold.set(!recentOpen);
-
-  // The tree folds the same way, for the opposite habit: someone who files from
-  // the shortcuts (or from search) can put the whole drill-down away.
-  const treeFold = useOwnPref(OWN_PREF_KEYS.calendarParentTreeOpen, true);
-  const treeOpen = treeFold.value;
-  const toggleTree = () => treeFold.set(!treeOpen);
 
   // The shortcut row is offered for a NEW page only. Re-parenting an existing
   // one must never offer a page inside its own subtree — that would cut the
@@ -245,17 +234,13 @@ export function DraftTagPicker({
     return built;
   }, [recentTags, childrenOf, levels, drillPath, excludeId]);
 
-  const treeRows = useMemo(() => allRows.filter((r) => !r.recent), [allRows]);
-
-  // What is actually on screen — and so what the arrow keys move through. A
-  // folded section keeps its rows out of the grid rather than stepping the
-  // cursor through tags nobody can see.
+  // What is actually on screen — and so what the arrow keys move through.
   const rows: TagRowModel[] = useMemo(() => {
-    const shown = allRows.filter((r) => (r.recent ? recentOpen : treeOpen));
-    // Folding away every section must not fold away the answer: an event filed
-    // under a page the draft never showed is the one thing this picker owes the
-    // user. The chosen parent stays on screen as a row of its own — tapping it
-    // clears the choice, exactly as tapping it anywhere else would.
+    const shown = [...allRows];
+    // An event filed under a page the rows never showed (a stale stored path
+    // the tree can't reopen) must still show its answer. The chosen parent
+    // stays on screen as a row of its own — tapping it clears the choice,
+    // exactly as tapping it anywhere else would.
     if (
       value &&
       !shown.some((r) => r.tags.some((t) => t.page.id === value.id))
@@ -284,7 +269,7 @@ export function DraftTagPicker({
       });
     }
     return shown;
-  }, [allRows, recentOpen, treeOpen, value]);
+  }, [allRows, value]);
 
   // ── Roving focus ──
   //
@@ -297,8 +282,6 @@ export function DraftTagPicker({
   // Set only while a key is moving the cursor, so pointer and Tab focus update
   // the roving index without the effect yanking focus back.
   const keyNavRef = useRef(false);
-  const recentRowId = useId();
-  const treeGroupId = useId();
   const buttonsRef = useRef(new Map<string, HTMLButtonElement | null>());
 
   const selectedPos = useMemo(() => {
@@ -366,8 +349,7 @@ export function DraftTagPicker({
   // pre-tagged with the last parent it was filed under, with the picker already
   // mounted, so it cannot reopen the branch by remounting the way a search pick
   // does. When the chosen page's own row isn't open, reopen the path down to it
-  // — a parent lit nowhere reads as no parent at all, and the shortcut row it
-  // would otherwise show in can be folded away.
+  // — a parent lit nowhere reads as no parent at all.
   const valueId = value?.id;
   const valueParentId = value?.parentId ?? null;
   const valuePath = value?.path;
@@ -455,20 +437,18 @@ export function DraftTagPicker({
     );
   };
 
-  // Both sections are disclosures over the same question, so each row is drawn
-  // the same way wherever it sits; `rowIndex` is its place in the visible grid,
-  // which is what the arrow keys move through.
+  // Both sections answer the same question, so each row is drawn the same way
+  // wherever it sits; `rowIndex` is its place in the visible grid, which is
+  // what the arrow keys move through.
   const renderRow = (rowModel: TagRowModel, rowIndex: number) => (
-    <div
+    <ScrollableTagRow
       key={rowModel.key}
-      id={rowModel.recent ? recentRowId : undefined}
-      className={cn(
-        style.draftTagRow,
+      tagCount={rowModel.tags.length}
+      nested={
         !rowModel.recent &&
-          rowModel.levelIndex !== undefined &&
-          rowModel.levelIndex !== 0 &&
-          style.draftTagRowNested,
-      )}
+        rowModel.levelIndex !== undefined &&
+        rowModel.levelIndex !== 0
+      }
     >
       {rowModel.tags.map((tag, colIndex) => {
         const page = tag.page;
@@ -525,7 +505,7 @@ export function DraftTagPicker({
           </button>
         );
       })}
-    </div>
+    </ScrollableTagRow>
   );
 
   return (
@@ -536,65 +516,205 @@ export function DraftTagPicker({
       onKeyDown={handleKeyDown}
     >
       {recentTags.length > 0 && (
-        <button
-          type="button"
-          className={style.draftTagRowLabel}
-          aria-expanded={recentOpen}
-          // Only while the row it names is actually in the tree.
-          aria-controls={recentOpen ? recentRowId : undefined}
-          onClick={toggleRecent}
-        >
+        <div className={style.draftTagSectionLabel}>
           <History size={11} aria-hidden />
           {t("common.recent", "Recent")}
-          <ChevronRight
-            size={12}
-            className={cn(
-              style.draftTagChevron,
-              recentOpen && style.draftTagChevronOpen,
-            )}
-          />
-        </button>
+        </div>
       )}
       {rows
         .filter((r) => r.recent)
         .map((rowModel) => renderRow(rowModel, rows.indexOf(rowModel)))}
 
-      {treeRows.length > 0 && (
-        <button
-          type="button"
-          className={cn(
-            style.draftTagRowLabel,
-            // Only needs the gap when there is something above to part from.
-            recentTags.length > 0 && style.draftTagRowLabelParted,
-          )}
-          aria-expanded={treeOpen}
-          aria-controls={treeOpen ? treeGroupId : undefined}
-          onClick={toggleTree}
-        >
-          <FileText size={11} aria-hidden />
-          {t("page.pages", "Pages")}
-          <ChevronRight
-            size={12}
-            className={cn(
-              style.draftTagChevron,
-              treeOpen && style.draftTagChevronOpen,
-            )}
-          />
-        </button>
-      )}
-      {treeOpen && (
-        <div id={treeGroupId} className={style.draftTagLevelGroup}>
-          {rows
-            .filter((r) => !r.recent && r.key !== "__selection__")
-            .map((rowModel) => renderRow(rowModel, rows.indexOf(rowModel)))}
-        </div>
-      )}
+      <div
+        className={cn(
+          style.draftTagLevelGroup,
+          // Only needs the gap when there is something above to part from.
+          recentTags.length > 0 && style.draftTagLevelGroupParted,
+        )}
+      >
+        {/* Named only when there is a shortcut section to tell it apart from. */}
+        {recentTags.length > 0 && (
+          <div className={style.draftTagSectionLabel}>
+            <FolderTree size={11} aria-hidden />
+            {t("calendar.allPages", "All pages")}
+          </div>
+        )}
+        {rows
+          .filter((r) => !r.recent && r.key !== "__selection__")
+          .map((rowModel) => renderRow(rowModel, rows.indexOf(rowModel)))}
+      </div>
 
       {/* The chosen parent, when neither section is showing it. */}
       {rows
         .filter((r) => r.key === "__selection__")
         .map((rowModel) => renderRow(rowModel, rows.indexOf(rowModel)))}
     </div>
+  );
+}
+
+/**
+ * One horizontally scrolling row of tags, flanked by arrow buttons once it has
+ * more tags than fit. A swipe or trackpad scrolls the row just as well; the
+ * arrows are for a mouse wheel that only scrolls vertically, and for anyone who
+ * wouldn't guess the row scrolls at all. They stay out of the tab order — the
+ * picker's arrow keys already walk the tags and bring each one into view.
+ *
+ * The arrows sit beside the row rather than over it, so they never cover a tag.
+ * The forward arrow stays in place once the row overflows, disabled at the end.
+ * The back arrow shows only once the row has left its start, so the first tag
+ * lines up with the rows around it; its room is taken out of the scroll as it
+ * comes and given back as it goes, so the tags hold still rather than jump.
+ */
+function ScrollableTagRow({
+  nested,
+  tagCount,
+  children,
+}: {
+  nested: boolean;
+  /** Re-measures when tags come or go, which resizes the content, not the row. */
+  tagCount: number;
+  children: React.ReactNode;
+}) {
+  const { t } = useTranslation();
+  const rowRef = useRef<HTMLDivElement>(null);
+  const backRef = useRef<HTMLButtonElement>(null);
+  // Where the first tag sat on screen at the last measure, so the row can be
+  // scrolled to hold it there when the back arrow comes or goes.
+  const anchorRef = useRef<number | null>(null);
+  // A forward click's destination, from where the row starts without the back
+  // arrow, while that click is still bringing the arrow in.
+  const pendingRef = useRef<number | null>(null);
+  const [overflow, setOverflow] = useState({
+    any: false,
+    back: false,
+    forward: false,
+  });
+
+  const measure = useCallback(() => {
+    const el = rowRef.current;
+    if (!el) return;
+    anchorRef.current =
+      el.firstElementChild?.getBoundingClientRect().left ?? null;
+    // RTL rows scroll from 0 into negative offsets, so the distance from the
+    // start is the magnitude either way.
+    const fromStart = Math.abs(el.scrollLeft);
+    const next = {
+      any: el.scrollWidth > el.clientWidth + 1,
+      // Counted from where the row starts without the arrow: while it shows,
+      // the first stretch of scroll is the arrow's own room.
+      back: fromStart - backArrowRoom(el, backRef.current) > 1,
+      forward: fromStart + el.clientWidth < el.scrollWidth - 1,
+    };
+    setOverflow((prev) =>
+      prev.any === next.any &&
+      prev.back === next.back &&
+      prev.forward === next.forward
+        ? prev
+        : next,
+    );
+  }, []);
+
+  // The back arrow just came or went, moving the row's start by its room.
+  // Scroll by the same amount so the first tag — and every tag after it —
+  // stays where it was on screen.
+  const backShownRef = useRef(false);
+  useLayoutEffect(() => {
+    if (backShownRef.current === overflow.back) return;
+    backShownRef.current = overflow.back;
+    const el = rowRef.current;
+    const first = el?.firstElementChild;
+    if (!el || !first || anchorRef.current === null) return;
+    el.scrollLeft += first.getBoundingClientRect().left - anchorRef.current;
+    // Moving the scroll cut short the click that brought the arrow in; carry
+    // on to where it was headed, now past the arrow's room as well.
+    const pending = pendingRef.current;
+    pendingRef.current = null;
+    if (pending !== null && overflow.back) {
+      el.scrollTo({
+        left: scrollSign(el) * (pending + backArrowRoom(el, backRef.current)),
+        behavior: "smooth",
+      });
+    }
+  }, [overflow.back]);
+
+  useLayoutEffect(() => {
+    const el = rowRef.current;
+    if (!el) return;
+    measure();
+    // Tags change width on their own too: a title's math typesets after it
+    // first paints.
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    for (const child of el.children) observer.observe(child);
+    return () => observer.disconnect();
+  }, [measure, tagCount]);
+
+  const scroll = (direction: 1 | -1) => {
+    const el = rowRef.current;
+    if (!el) return;
+    const room = backArrowRoom(el, backRef.current);
+    // Most of a row's width, leaving a tag's edge in view for continuity.
+    // Going back, it stops where the arrow's room begins: the arrow hides
+    // there, and giving its room back lands the row at its true start.
+    const target = Math.max(
+      room,
+      Math.abs(el.scrollLeft) + direction * el.clientWidth * 0.8,
+    );
+    if (!overflow.back) pendingRef.current = target;
+    el.scrollTo({ left: scrollSign(el) * target, behavior: "smooth" });
+  };
+
+  const arrow = (direction: 1 | -1) => {
+    const forward = direction === 1;
+    return (
+      <button
+        ref={forward ? undefined : backRef}
+        type="button"
+        tabIndex={-1}
+        disabled={forward && !overflow.forward}
+        className={style.draftTagScroll}
+        aria-label={
+          forward
+            ? t("calendar.showMorePages", "Show more pages")
+            : t("calendar.showPreviousPages", "Show previous pages")
+        }
+        // Leave focus on the tag it was on, so the arrow keys carry on from there.
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => scroll(direction)}
+      >
+        {forward ? (
+          <ChevronRight size={14} className={style.draftTagScrollIcon} />
+        ) : (
+          <ChevronLeft size={14} className={style.draftTagScrollIcon} />
+        )}
+      </button>
+    );
+  };
+
+  return (
+    <div
+      className={cn(style.draftTagRowFrame, nested && style.draftTagRowNested)}
+    >
+      {overflow.back && arrow(-1)}
+      <div ref={rowRef} className={style.draftTagRow} onScroll={measure}>
+        {children}
+      </div>
+      {overflow.any && arrow(1)}
+    </div>
+  );
+}
+
+/** RTL rows scroll into negative offsets; LTR rows into positive ones. */
+function scrollSign(row: HTMLElement) {
+  return getComputedStyle(row).direction === "rtl" ? -1 : 1;
+}
+
+/** The room a row's back arrow takes from it while showing: 0 while hidden. */
+function backArrowRoom(row: HTMLElement, back: HTMLElement | null) {
+  const frame = row.parentElement;
+  if (!back || !frame) return 0;
+  return (
+    back.offsetWidth + (parseFloat(getComputedStyle(frame).columnGap) || 0)
   );
 }
 

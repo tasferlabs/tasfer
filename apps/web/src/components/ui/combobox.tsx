@@ -115,6 +115,7 @@ function ComboboxInput({
   placeholder,
   disabled: disabledProp,
   showTrigger = true,
+  "aria-label": ariaLabel,
   // ..._props
 }: React.ComponentProps<"input"> & {
   showTrigger?: boolean
@@ -128,6 +129,7 @@ function ComboboxInput({
     <Popover.Trigger asChild disabled={isDisabled}>
       <div
         data-slot="combobox-trigger"
+        aria-label={ariaLabel}
         className={cn(
           "flex h-9 w-full items-center rounded-md border border-input bg-transparent px-3 shadow-xs transition-[color,box-shadow] dark:bg-input/30",
           "focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",

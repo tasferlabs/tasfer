@@ -17,6 +17,7 @@ export const DEFAULT_HOUR_HEIGHT = 60;
 export const MIN_HOUR_HEIGHT = 20;
 export const MAX_HOUR_HEIGHT = 180;
 export const TOTAL_HOURS = 24;
+export const MINUTES_PER_DAY = TOTAL_HOURS * 60;
 // Time snaps to 15-minute lines at every zoom level. Zooming out only shrinks
 // the pixels per step, never the granularity, so an event can still be placed
 // or resized to the quarter-hour when the day is scaled down.
@@ -198,16 +199,28 @@ export function formatEventTime(
   return formatTime(startMin);
 }
 
+/**
+ * Format a time-of-day range. Either end may fall outside the day (negative,
+ * or past midnight) when an event crosses midnight; both are shown as plain
+ * times then, since `formatRange` would spell out the two dates.
+ */
 export function formatTimeRange(startMinutes: number, endMinutes: number): string {
-  const start = new Date();
-  start.setHours(Math.floor(startMinutes / 60), startMinutes % 60, 0, 0);
-  const end = new Date();
-  end.setHours(Math.floor(endMinutes / 60), endMinutes % 60, 0, 0);
+  const toDate = (minutes: number) => {
+    const m = ((minutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+    const date = new Date();
+    date.setHours(Math.floor(m / 60), m % 60, 0, 0);
+    return date;
+  };
   const formatter = createDateTimeFormatter({
     hour: "numeric",
     minute: "2-digit",
   });
-  return formatter.formatRange(start, end);
+  const start = toDate(startMinutes);
+  const end = toDate(endMinutes);
+  if (startMinutes >= 0 && endMinutes <= MINUTES_PER_DAY) {
+    return formatter.formatRange(start, end);
+  }
+  return `${formatter.format(start)} – ${formatter.format(end)}`;
 }
 
 export function clampHourHeight(px: number): number {
@@ -244,6 +257,161 @@ export function snapStartMin(startMin: number): number {
 export function pageToStartMin(page: ICalendarPage): number {
   const d = zonedWallDate(page.scheduledAt);
   return d.getHours() * 60 + d.getMinutes();
+}
+
+// ── Events across midnight ──
+//
+// An event that runs past midnight is drawn as one piece per day it covers.
+// Every grid computation works in minutes from the start of the day being
+// drawn, so the piece on the second day starts at a negative minute.
+
+/** Whole days from `b` to `a`, by calendar date (23- and 25-hour days count as one). */
+function daysBetween(a: Date, b: Date): number {
+  const ua = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate());
+  const ub = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate());
+  return Math.round((ua - ub) / 86_400_000);
+}
+
+/**
+ * Where an event starts, in minutes from the start of `day`. Negative when it
+ * started on an earlier day.
+ */
+export function pageStartMinOnDay(page: ICalendarPage, day: Date): number {
+  const start = zonedWallDate(page.scheduledAt);
+  return (
+    daysBetween(start, day) * MINUTES_PER_DAY +
+    start.getHours() * 60 +
+    start.getMinutes()
+  );
+}
+
+/**
+ * The part of an event that falls on one day, given its start in minutes from
+ * that day's start. Null when the event doesn't touch the day.
+ */
+export function clipToDay(
+  startMinutes: number,
+  duration: number,
+): { startMinutes: number; endMinutes: number } | null {
+  const start = Math.max(0, startMinutes);
+  const end = Math.min(MINUTES_PER_DAY, startMinutes + duration);
+  return end > start ? { startMinutes: start, endMinutes: end } : null;
+}
+
+/**
+ * Keys (see `dayKey`) of every day an event covers. An event that ends exactly
+ * at midnight doesn't reach into the next day.
+ */
+export function eventDayKeys(scheduledAt: string, duration: number): string[] {
+  const start = zonedWallDate(scheduledAt);
+  const startMin = start.getHours() * 60 + start.getMinutes();
+  const dayCount = Math.max(1, Math.ceil((startMin + duration) / MINUTES_PER_DAY));
+  return Array.from({ length: dayCount }, (_, i) => {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    return dayKey(d);
+  });
+}
+
+/**
+ * Where a dragged event may start, in minutes from the start of the day it is
+ * dropped on. An event that starts on this day stays on it, as before. The
+ * piece of an event that started the day before may keep starting there, as
+ * long as one snap step of it stays on this day.
+ */
+export function clampDragStartMin(
+  oldStartMin: number,
+  newStartMin: number,
+  duration: number,
+): number {
+  const min = oldStartMin < 0 ? SNAP_MINUTES - duration : 0;
+  return Math.max(min, Math.min(newStartMin, MINUTES_PER_DAY - SNAP_MINUTES));
+}
+
+/**
+ * The longest a grid resize can make an event: to the end of the day its
+ * bottom edge is dragged on, and never past a day, which is also the longest
+ * duration the event drawer offers.
+ */
+export function maxResizeMinutes(startMinutesOnDay: number): number {
+  return Math.min(MINUTES_PER_DAY - startMinutesOnDay, MINUTES_PER_DAY);
+}
+
+export function dayKey(date: Date): string {
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+// ── All-day events ──
+//
+// An all-day event is stored as the start of its first day in the display
+// zone, with a duration of whole days. Its days are read the same way the
+// reminders read them: the stored instant seen in the display zone.
+
+/** The stored start of an all-day event on `day`. */
+export function allDayStartIso(day: Date): string {
+  const start = new Date(day);
+  start.setHours(0, 0, 0, 0);
+  return wallDateToUtcIso(start);
+}
+
+/**
+ * How many days an all-day event covers. Rounded rather than counted from its
+ * start minute, so one stored in another zone (and so not starting at this
+ * zone's midnight) still covers one day, not two.
+ */
+export function allDayDayCount(duration: number | null): number {
+  return Math.max(1, Math.round((duration || MINUTES_PER_DAY) / MINUTES_PER_DAY));
+}
+
+/** One all-day event placed in the all-day row. Columns are indexes into the row's days. */
+export interface AllDaySpan {
+  page: ICalendarPage;
+  startCol: number;
+  /** Exclusive. */
+  endCol: number;
+  lane: number;
+  continuesBefore: boolean;
+  continuesAfter: boolean;
+}
+
+/**
+ * Place all-day events across the row's `days`: each spans the columns of the
+ * days it covers, clipped to the row, and stacks in the first lane free there.
+ */
+export function layoutAllDayRow(
+  pages: readonly ICalendarPage[],
+  days: readonly Date[],
+): AllDaySpan[] {
+  if (days.length === 0) return [];
+  const spans: Omit<AllDaySpan, "lane">[] = [];
+  for (const page of pages) {
+    const first = daysBetween(zonedWallDate(page.scheduledAt), days[0]);
+    const last = first + allDayDayCount(page.duration);
+    const startCol = Math.max(0, first);
+    const endCol = Math.min(days.length, last);
+    if (endCol <= startCol) continue;
+    spans.push({
+      page,
+      startCol,
+      endCol,
+      continuesBefore: first < 0,
+      continuesAfter: last > days.length,
+    });
+  }
+  // Earlier first, then longer, so long spans keep the top lanes.
+  spans.sort(
+    (a, b) =>
+      a.startCol - b.startCol ||
+      b.endCol - b.startCol - (a.endCol - a.startCol) ||
+      a.page.id.localeCompare(b.page.id),
+  );
+  const laneEnds: number[] = [];
+  return spans.map((span) => {
+    let lane = laneEnds.findIndex((end) => end <= span.startCol);
+    if (lane === -1) lane = laneEnds.length;
+    laneEnds[lane] = span.endCol;
+    return { ...span, lane };
+  });
 }
 
 export function layoutCalendarIntervals(

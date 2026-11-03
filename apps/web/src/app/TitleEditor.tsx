@@ -8,6 +8,7 @@ import i18next from "i18next";
 import {
   useCallback,
   useEffect,
+  useRef,
   type CSSProperties,
   type KeyboardEvent,
 } from "react";
@@ -103,20 +104,28 @@ function titleInputTheme(isDesktop: boolean): EditorTheme {
   const foreground = cs.getPropertyValue("--foreground").trim();
   const mutedForeground = cs.getPropertyValue("--muted-foreground").trim();
 
+  const inputText = {
+    fontSize,
+    fontWeight: INPUT_FONT_WEIGHT,
+    lineHeight: lineHeight / fontSize,
+    // Zero both block paddings: this surface mimics an <Input>, so all
+    // vertical centering comes from the canvas padding computed above —
+    // the page theme's prose space-above-headings must not leak in.
+    paddingTop: 0,
+    paddingBottom: 0,
+    ...(foreground ? { color: foreground } : {}),
+  };
+
   return {
     styles: {
+      // The title is the doc's first text block, which is not always a
+      // heading1 — a page that starts with a paragraph or smaller heading
+      // shows that block here, and it must look like the same input.
       blocks: {
-        heading1: {
-          fontSize,
-          fontWeight: INPUT_FONT_WEIGHT,
-          lineHeight: lineHeight / fontSize,
-          // Zero both block paddings: this surface mimics an <Input>, so all
-          // vertical centering comes from the canvas padding computed above —
-          // the page theme's prose space-above-headings must not leak in.
-          paddingTop: 0,
-          paddingBottom: 0,
-          ...(foreground ? { color: foreground } : {}),
-        },
+        heading1: inputText,
+        heading2: inputText,
+        heading3: inputText,
+        paragraph: inputText,
       },
       canvas: {
         paddingTop: padY,
@@ -150,6 +159,12 @@ export interface TitleEditorProps {
   onSubmit?: () => void;
   /** Escape cancels — e.g. dismiss a dialog. */
   onCancel?: () => void;
+  /**
+   * Fires after each edit made in this field. Another editor on the same doc
+   * sees these edits as remote and won't save them, so a host that saves on
+   * change listens here.
+   */
+  onChange?: () => void;
   /** Placeholder for an empty title. Defaults to the localized "Title". */
   placeholder?: string;
   /** Focus and drop a caret at the end on mount. */
@@ -187,6 +202,7 @@ export function TitleEditor({
   editable = true,
   onSubmit,
   onCancel,
+  onChange,
   placeholder,
   autoFocus,
   autoHeight = true,
@@ -207,9 +223,10 @@ export function TitleEditor({
     autoHeight,
     theme: titleInputTheme(isDesktop),
     ariaLabel: i18next.t("editor.titleAriaLabel", "Page title"),
-    placeholder: {
-      heading1: placeholder ?? i18next.t("common.title", "Title"),
-    },
+    // One string for every block type: the title block is not always a
+    // heading1, and a paragraph title must not show the body's
+    // "Type something awesome..." ghost text.
+    placeholder: placeholder ?? i18next.t("common.title", "Title"),
   });
 
   // Keep the Input-mirroring overrides current after mount. The core's live
@@ -264,6 +281,15 @@ export function TitleEditor({
   useEffect(() => {
     if (editor && autoFocus) editor.focus();
   }, [editor, autoFocus]);
+
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  useEffect(() => {
+    if (!editor) return;
+    return editor.on("change", (tx) => {
+      if (!tx.isRemote) onChangeRef.current?.();
+    });
+  }, [editor]);
 
   // A single-block window makes Enter inert in the engine (it can't split), so
   // the key bubbles here cleanly — map Enter to submit and Escape to cancel, the
