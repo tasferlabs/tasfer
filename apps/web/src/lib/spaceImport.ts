@@ -103,36 +103,168 @@ export function isImportableSpaceFile(file: File): boolean {
   return name.endsWith(".zip") || DOC_EXTENSIONS.some((e) => name.endsWith(e));
 }
 
+const IMAGE_MIME_TYPES: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  gif: "image/gif",
+  webp: "image/webp",
+  svg: "image/svg+xml",
+  bmp: "image/bmp",
+};
+
+function extensionOf(path: string): string {
+  const name = path.split("/").pop() ?? "";
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+}
+
+function isImagePath(path: string): boolean {
+  return extensionOf(path) in IMAGE_MIME_TYPES;
+}
+
 /** Guess MIME type from file extension. */
 function guessMimeType(fileName: string): string {
-  const ext = fileName.split(".").pop()?.toLowerCase();
-  const map: Record<string, string> = {
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    png: "image/png",
-    gif: "image/gif",
-    webp: "image/webp",
-    svg: "image/svg+xml",
-    bmp: "image/bmp",
-  };
-  return map[ext || ""] || "application/octet-stream";
+  return IMAGE_MIME_TYPES[extensionOf(fileName)] || "application/octet-stream";
+}
+
+/** The directory part of a bundle path ("A/B.md" → "A"), "" at the root. */
+function dirnameOf(path: string): string {
+  const slash = path.lastIndexOf("/");
+  return slash === -1 ? "" : path.slice(0, slash);
+}
+
+/** Collapse `.` and `..` segments. A `..` past the root stays at the root. */
+function normalizeBundlePath(path: string): string {
+  const out: string[] = [];
+  for (const segment of path.split("/")) {
+    if (segment === "" || segment === ".") continue;
+    if (segment === "..") out.pop();
+    else out.push(segment);
+  }
+  return out.join("/");
 }
 
 /**
- * Replace image links into the bundle's images/ folder with the uploaded asset
- * id. Exported pages link at their own depth (./images/, ../images/, …), and
- * hand-written notes often link `images/x.png` with no prefix, so any relative
- * prefix (or none) is accepted. The link must start the URL — right after `(`,
- * a quote, or whitespace — so `https://host/images/x.png` is left alone.
+ * Finds the bundle image a page's link points at.
+ *
+ * Tried in order: the link resolved from the page's own folder (what an
+ * export writes, and what most note tools write), then from the bundle's root
+ * (`images/x.png` written from a nested page), then any image with the same
+ * file name. When several share the name, the one closest to the page wins —
+ * the most leading folders in common — and then the first by path, so the
+ * choice never depends on drop order.
+ */
+function createImageResolver(imageEntries: BundleEntry[]) {
+  const byPath = new Map<string, BundleEntry>();
+  const byName = new Map<string, BundleEntry[]>();
+  for (const entry of [...imageEntries].sort((a, b) =>
+    a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
+  )) {
+    byPath.set(entry.path, entry);
+    const name = entry.path.split("/").pop()!;
+    const list = byName.get(name);
+    if (list) list.push(entry);
+    else byName.set(name, [entry]);
+  }
+
+  return (pagePath: string, url: string): BundleEntry | null => {
+    // Only links into the bundle: no scheme (`https:`, `data:`), no
+    // protocol-relative or absolute path, no in-page anchor.
+    if (/^[a-z][a-z0-9+.-]*:/i.test(url) || /^[/#]/.test(url)) return null;
+    let path = url.replace(/[?#].*$/, "");
+    try {
+      path = decodeURI(path);
+    } catch {
+      // A stray `%` — use the link as written.
+    }
+    if (!isImagePath(path)) return null;
+
+    const pageDir = dirnameOf(pagePath);
+    const fromPage = normalizeBundlePath(`${pageDir}/${path}`);
+    const fromRoot = normalizeBundlePath(path);
+    const exact = byPath.get(fromPage) ?? byPath.get(fromRoot);
+    if (exact) return exact;
+
+    const candidates = byName.get(path.split("/").pop()!);
+    if (!candidates) return null;
+    const pageParts = pageDir.split("/");
+    let best = candidates[0];
+    let bestShared = -1;
+    for (const candidate of candidates) {
+      const parts = candidate.path.split("/");
+      let shared = 0;
+      while (
+        shared < pageParts.length &&
+        shared < parts.length - 1 &&
+        parts[shared] === pageParts[shared]
+      ) {
+        shared++;
+      }
+      if (shared > bestShared) {
+        best = candidate;
+        bestShared = shared;
+      }
+    }
+    return best;
+  };
+}
+
+type ImageResolver = ReturnType<typeof createImageResolver>;
+
+/**
+ * Every link target in markdown that can point at an image: `![alt](url)`
+ * (with or without `<…>`), a reference definition `[id]: url`, and an HTML
+ * `<img src="url">`. The first group is kept, the second is the target.
+ */
+const IMAGE_LINK_PATTERNS = [
+  /(!\[[^\]\n]*\]\(\s*)(<[^>\n]+>|[^\s)]+)/g,
+  /^(\s{0,3}\[[^\]\n]+\]:\s*)(<[^>\n]+>|\S+)/gm,
+  /(<img\b[^>]*?\bsrc\s*=\s*["'])([^"']+)/gi,
+];
+
+function unwrapAngle(target: string): string {
+  return target.startsWith("<") && target.endsWith(">")
+    ? target.slice(1, -1)
+    : target;
+}
+
+/** The bundle images a page links to. */
+function linkedImages(
+  markdown: string,
+  pagePath: string,
+  resolve: ImageResolver,
+): BundleEntry[] {
+  const found: BundleEntry[] = [];
+  for (const pattern of IMAGE_LINK_PATTERNS) {
+    for (const match of markdown.matchAll(pattern)) {
+      const entry = resolve(pagePath, unwrapAngle(match[2]));
+      if (entry) found.push(entry);
+    }
+  }
+  return found;
+}
+
+/**
+ * Replace each link to a bundle image with that image's uploaded asset id.
+ * A link that resolves to nothing, or to an image that failed to upload, is
+ * left as written.
  */
 function rewriteImageUrls(
   markdown: string,
-  imageUrlMap: Map<string, string>,
+  pagePath: string,
+  resolve: ImageResolver,
+  assetIds: Map<string, string>,
 ): string {
-  return markdown.replace(
-    /(?<=^|[("'\s])(?:\.\.?\/)*images\/([^)"/?#\s]+)/gm,
-    (match, fileName) => imageUrlMap.get(fileName) || match,
-  );
+  let out = markdown;
+  for (const pattern of IMAGE_LINK_PATTERNS) {
+    out = out.replace(pattern, (match, lead: string, target: string) => {
+      const entry = resolve(pagePath, unwrapAngle(target));
+      const id = entry && assetIds.get(entry.path);
+      return id ? `${lead}${id}` : match;
+    });
+  }
+  return out;
 }
 
 /**
@@ -172,14 +304,10 @@ function buildPageTree(entries: BundleEntry[]): {
     const parts = relativePath.split("/");
     const isDoc = isDocPath(relativePath);
 
-    // Images live in `images/` at the bundle root (the export layout), or one
-    // level down when the bundle is a single wrapping folder (`Notes/images/`).
-    const imagesDir = parts.indexOf("images");
-    if (
-      !isDoc &&
-      (imagesDir === 0 || imagesDir === 1) &&
-      imagesDir < parts.length - 1
-    ) {
+    // Images can sit anywhere: an export keeps them in `images/` at its root,
+    // note tools beside the note or in a folder of their own. Only the ones a
+    // page links to are uploaded (see `importBundle`).
+    if (!isDoc && isImagePath(relativePath)) {
       imageEntries.push(entry);
       continue;
     }
@@ -430,13 +558,42 @@ async function importBundle(
     throw new NoImportablePagesError();
   }
 
-  const total = countNodes(roots) + imageEntries.length;
+  // Step 1: Read every page and find the images they link to, so an image
+  // nothing links to (a folder of photos beside the notes) is not uploaded.
+  const resolveImage = createImageResolver(imageEntries);
+  const texts = new Map<BundleEntry, string>();
+  const linked = new Set<BundleEntry>();
+  async function readPages(nodes: PageNode[]): Promise<void> {
+    for (const node of nodes) {
+      if (aborted()) return;
+      if (node.entry) {
+        try {
+          const text = await node.entry.text();
+          texts.set(node.entry, text);
+          for (const image of linkedImages(text, node.entry.path, resolveImage)) {
+            linked.add(image);
+          }
+        } catch {
+          // Step 3 reads it again and reports the failure against the page.
+        }
+      }
+      await readPages(node.children);
+    }
+  }
+  await readPages(roots);
+  if (aborted()) return;
+
+  const images = [...linked].sort((a, b) =>
+    a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
+  );
+  const total = countNodes(roots) + images.length;
   let done = 0;
   opts.onProgress?.({ done, total });
 
-  // Step 1: Upload images and build a fileName → asset-id map.
-  const imageUrlMap = new Map<string, string>();
-  for (const entry of imageEntries) {
+  // Step 2: Upload the linked images, keyed by their path in the bundle so two
+  // images with one file name in different folders stay apart.
+  const assetIds = new Map<string, string>();
+  for (const entry of images) {
     if (aborted()) return;
     const fileName = entry.path.split("/").pop()!;
     try {
@@ -445,7 +602,7 @@ async function importBundle(
         type: guessMimeType(fileName),
       });
       const uploaded = await uploadImage(imageFile);
-      imageUrlMap.set(fileName, uploaded.id);
+      assetIds.set(entry.path, uploaded.id);
       result.imagesUploaded++;
     } catch {
       result.errors.push(`Failed to upload image: ${fileName}`);
@@ -454,7 +611,7 @@ async function importBundle(
     opts.onProgress?.({ done, total });
   }
 
-  // Step 2: Create pages top-down.
+  // Step 3: Create pages top-down.
   const platform = getPlatform();
   async function createPages(
     nodes: PageNode[],
@@ -489,8 +646,13 @@ async function importBundle(
           continue;
         }
 
-        const content = await node.entry.text();
-        const rewritten = rewriteImageUrls(content, imageUrlMap);
+        const content = texts.get(node.entry) ?? (await node.entry.text());
+        const rewritten = rewriteImageUrls(
+          content,
+          node.entry.path,
+          resolveImage,
+          assetIds,
+        );
         const { content: body, metadata } = parseFrontmatter(rewritten);
         const { blocks, title, titleMd } = buildImportedPage(
           body,
