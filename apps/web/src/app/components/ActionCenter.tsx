@@ -1,11 +1,10 @@
+import { isApplePlatform } from "@tasfer/editor";
 import { ShortcutKeys } from "./ShortcutKeys";
-import { useShortcuts, useShortcutsDialog } from "@/shortcuts/ShortcutsContext";
 import { Command } from "cmdk";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Calendar,
   ChevronLeft,
-  Keyboard,
   Moon,
   Plus,
   RefreshCw,
@@ -162,8 +161,6 @@ export function ActionCenter() {
   const { setTheme, effectiveTheme } = useTheme();
   const queryClient = useQueryClient();
   const { isMobile, isShort } = useMobileLayout();
-  const shortcuts = useShortcuts();
-  const { setOpen: openShortcuts } = useShortcutsDialog();
   const keyboardInset = useKeyboardInset();
   const { checkForUpdate } = useVersion();
   const { toast } = useToast();
@@ -414,25 +411,6 @@ export function ActionCenter() {
       });
     }
 
-    // A keyboard's settings; a phone has none to set.
-    if (!isMobile) {
-      items.push({
-        id: "keyboard-shortcuts",
-        label: t("shortcuts.openSettings", "Keyboard Shortcuts"),
-        keywords: [
-          "shortcuts",
-          t("shortcuts.shortcutsKw", "shortcuts"),
-          "keyboard",
-          t("shortcuts.keyboardKw", "keyboard"),
-          "keybindings",
-          "hotkeys",
-          t("shortcuts.keysKw", "keys"),
-        ],
-        icon: <Keyboard size={16} />,
-        run: () => openShortcuts(true),
-      });
-    }
-
     if (isDesktop) {
       items.push({
         id: "check-updates",
@@ -465,8 +443,6 @@ export function ActionCenter() {
     runUpdateCheck,
     spellService,
     spellEnabled,
-    isMobile,
-    openShortcuts,
   ]);
 
   // Rank pages and actions for the current query. With a query, every item is
@@ -516,12 +492,13 @@ export function ActionCenter() {
     };
   }, [search, pages, actions, frecency]);
 
-  // Global keyboard shortcut, on whatever chord the person bound it to. The
-  // match is on the physical key, so it survives a non-Latin layout — `e.key`
-  // is "لا" for ⌘K on an Arabic keyboard.
+  // Global keyboard shortcut. Matched on the command modifier the platform
+  // actually uses (⌘ on Apple, Ctrl elsewhere) and on `code`, so it survives a
+  // non-Latin layout — `e.key` is "لا" for this key on an Arabic keyboard.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (shortcuts.matches("app.commandPalette", e)) {
+      const isCmd = isApplePlatform() ? e.metaKey : e.ctrlKey;
+      if (isCmd && e.code === "KeyK") {
         e.preventDefault();
         e.stopPropagation();
         setOpen((prev) => !prev);
@@ -529,7 +506,7 @@ export function ActionCenter() {
     };
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
-  }, [shortcuts]);
+  }, []);
 
   // Reset search when closing
   useEffect(() => {

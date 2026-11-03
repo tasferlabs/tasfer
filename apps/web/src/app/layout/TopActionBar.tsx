@@ -80,7 +80,7 @@ export function TopActionBar({
           ) : (
             <ShortcutTooltip
               label={t("sidebar.open", "Open sidebar")}
-              commandId="app.toggleSidebar"
+              commandKey=";"
             >
               {button}
             </ShortcutTooltip>

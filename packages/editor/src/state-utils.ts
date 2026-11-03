@@ -5,7 +5,6 @@
 import { createActionBus } from "./action-bus";
 import { registerBreakReplacesSelection } from "./actions/edit-actions";
 import { getBaseDataSchema } from "./baseDataSchema";
-import type { KeymapOverrides } from "./keymap";
 import type { Mark, MarkRegistry } from "./rendering/marks";
 import { createDefaultMarkRegistry } from "./rendering/marks";
 import type {
@@ -59,7 +58,6 @@ export function createInitialState(
     theme?: EditorTheme;
     crdtBinding?: CRDTbindingType;
     window?: ViewWindow;
-    keymap?: KeymapOverrides;
   },
 ): EditorState {
   // Each editor instance owns its own CRDT context. Because the binding is
@@ -147,7 +145,6 @@ export function createInitialState(
     theme,
     resolvedStyles,
     resolvedNodeStrings,
-    keymap: options?.keymap ?? {},
     document: {
       page,
       cursor: null,

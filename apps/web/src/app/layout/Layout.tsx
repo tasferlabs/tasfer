@@ -1,7 +1,6 @@
 import React from "react";
 import { Outlet, useLocation, useMatch, useNavigate } from "react-router-dom";
 import { ActionCenter } from "../components/ActionCenter";
-import { ShortcutsDialog } from "../components/ShortcutsDialog";
 import { AddSpaceDialog } from "../components/AddSpaceDialog";
 import { BottomToolDock } from "../components/BottomToolDock";
 import { ConfirmationDialogProvider } from "../components/ConfirmationDialog";
@@ -25,7 +24,6 @@ import { SidebarPanelProvider } from "../contexts/SidebarPanelContext";
 import { OwnPrefsProvider } from "../contexts/OwnPrefsContext";
 import { DateTimePrefsProvider } from "../contexts/DateTimePrefsContext";
 import { SpellProvider } from "@/spell/SpellProvider";
-import { ShortcutsProvider, useShortcuts } from "@/shortcuts/ShortcutsContext";
 import { useGetArchivedSpaces } from "../api/spaces.api";
 import { SpaceProvider, useSpaces } from "../contexts/SpaceContext";
 import { SyncActivityProvider } from "../contexts/SyncActivityContext";
@@ -36,6 +34,7 @@ import { useP2PPageEventsWithQueryClient } from "../hooks/useP2PPageEvents";
 import useLocalStorage from "../hooks/useLocalStorage";
 import useMobileLayout from "../hooks/useMobileLayout";
 import { useDevToolsEnabled } from "@/lib/devTools";
+import { isApplePlatform } from "@tasfer/editor";
 import { setHasWorkspace } from "@/lib/workspaceMarker";
 import { FileDropChrome } from "./FileDropChrome";
 import { FloatingSidebar } from "./FloatingSidebar";
@@ -67,35 +66,33 @@ export default function Layout() {
       <SpaceProvider>
         <SyncActivityProvider>
           <OwnPrefsProvider>
-            <ShortcutsProvider>
-              <DateTimePrefsProvider>
-                <SpellProvider>
-                  <TreeExpandProvider>
-                    <PageSelectionProvider>
-                      <SidebarPanelProvider>
-                        <PageSettingsProvider>
-                          <ActiveEditorProvider>
-                            <ConfirmationDialogProvider>
-                              <UnsavedChangesDialogProvider>
-                                <ImportDialogProvider>
-                                  <ExportDialogProvider>
-                                    <PeerVersionProvider>
-                                      <ActionCenterProvider>
-                                        <LayoutInner />
-                                      </ActionCenterProvider>
-                                    </PeerVersionProvider>
-                                  </ExportDialogProvider>
-                                </ImportDialogProvider>
-                              </UnsavedChangesDialogProvider>
-                            </ConfirmationDialogProvider>
-                          </ActiveEditorProvider>
-                        </PageSettingsProvider>
-                      </SidebarPanelProvider>
-                    </PageSelectionProvider>
-                  </TreeExpandProvider>
-                </SpellProvider>
-              </DateTimePrefsProvider>
-            </ShortcutsProvider>
+            <DateTimePrefsProvider>
+              <SpellProvider>
+                <TreeExpandProvider>
+                  <PageSelectionProvider>
+                    <SidebarPanelProvider>
+                      <PageSettingsProvider>
+                        <ActiveEditorProvider>
+                          <ConfirmationDialogProvider>
+                            <UnsavedChangesDialogProvider>
+                              <ImportDialogProvider>
+                                <ExportDialogProvider>
+                                  <PeerVersionProvider>
+                                    <ActionCenterProvider>
+                                      <LayoutInner />
+                                    </ActionCenterProvider>
+                                  </PeerVersionProvider>
+                                </ExportDialogProvider>
+                              </ImportDialogProvider>
+                            </UnsavedChangesDialogProvider>
+                          </ConfirmationDialogProvider>
+                        </ActiveEditorProvider>
+                      </PageSettingsProvider>
+                    </SidebarPanelProvider>
+                  </PageSelectionProvider>
+                </TreeExpandProvider>
+              </SpellProvider>
+            </DateTimePrefsProvider>
           </OwnPrefsProvider>
         </SyncActivityProvider>
       </SpaceProvider>
@@ -180,13 +177,13 @@ function LayoutInner() {
   // dialog or search field being typed in is left alone. The mouse button
   // stays as it is: a click already says where focus goes.
   const { editor } = useActiveEditor();
-  const shortcuts = useShortcuts();
   const sidebarOpen = isMobile ? !!floatingOpen : !!resizableOpen;
   const focusTreeOnOpen = React.useRef(false);
   React.useEffect(() => {
     if (needsOnboarding) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (!shortcuts.matches("app.toggleSidebar", e)) return;
+      const isCmd = isApplePlatform() ? e.metaKey : e.ctrlKey;
+      if (!isCmd || e.shiftKey || e.altKey || e.code !== "Semicolon") return;
       e.preventDefault();
       const setOpen = isMobile ? setFloatingOpen : setResizableOpen;
       if (sidebarOpen) {
@@ -211,7 +208,6 @@ function LayoutInner() {
     isMobile,
     sidebarOpen,
     editor,
-    shortcuts,
     setFloatingOpen,
     setResizableOpen,
   ]);
@@ -351,8 +347,6 @@ function LayoutInner() {
       {/* Nothing to search or act on yet, and its hotkey would open it over
           the onboarding dialog. */}
       {!needsOnboarding && <ActionCenter />}
-      {/* Shortcuts are a keyboard's settings; a phone has none to set. */}
-      {!needsOnboarding && !isMobile && <ShortcutsDialog />}
       <BottomToolDock>
         {devToolsEnabled && (
           <React.Suspense fallback={null}>
