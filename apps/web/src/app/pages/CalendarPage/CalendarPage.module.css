@@ -1052,6 +1052,8 @@ button.doneBox::after {
 
 .draftTagRow {
   display: flex;
+  flex: 1;
+  min-width: 0;
   gap: 8px;
   overflow-x: auto;
   padding-bottom: 2px;
@@ -1064,33 +1066,48 @@ button.doneBox::after {
 
 /* Deeper rows are inset so the drill path reads top-to-bottom. Marked by the
    row's depth rather than its position: the "Recent" shortcut row sits above
-   the top level without being part of the path. */
+   the top level without being part of the path. Set on the frame, not the
+   scroller, so the back arrow is inset with the row. */
 .draftTagRowNested {
-  padding-inline-start: 16px;
+  margin-inline-start: 16px;
 }
 
-/* Caption over the shortcut row — the only row that isn't a level of the tree,
-   so it says what it is, and folds it away for anyone who files from the tree
-   instead. Sized to the label so the rest of the line stays dead space rather
-   than a hit target that collapses the row by accident. */
-.draftTagRowLabel {
-  display: inline-flex;
+/* Holds a row and, once it overflows, the arrows on either side of it. */
+.draftTagRowFrame {
+  display: flex;
   align-items: center;
-  align-self: flex-start;
   gap: 4px;
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--muted-foreground);
-  font-size: 0.6875rem;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-  /* Sits directly on its row rather than midway between two. */
-  margin-bottom: -2px;
 }
 
-.draftTagRowLabel:hover {
+.draftTagScroll {
+  /* Centered on the tags, not on the strip left below them for focus rings. */
+  margin-bottom: 2px;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  inline-size: 28px;
+  block-size: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
   color: var(--foreground);
+  cursor: pointer;
+}
+
+.draftTagScroll:hover:not(:disabled) {
+  background-color: var(--accent);
+}
+
+/* The forward arrow, kept in place at the end so the row never resizes there. */
+.draftTagScroll:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+:global([dir="rtl"]) .draftTagScrollIcon {
+  transform: scaleX(-1);
 }
 
 /* The tree's rows, grouped so they part from the shortcut row as one. Carries
@@ -1103,37 +1120,35 @@ button.doneBox::after {
 }
 
 /* Parts the tree from the shortcuts above it: they are two ways of answering
-   the same question, and at the row gap alone they read as one list. */
+   the same question, and at the row gap alone they read as one list. Each also
+   carries its own caption, so the tree reads as a second section rather than
+   more of the first. */
 .draftTagLevelGroupParted {
   margin-top: 10px;
 }
 
-.draftTagRowLabel:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-  border-radius: 4px;
+/* Caption over a section: the shortcut row, and the tree below it. */
+.draftTagSectionLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  letter-spacing: 0.02em;
+  /* Sits directly on its row rather than midway between two. */
+  margin-bottom: -2px;
 }
 
-/* On touch the caption is a thumb target, not a caption with a hit box: it
-   takes the full width so the whole line folds the section, stands as tall as
-   the bar's own controls, and sends the chevron to the far end where a mobile
-   accordion keeps it. Short landscape screens keep the compact one — there the
-   rows themselves are the scarce thing. */
-@media (pointer: coarse) and (min-height: 601px) {
-  .draftTagRowLabel {
-    align-self: stretch;
-    min-block-size: 2.75rem;
+/* Larger on touch, to match the text around it there. */
+@media (pointer: coarse) {
+  .draftTagSectionLabel {
     gap: 8px;
     font-size: 0.8125rem;
   }
 
-  .draftTagRowLabel svg {
+  .draftTagSectionLabel svg {
     inline-size: 1rem;
     block-size: 1rem;
-  }
-
-  .draftTagRowLabel svg:last-child {
-    margin-inline-start: auto;
   }
 }
 

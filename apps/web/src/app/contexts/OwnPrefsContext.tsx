@@ -102,8 +102,6 @@ export const OWN_PREF_KEYS = {
    * `PARENT_USAGE_PREF_PREFIX` there.
    */
   calendarParentUsagePrefix: "calendar.parentUsage.",
-  /** `boolean` — the draft parent picker's "Recent" row; absent means open. */
-  calendarRecentParentsOpen: "calendar.recentParentsOpen",
   /** `string` — the space a new calendar event is drafted into. */
   calendarEventSpace: "calendar.eventSpace",
   /**
@@ -182,8 +180,7 @@ const LEGACY: Array<{
   },
   {
     storageKey: "tasfer:p2p-tutorial-seen",
-    read: (raw) =>
-      raw === "1" ? [[OWN_PREF_KEYS.p2pTutorialSeen, true]] : [],
+    read: (raw) => (raw === "1" ? [[OWN_PREF_KEYS.p2pTutorialSeen, true]] : []),
   },
   // The Date & Time tab wrote each of these as its own browser key. A value
   // equal to the default is not adopted: "system" and Monday are what an unset
@@ -218,7 +215,8 @@ const LEGACY: Array<{
       raw && raw !== "system" ? [[OWN_PREF_KEYS.dateTimeTimezone, raw]] : [],
   },
   // The event draft's parent picker kept its shortcut stats, its fold and
-  // the draft's space in this browser alone.
+  // the draft's space in this browser alone. The fold is gone, so its old
+  // value is only dropped, not adopted.
   {
     storageKey: LEGACY_PARENT_USAGE_KEY,
     read: (raw, ctx) => readLegacyParentUsage(raw, requireDevice(ctx)),
@@ -229,10 +227,7 @@ const LEGACY: Array<{
   },
   {
     storageKey: "tasfer:remember:calendar-recent-parents",
-    read: (raw) =>
-      raw === "open" || raw === "closed"
-        ? [[OWN_PREF_KEYS.calendarRecentParentsOpen, raw === "open"]]
-        : [],
+    read: () => [],
   },
   {
     storageKey: LEGACY_FRECENCY_KEY,
