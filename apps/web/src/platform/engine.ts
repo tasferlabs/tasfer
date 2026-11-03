@@ -467,6 +467,12 @@ export class Engine implements Platform {
   private prefsChangeListeners = new Set<
     (changed: Record<string, unknown>) => void
   >();
+  /**
+   * The tail of the own-prefs write queue (see `withOwnPrefsLock`). Every write
+   * reads the stored register before deciding what to write, so two writes may
+   * never overlap.
+   */
+  private ownPrefsQueue: Promise<unknown> = Promise.resolve();
   private pageDeleteListeners = new Set<(pageId: string) => void>();
   private identityChangeListeners = new Set<() => void>();
   private deviceChangeListeners = new Set<() => void>();
@@ -2418,28 +2424,34 @@ export class Engine implements Platform {
 
     set: async (key: string, value: unknown): Promise<void> => {
       const identity = await this.identity.get();
-      // Never behind the decision it replaces: a device whose clock runs slow
-      // would otherwise make a choice that loses to the one it was looking at
-      // — a paused device resuming itself is exactly that case.
-      const [held] = await this.driver.db.query<{ stamp: number }>(
-        "SELECT stamp FROM own_prefs WHERE key = ?",
-        [key],
-      );
-      const stamp = Math.max(Date.now(), (held?.stamp ?? 0) + 1);
       const encoded = JSON.stringify(value ?? null);
-      await this.driver.db.mutate(
-        `INSERT INTO own_prefs (key, value, stamp, by) VALUES (?, ?, ?, ?)
-         ON CONFLICT(key) DO UPDATE SET value = ?, stamp = ?, by = ?`,
-        [
-          key,
-          encoded,
-          stamp,
-          identity.publicKey,
-          encoded,
-          stamp,
-          identity.publicKey,
-        ],
-      );
+      const stamp = await this.withOwnPrefsLock(async () => {
+        // Never behind the decision it replaces: a device whose clock runs
+        // slow would otherwise make a choice that loses to the one it was
+        // looking at — a paused device resuming itself is exactly that case.
+        // Read and write inside the lock: two saves that both read the same
+        // stamp would write the same one, and a sibling would then keep the
+        // first value while this device keeps the second.
+        const [held] = await this.driver.db.query<{ stamp: number }>(
+          "SELECT stamp FROM own_prefs WHERE key = ?",
+          [key],
+        );
+        const next = Math.max(Date.now(), (held?.stamp ?? 0) + 1);
+        await this.driver.db.mutate(
+          `INSERT INTO own_prefs (key, value, stamp, by) VALUES (?, ?, ?, ?)
+           ON CONFLICT(key) DO UPDATE SET value = ?, stamp = ?, by = ?`,
+          [
+            key,
+            encoded,
+            next,
+            identity.publicKey,
+            encoded,
+            next,
+            identity.publicKey,
+          ],
+        );
+        return next;
+      });
       await this.replicator?.pushOwnState({
         prefs: [{ key, value: encoded, stamp, by: identity.publicKey }],
       });
@@ -2449,21 +2461,25 @@ export class Engine implements Platform {
     },
 
     seed: async (key: string, value: unknown): Promise<boolean> => {
-      const rows = await this.driver.db.query<{ key: string }>(
-        "SELECT key FROM own_prefs WHERE key = ?",
-        [key],
-      );
-      if (rows.length > 0) return false;
       const identity = await this.identity.get();
       const encoded = JSON.stringify(value ?? null);
-      // Stamp 1, not now: this value was decided at some unrecorded past
-      // moment, so every real decision — including one already made on another
-      // device and still in flight to us — has to outrank it. Above 0 so it is
-      // still announced rather than treated as "never decided".
-      await this.driver.db.mutate(
-        "INSERT INTO own_prefs (key, value, stamp, by) VALUES (?, ?, 1, ?)",
-        [key, encoded, identity.publicKey],
-      );
+      const seeded = await this.withOwnPrefsLock(async () => {
+        const rows = await this.driver.db.query<{ key: string }>(
+          "SELECT key FROM own_prefs WHERE key = ?",
+          [key],
+        );
+        if (rows.length > 0) return false;
+        // Stamp 1, not now: this value was decided at some unrecorded past
+        // moment, so every real decision — including one already made on
+        // another device and still in flight to us — has to outrank it. Above
+        // 0 so it is still announced rather than treated as "never decided".
+        await this.driver.db.mutate(
+          "INSERT INTO own_prefs (key, value, stamp, by) VALUES (?, ?, 1, ?)",
+          [key, encoded, identity.publicKey],
+        );
+        return true;
+      });
+      if (!seeded) return false;
       await this.replicator?.pushOwnState({
         prefs: [{ key, value: encoded, stamp: 1, by: identity.publicKey }],
       });
@@ -2506,6 +2522,35 @@ export class Engine implements Platform {
    * device silently undo that device's choices on every handshake.
    */
   private async applyOwnPrefs(prefs: OwnPref[]): Promise<void> {
+    const changed = await this.withOwnPrefsLock(() =>
+      this.mergeOwnPrefs(prefs),
+    );
+    if (Object.keys(changed).length > 0) this.notifyPrefsChange(changed);
+    const keys = Object.keys(changed);
+    if (
+      keys.some((key) => key.startsWith(DEVICE_NOTE_PREFIX)) ||
+      keys.some(isSyncPauseKey)
+    ) {
+      this.notifyDevicesChange();
+    }
+    // A pause decided on another of this person's devices is a decision about
+    // who this one connects to, so it has to reach the transport on arrival —
+    // the same follow-up a locally made pause does (see peers.setSyncPaused).
+    if (keys.some(isSyncPauseKey)) {
+      await this.replicator?.refreshSpaces().catch((e: unknown) => {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`[Engine] refreshSpaces after sync pause failed: ${msg}`);
+      });
+    }
+  }
+
+  /**
+   * Merge a sibling's registers into the table, returning the keys whose value
+   * changed. Runs inside the own-prefs lock (see `applyOwnPrefs`).
+   */
+  private async mergeOwnPrefs(
+    prefs: OwnPref[],
+  ): Promise<Record<string, unknown>> {
     const changed: Record<string, unknown> = {};
     for (const pref of prefs) {
       const rows = await this.driver.db.query<{
@@ -2536,23 +2581,19 @@ export class Engine implements Platform {
         changed[pref.key] = parsed;
       }
     }
-    if (Object.keys(changed).length > 0) this.notifyPrefsChange(changed);
-    const keys = Object.keys(changed);
-    if (
-      keys.some((key) => key.startsWith(DEVICE_NOTE_PREFIX)) ||
-      keys.some(isSyncPauseKey)
-    ) {
-      this.notifyDevicesChange();
-    }
-    // A pause decided on another of this person's devices is a decision about
-    // who this one connects to, so it has to reach the transport on arrival —
-    // the same follow-up a locally made pause does (see peers.setSyncPaused).
-    if (keys.some(isSyncPauseKey)) {
-      await this.replicator?.refreshSpaces().catch((e: unknown) => {
-        const msg = e instanceof Error ? e.message : String(e);
-        console.error(`[Engine] refreshSpaces after sync pause failed: ${msg}`);
-      });
-    }
+    return changed;
+  }
+
+  /**
+   * Run one own-prefs read-then-write after every earlier one has finished.
+   * Per engine instance, and only around the database steps: the push to
+   * siblings and the change notices run after it, so a slow network or a
+   * listener that saves a pref of its own never holds the queue.
+   */
+  private withOwnPrefsLock<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.ownPrefsQueue.then(fn, fn);
+    this.ownPrefsQueue = run.catch(() => {});
+    return run;
   }
 
   private notifyPrefsChange(changed: Record<string, unknown>) {
