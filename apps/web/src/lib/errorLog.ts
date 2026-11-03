@@ -9,6 +9,9 @@
  * dropped 30 days after they last happened, and the list is capped, so an error in
  * a loop cannot fill the storage quota.
  *
+ * Off until a person turns it on in that tab. Off means nothing is recorded and
+ * nothing is kept; the choice is per device, like the log.
+ *
  * Every tab of the app shares the one stored list. Each write re-reads what is
  * stored and adds only this tab's new occurrences, so tabs don't overwrite each
  * other, and the `storage` event keeps every open Settings view current.
@@ -19,6 +22,7 @@
  */
 
 const LOG_KEY = "tasfer:error-log";
+const ENABLED_KEY = "tasfer:error-log-enabled";
 const GLOBAL_HOOK = "__tasferErrorLog";
 
 /** How long an entry is kept after it last happened, in days. */
@@ -260,12 +264,22 @@ function writeStoredEntries(entries: ErrorLogEntry[]): void {
   }
 }
 
+/** Off unless the person turned it on on this device. */
+function readStoredEnabled(): boolean {
+  try {
+    return localStorage.getItem(ENABLED_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
 // ── Live store ───────────────────────────────────────────────────────────────
 
 let entries: ErrorLogEntry[] = [];
 let pending: ErrorOccurrence[] = [];
 let flushTimer: ReturnType<typeof setTimeout> | undefined;
 let getPath: () => string = () => "/";
+let enabled = readStoredEnabled();
 const listeners = new Set<() => void>();
 
 function emit(): void {
@@ -276,6 +290,8 @@ function flush(): void {
   flushTimer = undefined;
   const occurrences = pending;
   pending = [];
+  // Turned off in another tab since these were recorded.
+  if (!enabled) return;
   const stored = readStoredEntries();
   entries = mergeOccurrences(stored ?? entries, occurrences, Date.now());
   writeStoredEntries(entries);
@@ -288,6 +304,7 @@ function scheduleFlush(): void {
 
 /** Re-read what another tab (or a prune on load) left in storage. */
 function reload(): void {
+  enabled = readStoredEnabled();
   const stored = readStoredEntries();
   if (stored) entries = pruneEntries(stored, Date.now());
   emit();
@@ -303,6 +320,7 @@ function buildConstant(read: () => string): string {
 }
 
 function record(source: ErrorLogSource, values: readonly unknown[]): void {
+  if (!enabled) return;
   let path = "/";
   try {
     path = getPath();
@@ -330,8 +348,33 @@ export function subscribeErrorLog(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
+/** Whether errors are being recorded on this device. */
+export function isErrorLogEnabled(): boolean {
+  return enabled;
+}
+
+/**
+ * Turn recording on or off, in every tab. Turning it off also deletes what was
+ * saved: someone who doesn't want a log doesn't want the old one kept either.
+ */
+export function setErrorLogEnabled(value: boolean): void {
+  if (value === enabled) return;
+  enabled = value;
+  try {
+    localStorage.setItem(ENABLED_KEY, value ? "true" : "false");
+  } catch {
+    // Not persisted; the choice still holds for this tab until it reloads.
+  }
+  if (value) emit();
+  else clearErrorLog();
+}
+
 /** Forget every entry, in every tab. */
 export function clearErrorLog(): void {
+  if (flushTimer !== undefined) {
+    clearTimeout(flushTimer);
+    flushTimer = undefined;
+  }
   pending = [];
   entries = [];
   try {
@@ -373,9 +416,11 @@ export function installErrorLog(
     },
   };
 
-  // Drop what an earlier session left behind past the 30 days.
+  // Drop what an earlier session left behind past the 30 days — or all of it
+  // when the log is off, such as a log kept before it became opt-in.
   reload();
-  writeStoredEntries(entries);
+  if (enabled) writeStoredEntries(entries);
+  else clearErrorLog();
 
   if (alreadyPatched) return;
   const hooks = () => scope[GLOBAL_HOOK];
@@ -407,7 +452,13 @@ export function installErrorLog(
     safely("rejection", [event.reason]);
   });
   window.addEventListener("storage", (event) => {
-    if (event.key === null || event.key === LOG_KEY) hooks()?.reload();
+    if (
+      event.key === null ||
+      event.key === LOG_KEY ||
+      event.key === ENABLED_KEY
+    ) {
+      hooks()?.reload();
+    }
   });
   // Don't lose errors from the last half second before the tab goes away.
   window.addEventListener("pagehide", () => hooks()?.flushNow());

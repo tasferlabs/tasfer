@@ -27,7 +27,7 @@ import { redactRouteParams } from "./lib/reportIssue";
 import { initPlatform } from "./platform";
 import { serviceWorkerBridge } from "./serviceWorkerBridge";
 
-// First, so a failed startup is in Settings → Error log too.
+// First, so a failed startup is in Settings → Error log too (when it is on).
 installErrorLog({
   routePath: () => {
     const last = router.state.matches.at(-1);

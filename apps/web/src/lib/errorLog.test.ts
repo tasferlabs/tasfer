@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   describeOccurrence,
   formatConsoleArgs,
@@ -160,5 +160,103 @@ describe("parseEntries", () => {
     expect(parseEntries(JSON.stringify([entry({}), { id: 1 }]))).toHaveLength(
       1,
     );
+  });
+});
+
+describe("turning the log off", () => {
+  function fakeStorage(initial: Record<string, string> = {}) {
+    const data = new Map(Object.entries(initial));
+    return {
+      data,
+      getItem: (key: string) => data.get(key) ?? null,
+      setItem: (key: string, value: string) => void data.set(key, value),
+      removeItem: (key: string) => void data.delete(key),
+    };
+  }
+
+  async function loadWith(storage: ReturnType<typeof fakeStorage>) {
+    vi.resetModules();
+    vi.stubGlobal("localStorage", storage);
+    vi.stubGlobal("window", new EventTarget());
+    const original = console.error;
+    // Keep the patched console from printing during the test.
+    console.error = () => {};
+    const log = await import("./errorLog");
+    log.installErrorLog();
+    return {
+      log,
+      restore: () => {
+        console.error = original;
+        // The once-only console patch marks itself here; the next test patches anew.
+        delete (globalThis as Record<string, unknown>).__tasferErrorLog;
+        vi.unstubAllGlobals();
+      },
+    };
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("records nothing until turned on", async () => {
+    vi.useFakeTimers();
+    const { log, restore } = await loadWith(fakeStorage());
+    try {
+      expect(log.isErrorLogEnabled()).toBe(false);
+      console.error("ignored");
+      vi.runAllTimers();
+      expect(log.getErrorLog()).toEqual([]);
+    } finally {
+      restore();
+    }
+  });
+
+  it("stops recording and deletes what was saved", async () => {
+    vi.useFakeTimers();
+    const storage = fakeStorage();
+    const { log, restore } = await loadWith(storage);
+    try {
+      log.setErrorLogEnabled(true);
+      console.error("first");
+      vi.runAllTimers();
+      expect(log.getErrorLog()).toHaveLength(1);
+
+      log.setErrorLogEnabled(false);
+      expect(log.getErrorLog()).toEqual([]);
+      expect(storage.data.has("tasfer:error-log")).toBe(false);
+
+      console.error("second");
+      vi.runAllTimers();
+      expect(log.getErrorLog()).toEqual([]);
+    } finally {
+      restore();
+    }
+  });
+
+  it("deletes a log saved while it was off", async () => {
+    const storage = fakeStorage({
+      "tasfer:error-log": JSON.stringify([entry({ lastSeen: Date.now() })]),
+    });
+    const { log, restore } = await loadWith(storage);
+    try {
+      expect(log.getErrorLog()).toEqual([]);
+      expect(storage.data.has("tasfer:error-log")).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+
+  it("stays on after a reload", async () => {
+    vi.useFakeTimers();
+    const storage = fakeStorage({ "tasfer:error-log-enabled": "true" });
+    const { log, restore } = await loadWith(storage);
+    try {
+      expect(log.isErrorLogEnabled()).toBe(true);
+      console.error("kept");
+      vi.runAllTimers();
+      expect(log.getErrorLog()).toHaveLength(1);
+    } finally {
+      restore();
+    }
   });
 });

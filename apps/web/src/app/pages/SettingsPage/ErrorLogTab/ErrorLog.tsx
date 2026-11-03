@@ -4,10 +4,13 @@ import { useTranslation } from "react-i18next";
 import useResponsive from "@/app/hooks/useResponsive";
 import { Button } from "@/components/ui/button";
 import { RelativeDate } from "@/components/ui/relative-date";
+import { Switch } from "@/components/ui/switch";
 import {
   clearErrorLog,
   ERROR_LOG_RETENTION_DAYS,
   getErrorLog,
+  isErrorLogEnabled,
+  setErrorLogEnabled,
   subscribeErrorLog,
   type ErrorLogEntry,
 } from "@/lib/errorLog";
@@ -95,6 +98,7 @@ function ErrorLogItem({ entry }: { entry: ErrorLogEntry }) {
 export function ErrorLog() {
   const { t } = useTranslation();
   const entries = useSyncExternalStore(subscribeErrorLog, getErrorLog);
+  const enabled = useSyncExternalStore(subscribeErrorLog, isErrorLogEnabled);
   // Matches the breakpoint where Settings becomes a list of bottom sheets.
   const isMobile = useResponsive("(max-width: 640px)");
 
@@ -110,7 +114,26 @@ export function ErrorLog() {
             "Errors the app ran into on this device, kept for {{count, number}} days. They stay only here, and nothing is sent anywhere unless you report one.",
         })}
       >
-        {!isMobile && (
+        <div className={rows.row}>
+          <div>
+            <p className={cn("text-sm", rows.title)}>
+              {t("settings.errorLog.enable", "Keep an error log")}
+            </p>
+            <p className="text-sm opacity-75">
+              {t(
+                "settings.errorLog.enableDescription",
+                "Save errors the app runs into on this device. Turning this off deletes the saved ones.",
+              )}
+            </p>
+          </div>
+          <Switch
+            checked={enabled}
+            onCheckedChange={setErrorLogEnabled}
+            aria-label={t("settings.errorLog.enable", "Keep an error log")}
+          />
+        </div>
+
+        {enabled && !isMobile && (
           <div className={rows.row}>
             <div>
               <p className={cn("text-sm", rows.title)}>
@@ -133,7 +156,11 @@ export function ErrorLog() {
           </div>
         )}
 
-        {entries.length === 0 ? (
+        {!enabled ? (
+          <div className={cn(styles.list, styles.empty)}>
+            {t("settings.errorLog.off", "The error log is off.")}
+          </div>
+        ) : entries.length === 0 ? (
           <div className={cn(styles.list, styles.empty)}>
             {t("settings.errorLog.empty", "No errors recorded.")}
           </div>
@@ -148,7 +175,7 @@ export function ErrorLog() {
 
       {/* On a phone only the list scrolls, so clearing sits in a bar below it
           that stays in view. */}
-      {isMobile && entries.length > 0 && (
+      {isMobile && enabled && entries.length > 0 && (
         <div className={styles.bottomBar}>
           <Button variant="outline" className="w-full" onClick={clearErrorLog}>
             {t("settings.errorLog.clearAll", "Clear all")}
