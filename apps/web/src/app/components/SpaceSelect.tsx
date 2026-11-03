@@ -32,22 +32,6 @@ interface SpaceSelectProps {
 }
 
 /**
- * The remembered space for `key`, or undefined when nothing is remembered or
- * the space is gone. For callers that compute their own default — an on-open
- * reset, say — which lands after the picker's own restore and would otherwise
- * overwrite it.
- */
-export function rememberedSpaceId(
-  key: string,
-  spaces: ISpace[],
-): string | undefined {
-  return getRememberedChoice(
-    key,
-    spaces.map((space) => space.id),
-  );
-}
-
-/**
  * Picks one space out of the ones a person is in. The single place that knows
  * what a space list looks like in a form — and, with `remember`, the only place
  * that decides when a past choice may stand in for the caller's default.

@@ -15,11 +15,20 @@ vi.mock("../selection", async (importActual) => {
     getContentPointDocumentCoords: vi.fn(() => ({ x: 0, y: 5000, height: 20 })),
   };
 });
+// Revealing a peer sideways asks the block's node, which needs a laid-out
+// document too; the region only has to hand it the peer's point.
+vi.mock("./sidewaysScroll", () => ({
+  revealCaretSideways: vi.fn((state: EditorState) => ({
+    ...state,
+    revealed: true,
+  })),
+}));
 import {
   getContentPointDocumentCoords,
   scrollToMakeCursorVisible,
 } from "../selection";
 import type { ContentPoint } from "../structured-selection";
+import { revealCaretSideways } from "./sidewaysScroll";
 
 function peerIndicatorRegion(): Region {
   const region = createChromeRegionRegistry()
@@ -82,6 +91,55 @@ describe("peer-indicator region onTap", () => {
     peerIndicatorRegion().onTap!(target, { x: 0, y: 0 }, 1, ctx);
 
     expect(scrollPositionIntoView).toHaveBeenCalledWith(target, contentPoint);
+  });
+
+  it("scrolls a peer's block sideways to them, for a column scrolled out of sight", () => {
+    const contentPoint = {
+      kind: "text",
+      blockId: "b1",
+      contentId: "b1:content",
+      nodeId: "cell-3",
+      field: "text",
+      afterCharId: null,
+      affinity: "forward",
+    } as ContentPoint;
+    const viewport = { scrollY: 0, height: 600 };
+    const ctx = {
+      state: baseState(),
+      viewport,
+      scrollPositionIntoView: vi.fn(),
+    } as unknown as RegionCtx;
+
+    const result = peerIndicatorRegion().onTap!(
+      { blockIndex: 7, textIndex: 0, contentPoint },
+      { x: 0, y: 0 },
+      1,
+      ctx,
+    ) as { state: { revealed?: boolean } };
+
+    expect(revealCaretSideways).toHaveBeenCalledWith(
+      ctx.state,
+      viewport,
+      contentPoint,
+    );
+    expect(result.state.revealed).toBe(true);
+  });
+
+  it("leaves a peer with a flat position to the vertical scroll alone", () => {
+    const ctx = {
+      state: baseState(),
+      viewport: { scrollY: 0, height: 600 },
+      scrollPositionIntoView: vi.fn(),
+    } as unknown as RegionCtx;
+
+    peerIndicatorRegion().onTap!(
+      { blockIndex: 7, textIndex: 3 },
+      { x: 0, y: 0 },
+      1,
+      ctx,
+    );
+
+    expect(revealCaretSideways).not.toHaveBeenCalled();
   });
 
   it("scrolls to a peer's nested caret from its own coordinates with no hook", () => {

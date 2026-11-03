@@ -51,6 +51,7 @@ import { sortBlocksByOrder } from "../sync/block-order";
 import {
   getBlockDescriptor,
   getBlockFieldNames,
+  isPreformattedType,
   isTextualBlock,
 } from "../sync/block-registry";
 import {
@@ -702,6 +703,45 @@ function pasteIntoContentSelection(
 }
 
 /**
+ * Paste into a preformatted block (code) as verbatim source. Its text is raw
+ * source, not Markdown, so the clipboard must not be parsed into blocks — a
+ * pasted file would otherwise break out of the block as headings, lists and
+ * paragraphs. Applies only when the whole range sits inside one such block; a
+ * node selection (the block held whole) or a range reaching another block takes
+ * the normal block paste. `undefined` when the paste doesn't land there.
+ */
+function pasteIntoPreformattedBlock(
+  state: EditorState,
+  text: string,
+): ActionResult | undefined {
+  const cursor = state.document.cursor;
+  if (!cursor || !text) return undefined;
+  const { blockIndex } = cursor.position;
+  const block = state.document.page.blocks[blockIndex];
+  if (
+    !block ||
+    block.deleted ||
+    !isTextualBlock(block) ||
+    !isPreformattedType(block.type)
+  ) {
+    return undefined;
+  }
+  const selection = state.document.selection;
+  if (selection && !selection.isCollapsed) {
+    const { anchor, focus } = selection;
+    if (
+      anchor.blockIndex !== blockIndex ||
+      focus.blockIndex !== blockIndex ||
+      anchor.textIndex === focus.textIndex
+    ) {
+      return undefined;
+    }
+  }
+  // Source copied on Windows carries CRLF; the block's line break is "\n".
+  return insertText(state, text.replace(/\r\n?/g, "\n"));
+}
+
+/**
  * Build the clipboard representations of the current selection synchronously.
  * Returns `null` when there is no (non-empty) selection. Used both by the async
  * clipboard writers below and by the native `copy`/`cut` ClipboardEvent
@@ -1320,6 +1360,14 @@ function insertBlocksAtCursor(
         newState.document.page.blocks,
         currentBlock.id,
       );
+      // The block's own ops are minted before its attachments and emitted in
+      // that same order (see `pushAtomicBlockOps`).
+      const blockOps = atomicBlockInsertOps(
+        atomicBlock,
+        newBlockId,
+        orderKey,
+        state.CRDTbinding,
+      );
       const adopted = adoptPastedStructuredContent(
         atomicBlock,
         newBlockId,
@@ -1336,15 +1384,7 @@ function insertBlocksAtCursor(
       };
       invalidateBlockCache(newAtomicBlock);
 
-      ops.push(
-        ...atomicBlockInsertOps(
-          atomicBlock,
-          newBlockId,
-          orderKey,
-          state.CRDTbinding,
-        ),
-        ...adopted.ops,
-      );
+      ops.push(...blockOps, ...adopted.ops);
 
       // Insert the block at its canonical sorted position — `blocks` keeps
       // tombstones, and a tombstone tied on the current block's orderKey means
@@ -1401,6 +1441,8 @@ function insertBlocksAtCursor(
       state,
     );
     if (!adoptedPasted) return { state, ops: [] };
+    // Emitted in the order they were minted: ahead of the text insert below.
+    ops.push(...adoptedPasted.ops);
 
     // Insert the pasted text at cursor position
     const { newPage: pageAfterInsert, op: insertOp } = insertCharsAtPosition(
@@ -1417,7 +1459,6 @@ function insertBlocksAtCursor(
     // not from index ranges).
     let pageAcc = pageAfterInsert;
     if (adoptedPasted.ops.length > 0) {
-      ops.push(...adoptedPasted.ops);
       pageAcc = applyOps(pageAcc, [...adoptedPasted.ops], state.schema);
     }
     const pasteChars: Char[] = [];
@@ -1728,6 +1769,8 @@ function insertBlocksAtCursor(
         state,
       );
       if (!adoptedFirst) return { state, ops: [] };
+      // Emitted in the order they were minted: ahead of the text insert below.
+      ops.push(...adoptedFirst.ops);
       // Skip the insert when the first pasted block contributes no visible chars
       // (e.g. an empty source block) — inserting an empty run would throw in the
       // CRDT layer. The current block then just keeps its before-cursor content,
@@ -1746,7 +1789,6 @@ function insertBlocksAtCursor(
         ops.push(firstInsertOp);
         firstInsertedCharRuns = firstInsertOp.charRuns;
       }
-      ops.push(...adoptedFirst.ops);
       const firstBlockInPage = pasteWorkPage.blocks.find(
         (b) => b.id === currentBlock.id,
       );
@@ -2144,7 +2186,9 @@ function insertBlocksAtCursor(
         invalidateBlockCache(lastBlock);
 
         ops.push(lastBlockInsertOp);
-        ops.push(...adoptedLast.ops, ...clonedContent.ops);
+        // In minting order: the tail's clones were minted before the pasted
+        // block's own attachments.
+        ops.push(...clonedContent.ops, ...adoptedLast.ops);
 
         // Add text_insert operation for the block's content
         if (allNewChars.length > 0) {
@@ -2357,6 +2401,9 @@ export function pasteFromClipboardEvent(
     return text ? insertText(state, text) : null;
   }
 
+  const verbatim = pasteIntoPreformattedBlock(state, text);
+  if (verbatim) return verbatim;
+
   // Collects the blocks whose type the source never declared — see the empty-host
   // retype in `insertBlocksAtCursor`. One set per paste; only one branch fills it.
   const untypedBlockIds = new Set<string>();
@@ -2440,6 +2487,9 @@ export function insertClipboardPayload(
     return payload.plainText ? insertText(state, payload.plainText) : null;
   }
 
+  const verbatim = pasteIntoPreformattedBlock(state, payload.plainText);
+  if (verbatim) return verbatim;
+
   // See the empty-host retype in `insertBlocksAtCursor`.
   const untypedBlockIds = new Set<string>();
 
@@ -2508,6 +2558,12 @@ export function pasteFromClipboardEventAsPlainText(
         resolve(
           pasteIntoContentSelection(state, text, "") ?? insertText(state, text),
         );
+        return;
+      }
+
+      const verbatim = pasteIntoPreformattedBlock(state, text);
+      if (verbatim) {
+        resolve(verbatim);
         return;
       }
 
@@ -2588,6 +2644,8 @@ export async function pasteFromSystemClipboard(
         if (owned) return owned;
         return text ? insertText(state, text) : null;
       }
+      const verbatim = pasteIntoPreformattedBlock(state, text);
+      if (verbatim) return verbatim;
       if (text) {
         const blocks = parseRecognizedPlainTextToBlocks(
           text,
@@ -2659,6 +2717,9 @@ export async function pasteFromSystemClipboard(
       if (owned) return owned;
       return text ? insertText(state, text) : null;
     }
+
+    const verbatim = pasteIntoPreformattedBlock(state, text);
+    if (verbatim) return verbatim;
 
     if (text) {
       const blocks = parseRecognizedPlainTextToBlocks(

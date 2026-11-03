@@ -21,7 +21,10 @@ import { STRUCTURED_MARK_ANCHOR_CHAR } from "@tasfer/editor/feature-facets";
 import { moveCursorToPosition } from "@tasfer/editor/selection";
 import type { Block, Page } from "@tasfer/editor/serlization/loadPage";
 import { serializeToMarkdown } from "@tasfer/editor/serlization/serializer";
+import type { Operation } from "@tasfer/editor/state-types";
+import { extractCounter } from "@tasfer/editor/sync/id";
 import { invertOperations } from "@tasfer/editor/sync/inverse";
+import { appendLocalOps, createOpLog } from "@tasfer/editor/sync/oplog";
 import {
   applyOp,
   applyOps,
@@ -69,6 +72,29 @@ function markdown(page: Page): string {
   return serializeToMarkdown(getVisibleBlocks(page) as Block[], undefined, {
     schema: mathTestSchema.data,
   });
+}
+
+/**
+ * The page a live `Doc` holds after ingesting a local batch. Unlike `applyOps`,
+ * `appendLocalOps` skips any op the version vector already covers.
+ */
+function liveDocPage(before: Page, ops: readonly Operation[]): Page {
+  return appendLocalOps(
+    { ...createOpLog("page-1"), state: before },
+    [...ops],
+    mathTestSchema.data,
+  ).state;
+}
+
+/** Every math mark on the page resolves to an attachment its block owns. */
+function expectEveryEquationResolves(page: Page): void {
+  for (const block of getVisibleBlocks(page)) {
+    for (const span of "formats" in block ? block.formats : []) {
+      if (span.format.type !== "math") continue;
+      const contentId = span.format.attrs?.contentId as string;
+      expect(block.structuredContent?.[contentId]).toBeDefined();
+    }
+  }
 }
 
 describe("pasting LaTeX with dollar signs", () => {
@@ -188,13 +214,32 @@ describe("pasting LaTeX with dollar signs", () => {
     const text = markdown(reloaded);
 
     expect(text).not.toContain(STRUCTURED_MARK_ANCHOR_CHAR);
-    for (const block of getVisibleBlocks(reloaded)) {
-      for (const span of "formats" in block ? block.formats : []) {
-        if (span.format.type !== "math") continue;
-        const contentId = span.format.attrs?.contentId as string;
-        expect(block.structuredContent?.[contentId]).toBeDefined();
-      }
-    }
+    expectEveryEquationResolves(reloaded);
+  });
+
+  // The live doc skips an op whose id is at or below the highest id it has seen
+  // from that peer. A paste that emitted an attachment after the text minted
+  // later than it lost that attachment from the live doc only — and from every
+  // snapshot saved from it — while the log kept it. Each branch of the paste
+  // below emits attachments in a different place.
+  it.each([
+    ["an inline equation into text", "Hello ", 6, "$x^2$"],
+    [
+      "an equation in a multi-line paste's first line",
+      "Hello ",
+      6,
+      "$x^2$ a\nb",
+    ],
+    ["a display equation on its own", "Hello ", 6, "$$\n\\frac{1}{2}\n$$"],
+    ["an equation beside the host's own", "$a+b$ tail", 1, "one\ntwo $c+d$"],
+  ])("keeps %s in the live doc", (_label, host, index, pasted) => {
+    const { ops, local, before } = paste(host, index, pasted);
+    const live = liveDocPage(before, ops);
+
+    const counters = ops.map((op) => extractCounter(op.id));
+    expect(counters).toEqual([...counters].sort((a, b) => a - b));
+    expect(markdown(live)).toBe(markdown(local));
+    expectEveryEquationResolves(live);
   });
 
   // The attachments now travel as `content_edit` ops, so undo has to take them

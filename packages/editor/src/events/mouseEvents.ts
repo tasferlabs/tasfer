@@ -71,6 +71,7 @@ import {
   routeCapturedEnd,
   routeCapturedMove,
 } from "./regions";
+import { scrollSidewaysAt, wheelSidewaysDelta } from "./sidewaysScroll";
 
 /**
  * The command modifier for a pointer interaction: ⌘ on macOS, Ctrl elsewhere.
@@ -1038,10 +1039,32 @@ export function handleWheel(
   documentHeight: number,
   session: InteractionSession,
   updateViewportCallback?: (viewport: Partial<ViewportState>) => void,
+  containerRect?: { left: number; top: number },
+  visibility?: VisibleBlockRange,
 ): EditorState {
   // In suspended mode, block scrolling (but allow in readonly mode)
   if (state.ui.mode === "suspended") {
     return state;
+  }
+
+  // A sideways swipe (or Shift + wheel) over a block wider than the page
+  // scrolls that block. At its end, or over anything else, the event goes on
+  // to scroll the page as usual.
+  const sideways = containerRect
+    ? wheelSidewaysDelta(event, viewport.width)
+    : null;
+  if (sideways !== null && containerRect) {
+    session.sidewaysFling = null;
+    const scrolled = scrollSidewaysAt(
+      { x: event.x - containerRect.left, y: event.y - containerRect.top },
+      sideways,
+      { state, viewport, documentHeight, session, visibility },
+    );
+    // Whatever the pointer was resting on (a column edge) has slid out from
+    // under it; the next move hit-tests afresh.
+    if (scrolled) {
+      return { ...scrolled, ui: { ...scrolled.ui, regionHover: null } };
+    }
   }
 
   // Scrolling has priority over menus (matching the touch path): the host-owned

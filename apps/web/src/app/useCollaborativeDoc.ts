@@ -25,12 +25,14 @@ import {
   type Operation,
 } from "@tasfer/editor";
 import { cleanSnapshotForSave } from "@tasfer/editor/internal";
+import { maxOpIdCounter } from "@tasfer/editor/sync/sync";
 import type {
   CursorPresence,
   CursorUser,
 } from "@tasfer/provider-core/cursors";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { getPlatform } from "@/platform";
+import type { PageFrontier } from "@/platform/types";
 import { appSchema } from "../editorSchema";
 import type { AppSchemaDefinition } from "../editorSchema";
 import { useP2PRoom, type SyncState } from "./hooks/useP2PRoom";
@@ -87,6 +89,12 @@ export interface UseCollaborativeDocOptions {
   spaceId?: string;
   /** Initial blocks the doc is seeded with (overridden by HMR live content). */
   snapshot: Block[];
+  /**
+   * The op log's frontier when `snapshot` was read (`PageFull.frontier`). An
+   * editable doc needs it so edits made before the log loads get fresh ids
+   * and sort after older edits. Readonly mounts never edit and can omit it.
+   */
+  frontier?: PageFrontier;
   /** View-only: join the room for presence/status, but never edit/persist/sync. */
   readonly: boolean;
   /** Notified of connection/sync status changes (drives the host's indicator). */
@@ -101,14 +109,17 @@ export function useCollaborativeDoc({
   pageId,
   spaceId,
   snapshot,
+  frontier,
   readonly,
   onSyncStateChange,
 }: UseCollaborativeDocOptions): CollaborativeDoc {
   // Preserve live doc content across HMR re-mounts (refs survive Fast Refresh);
   // a genuine page switch keys a fresh instance, so this starts null there.
-  const liveBlocksRef = useRef<{ blocks: Block[]; pageId: string } | null>(
-    null,
-  );
+  const liveBlocksRef = useRef<{
+    blocks: Block[];
+    frontier: PageFrontier;
+    pageId: string;
+  } | null>(null);
   const docRef = useRef<Doc<AppSchemaDefinition> | null>(null);
 
   // Room callback refs, set by the effects below (ops) or by `awareness.connect`
@@ -170,14 +181,17 @@ export function useCollaborativeDoc({
   // synchronously to the editor the child mounts. It carries this tab's
   // persistent peer id (so local ops stay causally ours across reloads) and the
   // app's explicit schema. HMR: reuse live content for the same page.
+  // The frontier the doc was seeded with; the snapshot writes below carry it
+  // forward so a later open seeds from a frontier that covers this session.
+  const seededFrontierRef = useRef<PageFrontier | undefined>(undefined);
   if (!docRef.current) {
-    const initialBlocks =
-      liveBlocksRef.current?.pageId === pageId
-        ? liveBlocksRef.current.blocks
-        : snapshot;
+    const live =
+      liveBlocksRef.current?.pageId === pageId ? liveBlocksRef.current : null;
     liveBlocksRef.current = null;
+    seededFrontierRef.current = live ? live.frontier : frontier;
     docRef.current = createDoc({
-      blocks: initialBlocks,
+      blocks: live ? live.blocks : snapshot,
+      frontier: seededFrontierRef.current,
       pageId,
       peerId: peerIdRef.current,
       schema: appSchema.data,
@@ -227,7 +241,11 @@ export function useCollaborativeDoc({
   // still alive.
   useEffect(() => {
     return () => {
-      liveBlocksRef.current = { blocks: doc.getRawBlocks(), pageId };
+      liveBlocksRef.current = {
+        blocks: doc.getRawBlocks(),
+        frontier: frontierOf(doc.getOperations(), seededFrontierRef.current),
+        pageId,
+      };
       doc.destroy();
       docRef.current = null;
     };
@@ -261,6 +279,14 @@ export function useCollaborativeDoc({
         }
       }
     };
+    // The snapshot's other token: the highest op-id counter the doc holds,
+    // seeded from the frontier the doc was created with so it covers ops that
+    // arrive in neither the loaded log nor an update (the doc never re-reads
+    // the log after load). Handed back as `PageFull.frontier` on the next open.
+    let idCounter = seededFrontierRef.current?.idCounter ?? 0;
+    const foldIdCounter = (ops: Operation[]) => {
+      idCounter = Math.max(idCounter, maxOpIdCounter(ops));
+    };
 
     // Debounced snapshot writer — keeps the FS snapshot in sync after edits.
     // 2s delay avoids writing on every keystroke.
@@ -276,8 +302,9 @@ export function useCollaborativeDoc({
       // Snapshot the token by value now; clockVV keeps mutating as later edits
       // arrive, but this write must carry the frontier matching `clean`.
       const vv = { ...clockVV };
+      const ids = idCounter;
       snapshotTimer = setTimeout(() => {
-        platform.snapshots.save(pageId, clean, vv);
+        platform.snapshots.save(pageId, clean, vv, ids);
       }, 2000);
     };
 
@@ -293,6 +320,7 @@ export function useCollaborativeDoc({
       }
       // Advance the token before snapshotting so it covers this batch's ops.
       foldClockVV(u.ops);
+      foldIdCounter(u.ops);
       saveSnapshot(doc.getRawBlocks());
     });
 
@@ -319,9 +347,10 @@ export function useCollaborativeDoc({
       .then((persistedOps) => {
         if (persistedOps.length > 0 && docRef.current) {
           docRef.current.load(persistedOps);
-          // Seed the snapshot token: load() registers these ops without emitting
+          // Seed the snapshot tokens: load() registers these ops without emitting
           // an update, so they never reach the fold in the update handler.
           foldClockVV(persistedOps);
+          foldIdCounter(persistedOps);
         }
       })
       .finally(() => {
@@ -356,5 +385,18 @@ export function useCollaborativeDoc({
     localUser,
     peerId,
     opsLoaded: opsLoadedRef.current.promise,
+  };
+}
+
+/** The frontier of `ops`, never below `base` — re-seeds the doc across HMR. */
+function frontierOf(
+  ops: readonly Operation[],
+  base: PageFrontier | undefined,
+): PageFrontier {
+  let clock = base?.clock ?? 0;
+  for (const op of ops) clock = Math.max(clock, op.clock.counter);
+  return {
+    clock,
+    idCounter: Math.max(base?.idCounter ?? 0, maxOpIdCounter(ops)),
   };
 }

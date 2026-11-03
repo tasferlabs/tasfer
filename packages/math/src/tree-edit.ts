@@ -73,6 +73,35 @@ export function mathTreeRowEdgeCaret(
   return resolved ? enterRow(math, resolved.row, edge) : undefined;
 }
 
+/**
+ * The row edge one Shift+Home/Shift+End press extends to: the edge of the
+ * caret's own row, or — when the caret already rests on it — the edge of the
+ * row holding the construct around it. Each press therefore reaches the next
+ * boundary outward (numerator start, then the equation start) instead of
+ * stalling at the slot edge. Edges stay at the row's own level and never
+ * descend into a leading or trailing construct, which would bounce the next
+ * press back into the slot it just left.
+ */
+export function mathTreeNextRowEdgeCaret(
+  document: StructuredDocument,
+  caret: MathTreeCaret,
+  edge: "start" | "end",
+): MathTreeCaret | undefined {
+  const math = validMathDocument(document);
+  if (!math) return undefined;
+  const resolved = resolveCaret(math, caret);
+  if (!resolved) return undefined;
+  if (!isAtRowEdge(math, resolved, edge)) {
+    return rowEdgeCaret(math, resolved.row, edge);
+  }
+  const owner = navigationOwnerForRow(math, resolved.row.id);
+  const outerRowId = owner?.node.placement.parentId;
+  const outerRow = outerRowId ? math.nodes[outerRowId] : undefined;
+  return outerRow && !outerRow.deleted && outerRow.type === "row"
+    ? rowEdgeCaret(math, outerRow, edge)
+    : undefined;
+}
+
 /** A directional selection expressed entirely with stable tree identities. */
 export interface MathTreeRange {
   readonly anchor: MathTreeCaret;
@@ -1987,7 +2016,12 @@ function extendEnclosingScriptsAtSlotEnd(
     return undefined;
   }
   if (isSemanticallyEmptyRow(document, resolved.row.id)) {
-    return extendOwnScriptsFromEmptySlot(document, resolved.row, fragment, root);
+    return extendOwnScriptsFromEmptySlot(
+      document,
+      resolved.row,
+      fragment,
+      root,
+    );
   }
 
   let target: StructuredNode | undefined;
@@ -2720,6 +2754,47 @@ function enterRow(
   return child
     ? enterNode(document, row.id, child, edge)
     : rowCaret(row.id, null);
+}
+
+/**
+ * A row's own first/last caret: inside an edge text leaf, otherwise the gap
+ * beside the edge construct. Unlike {@link enterRow} it never descends.
+ */
+function rowEdgeCaret(
+  document: StructuredDocument,
+  row: StructuredNode,
+  edge: "start" | "end",
+): MathTreeCaret {
+  const children = getStructuredChildren(document, row.id, "children");
+  const child = edge === "start" ? children[0] : children.at(-1);
+  if (!child) return rowCaret(row.id, null);
+  if (isCharacterEditableLeaf(child)) {
+    return textCaret(
+      row.id,
+      child.id,
+      edge === "end" ? (visibleCharacters(child).at(-1)?.id ?? null) : null,
+    );
+  }
+  return rowCaret(row.id, edge === "start" ? null : child.id);
+}
+
+/** Whether a resolved caret already sits on its row's start or end. */
+function isAtRowEdge(
+  document: StructuredDocument,
+  resolved: ResolvedCaret,
+  edge: "start" | "end",
+): boolean {
+  const children = getStructuredChildren(document, resolved.row.id, "children");
+  if (resolved.kind === "row") {
+    return edge === "start"
+      ? resolved.position === 0
+      : resolved.position === children.length;
+  }
+  const edgeChild = edge === "start" ? children[0] : children.at(-1);
+  if (edgeChild?.id !== resolved.node.id) return false;
+  return edge === "start"
+    ? resolved.position === 0
+    : resolved.position === resolved.visibleCharacters.length;
 }
 
 function enterNode(

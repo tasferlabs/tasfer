@@ -18,6 +18,7 @@ import {
 import {
   convertBlockAtCursor,
   deleteSelectionThroughOwner,
+  getSelectionRange,
   insertText,
 } from "../actions/actions";
 import {
@@ -57,6 +58,7 @@ import {
 } from "../events/interaction-session";
 import { builtInKeymapClaims } from "../events/keysEvents";
 import { pressArmsTextDrag } from "../events/mouseEvents";
+import { revealCaretSideways } from "../events/sidewaysScroll";
 import { touchStartsOwnedGesture } from "../events/touchEvents";
 import { onFontsReady } from "../fonts";
 import {
@@ -1154,6 +1156,9 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
   private lastCursorBlinkState = false; // Track cursor blink state changes
 
+  // The local nested caret the last sideways reveal ran for (see renderFrame).
+  private revealedSidewaysCaret: ContentPoint | undefined = undefined;
+
   // Timestamp of the caret's most recent navigation, driving the "landing"
   // morph (circle → bar). `null` when no morph is in flight. See caret-landing.
   private caretLandingStartedAt: number | null = null;
@@ -1552,7 +1557,16 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     if (!window) return state;
     const blocks = state.document.page.blocks;
     const included = window.select(blocks);
-    if (included.size === 0) return state;
+    // An empty window (a body view over a page that is only its title) has no
+    // block to hold a caret. Drop it, so keystrokes can't land in a block this
+    // editor does not show.
+    if (included.size === 0) {
+      if (!state.document.cursor && !state.document.selection) return state;
+      return {
+        ...state,
+        document: { ...state.document, cursor: null, selection: null },
+      };
+    }
     const sorted = [...included].sort((a, b) => a - b);
     const first = sorted[0];
     const last = sorted[sorted.length - 1];
@@ -1790,6 +1804,22 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       // pre-drain state the dirty-layer checks below diff against).
       const prevState = this.processQueuedEvents();
 
+      // The local caret moved: a block that scrolls sideways (a wide table)
+      // brings it into sight. Keyed on the caret itself rather than on this
+      // frame's events, so a move made by a command or a host call is
+      // followed too.
+      const caretFocus = this._state.document.contentSelection?.focus;
+      if (caretFocus !== this.revealedSidewaysCaret) {
+        this.revealedSidewaysCaret = caretFocus;
+        if (caretFocus) {
+          this._state = revealCaretSideways(
+            this._state,
+            this.viewport,
+            caretFocus,
+          );
+        }
+      }
+
       // Check if state changed or if there are events that require rendering
       const stateChanged = prevState !== this._state;
 
@@ -1887,6 +1917,14 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         // per frame, not a repaint per mousemove.
         if (prevState.ui.regionHover !== this._state.ui.regionHover) {
           this.dirtyLayers.content = true;
+        }
+
+        // A node's own view state (a table's sideways scroll, a column being
+        // dragged) changes what it paints and where its carets sit, with no
+        // page or selection change to say so.
+        if (prevState.ui.nodeViewState !== this._state.ui.nodeViewState) {
+          this.dirtyLayers.content = true;
+          this.dirtyLayers.cursor = true;
         }
 
         // Math hover state changes affect rendered chip/block backgrounds. The
@@ -2039,7 +2077,11 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
             this._state.ui.hoveredDragHandleBlockId !== null,
             this._state.ui.blockDrag !== null,
             this._state.ui.isHoveringSelection,
-            this._state.ui.regionHover?.cursor ?? null,
+            // A region drag holding the pointer may name its own cursor (a
+            // table's scrollbar thumb → closed hand), over the press's hover.
+            this.session.captured?.region.drag?.cursor ??
+              this._state.ui.regionHover?.cursor ??
+              null,
           );
 
           this.dirtyLayers.content = viewportChangedAfterPaint;
@@ -3095,13 +3137,26 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         return;
       }
       // No plain text (e.g. an image-only selection) — fall through to caret.
-    } else if (hasRangedSelection) {
-      // Touch device with a live selection: leave the collapsed caret surface in
-      // place so the soft keyboard stays up while text is selected.
-      return;
     }
 
-    const caret = resolvePoint(this._state, "caret");
+    // Touch device with a live selection: keep a COLLAPSED caret surface so the
+    // soft keyboard stays up, but park it at the selection's start, so the
+    // keyboard reads the text that will precede whatever replaces the
+    // selection. Left at the pre-selection caret (on Android, the bare sentinel
+    // after a tap mid-word), the keyboard sees a fresh sentence and capitalizes
+    // the replacement. A nested (table-cell) selection keeps the surface as is.
+    let selectionStart: Position | null = null;
+    if (hasRangedSelection && !mirrorRangedSelection) {
+      selectionStart = getSelectionRange(this._state)?.start ?? null;
+      if (!selectionStart) return;
+    }
+
+    const caret = selectionStart
+      ? {
+          blockIndex: selectionStart.blockIndex,
+          offset: selectionStart.textIndex,
+        }
+      : resolvePoint(this._state, "caret");
     if (!caret) {
       this.resetSentinel();
       return;
@@ -3132,9 +3187,12 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // Only keep a live word when the caret sits at the END of one (the normal
     // typing position). Mid-word — a non-boundary char follows the caret — falls
     // back to the bare sentinel, so the surface never has to represent a caret
-    // inside its text.
+    // inside its text. A selection's start counts as a word end: what follows it
+    // is about to be replaced.
     const atWordEnd =
-      caret.offset >= text.length || isWordBoundaryChar(text[caret.offset]);
+      selectionStart !== null ||
+      caret.offset >= text.length ||
+      isWordBoundaryChar(text[caret.offset]);
     if (!atWordEnd) {
       this.resetSentinel();
       return;

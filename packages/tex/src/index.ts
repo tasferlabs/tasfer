@@ -341,6 +341,7 @@ export {
   normalizeLatex,
 } from "./edit/normalize";
 export {
+  enclosingSelectionRanges,
   isInsideConstruct,
   type MathUnit,
   resolveSelectionRange,

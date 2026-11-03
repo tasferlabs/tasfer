@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Download,
   Info,
+  ScrollText,
   SlidersHorizontal,
   SpellCheck,
   User,
@@ -21,6 +22,7 @@ import { useSearchParams } from "react-router-dom";
 import { TopActionBarPortal } from "../../layout/TopActionBarSlot";
 import { Data } from "./DataTab/Data";
 import { DateTime } from "./DateTimeTab/DateTime";
+import { ErrorLog } from "./ErrorLogTab/ErrorLog";
 import { Information } from "./InformationTab/Information";
 import { Preferences } from "./PreferencesTab/Preferences";
 import { Profile } from "./ProfileTab/Profile";
@@ -33,6 +35,7 @@ const TABS = [
   "spelling",
   "dateTime",
   "data",
+  "errorLog",
   "information",
 ] as const;
 type Tab = (typeof TABS)[number];
@@ -44,6 +47,7 @@ const TAB_ICONS: Record<Tab, React.ElementType> = {
   spelling: SpellCheck,
   dateTime: CalendarClock,
   data: Download,
+  errorLog: ScrollText,
   information: Info,
 };
 
@@ -53,6 +57,7 @@ const CONTENT: Record<Tab, React.FC> = {
   spelling: Spelling,
   dateTime: DateTime,
   data: Data,
+  errorLog: ErrorLog,
   information: Information,
 };
 
@@ -79,6 +84,7 @@ export default function SettingsPage() {
     spelling: t("settings.spelling.title", "Spelling"),
     dateTime: t("settings.dateTime.title", "Date & Time"),
     data: t("export.title", "Export"),
+    errorLog: t("settings.errorLog.title", "Error log"),
     information: t("settings.information.title", "Information"),
   };
 
@@ -160,6 +166,9 @@ export default function SettingsPage() {
             <TabsTrigger value="data">
               {t("export.title", "Export")}
             </TabsTrigger>
+            <TabsTrigger value="errorLog">
+              {t("settings.errorLog.title", "Error log")}
+            </TabsTrigger>
             <TabsTrigger value="information">
               {t("settings.information.title", "Information")}
             </TabsTrigger>
@@ -178,6 +187,9 @@ export default function SettingsPage() {
           </TabsContent>
           <TabsContent value={"data"}>
             <Data />
+          </TabsContent>
+          <TabsContent value={"errorLog"}>
+            <ErrorLog />
           </TabsContent>
           <TabsContent value={"information"}>
             <Information />

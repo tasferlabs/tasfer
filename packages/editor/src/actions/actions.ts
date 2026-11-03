@@ -88,6 +88,11 @@ import {
 } from "../sync/reducer";
 import type { DataSchema } from "../sync/schema";
 import {
+  isInViewWindow,
+  nextBlockInWindow,
+  previousBlockInWindow,
+} from "../view-window";
+import {
   canMorphCarryAttachments,
   carryStructuredContent,
   hasStructuredBlockAuthority,
@@ -2267,8 +2272,11 @@ export function deleteText(state: EditorState): ActionResult {
     // itself toward) a neighbour outside the window — Backspace at offset 0 is a
     // no-op, so the block count and neighbours are untouched.
     if (state.view.window?.singleBlock) return { state, ops: [] };
-    // Find previous visible (non-deleted) block — skip tombstones left by snapshot restore
-    const prevBlockIndex = findPreviousVisibleBlockIndex(
+    // Find previous visible (non-deleted) block — skip tombstones left by
+    // snapshot restore. A block outside the view window counts as none, so a
+    // windowed editor never merges into a block it does not show.
+    const prevBlockIndex = previousBlockInWindow(
+      state.view.window,
       state.document.page.blocks,
       blockIndex,
     );
@@ -2624,8 +2632,9 @@ export function deleteForward(state: EditorState): ActionResult {
     // A single-block surface never merges its block into a neighbour outside the
     // window — forward-delete at the end of the block is a no-op.
     if (state.view.window?.singleBlock) return { state, ops: [] };
-    // Check for next visible block to merge with
-    const nextBlockIndex = findNextVisibleBlockIndex(
+    // Check for next visible block to merge with (none past the view window)
+    const nextBlockIndex = nextBlockInWindow(
+      state.view.window,
       state.document.page.blocks,
       blockIndex,
     );
@@ -2968,8 +2977,9 @@ export function deleteWordForward(state: EditorState): ActionResult {
     );
     return { state: newState, ops };
   } else {
-    // Check for next visible block
-    const nextBlockIndex = findNextVisibleBlockIndex(
+    // Check for next visible block (none past the view window)
+    const nextBlockIndex = nextBlockInWindow(
+      state.view.window,
       state.document.page.blocks,
       blockIndex,
     );
@@ -3121,6 +3131,16 @@ export function deleteWordBackward(state: EditorState): ActionResult {
     // Special handling for list blocks at textIndex 0: don't delete/merge, just return
     // This prevents Ctrl+Backspace from merging list items when at the start
     if (isListBlock(oldBlock)) {
+      return { state, ops };
+    }
+    // A windowed editor never merges into a block it does not show.
+    if (
+      !isInViewWindow(
+        state.view.window,
+        state.document.page.blocks,
+        blockIndex - 1,
+      )
+    ) {
       return { state, ops };
     }
 

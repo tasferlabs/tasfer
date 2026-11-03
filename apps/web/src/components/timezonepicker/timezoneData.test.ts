@@ -12,7 +12,11 @@ import {
   timeOfDayColor,
   withZone,
   zoneOffsetMinutes,
+  pushRecentZone,
+  readLegacyRecentZones,
+  readRecentZones,
 } from "./timezoneData";
+import { FakeOwnPrefs } from "@/lib/fakeOwnPrefs.testing";
 
 describe("cityLabel", () => {
   it("uses the last identifier segment with spaces", () => {
@@ -152,5 +156,34 @@ describe("time-of-day rendering helpers", () => {
     expect(dawnTransition).toContain("--timeofday-dawn");
     expect(timeOfDayColor(25)).toBe(timeOfDayColor(1));
     expect(timeOfDayColor(-1)).toBe(timeOfDayColor(23));
+  });
+});
+
+describe("recent zones", () => {
+  it("offers the latest few picked on any device, newest first", () => {
+    const laptop = new FakeOwnPrefs("laptop");
+    const phone = new FakeOwnPrefs("phone");
+    pushRecentZone(laptop, "Europe/Stockholm", 1);
+    pushRecentZone(laptop, "Asia/Tokyo", 2);
+    pushRecentZone(phone, "America/New_York", 3);
+    pushRecentZone(phone, "Africa/Cairo", 4);
+
+    laptop.syncFrom(phone);
+
+    expect(readRecentZones(laptop)).toEqual([
+      "Africa/Cairo",
+      "America/New_York",
+      "Asia/Tokyo",
+    ]);
+  });
+
+  it("adopts the old browser list in its order", () => {
+    const [[, tally]] = readLegacyRecentZones(
+      JSON.stringify(["Asia/Tokyo", "Europe/Stockholm"]),
+      "laptop",
+    ) as [[string, Record<string, { last: number }>]];
+    expect(tally["Asia/Tokyo"]!.last).toBeGreaterThan(
+      tally["Europe/Stockholm"]!.last,
+    );
   });
 });

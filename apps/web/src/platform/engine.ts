@@ -20,6 +20,7 @@ import type {
   RecreatePageInput,
   PageSearchResult,
   PageCalendarItem,
+  PageFrontier,
   PagePathSegment,
   PageVersion,
   Identity,
@@ -289,8 +290,12 @@ export function normalizeInitOp<T>(op: T): T {
 
 // Bump whenever the materialized Block projection gains persisted semantics
 // that an older snapshot writer could have omitted while still sharing the same
-// op-log frontier (v2 adds generic structured-content attachments).
-const PAGE_SNAPSHOT_FORMAT = 2;
+// op-log frontier (v2 adds generic structured-content attachments). Also bump
+// to force a one-time rebuild when snapshots were written from a wrong live
+// state: v3 discards snapshots saved while a pasted equation's attachment was
+// missing from the live doc though present in the log. v4 adds `idCounter`,
+// the op log's highest op-id counter, which a page open hands to the doc.
+const PAGE_SNAPSHOT_FORMAT = 4;
 
 // Android reaches SQLite through a bridge that splits multi-statement blocks
 // itself, and builds already installed split naively — keep `;` out of the SQL
@@ -359,7 +364,14 @@ const SCHEMA_SQL = `
     -- off is a setting, not a guarantee, and the whole point is that writing
     -- here cannot later become someone else's to read. Sharing a personal page
     -- means moving it to a shared space, not reclassifying the space.
-    personal    INTEGER NOT NULL DEFAULT 0
+    personal    INTEGER NOT NULL DEFAULT 0,
+    -- When the space was made by the clock of its author (unix ms): the "at"
+    -- field of its earliest space_set op as kept by refreshSpaceOrigin. It is
+    -- the default sidebar order because every device agrees on it; created_at
+    -- is when the space reached THIS device and differs per device. NULL when
+    -- that op predates the field or has not arrived yet.
+    -- (No commas in this comment: SQLite DROP COLUMN misparses them here.)
+    origin_at   INTEGER
   );
 
   -- Person-private preferences: one LWW register per key, replicated to this
@@ -455,6 +467,12 @@ export class Engine implements Platform {
   private prefsChangeListeners = new Set<
     (changed: Record<string, unknown>) => void
   >();
+  /**
+   * The tail of the own-prefs write queue (see `withOwnPrefsLock`). Every write
+   * reads the stored register before deciding what to write, so two writes may
+   * never overlap.
+   */
+  private ownPrefsQueue: Promise<unknown> = Promise.resolve();
   private pageDeleteListeners = new Set<(pageId: string) => void>();
   private identityChangeListeners = new Set<() => void>();
   private deviceChangeListeners = new Set<() => void>();
@@ -624,6 +642,19 @@ export class Engine implements Platform {
       await this.driver.db.exec(
         "ALTER TABLE spaces ADD COLUMN archive_by TEXT",
       );
+    }
+
+    // spaces.origin_at — backfilled from the op log every existing space
+    // already holds, so the sidebar order agrees across devices from the first
+    // boot rather than only for spaces made afterwards.
+    if (!spaceCols.some((c) => c.name === "origin_at")) {
+      await this.driver.db.exec(
+        "ALTER TABLE spaces ADD COLUMN origin_at INTEGER",
+      );
+      const rows = await this.driver.db.query<{ id: string }>(
+        "SELECT id FROM spaces",
+      );
+      for (const { id } of rows) await this.refreshSpaceOrigin(id);
     }
 
     // peers.last_vv / last_vv_at — the last version vector a peer advertised.
@@ -1721,7 +1752,7 @@ export class Engine implements Platform {
       target: PeerTarget,
       paused: boolean,
     ): Promise<void> => {
-      await this.refuseSelfPause(target);
+      await this.refuseSelfPause(target, paused);
       // Through `prefs.set`: that is what stamps the decision and pushes the
       // register to this person's other devices, so pausing a peer on the
       // laptop pauses it on the phone rather than only here.
@@ -1889,14 +1920,18 @@ export class Engine implements Platform {
   /**
    * Refuse a pause that would name this device or this person's own root.
    *
-   * Pausing yourself is not a smaller version of pausing a peer: the register
-   * replicates to the devices it would silence, so the device that made the
-   * decision would be the only one able to undo it.
+   * Pausing yourself is not a smaller version of pausing a peer: it would cut
+   * this device off from every sibling for no one's benefit. Resuming this
+   * device is allowed — it is how a device paused from elsewhere gets back
+   * without the one that paused it to hand.
    */
-  private async refuseSelfPause(target: PeerTarget): Promise<void> {
+  private async refuseSelfPause(
+    target: PeerTarget,
+    paused: boolean,
+  ): Promise<void> {
     const identity = await this.identity.get();
     if ("publicKey" in target) {
-      if (target.publicKey === identity.publicKey) {
+      if (paused && target.publicKey === identity.publicKey) {
         throw new Error("A device cannot pause syncing with itself");
       }
       return;
@@ -1927,7 +1962,12 @@ export class Engine implements Platform {
         `SELECT s.* FROM spaces s
          JOIN space_members m ON m.space_id = s.id
          WHERE m.public_key = ? AND s.archived_at IS NULL
-         ORDER BY s.name`,
+         -- Creation order, not name: a rename must not move a space. Not
+         -- created_at either — that is when the space reached this device, so
+         -- two devices would list the same spaces in different orders.
+         -- origin_at is the same everywhere; NULL (spaces older than the
+         -- op's \`at\` field) sorts first, and the id settles the rest.
+         ORDER BY s.origin_at, s.id`,
         [identity.publicKey],
       );
       return rows.map((r) => ({
@@ -2117,6 +2157,7 @@ export class Engine implements Platform {
           value: true,
         });
       }
+      await this.refreshSpaceOrigin(id);
 
       await this.emitSpaceOp(id, {
         op: "member_add",
@@ -2383,21 +2424,34 @@ export class Engine implements Platform {
 
     set: async (key: string, value: unknown): Promise<void> => {
       const identity = await this.identity.get();
-      const stamp = Date.now();
       const encoded = JSON.stringify(value ?? null);
-      await this.driver.db.mutate(
-        `INSERT INTO own_prefs (key, value, stamp, by) VALUES (?, ?, ?, ?)
-         ON CONFLICT(key) DO UPDATE SET value = ?, stamp = ?, by = ?`,
-        [
-          key,
-          encoded,
-          stamp,
-          identity.publicKey,
-          encoded,
-          stamp,
-          identity.publicKey,
-        ],
-      );
+      const stamp = await this.withOwnPrefsLock(async () => {
+        // Never behind the decision it replaces: a device whose clock runs
+        // slow would otherwise make a choice that loses to the one it was
+        // looking at — a paused device resuming itself is exactly that case.
+        // Read and write inside the lock: two saves that both read the same
+        // stamp would write the same one, and a sibling would then keep the
+        // first value while this device keeps the second.
+        const [held] = await this.driver.db.query<{ stamp: number }>(
+          "SELECT stamp FROM own_prefs WHERE key = ?",
+          [key],
+        );
+        const next = Math.max(Date.now(), (held?.stamp ?? 0) + 1);
+        await this.driver.db.mutate(
+          `INSERT INTO own_prefs (key, value, stamp, by) VALUES (?, ?, ?, ?)
+           ON CONFLICT(key) DO UPDATE SET value = ?, stamp = ?, by = ?`,
+          [
+            key,
+            encoded,
+            next,
+            identity.publicKey,
+            encoded,
+            next,
+            identity.publicKey,
+          ],
+        );
+        return next;
+      });
       await this.replicator?.pushOwnState({
         prefs: [{ key, value: encoded, stamp, by: identity.publicKey }],
       });
@@ -2407,21 +2461,25 @@ export class Engine implements Platform {
     },
 
     seed: async (key: string, value: unknown): Promise<boolean> => {
-      const rows = await this.driver.db.query<{ key: string }>(
-        "SELECT key FROM own_prefs WHERE key = ?",
-        [key],
-      );
-      if (rows.length > 0) return false;
       const identity = await this.identity.get();
       const encoded = JSON.stringify(value ?? null);
-      // Stamp 1, not now: this value was decided at some unrecorded past
-      // moment, so every real decision — including one already made on another
-      // device and still in flight to us — has to outrank it. Above 0 so it is
-      // still announced rather than treated as "never decided".
-      await this.driver.db.mutate(
-        "INSERT INTO own_prefs (key, value, stamp, by) VALUES (?, ?, 1, ?)",
-        [key, encoded, identity.publicKey],
-      );
+      const seeded = await this.withOwnPrefsLock(async () => {
+        const rows = await this.driver.db.query<{ key: string }>(
+          "SELECT key FROM own_prefs WHERE key = ?",
+          [key],
+        );
+        if (rows.length > 0) return false;
+        // Stamp 1, not now: this value was decided at some unrecorded past
+        // moment, so every real decision — including one already made on
+        // another device and still in flight to us — has to outrank it. Above
+        // 0 so it is still announced rather than treated as "never decided".
+        await this.driver.db.mutate(
+          "INSERT INTO own_prefs (key, value, stamp, by) VALUES (?, ?, 1, ?)",
+          [key, encoded, identity.publicKey],
+        );
+        return true;
+      });
+      if (!seeded) return false;
       await this.replicator?.pushOwnState({
         prefs: [{ key, value: encoded, stamp: 1, by: identity.publicKey }],
       });
@@ -2464,6 +2522,35 @@ export class Engine implements Platform {
    * device silently undo that device's choices on every handshake.
    */
   private async applyOwnPrefs(prefs: OwnPref[]): Promise<void> {
+    const changed = await this.withOwnPrefsLock(() =>
+      this.mergeOwnPrefs(prefs),
+    );
+    if (Object.keys(changed).length > 0) this.notifyPrefsChange(changed);
+    const keys = Object.keys(changed);
+    if (
+      keys.some((key) => key.startsWith(DEVICE_NOTE_PREFIX)) ||
+      keys.some(isSyncPauseKey)
+    ) {
+      this.notifyDevicesChange();
+    }
+    // A pause decided on another of this person's devices is a decision about
+    // who this one connects to, so it has to reach the transport on arrival —
+    // the same follow-up a locally made pause does (see peers.setSyncPaused).
+    if (keys.some(isSyncPauseKey)) {
+      await this.replicator?.refreshSpaces().catch((e: unknown) => {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`[Engine] refreshSpaces after sync pause failed: ${msg}`);
+      });
+    }
+  }
+
+  /**
+   * Merge a sibling's registers into the table, returning the keys whose value
+   * changed. Runs inside the own-prefs lock (see `applyOwnPrefs`).
+   */
+  private async mergeOwnPrefs(
+    prefs: OwnPref[],
+  ): Promise<Record<string, unknown>> {
     const changed: Record<string, unknown> = {};
     for (const pref of prefs) {
       const rows = await this.driver.db.query<{
@@ -2494,23 +2581,19 @@ export class Engine implements Platform {
         changed[pref.key] = parsed;
       }
     }
-    if (Object.keys(changed).length > 0) this.notifyPrefsChange(changed);
-    const keys = Object.keys(changed);
-    if (
-      keys.some((key) => key.startsWith(DEVICE_NOTE_PREFIX)) ||
-      keys.some(isSyncPauseKey)
-    ) {
-      this.notifyDevicesChange();
-    }
-    // A pause decided on another of this person's devices is a decision about
-    // who this one connects to, so it has to reach the transport on arrival —
-    // the same follow-up a locally made pause does (see peers.setSyncPaused).
-    if (keys.some(isSyncPauseKey)) {
-      await this.replicator?.refreshSpaces().catch((e: unknown) => {
-        const msg = e instanceof Error ? e.message : String(e);
-        console.error(`[Engine] refreshSpaces after sync pause failed: ${msg}`);
-      });
-    }
+    return changed;
+  }
+
+  /**
+   * Run one own-prefs read-then-write after every earlier one has finished.
+   * Per engine instance, and only around the database steps: the push to
+   * siblings and the change notices run after it, so a slow network or a
+   * listener that saves a pref of its own never holds the queue.
+   */
+  private withOwnPrefsLock<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.ownPrefsQueue.then(fn, fn);
+    this.ownPrefsQueue = run.catch(() => {});
+    return run;
   }
 
   private notifyPrefsChange(changed: Record<string, unknown>) {
@@ -3388,8 +3471,17 @@ export class Engine implements Platform {
       const cached = await this.loadSnapshot(id);
       let blocks: import("@tasfer/editor/serlization/loadPage").Block[] | null =
         null;
+      // The doc built from these blocks takes its first local ids and clock
+      // from here, before its op log loads. The clock comes from the same
+      // frontier the snapshot is validated against; the id counter from
+      // whichever source supplied the blocks, which covers the same op set.
+      const frontier: PageFrontier = {
+        clock: Math.max(0, ...Object.values(currentVV)),
+        idCounter: 0,
+      };
       if (cached && vvEqual(cached.vv, currentVV) && cached.blocks.length > 0) {
         blocks = cached.blocks;
+        frontier.idCounter = cached.idCounter;
         // Free (blocks in hand, no op-log replay): reconcile the derived title
         // columns against the doc on every open, not only the slow rebuild path
         // below. A page whose title_md drifted from the doc — e.g. one saved
@@ -3403,9 +3495,12 @@ export class Engine implements Platform {
         // describes the blocks it ships with.
         const rebuilt = await this.rebuildBlocksFromOps(id);
         blocks = rebuilt?.blocks ?? null;
+        if (rebuilt) frontier.idCounter = rebuilt.idCounter;
         if (rebuilt && blocks && blocks.length > 0) {
           // Fire-and-forget — don't block the page open on the write.
-          this.snapshots.save(id, blocks, rebuilt.vv).catch(() => {});
+          this.snapshots
+            .save(id, blocks, rebuilt.vv, rebuilt.idCounter)
+            .catch(() => {});
           // Free (blocks in hand): catch the derived title columns up to the
           // doc if they went stale (e.g. ops applied while the app was closed).
           this.refreshDerivedTitlesFromBlocks(id, blocks).catch(() => {});
@@ -3443,6 +3538,7 @@ export class Engine implements Platform {
         allDay: r.all_day === null ? null : r.all_day === 1,
         recurrenceId: r.recurrence_id,
         blocks,
+        frontier,
         createdAt: r.created_at,
         updatedAt: r.updated_at,
         parents,
@@ -4547,6 +4643,7 @@ export class Engine implements Platform {
       pageId: string,
       blocks: import("@tasfer/editor/serlization/loadPage").Block[],
       vv: Record<string, number>,
+      idCounter: number,
     ): Promise<void> => {
       try {
         // `vv` is supplied by the caller and describes the exact op set these
@@ -4561,6 +4658,7 @@ export class Engine implements Platform {
           JSON.stringify({
             format: PAGE_SNAPSHOT_FORMAT,
             vv,
+            idCounter,
             blocks: cleanBlocks,
           }),
         );
@@ -4573,6 +4671,7 @@ export class Engine implements Platform {
 
   private async loadSnapshot(pageId: string): Promise<{
     vv: Record<string, number>;
+    idCounter: number;
     blocks: import("@tasfer/editor/serlization/loadPage").Block[];
   } | null> {
     try {
@@ -4586,7 +4685,8 @@ export class Engine implements Platform {
         !parsed ||
         parsed.format !== PAGE_SNAPSHOT_FORMAT ||
         typeof parsed.vv !== "object" ||
-        parsed.vv === null
+        parsed.vv === null ||
+        typeof parsed.idCounter !== "number"
       ) {
         return null;
       }
@@ -4667,6 +4767,10 @@ export class Engine implements Platform {
         const msg = e instanceof Error ? e.message : String(e);
         console.error(`[Engine] refreshSpaces after device_add failed: ${msg}`);
       });
+    }
+    // Only a space_set can be the space's earliest one.
+    if (ops.some((op) => op.op === "space_set")) {
+      await this.refreshSpaceOrigin(spaceId);
     }
     this.assetPrefetcher.noteRefs(avatarRefs);
     this.notifySpaceChange(spaceId);
@@ -4824,7 +4928,9 @@ export class Engine implements Platform {
             blocks = rebuilt.blocks;
             // Persist the rebuilt snapshot so the next boot's sweep (and the
             // next page open) take the fast path.
-            this.snapshots.save(id, blocks, rebuilt.vv).catch(() => {});
+            this.snapshots
+              .save(id, blocks, rebuilt.vv, rebuilt.idCounter)
+              .catch(() => {});
           }
         }
         if (blocks) {
@@ -5056,6 +5162,38 @@ export class Engine implements Platform {
     if (this.replicator) {
       this.replicator.pushSpaceOps(spaceId, [op]);
     }
+  }
+
+  /**
+   * Re-derive `spaces.origin_at` from the space's earliest space_set op — its
+   * author's `space_set name` at creation, which every member eventually holds,
+   * so every device lands on the same value. Only space_set ops count: a member
+   * who joins emits device_add ops before syncing, and their low counters must
+   * not pass for the space's birth.
+   */
+  private async refreshSpaceOrigin(spaceId: string): Promise<void> {
+    const [first] = await this.driver.db.query<{ data: Uint8Array }>(
+      `SELECT data FROM ops
+        WHERE scope_id = ? AND type = 'space_set'
+        ORDER BY clock, peer_id
+        LIMIT 1`,
+      [`space:${spaceId}`],
+    );
+    let at: number | null = null;
+    if (first) {
+      try {
+        const op = JSON.parse(new TextDecoder().decode(first.data)) as {
+          at?: unknown;
+        };
+        if (typeof op.at === "number" && Number.isFinite(op.at)) at = op.at;
+      } catch {
+        /* corrupted op: leave the space unordered by origin */
+      }
+    }
+    await this.driver.db.mutate("UPDATE spaces SET origin_at = ? WHERE id = ?", [
+      at,
+      spaceId,
+    ]);
   }
 
   private async storeSpaceOp(op: SpaceOperation): Promise<void> {
@@ -5489,11 +5627,13 @@ export class Engine implements Platform {
   private async rebuildBlocksFromOps(pageId: string): Promise<{
     blocks: import("@tasfer/editor/serlization/loadPage").Block[];
     vv: Record<string, number>;
+    idCounter: number;
   } | null> {
     const ops = await this.loadPageOps(pageId);
     if (ops.length === 0) return null;
 
     const { rebuildState } = await import("@tasfer/editor/sync/reducer");
+    const { maxOpIdCounter } = await import("@tasfer/editor/sync/sync");
     const page = rebuildState(pageId, ops, appDataSchema);
     if (page.blocks.length === 0) return null;
 
@@ -5502,7 +5642,7 @@ export class Engine implements Platform {
       const peer = op.clock.peerId;
       if (op.clock.counter > (vv[peer] ?? -1)) vv[peer] = op.clock.counter;
     }
-    return { blocks: page.blocks, vv };
+    return { blocks: page.blocks, vv, idCounter: maxOpIdCounter(ops) };
   }
 }
 

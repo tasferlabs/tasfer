@@ -271,7 +271,12 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
 
         <button
           type="button"
-          onClick={() => setView("join")}
+          onClick={() => {
+            // Phones have a camera to hand; elsewhere the scanner would only
+            // greet the user with a permission prompt or "no camera".
+            setJoinTab(isMobile ? "scan" : "code");
+            setView("join");
+          }}
           className="group flex items-center gap-3 rounded-lg border border-border p-3.5 text-start transition-colors hover:border-primary/40 hover:bg-primary/5"
         >
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
@@ -443,6 +448,18 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
       <div className="grid grid-cols-3 rounded-lg bg-muted p-1 gap-1">
         <button
           type="button"
+          onClick={() => setJoinTab("scan")}
+          className={`flex-1 flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
+            joinTab === "scan"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <QrCode className="h-3.5 w-3.5" />
+          {t("scanner.scanQR", "Scan QR")}
+        </button>
+        <button
+          type="button"
           onClick={() => setJoinTab("code")}
           className={`flex-1 flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
             joinTab === "code"
@@ -464,18 +481,6 @@ export function AddSpaceDialog({ open, onOpenChange }: AddSpaceDialogProps) {
         >
           <Upload className="h-3.5 w-3.5" />
           {t("onboarding.importFile", "Import file")}
-        </button>
-        <button
-          type="button"
-          onClick={() => setJoinTab("scan")}
-          className={`flex-1 flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
-            joinTab === "scan"
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          <QrCode className="h-3.5 w-3.5" />
-          {t("scanner.scanQR", "Scan QR")}
         </button>
       </div>
 

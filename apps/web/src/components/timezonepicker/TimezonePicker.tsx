@@ -12,6 +12,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import useMobileLayout from "@/app/hooks/useMobileLayout";
+import { useOwnPrefsStore } from "@/app/contexts/OwnPrefsContext";
 import { BottomSheet } from "@/components/ui/bottom-sheet";
 import {
   buildZoneEntries,
@@ -85,6 +86,7 @@ export function TimezonePicker({
   className?: string;
 }) {
   const { t, i18n } = useTranslation();
+  const ownPrefs = useOwnPrefsStore();
   const locale = i18n.language || "en";
   const { isMobile } = useMobileLayout();
   const [open, setOpen] = useState(false);
@@ -231,7 +233,7 @@ export function TimezonePicker({
     setOpen(nextOpen);
     if (nextOpen) {
       setEverOpened(true);
-      const storedRecents = readRecentZones();
+      const storedRecents = readRecentZones(ownPrefs);
       setRecents(storedRecents);
       // Highlight the pinned copy when there is one, so opening lands on the
       // Suggested group instead of scrolling past it into the full list. The
@@ -267,7 +269,7 @@ export function TimezonePicker({
     const zoneId = itemValue.slice(itemValue.indexOf(":") + 1);
     const entry = byId.get(zoneId.toLowerCase());
     if (!entry) return;
-    pushRecentZone(entry.id);
+    pushRecentZone(ownPrefs, entry.id);
     onChange(entry.id);
     setOpen(false);
     setSearch("");

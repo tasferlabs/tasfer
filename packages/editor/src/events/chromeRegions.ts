@@ -60,6 +60,7 @@ import {
 import { extendDragSelectionToPoint } from "./mouseEvents";
 import type { RegionCtx, RegionPoint } from "./regions";
 import { type Region, RegionRegistry } from "./regions";
+import { revealCaretSideways } from "./sidewaysScroll";
 
 function endScrollbarDragState(state: EditorState): EditorState {
   return {
@@ -525,7 +526,12 @@ const peerIndicatorRegion: Region = {
         ctx.updateViewport?.({ scrollY: newScrollY });
       }
     }
-    return { state: withScrollbarInteraction(ctx.state) };
+    // A peer in a column their block has scrolled out of sight (a wide
+    // table) is brought into view sideways as well.
+    const state = target.contentPoint
+      ? revealCaretSideways(ctx.state, ctx.viewport, target.contentPoint)
+      : ctx.state;
+    return { state: withScrollbarInteraction(state) };
   },
 };
 

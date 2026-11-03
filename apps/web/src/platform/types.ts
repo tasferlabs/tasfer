@@ -63,7 +63,8 @@ export interface DeviceInfo {
    * True while this person has paused syncing with this device (see
    * {@link PlatformApi.peers.setSyncPaused}). The decision is person-private
    * and replicates to their other devices, so a device paused from the laptop
-   * is paused on the phone too.
+   * is paused on the phone too. On the `current` device it means another of
+   * this person's devices paused this one; it can resume itself.
    */
   syncPaused: boolean;
   /** Last time this device was connected to this one (ISO), or null. */
@@ -184,11 +185,24 @@ export interface ArchivedPageRef {
 }
 
 /** Full page with content */
+/** See {@link PageFull.frontier}. */
+export interface PageFrontier {
+  clock: number;
+  idCounter: number;
+}
+
 export interface PageFull extends PageListItem {
   blocks: Block[] | null;
   createdAt: string;
   updatedAt: string;
   parents?: PagePathSegment[];
+  /**
+   * The highest clock counter and op-id counter in the page's op log when
+   * `blocks` was read. An editable doc seeded from `blocks` needs both before
+   * its first edit: the log itself loads afterwards, and an edit made sooner
+   * would otherwise reuse an op id or sort before older edits.
+   */
+  frontier: PageFrontier;
   /**
    * ISO timestamp when the page's space was archived, if it was. The page
    * itself is live — an archived space is hidden as a whole rather than
@@ -734,9 +748,14 @@ export interface Platform {
      *
      * Person-private and reversible: it is a register in the own-prefs channel
      * (never an op), so it replicates to this person's own devices and to no
-     * co-member, and the peer it names is never told. Paused peers are dropped
+     * co-member, and a co-member it names is never told. Paused peers are dropped
      * from the admission set, which closes any live connection to them and
      * stops this device dialing them again.
+     *
+     * One of this person's own devices is the exception: the link to it stays
+     * open but carries only this person's private settings, so the pause can be
+     * lifted from either end. That includes the paused device itself, which may
+     * resume (never pause) its own key.
      *
      * It is not access control. A paused co-member still syncs with everyone
      * else in the space, so the same changes can reach them by another route;
@@ -1087,11 +1106,15 @@ export interface Platform {
      * the blocks are captured, so a remote op persisted (but not yet folded into
      * the blocks) can make a stale snapshot's count match — silently seeding the
      * doc with state that lags its own op log.
+     *
+     * `idCounter` is the highest op-id counter in that same op set, captured
+     * the same way. It comes back as `PageFull.frontier` on the next open.
      */
     save(
       pageId: string,
       blocks: Block[],
       vv: Record<string, number>,
+      idCounter: number,
     ): Promise<void>;
   };
 

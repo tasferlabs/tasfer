@@ -177,6 +177,7 @@ export function createInitialState(
       revertibleInputRule: null,
       suppressedInputRule: null,
       decorations: {},
+      selectionExpansion: null,
     },
     view: {
       isFocused: false,

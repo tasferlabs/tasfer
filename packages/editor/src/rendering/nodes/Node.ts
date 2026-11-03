@@ -166,6 +166,13 @@ export interface NodePaintCtx extends NodeLayoutCtx {
   /** Top-left origin of the block's content box in canvas space. */
   readonly origin: { readonly x: number; readonly y: number };
   /**
+   * The viewport the block is painted into — `origin` is in its space, so
+   * `viewport.height` is the canvas's bottom edge. Lets a block keep chrome on
+   * screen while the rest of it runs past an edge (a wide table's scrollbar).
+   * Absent when a block is painted outside a page render.
+   */
+  readonly viewport?: ViewportState;
+  /**
    * Ask the host to schedule another render frame. Injected by the renderer so
    * a block can repaint itself after async work (e.g. image decode) completes,
    * without reaching for a module global.
@@ -215,6 +222,14 @@ export interface NodeCaretRect {
   readonly x: number;
   readonly y: number;
   readonly height: number;
+  /**
+   * Set when the point sits in content the block has scrolled out of sight
+   * sideways (a table column past the window's edge): `x` is then pinned to
+   * that edge of what shows. Core draws no caret there — the local one is
+   * revealed as it moves (see {@link Node.revealSideways}) — but marks a
+   * peer's with an edge indicator, so a collaborator is never lost to scroll.
+   */
+  readonly offscreen?: "left" | "right";
 }
 
 /** An axis-aligned rect in the caller's coordinate space. */
@@ -251,6 +266,15 @@ export interface NodeActivateCtx {
 export interface NodeActivation {
   readonly key: string;
   readonly data?: unknown;
+}
+
+/**
+ * Context for the sideways-scroll hooks ({@link Node.canScrollSideways} and
+ * friends): the block's layout inputs plus the live state, which is where a
+ * node keeps its scroll offset (`ui.nodeViewState`).
+ */
+export interface NodeScrollCtx extends NodeLayoutCtx {
+  readonly state: EditorState;
 }
 
 /** Pointer type for node hit regions (mirrors events/regions PointerType). */
@@ -528,6 +552,37 @@ export abstract class Node<B extends NodeBlock = NodeBlock> {
    * mounts it at the returned `rect`. Return `[]` (or omit) for no overlay.
    */
   overlays?(c: NodeRegionCtx): readonly NodeOverlay[];
+
+  // ── Sideways scroll ────────────────────────────────────────────────────────
+  // The page only scrolls up and down. A block that can be wider than the page
+  // (a table with many columns) keeps its own sideways offset — usually in
+  // `ui.nodeViewState[block.id]`, so it stays on this device and never syncs —
+  // and the engine routes the sideways gestures to it: a sideways trackpad
+  // swipe or Shift+wheel, a sideways finger drag and its fling. The node owns
+  // the offset, its paint, and its hit-testing; the engine only asks.
+
+  /**
+   * Optional: whether the block has content past its sides right now. A touch
+   * that starts on such a block owns its gesture (the host must not take a
+   * sideways drag over it for a page-level swipe).
+   */
+  canScrollSideways?(c: NodeScrollCtx): boolean;
+
+  /**
+   * Optional: scroll the block's content sideways by `deltaX` px (positive
+   * reveals more on the right). Return the next state when the content moved,
+   * or `null` when there is no room that way — the gesture then falls through
+   * to the page.
+   */
+  scrollSideways?(c: NodeScrollCtx, deltaX: number): EditorState | null;
+
+  /**
+   * Optional: scroll so a caret at `point` (a {@link ContentPoint} this node
+   * owns) can be seen. Called after the local caret moves, from any source — a
+   * key, a click, a command — and when a peer's out-of-view indicator is tapped
+   * to jump to them. Return `null` when it already shows.
+   */
+  revealSideways?(c: NodeScrollCtx, point: ContentPoint): EditorState | null;
 
   /**
    * Optional: when the user activates (clicks/taps) this block in edit mode, the

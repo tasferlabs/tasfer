@@ -191,6 +191,38 @@ bus.registerState(EXIT_BLOCK, (state) => {
 
 A selected text range has already been deleted by the time your handler runs, so it only ever sees a caret.
 
+<h3 id="expand-selection">Expand selection</h3>
+
+Expand selection (⌃⇧⌘→ on Apple, Shift+Alt+→ elsewhere) grows the selection one step per press, and shrink (← with the same modifiers) steps back. The engine's own steps are word → whole block → whole document. A node with structure of its own adds steps in front by claiming `EXPAND_SELECTION_STEP`: list every range it would ever select around the current one, and `nextEnclosingRange` picks the smallest that is wider. Return nothing once your block is selected whole, so the engine's next step takes the document. Shrink needs nothing from you: the engine remembers the steps it took.
+
+```ts
+import {
+  EXPAND_SELECTION_STEP,
+  nextEnclosingRange,
+  selectFlatRange,
+} from "@tasfer/editor";
+
+bus.registerState(
+  EXPAND_SELECTION_STEP,
+  (state) => {
+    const caret = state.document.cursor?.position;
+    const block = caret && state.document.page.blocks[caret.blockIndex];
+    if (block?.type !== "callout") return;
+    const current = { from: caret.textIndex, to: caret.textIndex }; // or the selected range
+    const next = nextEnclosingRange(myRanges(block, current), current);
+    if (!next) return; // selected whole: let the engine take the document
+    return {
+      state: selectFlatRange(state, caret.blockIndex, next.from, next.to),
+      ops: [],
+      handled: true,
+    };
+  },
+  50,
+);
+```
+
+A node with a nested caret selects through its own content selection instead of `selectFlatRange`; the built-in math, code and table nodes are worked examples of each.
+
 <h2 id="strings">Localized strings live on the node</h2>
 
 A node owns the canvas strings it paints — status labels, prompts — as a `strings` catalog of English defaults. The editor ships no i18n library; a localized host overrides per type via `theme.nodeStrings`. Read them inside `draw` with the protected `str(state, key)` helper. (The core image node and the opt-in math node own their labels exactly this way — they're no longer in a global string table.)
@@ -253,6 +285,55 @@ editor.host.collectOverlays().forEach((o) => {
   a vanilla-DOM host, or none at all. It's the seam the core image and opt-in
   math popovers are migrating onto.
 </Callout>
+
+<h2 id="sideways-scroll">Content wider than the page</h2>
+
+The page scrolls up and down only. A block that can be wider than the page — the
+table package's grid, once it has too many columns — keeps its own sideways
+offset, and the engine routes the sideways gestures to it: a sideways trackpad
+swipe or Shift + wheel, a finger drag that starts out mostly sideways (and the
+fling after it). Three optional methods opt a node in:
+
+```ts
+class WideNode extends Node<WideBlock> {
+  // Is there content past the block's sides right now?
+  canScrollSideways(c) {
+    return contentWidth(this.layout(c)) > c.maxWidth;
+  }
+
+  // Move by deltaX px (positive shows more on the right). Return null at the
+  // end it is pushed toward, so the gesture falls through to the page.
+  scrollSideways(c, deltaX) {
+    const max = contentWidth(this.layout(c)) - c.maxWidth;
+    const now = scrollOf(c.state, c.block.id);
+    const next = Math.max(0, Math.min(max, now + deltaX));
+    return next === now ? null : withScroll(c.state, c.block.id, next);
+  }
+
+  // A caret at `point`, a ContentPoint this node owns, should show — the
+  // local caret moved there, or a peer's edge marker was tapped. Scroll so it
+  // shows, or return null when it already does.
+  revealSideways(c, point) {
+    /* … */
+  }
+}
+```
+
+Keep the offset in `c.state.ui.nodeViewState[c.block.id]`: it is this device's
+view of the block, like the page scroll, so it never belongs in the document or
+on the wire, and a change to it repaints the block. The node owns everything
+else — painting through the offset, clipping at the page edge, and mapping
+clicks and carets through it. For a point scrolled out of sight,
+`contentCaretRect` should not return `null`: return the rect with `x` pinned to
+the window edge it is past and `offscreen: "left"` or `"right"`. Core then
+draws no local caret there, and marks a collaborator's with a pill at that edge
+on their row — tapping it calls `revealSideways` with their point — so a peer
+working in a hidden column is never invisible. `paint` also gets `c.viewport` (in the same space
+as `c.origin`), so chrome like a scrollbar can stay on screen while the rest of
+the block runs past an edge. A touch that starts on a block whose
+`canScrollSideways` is true counts as a gesture the editor owns (see
+`editor.host.ownsPointerGesture()`), so a host's page-level swipe does not take
+it.
 
 <h2 id="mark">Define a mark</h2>
 

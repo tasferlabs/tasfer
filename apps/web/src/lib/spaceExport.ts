@@ -33,6 +33,12 @@ import { appDataSchema } from "@/appDataSchema";
 export interface ExportSpace {
   id: string;
   name: string;
+  /**
+   * Export only this page and its subpages instead of the whole space. It
+   * still sits inside the space folder, so the bundle imports the same way a
+   * full space export does.
+   */
+  rootPage?: PageListItem;
 }
 
 /** One file in the bundle: a path relative to the archive root, and its bytes. */
@@ -292,9 +298,11 @@ export async function buildSpaceExport({
   const trees: Array<{ space: ExportSpace; pages: PageListItem[] }> = [];
   for (const space of spaces) {
     stop();
-    const pages = await perf.step("listPages", `space=${space.id} root`, () =>
-      source.listPages(space.id, null),
-    );
+    const pages = space.rootPage
+      ? [space.rootPage]
+      : await perf.step("listPages", `space=${space.id} root`, () =>
+          source.listPages(space.id, null),
+        );
     trees.push({ space, pages });
     total += pages.length;
   }

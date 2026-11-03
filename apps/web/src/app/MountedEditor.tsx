@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
 import { getPlatform } from "@/platform";
+import type { PageFrontier } from "@/platform/types";
 import { getBridge } from "@/platform/bridge";
 import {
   CLOSE_CONTEXT_MENU,
@@ -970,7 +971,7 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
   // Resting state is a caption, not a control: no border, no background. The
   // chevron stays put, though — it is the only thing that says the language can
   // be changed at all, and a label that only reveals itself on hover is a
-  // control nobody finds. Hover just promotes the text to foreground. The
+  // control nobody finds. Hover promotes text and chevron to foreground. The
   // `[&>…]` overrides retune the shared combobox trigger (h-9, full width, 14px
   // text, bordered) to band scale.
   const triggerClassName = cn(
@@ -982,7 +983,9 @@ const CodeLanguageOverlay: ComponentType<NodeOverlayProps> = ({
     "h-auto w-auto cursor-pointer justify-end gap-0.5 rounded border-0 bg-transparent dark:bg-transparent px-1 py-0 shadow-none",
     "text-muted-foreground transition-colors hover:text-foreground focus-within:ring-0",
     "[&>span]:flex-none [&>span]:text-[11px] [&>span]:leading-none",
-    "[&>svg]:size-3",
+    // The shared trigger pins its chevron to `text-muted-foreground`; inherit
+    // instead so the arrow lights up with the label on hover.
+    "[&>svg]:size-3 [&>svg]:text-current",
   );
 
   // Shown wherever the picker is not reachable: a readonly document, and mobile
@@ -1348,6 +1351,11 @@ function loadCursorPosition(pageId: string): StoredCursorPosition | null {
 
 interface MountedEditorProps {
   snapshot: Block[];
+  /**
+   * The op log's frontier when `snapshot` was read (`PageFull.frontier`).
+   * Editable mounts need it — see `UseCollaborativeDocOptions.frontier`.
+   */
+  frontier?: PageFrontier;
   className?: string;
   /** Called when content changes locally (for saving). */
   onContentChange?: (blocks: Block[]) => void;
@@ -1504,6 +1512,23 @@ function postKeyboardToolbar(model: NativeMobileToolbarModel): void {
   ).webkit?.messageHandlers?.KeyboardToolbar?.postMessage(model);
 }
 
+/** Tell the native `KeyboardCaretMoved` handler that the editor moved the caret
+ * or deleted text with JavaScript. WebKit refreshes the keyboard's suggestion
+ * bar only after moves and edits it made itself, so without this a tap or a
+ * Backspace back onto an earlier word keeps the old suggestions. No-op off iOS
+ * / when the handler isn't registered. */
+function postKeyboardCaretMoved(): void {
+  (
+    window as {
+      webkit?: {
+        messageHandlers?: {
+          KeyboardCaretMoved?: { postMessage(m: unknown): void };
+        };
+      };
+    }
+  ).webkit?.messageHandlers?.KeyboardCaretMoved?.postMessage(null);
+}
+
 // The accessory enable flag (`postKeyboardAccessoryFocus`) lives in
 // `mobileToolbarSuppression.ts`, shared with compact surfaces (TitleEditor)
 // that disable the accessory while they hold focus.
@@ -1568,6 +1593,7 @@ function CollaborativeEditor(props: MountedEditorProps) {
     pageId: props.pageId,
     spaceId: props.spaceId,
     snapshot: props.snapshot,
+    frontier: props.frontier,
     readonly: props.readonly ?? false,
     onSyncStateChange: props.onSyncStateChange,
   });
@@ -2468,9 +2494,42 @@ function PageEditor({
         setKeyboardOpen(false);
       }
     });
+    // iOS native: the keyboard only re-reads the text around the caret after an
+    // edit or move it made itself, so it never hears of the editor's own: a
+    // caret move with no content change (a canvas tap, an arrow key), or a
+    // Backspace/Delete, which the editor applies itself and then rewrites the
+    // input surface. Backing into the previous word then shows no suggestions
+    // for it. Tell native once the editor has written the new text and caret
+    // into its input surface (two frames, then a task, so WebKit has also
+    // handed them to the native side), coalescing a burst into one notice.
+    let caretNotice = 0;
+    const scheduleCaretNotice = () => {
+      const token = ++caretNotice;
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() =>
+          setTimeout(() => {
+            if (token === caretNotice) postKeyboardCaretMoved();
+          }, 0),
+        ),
+      );
+    };
+    const offCaretMove = IS_IOS_NATIVE
+      ? editor?.on("selectionchange", (s) => {
+          if (s.isFocused && s.selection.empty) scheduleCaretNotice();
+        })
+      : undefined;
+    // Capture phase: the editor stops the key's propagation at its surface.
+    const wrapper = IS_IOS_NATIVE ? wrapperRef.current : null;
+    const onDeleteKey = (e: KeyboardEvent) => {
+      if (e.key === "Backspace" || e.key === "Delete") scheduleCaretNotice();
+    };
+    wrapper?.addEventListener("keydown", onDeleteKey, true);
     return () => {
       offFocus?.();
       offBlur?.();
+      offCaretMove?.();
+      wrapper?.removeEventListener("keydown", onDeleteKey, true);
+      caretNotice++;
       // The editor is going away; never leave the accessory enabled for whatever
       // input gains focus next (e.g. on another page with no editor mounted).
       if (IS_IOS_NATIVE) postKeyboardAccessoryFocus(false);
@@ -3203,15 +3262,20 @@ function PageEditor({
         "offset" in selectionRange
           ? (selectionRange.offset ?? 0)
           : null);
+      // A tree caret is in math by definition — a display equation, or an
+      // inline chip's own formula. Its offset is formula-local, so it must not
+      // be probed against the host block's flat marks: that only matched by
+      // coincidence and lost the math row as the formula grew past one char.
       const inlineMathChip =
-        caretOffset !== null && activeBlock != null
+        treeMath === null && caretOffset !== null && activeBlock != null
           ? inlineMathChipAt(
               mounted.editor.query.marks,
               activeBlock.id,
               caretOffset,
             )
           : undefined;
-      const insideInlineMath = inlineMathChip !== undefined;
+      const insideInlineMath =
+        treeMath !== null || inlineMathChip !== undefined;
       const canOpenMathCommands =
         (snapshot.selection.empty || treeMath !== null) &&
         (rawBlockType === "math" || insideInlineMath);

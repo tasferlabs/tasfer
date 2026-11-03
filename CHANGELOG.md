@@ -1,3 +1,15 @@
+# 2026-11-03
+
+- Import a folder of notes, with subfolders as nested pages, and export a page with its subpages as a ZIP
+- Grow or shrink the selection a step at a time with ⌃⇧⌘→ / ← (Shift+Alt+→ / ← on Windows and Linux)
+- Wide tables and code blocks scroll sideways instead of being cut off
+- Date fields take 12-hour times, and a whole date can be copied and pasted
+- Code pasted into a code block stays exactly as pasted
+- Spaces keep the same order on every device, and more settings sync between your devices
+- An optional error log in Settings, off by default
+- Fixed equations and recent edits that could go missing after reopening a page
+- Bug fixes and other UI changes
+
 # 2026-09-20
 
 - Pause syncing with one of your devices, or with someone you share a space with; the choice is private to you, follows you to your other devices, and is never told to them

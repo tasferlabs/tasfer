@@ -148,6 +148,8 @@ direction.
 
 <Callout kind="note" title="One process at a time.">Every command opens the same database. Stop the running host before linking, so pairing is not rewriting an identity a replica is mid-sync under.</Callout>
 
+<Callout kind="note" title="Codes check the clock.">A code expires at a fixed time, stamped by the device that made it and checked by the device that reads it. If the host's clock is off by more than the code's lifetime, every code arrives already expired. `link` and `invite` compare the clock with the relay's and warn when it is a minute or more off. Turn on automatic time sync on that machine.</Callout>
+
 <h2 id="commands">Commands</h2>
 
 <PropsTable cols={["Command", "What it does"]} rows={[

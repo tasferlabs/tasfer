@@ -5,6 +5,7 @@ import { AddSpaceDialog } from "../components/AddSpaceDialog";
 import { BottomToolDock } from "../components/BottomToolDock";
 import { ConfirmationDialogProvider } from "../components/ConfirmationDialog";
 import { EditGroupDialog } from "../components/EditGroupDialog";
+import { ExportDialogProvider } from "../components/ExportDialogProvider";
 import { ImportDialogProvider } from "../components/ImportDialogProvider";
 import { InviteMembersDialog } from "../components/InviteMembersDialog";
 import { DatabaseLockedScreen } from "../components/DatabaseLockedScreen";
@@ -75,11 +76,13 @@ export default function Layout() {
                           <ConfirmationDialogProvider>
                             <UnsavedChangesDialogProvider>
                               <ImportDialogProvider>
-                                <PeerVersionProvider>
-                                  <ActionCenterProvider>
-                                    <LayoutInner />
-                                  </ActionCenterProvider>
-                                </PeerVersionProvider>
+                                <ExportDialogProvider>
+                                  <PeerVersionProvider>
+                                    <ActionCenterProvider>
+                                      <LayoutInner />
+                                    </ActionCenterProvider>
+                                  </PeerVersionProvider>
+                                </ExportDialogProvider>
                               </ImportDialogProvider>
                             </UnsavedChangesDialogProvider>
                           </ConfirmationDialogProvider>

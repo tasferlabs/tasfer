@@ -9,12 +9,14 @@
  * and a highlight land on the glyphs `paint` draws, mixed-direction lines
  * included.
  *
- * The table always fits the page width: there is no horizontal scroll in the
- * viewport (it scrolls vertically only), so a grid that overflowed would simply
- * be unreachable. Columns therefore split the available width evenly, except
- * where someone has dragged an edge — a stored width is the only thing that
- * makes one column wider than another. Text has no say in it: it wraps inside
- * whatever width its column has.
+ * A table fills the page width — until its columns would average narrower than
+ * `overflowColumnWidth`, or someone drags its right edge out past the page.
+ * Past that the grid is drawn wider than the page and the table scrolls
+ * sideways (see `./scroll`), rather than wrapping every cell into a tall
+ * sliver. Either way the columns split the grid's width evenly,
+ * except where someone has dragged an edge — a stored width is the only thing
+ * that makes one column wider than another. Text has no say in it: it wraps
+ * inside whatever width its column has.
  */
 
 import {
@@ -24,6 +26,7 @@ import {
   readTable,
   type TableAlign,
   type TableView,
+  tableWidth,
 } from "./structured";
 import type { FontFamily } from "@tasfer/editor/fonts";
 import { getFontMetrics } from "@tasfer/editor/fonts";
@@ -110,10 +113,17 @@ export interface TableRowLayout {
 export interface TableLayout extends NodeLayout {
   readonly columns: readonly TableColumnLayout[];
   readonly rows: readonly TableRowLayout[];
+  /**
+   * Left edge of the grid inside the block: 0, or negative by however far the
+   * table is scrolled sideways (see {@link scrolledTableLayout}). Every column,
+   * cell and line x is already moved by the same amount.
+   */
+  readonly gridX: number;
   /** Top edge of the grid inside the block (below the outer flow margin). */
   readonly gridTop: number;
   /** The grid's own height, excluding the outer flow margins. */
   readonly gridHeight: number;
+  /** The grid's full width: the page width, or more when it scrolls sideways. */
   readonly gridWidth: number;
   readonly style: TableBlockStyle;
   readonly fontMetrics: FontMetrics;
@@ -209,9 +219,10 @@ function allocate(
  *
  * `minWidth` is the floor no column goes under, a dragged one included — and
  * including a document written on a wide screen and opened on a phone, where
- * the stored fractions scale down with the page. It yields only when the page
- * cannot hold even one floor per column: the columns then share what there is,
- * since a grid wider than the viewport could never be scrolled to.
+ * the stored fractions scale down with the grid. It yields only when the grid
+ * cannot hold even one floor per column: the columns then share what there is.
+ * The grid a table is given ({@link tableGridWidth}) is wide enough that this
+ * does not happen with the default theme.
  *
  * Widths are rounded to whole pixels with the rounding error carried forward,
  * so the columns always sum to exactly `available` on every peer.
@@ -257,6 +268,37 @@ export function fitColumnWidths(
   return widths;
 }
 
+/**
+ * How wide a table of `columnCount` columns is drawn on a page `maxWidth`
+ * wide: the page width, or — when that would leave the columns narrower than
+ * `overflowColumnWidth` on average — wide enough that it does not, with the
+ * rest reached by scrolling sideways.
+ *
+ * An average, not a per-column minimum, so whether a table scrolls depends
+ * only on how many columns it has and how wide the page is, never on the text
+ * in it or on a column width someone dragged: dragging an interior edge trades
+ * width between two columns and must not make the whole table jump between
+ * fitting and scrolling.
+ *
+ * `width` is the table's own stored width in page widths (`tableWidth`), set by
+ * dragging its right edge. It only ever widens: a table is never drawn narrower
+ * than the automatic width above.
+ */
+export function tableGridWidth(
+  columnCount: number,
+  maxWidth: number,
+  style: Pick<TableBlockStyle, "overflowColumnWidth">,
+  width: number | null = null,
+): number {
+  const automatic = Math.max(
+    maxWidth,
+    Math.round(columnCount * style.overflowColumnWidth),
+  );
+  return width === null
+    ? automatic
+    : Math.max(automatic, Math.round(width * maxWidth));
+}
+
 /** Lay out a whole table document at `maxWidth`. */
 export function layoutTable(
   document: StructuredDocument | undefined,
@@ -288,6 +330,7 @@ export function layoutTable(
     maxWidth: ctx.maxWidth,
     columns: [],
     rows: [],
+    gridX: 0,
     gridTop: 0,
     gridHeight: 0,
     gridWidth: 0,
@@ -339,9 +382,15 @@ export function layoutTable(
   // No pass over the cells to size the columns: the grid is split evenly unless
   // a column carries a width someone dragged it to. Cell text only decides how
   // it wraps inside the width its column already has.
-  const widths = fitColumnWidths(
+  const gridWidth = tableGridWidth(
     view.columns.length,
     ctx.maxWidth,
+    style,
+    tableWidth(view.root),
+  );
+  const widths = fitColumnWidths(
+    view.columns.length,
+    gridWidth,
     view.columns.map(columnWidth),
     style.minColumnWidth,
   );
@@ -442,9 +491,10 @@ export function layoutTable(
     maxWidth: ctx.maxWidth,
     columns,
     rows,
+    gridX: 0,
     gridTop: style.marginTop,
     gridHeight,
-    gridWidth: ctx.maxWidth,
+    gridWidth,
     style,
     fontMetrics,
     lineHeight: rowLineHeight,
@@ -508,6 +558,52 @@ export function previewColumnMove(
   return {
     ...layout,
     columns,
+    rows,
+    cells,
+    lines: cells.flatMap((cell) => cell.lines),
+  };
+}
+
+/**
+ * How far a table can scroll sideways: the part of the grid past the page's
+ * right edge, or 0 for a table that fits.
+ */
+export function tableScrollRange(layout: TableLayout): number {
+  return Math.max(0, layout.gridWidth - layout.maxWidth);
+}
+
+/**
+ * The same layout scrolled `scrollX` px sideways: every column, cell and line
+ * moved left by that much, and `gridX` saying where the grid now starts.
+ *
+ * Applied on top of the canonical (memoized) layout rather than inside it, so
+ * scrolling never re-wraps a cell, and every pass that reads the layout — the
+ * paint, the click, the caret, the handles — sees the same moved geometry by
+ * construction instead of each subtracting the offset on its own.
+ */
+export function scrolledTableLayout(
+  layout: TableLayout,
+  scrollX: number,
+): TableLayout {
+  if (scrollX === 0) return layout;
+  const moveCell = (cell: TableCellLayout): TableCellLayout => ({
+    ...cell,
+    x: cell.x - scrollX,
+    textX: cell.textX - scrollX,
+    lines: cell.lines.map((line) => ({ ...line, x: line.x - scrollX })),
+  });
+  const rows = layout.rows.map((row) => ({
+    ...row,
+    cells: row.cells.map(moveCell),
+  }));
+  const cells = rows.flatMap((row) => row.cells);
+  return {
+    ...layout,
+    gridX: layout.gridX - scrollX,
+    columns: layout.columns.map((column) => ({
+      ...column,
+      x: column.x - scrollX,
+    })),
     rows,
     cells,
     lines: cells.flatMap((cell) => cell.lines),

@@ -19,15 +19,17 @@ import {
   type ISearchPage,
 } from "../../api/pages.api";
 import {
+  OWN_PREF_KEYS,
+  useOwnPref,
+  useOwnPrefsStore,
+} from "@/app/contexts/OwnPrefsContext";
+import {
   forgetParent,
   getRecentParents,
+  PARENT_USAGE_PREF_PREFIX,
   type RecentParent,
 } from "@/lib/parentUsage";
-import {
-  getRememberedChoice,
-  rememberChoice,
-  REMEMBER_KEYS,
-} from "@/lib/rememberedChoice";
+import { usePrefEntries } from "@/lib/usePrefEntries";
 import { cn } from "@/lib/utils";
 import { TitlePreview } from "../../TitlePreview";
 import style from "./CalendarPage.module.css";
@@ -61,9 +63,10 @@ type TagRowModel = {
  * A Google-Calendar-style drill-down parent picker for the event draft. The
  * draft's parent page is chosen from horizontally-scrollable rows of "tags":
  *
- *   • A "Recent" row leads with the parents this device files events under most
- *     (see `@/lib/parentUsage`), so the page a run of events belongs under is
- *     one tap away instead of a drill from the top every time.
+ *   • A "Recent" row leads with the parents this person files events under
+ *     most, on any of their devices (see `@/lib/parentUsage`), so the page a
+ *     run of events belongs under is one tap away instead of a drill from the
+ *     top every time.
  *   • Row 0 lists the space's top-level pages.
  *   • Tapping a tag selects it as the parent — any page can hold sub-pages, so a
  *     branch is as valid a choice as a leaf.
@@ -118,40 +121,40 @@ export function DraftTagPicker({
   );
 
   // Whether the shortcut row is showing. Folding it away is a standing choice
-  // about this device's picker, not one draft's, so it outlives the draft.
-  const [recentOpen, setRecentOpen] = useState(
-    () =>
-      getRememberedChoice(REMEMBER_KEYS.recentParents, ["open", "closed"]) !==
-      "closed",
-  );
-  const toggleRecent = useCallback(() => {
-    setRecentOpen((open) => {
-      rememberChoice(REMEMBER_KEYS.recentParents, open ? "closed" : "open");
-      return !open;
-    });
-  }, []);
+  // about how this person files, not one draft's, so it outlives the draft and
+  // follows them to their other devices.
+  const recentFold = useOwnPref(OWN_PREF_KEYS.calendarRecentParentsOpen, true);
+  const recentOpen = recentFold.value;
+  const toggleRecent = () => recentFold.set(!recentOpen);
 
   // The tree folds the same way, for the opposite habit: someone who files from
   // the shortcuts (or from search) can put the whole drill-down away.
-  const [treeOpen, setTreeOpen] = useState(
-    () =>
-      getRememberedChoice(REMEMBER_KEYS.parentTree, ["open", "closed"]) !==
-      "closed",
-  );
-  const toggleTree = useCallback(() => {
-    setTreeOpen((open) => {
-      rememberChoice(REMEMBER_KEYS.parentTree, open ? "closed" : "open");
-      return !open;
-    });
-  }, []);
+  const treeFold = useOwnPref(OWN_PREF_KEYS.calendarParentTreeOpen, true);
+  const treeOpen = treeFold.value;
+  const toggleTree = () => treeFold.set(!treeOpen);
 
   // The shortcut row is offered for a NEW page only. Re-parenting an existing
   // one must never offer a page inside its own subtree — that would cut the
   // subtree loose — and a stored shortcut carries no live ancestor chain to
   // prove it isn't one. The drill rows get that for free by hiding `excludeId`.
+  const prefs = useOwnPrefsStore();
+  // Watched so the row re-ranks when the stats land from the database or move
+  // on another of the person's devices.
+  const usageEntries = usePrefEntries(
+    prefs,
+    `${PARENT_USAGE_PREF_PREFIX}${spaceId ?? ""}.`,
+  );
+  // Shortcuts found to point at a deleted page. This device can only drop them
+  // from its own tally; another device's copy stays until that device notices,
+  // so they are skipped here to give their slots to live pages meanwhile.
+  const [gone, setGone] = useState<ReadonlySet<string>>(() => new Set());
   const recents = useMemo(
-    () => (excludeId ? [] : getRecentParents(spaceId, { limit: RECENT_LIMIT })),
-    [spaceId, excludeId],
+    () =>
+      excludeId
+        ? []
+        : getRecentParents(prefs, spaceId, { limit: RECENT_LIMIT, skip: gone }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `usageEntries` is the trigger
+    [prefs, spaceId, excludeId, gone, usageEntries],
   );
 
   // One query per drill row, plus one per distinct shortcut parent: a shortcut
@@ -185,13 +188,14 @@ export function DraftTagPicker({
   // known yet", not "deleted".
   useEffect(() => {
     if (!spaceId) return;
-    for (const r of recents) {
+    const dead = recents.filter((r) => {
       const siblings = childrenOf.get(r.parentId);
-      if (siblings && !siblings.some((p) => p.id === r.id)) {
-        forgetParent(spaceId, r.id);
-      }
-    }
-  }, [spaceId, recents, childrenOf]);
+      return siblings && !siblings.some((p) => p.id === r.id);
+    });
+    if (dead.length === 0) return;
+    for (const r of dead) forgetParent(prefs, spaceId, r.id);
+    setGone((prev) => new Set([...prev, ...dead.map((r) => r.id)]));
+  }, [prefs, spaceId, recents, childrenOf]);
 
   const recentTags: Tag[] = useMemo(() => {
     const tags: Tag[] = [];

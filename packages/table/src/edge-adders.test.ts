@@ -91,8 +91,10 @@ describe("edge strip geometry", () => {
     const gridBottom = ORIGIN.y + layout.gridTop + layout.gridHeight;
     const midY = ORIGIN.y + layout.gridTop + layout.gridHeight / 2;
 
-    expect(withinEdgeBox(right.hit, { x: gridRight + 2, y: midY })).toBe(true);
-    // One pixel inside the last column still belongs to the cell.
+    expect(withinEdgeBox(right.hit, { x: gridRight + 6, y: midY })).toBe(true);
+    // Right at the border is the grab band that widens the table, and one pixel
+    // inside the last column still belongs to the cell.
+    expect(withinEdgeBox(right.hit, { x: gridRight + 2, y: midY })).toBe(false);
     expect(withinEdgeBox(right.hit, { x: gridRight - 1, y: midY })).toBe(false);
     expect(
       withinEdgeBox(bottom.hit, { x: ORIGIN.x + 10, y: gridBottom + 2 }),
@@ -123,7 +125,7 @@ describe("edge strip region", () => {
   it("declines a touch, which has no hover to reveal the strip with", () => {
     const state = stateOf();
     const layout = layoutOf(state);
-    const p = { x: ORIGIN.x + layout.gridWidth + 4, y: ORIGIN.y + 20 };
+    const p = { x: ORIGIN.x + layout.gridWidth + 8, y: ORIGIN.y + 20 };
 
     expect(edgeRegion(state).hitTest(p, "mouse")).not.toBeNull();
     expect(edgeRegion(state).hitTest(p, "touch")).toBeNull();
@@ -136,7 +138,7 @@ describe("edge strip region", () => {
       ...state,
       ui: { ...state.ui, isReadonlyBase: true },
     } as EditorState;
-    const p = { x: ORIGIN.x + layout.gridWidth + 4, y: ORIGIN.y + 20 };
+    const p = { x: ORIGIN.x + layout.gridWidth + 8, y: ORIGIN.y + 20 };
 
     expect(edgeRegion(readonly).hitTest(p, "mouse")).toBeNull();
   });
@@ -145,7 +147,7 @@ describe("edge strip region", () => {
     const state = stateOf();
     const layout = layoutOf(state);
     const hit = edgeRegion(state).hitTest(
-      { x: ORIGIN.x + layout.gridWidth + 4, y: ORIGIN.y + 20 },
+      { x: ORIGIN.x + layout.gridWidth + 8, y: ORIGIN.y + 20 },
       "mouse",
     )!;
     const hover = edgeRegion(state).hover!(hit)!;
@@ -174,7 +176,7 @@ describe("clicking an edge strip", () => {
     const region = edgeRegion(state);
     const p =
       edge === "right"
-        ? { x: ORIGIN.x + layout.gridWidth + 4, y: ORIGIN.y + 20 }
+        ? { x: ORIGIN.x + layout.gridWidth + 8, y: ORIGIN.y + 20 }
         : {
             x: ORIGIN.x + 20,
             y: ORIGIN.y + layout.gridTop + layout.gridHeight + 4,

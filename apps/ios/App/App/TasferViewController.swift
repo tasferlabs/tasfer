@@ -285,6 +285,7 @@ class TasferViewController: CAPBridgeViewController {
         userContentController.add(storageBridge, name: "Storage")
         userContentController.add(keyboardToolbarBridge, name: "KeyboardToolbar")
         userContentController.add(keyboardToolbarBridge, name: "KeyboardToolbarFocus")
+        userContentController.add(keyboardToolbarBridge, name: "KeyboardCaretMoved")
         userContentController.add(lifecycleBridge, name: "Lifecycle")
 
         // Store references so they aren't deallocated

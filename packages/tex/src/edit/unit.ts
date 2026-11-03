@@ -609,6 +609,45 @@ export function resolveSelectionRange(
 }
 
 /**
+ * Every range expand-selection may take around the source range `[from, to)`,
+ * in no particular order: the unit beside a collapsed caret, then for each
+ * nesting level the caret sits in, the slot's content (a numerator, a cell) and
+ * the construct owning it (the whole `\frac`), up to the whole formula. The
+ * caller takes the smallest one that strictly contains the current range, so
+ * each press climbs exactly one level. Ranges that do not contain `[from, to)`
+ * are harmless — they are never the next rung.
+ */
+export function enclosingSelectionRanges(
+  latex: string,
+  from: number,
+  to: number,
+): Array<{ readonly start: number; readonly end: number }> {
+  const ranges = [{ start: 0, end: latex.length }];
+  const root = parse(latex);
+  if (root.type !== "ord") return ranges;
+  for (const offset of from === to ? [from] : [from, to]) {
+    for (const level of levelsAt(root, offset)) {
+      ranges.push({ start: level.start, end: level.end });
+      if (level.construct) {
+        ranges.push({
+          start: level.construct.span.start,
+          end: level.construct.span.end,
+        });
+      }
+    }
+  }
+  if (from === to) {
+    // The unit beside the caret, preferring a construct on either side the way
+    // a double-click does, else the one after it, else the one before.
+    const before = unitBefore(latex, from);
+    const after = unitAfter(latex, from);
+    const unit = [before, after].find((u) => u?.isConstruct) ?? after ?? before;
+    if (unit) ranges.push({ start: unit.start, end: unit.end });
+  }
+  return ranges;
+}
+
+/**
  * The structural unit a double-click / double-tap at source `offset` selects: the
  * construct under the pointer, whole (see {@link resolveSelection}). The pointer
  * hit-test resolves a click to a glyph EDGE, so the glyph actually under the

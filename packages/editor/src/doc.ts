@@ -91,6 +91,16 @@ export interface CreateDocOptions<
    * paragraph an empty doc otherwise gets.
    */
   ops?: Operation[];
+  /**
+   * The highest clock counter and op-id counter already used in this page's
+   * op log, for a doc created from snapshot `blocks` whose log is `load()`ed
+   * later. Blocks record neither: clocks never appear in them, and the ids
+   * spent on operations themselves (deletes, marks, …) leave no trace. Without
+   * this, an edit made before `load()` can reuse an existing op id — peers
+   * then drop it as already known — and sort before the edits it follows.
+   * Ignored when restoring from `bytes`, which carries both.
+   */
+  frontier?: { clock: number; idCounter: number };
   /** Page id stamped on operations. Defaults to the persisted id or "". */
   pageId?: string;
   /** Stable peer identity. A random one is generated when omitted. */
@@ -336,6 +346,11 @@ export function createDoc<D extends SchemaDefinition = BaseSchemaDefinition>(
     binding.advanceClock({ counter: persisted.clock, peerId: "" });
   } else {
     binding.advanceIdCounter(maxPageIdCounter(initialBlocks));
+    if (options.frontier) {
+      binding.advanceIdCounter(options.frontier.idCounter);
+      maxClockCounter = Math.max(maxClockCounter, options.frontier.clock);
+      binding.advanceClock({ counter: options.frontier.clock, peerId: "" });
+    }
 
     if (options.ops && options.ops.length > 0) {
       const ops = [...options.ops].sort((a, b) => compareHLC(a.clock, b.clock));

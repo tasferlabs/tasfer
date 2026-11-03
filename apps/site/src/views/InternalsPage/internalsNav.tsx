@@ -1,6 +1,7 @@
 import { type ComponentType } from "react";
 
 import * as accessibility from "./pages/accessibility.mdx";
+import * as aiStance from "./pages/ai-stance.mdx";
 import * as compatibility from "./pages/compatibility.mdx";
 import * as crdtCompaction from "./pages/crdt-compaction.mdx";
 import * as ethicalDilemma from "./pages/ethical-dilemma-of-tasfer-and-p2p-networks.mdx";
@@ -62,6 +63,7 @@ export interface InternalNote {
 // slug → module. Slugs are the ./pages filenames without extension.
 const MODULES: Record<InternalNoteSlug, NoteModule> = {
   accessibility,
+  "ai-stance": aiStance,
   compatibility,
   "crdt-compaction": crdtCompaction,
   "ethical-dilemma-of-tasfer-and-p2p-networks": ethicalDilemma,

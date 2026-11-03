@@ -32,6 +32,8 @@ function readCollapsed(store: OwnPrefsStore): string[] {
 
 export interface SpacePrefs {
   toggleCollapsed(id: string): void;
+  /** Uncollapse a space; a no-op when it is already open. */
+  expand(id: string): void;
   /**
    * Move `activeId` so it sits immediately before `beforeSpaceId`, or to the
    * end of the list when `beforeSpaceId` is null. Operates on the full visible
@@ -55,6 +57,15 @@ export function useSpacePrefs(): SpacePrefs {
           collapsed.includes(id)
             ? collapsed.filter((c) => c !== id)
             : [...collapsed, id],
+        );
+      },
+
+      expand: (id) => {
+        const collapsed = readCollapsed(store);
+        if (!collapsed.includes(id)) return;
+        store.set(
+          OWN_PREF_KEYS.spacesCollapsed,
+          collapsed.filter((c) => c !== id),
         );
       },
 
@@ -90,7 +101,8 @@ export function useIsSpaceCollapsed(id: string): boolean {
 /**
  * Spaces sorted by the person's saved order, with any space missing from it
  * (newly created, or just joined) kept in its incoming order at the end so it
- * still appears.
+ * still appears. That incoming order is creation order, the same on every
+ * device (see `spaces.list`), so an unarranged sidebar matches everywhere.
  */
 export function useOrderedSpaces(spaces: ISpace[]): ISpace[] {
   const store = useOwnPrefsStore();

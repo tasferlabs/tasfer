@@ -49,6 +49,17 @@ const flush = async (turns = 10) => {
   for (let i = 0; i < turns; i++) await new Promise((resolve) => setImmediate(resolve));
 };
 
+/**
+ * Yield until `count` sockets exist. A fixed number of turns is not enough on a
+ * slow CI runner, where the crypto threadpool can take longer than ten turns.
+ * Bounded by wall-clock time (Date is not faked), so a real bug still fails.
+ */
+const waitForSockets = async (count: number, timeoutMs = 2_000) => {
+  const deadline = Date.now() + timeoutMs;
+  while (NeverConnectingSocket.instances.length < count && Date.now() < deadline) await flush(1);
+  expect(NeverConnectingSocket.instances).toHaveLength(count);
+};
+
 describe("WebRtcTopic signaling reconnect", () => {
   const realWebSocket = globalThis.WebSocket;
 
@@ -74,8 +85,7 @@ describe("WebRtcTopic signaling reconnect", () => {
     const joined = driver.join(Uint8Array.from({ length: 32 }, () => 0xaa));
 
     // Let deriveAesKey (a real WebCrypto call) settle before the socket exists.
-    await flush();
-    expect(NeverConnectingSocket.instances).toHaveLength(1);
+    await waitForSockets(1);
 
     // Cross the 12s connect deadline: the driver closes the socket, and undici
     // answers with `error` only. join() must not hang on that.
@@ -86,15 +96,12 @@ describe("WebRtcTopic signaling reconnect", () => {
     // First backoff step is 1s. Without a synthesized teardown, no second
     // socket is ever built and the topic is dead for the life of the process.
     await vi.advanceTimersByTimeAsync(1_000);
-    await flush();
-    expect(NeverConnectingSocket.instances).toHaveLength(2);
+    await waitForSockets(2);
 
     // And the backoff keeps going: 2s, then 4s, each after its own timeout.
     await vi.advanceTimersByTimeAsync(12_000 + 2_000);
-    await flush();
-    expect(NeverConnectingSocket.instances).toHaveLength(3);
+    await waitForSockets(3);
     await vi.advanceTimersByTimeAsync(12_000 + 4_000);
-    await flush();
-    expect(NeverConnectingSocket.instances).toHaveLength(4);
+    await waitForSockets(4);
   });
 });

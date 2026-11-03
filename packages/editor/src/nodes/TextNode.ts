@@ -25,6 +25,7 @@
 import {
   batchChars,
   currentFontFamily,
+  expandTabs,
   type FontFamily,
   getFontStack,
   measureTextUpToIndex,
@@ -783,7 +784,8 @@ function renderLine(
       }
     }
 
-    const textWidth = ctx.measureText(batch.text).width;
+    const drawn = expandTabs(batch.text);
+    const textWidth = ctx.measureText(drawn).width;
     const visualX = currentX;
 
     // Background chip (code).
@@ -804,7 +806,7 @@ function renderLine(
     }
 
     ctx.fillStyle = style.color ?? textStyle.color;
-    ctx.fillText(batch.text, visualX, y);
+    ctx.fillText(drawn, visualX, y);
 
     // Underline (link).
     if (style.underline) {

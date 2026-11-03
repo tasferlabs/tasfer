@@ -382,9 +382,13 @@ export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
         borderRadius: 6,
         cellPaddingX: 10,
         cellPaddingY: 7,
-        // ~3 characters plus both paddings: narrow enough that an 8-column
-        // table still fits a phone, wide enough to stay a column.
+        // ~3 characters plus both paddings: the narrowest a dragged column
+        // can go and still read as a column.
         minColumnWidth: 48,
+        // ~12 characters plus both paddings. Narrower than this on average and
+        // the table scrolls sideways rather than wrapping every cell into a
+        // tall sliver — on a phone that is anything past two or three columns.
+        overflowColumnWidth: 120,
         activeCellBackgroundColor: t.muted,
         // The accent already means "live handle" elsewhere (the quote rule, the
         // checked box), and 2px is the thinnest band that still reads as a grip

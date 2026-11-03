@@ -27,6 +27,7 @@ import { REGION_DRAG_START } from "../action-bus";
 import type {
   EditorState,
   Position,
+  RegionHoverCursor,
   RegionHoverState,
   ViewportState,
   VisibleBlockRange,
@@ -90,6 +91,11 @@ export interface RegionDragSpec<H = unknown> {
    */
   activationIntensity?: "light" | "medium" | "heavy";
   /**
+   * Mouse only: the cursor while this drag holds the pointer. Without it, the
+   * region's hover cursor from the press stays for the length of the drag.
+   */
+  cursor?: RegionHoverCursor;
+  /**
    * `hit` is the payload this drag's region returned from `hitTest` (typed `H`
    * when the region is built via {@link import("../rendering/nodes/Node").hitRegion};
    * `unknown` for the type-erased event-layer registry). Return null to decline —
@@ -119,6 +125,13 @@ export interface RegionDragSpec<H = unknown> {
     scrollDelta: number,
     ctx: RegionCtx,
   ): EditorState;
+  /**
+   * Optional: called once a frame for as long as this drag holds the pointer,
+   * with where the pointer was last seen (canvas coords) — for a drag that keeps
+   * acting while the pointer rests, e.g. a table edge held past the page's edge
+   * that keeps the table growing. `null` changes nothing.
+   */
+  onFrame?(p: RegionPoint, ctx: RegionCtx): EditorState | null;
 }
 
 export interface Region {
@@ -243,7 +256,7 @@ export function beginRegionInteraction(
     }
     const result = region.drag.onStart(hit, p, ctx);
     if (result) {
-      ctx.session.captured = { region, hit };
+      ctx.session.captured = { region, hit, point: { x: p.x, y: p.y } };
     }
     return result;
   }
@@ -283,7 +296,11 @@ export function tickPendingCapture(ctx: RegionCtx): EditorState | null {
     ctx,
   );
   if (result) {
-    ctx.session.captured = { region: pending.region, hit: pending.hit };
+    ctx.session.captured = {
+      region: pending.region,
+      hit: pending.hit,
+      point: { x: pending.x, y: pending.y },
+    };
     return result.state;
   }
   return null;
@@ -296,6 +313,7 @@ export function routeCapturedMove(
 ): RegionResult {
   const captured = ctx.session.captured;
   if (!captured?.region.drag) return null;
+  captured.point = { x: p.x, y: p.y };
   return captured.region.drag.onMove(p, ctx);
 }
 

@@ -65,6 +65,10 @@ export async function rasterizeMenuIcon(
   if (cache.has(key) || inFlight.has(key)) return;
   inFlight.add(key);
   try {
+    // Callers (prewarmMenuIcons) run inside a React effect. Yield a microtask
+    // so the flushSync render and unmount below happen after React's commit,
+    // not inside it — React rejects both while it is still rendering.
+    await Promise.resolve();
     const host = document.createElement("div");
     const root = createRoot(host);
     flushSync(() => {

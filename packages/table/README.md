@@ -45,11 +45,18 @@ degrade" contract every unregistered block type gets.
 
 ## On the canvas
 
-The grid always fits the page width — the editor scrolls vertically only, so a
-table that overflowed sideways would simply be unreachable. Columns split that
-width evenly, and stay where they are: a width changes when someone drags an
-edge, never because a cell's text grew. Cell text wraps inside whatever width
-its column has, and no column goes under `blocks.table.minColumnWidth`.
+The grid fills the page width, and its columns split that width evenly — until
+they would average narrower than `blocks.table.overflowColumnWidth`, or someone
+drags the grid's right edge out past the page. Past that the grid grows wider
+than the page and the table scrolls sideways: a sideways
+trackpad swipe or Shift + wheel, a sideways finger drag, or the thin scrollbar
+under it, which sticks to the bottom of the screen while the table runs past
+it. Moving the caret into a hidden column scrolls it into view. The
+offset is per device, like the page scroll, and never enters the document.
+
+Columns stay where they are: a width changes when someone drags an edge, never
+because a cell's text grew. Cell text wraps inside whatever width its column
+has, and no column goes under `blocks.table.minColumnWidth`.
 
 The caret lives in a cell, addressed by that cell's identity rather than by a
 position in the block, so a collaborator editing another cell never moves it.
@@ -119,8 +126,12 @@ creates a blank 3×3 grid with the caret in its first header cell.
 ### Column widths
 
 Dragging an interior column edge trades width between the two columns it
-separates; the outer edges are not draggable, because the grid is always exactly
-as wide as the page. On touch the drag arms behind a short hold, so a scroll or
+separates. Dragging the grid's right edge changes the table's own width: out
+widens the last column and the table, past the page if need be, and back in
+narrows them down to the automatic width, never under it. The other columns
+keep their widths. Held at the screen's edge, it keeps the table growing. The
+table's width is stored on the root node in page widths, so an older version
+draws it at its automatic width with the same column proportions. On touch the drag arms behind a short hold, so a scroll or
 a long-press selection that starts near a column edge is never stolen. A dragged column stores its width as a **fraction** of the
 grid, not a pixel count — the same document opens on a phone and on a desktop,
 and a stored pixel width would be wrong on one of them. Untouched columns split
@@ -137,8 +148,8 @@ Everything a table contains lives in **one structured CRDT attachment** on its
 block. The block itself stores nothing.
 
 ```
-root  (kind "table", authority "block")
-  ├── slot "columns" → column nodes    { align? }
+root  (kind "table", authority "block")  { width? }
+  ├── slot "columns" → column nodes    { align?, width? }
   └── slot "rows"    → row nodes
          └── slot "cells" → cell nodes { columnId }, textFields { text }
 ```

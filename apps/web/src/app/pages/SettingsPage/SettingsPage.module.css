@@ -58,6 +58,12 @@
 }
 
 .drawerBody {
+  /* Fills the sheet below its header, so a tab can hand the scrolling to one
+     part of itself (the error list) instead of the whole sheet moving. */
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   padding: 0 1rem 1rem;
   overflow-y: auto;
 }

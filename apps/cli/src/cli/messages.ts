@@ -78,6 +78,17 @@ const EN = {
     "Anyone who uses the code gets full access to everything you have written, until it expires.",
   "invite.linked": "Linked {{peer}}.",
 
+  // ─── Clock ────────────────────────────────────────────────────────────────
+  "clock.slow_one":
+    "This machine's clock is {{count}} minute slow, so codes made here reach the app closer to expiring than they should.",
+  "clock.slow_other":
+    "This machine's clock is {{count}} minutes slow, so codes made here can reach the app already expired.",
+  "clock.fast_one":
+    "This machine's clock is {{count}} minute fast, so codes from the app run out sooner here than they should.",
+  "clock.fast_other":
+    "This machine's clock is {{count}} minutes fast, so codes from the app can look expired here.",
+  "clock.fix": "Turn on automatic time sync on this machine.",
+
   // ─── Status ───────────────────────────────────────────────────────────────
   "status.person": "Person: {{name}}",
   "status.personUnnamed": "(unnamed)",

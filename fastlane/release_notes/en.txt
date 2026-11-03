@@ -1,5 +1,3 @@
-- Pause syncing with one of your devices, or with someone you share a space with.
-- The Archive is now the Timeline: it also shows what changed in each space, and who did it.
-- Copy and paste tables like a spreadsheet.
-- A code block now shows its language, and empty ones hint what to write.
+- Import a folder of notes, and export a page with its subpages as a ZIP.
+- Wide tables and code blocks scroll sideways.
 - Bug fixes and improvements.

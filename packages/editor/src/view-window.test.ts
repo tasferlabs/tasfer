@@ -12,15 +12,23 @@
  *  3. Single-block authoring gate — a `singleBlock` window makes split / merge /
  *     forward-merge inert, so a TitleEditor can never create, split, or merge a
  *     block. The same actions on the SAME page WITHOUT a window still mutate.
+ *  4. Body window — everything after the title, and Backspace at the start of
+ *     the body never merges into (or deletes) the title it does not show.
  */
 
-import { deleteForward, deleteText, splitBlock } from "./actions/actions";
+import {
+  deleteForward,
+  deleteText,
+  deleteWordBackward,
+  splitBlock,
+} from "./actions/actions";
 import type { Block, Page } from "./serlization/loadPage";
 import type { CursorState, EditorState } from "./state-types";
 import { createInitialState } from "./state-utils";
 import { getVisibleBlocks } from "./sync/reducer";
 import {
   blockIdWindow,
+  bodyBlocksWindow,
   titleBlockIndex,
   titleBlockWindow,
 } from "./view-window";
@@ -240,5 +248,77 @@ describe("single-block window — authoring gate", () => {
     // A character delete in the middle is NOT a boundary op — it must apply.
     const mid = deleteText(titleStateWith(page, cursorAt(0, 3)));
     expect(mid.ops.length).toBeGreaterThan(0);
+  });
+});
+
+// ── 4. body window ───────────────────────────────────────────────────────────
+
+/** State scoped to the body (everything after the title), caret at `cursor`. */
+function bodyStateWith(page: Page, cursor: CursorState): EditorState {
+  const base = createInitialState(page, { window: bodyBlocksWindow() });
+  return { ...base, document: { ...base.document, cursor } };
+}
+
+describe("bodyBlocksWindow", () => {
+  it("selects every live block after the title", () => {
+    const blocks = [
+      textual("heading1", "h", "a0", "Title"),
+      textual("paragraph", "p1", "a1", "one"),
+      { ...textual("paragraph", "gone", "a2", "x"), deleted: true } as Block,
+      textual("paragraph", "p2", "a3", "two"),
+    ];
+    expect([...bodyBlocksWindow().select(blocks)]).toEqual([1, 3]);
+    expect(bodyBlocksWindow().singleBlock).toBeFalsy();
+  });
+
+  it("leaves out blocks before the title, and is empty for a title-only page", () => {
+    const blocks = [
+      image("img", "a0"),
+      textual("heading1", "h", "a1", "Title"),
+      textual("paragraph", "p", "a2", "body"),
+    ];
+    expect([...bodyBlocksWindow().select(blocks)]).toEqual([2]);
+    expect(
+      bodyBlocksWindow().select([textual("heading1", "h", "a0", "")]).size,
+    ).toBe(0);
+  });
+
+  it("is the whole document when there is no text block", () => {
+    const blocks = [image("i1", "a0"), image("i2", "a1")];
+    expect([...bodyBlocksWindow().select(blocks)]).toEqual([0, 1]);
+  });
+
+  it("Backspace at the start of the body never touches the title", () => {
+    const page = pageWith(
+      textual("heading1", "h", "a0", "Title"),
+      textual("paragraph", "p", "a1", "Body"),
+    );
+    const cur = cursorAt(1, 0);
+    expect(deleteText(bodyStateWith(page, cur)).ops).toEqual([]);
+    expect(deleteWordBackward(bodyStateWith(page, cur)).ops).toEqual([]);
+    // Unwindowed, the same Backspace merges the body line into the title.
+    expect(deleteText(fullStateWith(page, cur)).ops.length).toBeGreaterThan(0);
+  });
+
+  it("Backspace at the start of the body never deletes an empty title", () => {
+    // A full editor drops an empty previous block on Backspace — here that
+    // block is the hidden title.
+    const page = pageWith(
+      textual("heading1", "h", "a0", ""),
+      textual("paragraph", "p", "a1", "Body"),
+    );
+    const cur = cursorAt(1, 0);
+    expect(deleteText(bodyStateWith(page, cur)).ops).toEqual([]);
+    expect(deleteText(fullStateWith(page, cur)).ops.length).toBeGreaterThan(0);
+  });
+
+  it("blocks inside the body still merge", () => {
+    const page = pageWith(
+      textual("heading1", "h", "a0", "Title"),
+      textual("paragraph", "p1", "a1", "one"),
+      textual("paragraph", "p2", "a2", "two"),
+    );
+    const merged = deleteText(bodyStateWith(page, cursorAt(2, 0)));
+    expect(merged.ops.length).toBeGreaterThan(0);
   });
 });

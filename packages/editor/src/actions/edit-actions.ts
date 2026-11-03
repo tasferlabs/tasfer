@@ -56,7 +56,8 @@ import {
 } from "../sync/block-registry";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import { markCharsInRange, orderKeyAfter } from "../sync/crdt-utils";
-import { applyOps, findPreviousVisibleBlockIndex } from "../sync/reducer";
+import { applyOps } from "../sync/reducer";
+import { previousBlockInWindow } from "../view-window";
 import {
   deleteForward,
   deleteSelectedText,
@@ -167,7 +168,10 @@ function backwardBoundaryContext(
   const currentBlockIndex = cursor.position.blockIndex;
   const currentBlock = state.document.page.blocks[currentBlockIndex];
   if (!currentBlock || currentBlock.deleted) return null;
-  const previousBlockIndex = findPreviousVisibleBlockIndex(
+  // A block outside the view window counts as none: the window edge is this
+  // editor's document start.
+  const previousBlockIndex = previousBlockInWindow(
+    state.view.window,
     state.document.page.blocks,
     currentBlockIndex,
   );

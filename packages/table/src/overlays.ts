@@ -41,6 +41,10 @@ export interface TableToolsOverlayData {
  * The controls' anchor: the active cell's box, or `null` when nothing should
  * show — a read-only editor, a caret outside this table, or a hole (a column
  * this row has no cell for, which owns no caret and no commands).
+ *
+ * `layout` is the layout as shown. For a table wider than the page, both boxes
+ * are cut to the page-width window it is seen through, and a cell scrolled
+ * wholly out of it shows no controls — they would float beside nothing.
  */
 export function tableToolsOverlay(
   layout: TableLayout,
@@ -61,24 +65,39 @@ export function tableToolsOverlay(
       candidate.columnIndex === shape.columnIndex,
   );
   if (!cell) return null;
+  const cellSpan = visibleSpan(cell.x, cell.width, layout.maxWidth);
+  if (!cellSpan) return null;
+  const gridSpan = visibleSpan(layout.gridX, layout.gridWidth, layout.maxWidth);
+  if (!gridSpan) return null;
 
   return {
     key: TABLE_TOOLS_OVERLAY,
     blockId: c.block.id,
     rect: {
-      x: c.origin.x + cell.x,
+      x: c.origin.x + cellSpan.x,
       y: c.origin.y + cell.y,
-      width: cell.width,
+      width: cellSpan.width,
       height: cell.height,
     },
     data: {
       shape,
       grid: {
-        x: c.origin.x,
+        x: c.origin.x + gridSpan.x,
         y: c.origin.y + layout.gridTop,
-        width: layout.gridWidth,
+        width: gridSpan.width,
         height: layout.gridHeight,
       },
     } satisfies TableToolsOverlayData,
   };
+}
+
+/** The part of `x..x + width` inside the `0..windowWidth` window, if any. */
+function visibleSpan(
+  x: number,
+  width: number,
+  windowWidth: number,
+): { readonly x: number; readonly width: number } | null {
+  const left = Math.max(0, x);
+  const right = Math.min(windowWidth, x + width);
+  return right > left ? { x: left, width: right - left } : null;
 }

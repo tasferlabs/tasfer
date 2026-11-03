@@ -116,6 +116,11 @@ export function appendOp(
     return log;
   }
 
+  return appendFreshOp(log, op, schema);
+}
+
+/** {@link appendOp} for an op the caller already knows is not in the log. */
+function appendFreshOp(log: OpLog, op: Operation, schema: DataSchema): OpLog {
   // Insert operation in HLC order
   const newOps = [...log.operations];
   let insertIndex = newOps.length;
@@ -146,10 +151,20 @@ export function appendOp(
 }
 
 /**
- * Append operations produced by this replica. Local edits are already ordered
- * and fresh, so the normal path stays incremental. The only local transaction
- * that needs mergeOps' dependency replay is one that creates structured
- * content before inserting its host block.
+ * Append operations produced by this replica. Local edits are fresh, so the
+ * normal path stays incremental. The only local transaction that needs
+ * mergeOps' dependency replay is one that creates structured content before
+ * inserting its host block.
+ *
+ * A transaction is not guaranteed to list its ops in the order it minted them
+ * (a paste mints an equation's `document_init` before the text that carries
+ * it, then emits the text first). Deciding "already known" op by op would let
+ * the later-minted op raise the max-only version vector past the earlier one,
+ * which would then be skipped: it still reaches disk and peers, but never this
+ * replica's state — the equation renders blank, and so does every snapshot
+ * saved from this state. So freshness is judged against the version vector
+ * from before the batch, and the batch is applied in HLC order, the order
+ * every other replica and a rebuild from the log replay it in.
  */
 export function appendLocalOps(
   log: OpLog,
@@ -158,20 +173,24 @@ export function appendLocalOps(
 ): OpLog {
   if (ops.length === 0) return log;
 
+  const fresh = ops
+    .filter((op) => !isOpKnown(log.versionVector, op))
+    .sort((a, b) => compareHLC(a.clock, b.clock));
+
   const pendingContentBlocks = new Set<string>();
-  for (const op of ops) {
+  for (const op of fresh) {
     if (op.op === "content_edit") {
       pendingContentBlocks.add(op.blockId);
     } else if (
       op.op === "block_insert" &&
       pendingContentBlocks.has(op.blockId)
     ) {
-      return mergeOps(log, ops, schema);
+      return mergeOps(log, fresh, schema);
     }
   }
 
   let next = log;
-  for (const op of ops) next = appendOp(next, op, schema);
+  for (const op of fresh) next = appendFreshOp(next, op, schema);
   return next;
 }
 
@@ -180,23 +199,31 @@ export function appendLocalOps(
  * state. This is the snapshot hydration path: it updates the operation log and
  * version vector without applying the operations to `state` again.
  *
- * The input must obey the same per-origin ordering invariant as `mergeOps`.
+ * Unlike `mergeOps`, the input may arrive in any per-origin order. Storage
+ * returns ops sorted by clock, and an op's clock and its id counter are
+ * separate sequences that can disagree (an op minted before the persisted log
+ * loaded carries a high id but a low clock). Freshness is therefore judged
+ * against the version vector from before the batch, as in `appendLocalOps`;
+ * deciding op by op would let a high counter hide the lower ones after it, and
+ * they would be missing from the log that later rebuilds this page.
  */
 export function registerAppliedOps(log: OpLog, ops: Operation[]): OpLog {
   if (ops.length === 0) return log;
-  if (IS_DEV) assertPerOriginOrder(ops);
 
   const versionVector = new Map(log.versionVector);
+  const seen = new Set<string>();
   const fresh: Operation[] = [];
 
   for (const op of ops) {
+    if (isOpKnown(log.versionVector, op) || seen.has(op.id)) continue;
+    seen.add(op.id);
+    fresh.push(op);
+
     const peerId = extractPeerId(op.id);
     const counter = extractCounter(op.id);
-    const known = versionVector.get(peerId) ?? -1;
-    if (counter <= known) continue;
-
-    fresh.push(op);
-    versionVector.set(peerId, counter);
+    if (counter > (versionVector.get(peerId) ?? -1)) {
+      versionVector.set(peerId, counter);
+    }
   }
 
   if (fresh.length === 0) return log;
@@ -269,14 +296,20 @@ export function mergeOps(
       // Compare CANONICAL state only. The incremental `state` is folded onto the
       // live page a mounted editor renders into, so its blocks carry the
       // transient render cache (`cachedLayout`) and neighbour-type stamps;
-      // `rebuilt` starts from an empty page and never has them. Stripping both
+      // `rebuilt` starts from an empty page and never has them. Stripping them
       // (the same fields persistence drops) keeps this check measuring real CRDT
       // divergence instead of false-positiving on render-only state.
       const canonical = (p: Page) =>
         JSON.stringify({ ...p, blocks: cleanSnapshotForSave(p.blocks) });
-      if (canonical(state) !== canonical(rebuilt)) {
+      const incrementalJson = canonical(state);
+      const rebuiltJson = canonical(rebuilt);
+      if (incrementalJson !== rebuiltJson) {
+        const diff = firstJsonDiff(
+          JSON.parse(incrementalJson),
+          JSON.parse(rebuiltJson),
+        );
         console.error(
-          `[mergeOps] incremental state diverged from rebuilt state for page ${log.pageId}; new op ids: ${newOps.map((o) => o.id).join(", ")}`,
+          `[mergeOps] incremental state diverged from rebuilt state for page ${log.pageId}; new ops: ${newOps.map((o) => `${o.op} ${o.id}`).join(", ")}; first difference at ${diff?.path ?? "(unknown)"}: incremental=${previewJson(diff?.incremental)} rebuilt=${previewJson(diff?.rebuilt)}`,
         );
       }
     }
@@ -287,6 +320,51 @@ export function mergeOps(
   const allOps = mergeSortedOps(log.operations, newOps);
   const state = rebuildState(log.pageId, allOps, schema);
   return { ...log, operations: allOps, versionVector: newVV, state };
+}
+
+/**
+ * Dev-only: the first place two parsed JSON values differ, as a readable path.
+ * Array entries that carry an `id` show it (`blocks[3#abc]`), so a block can be
+ * found by id rather than only by its index.
+ */
+function firstJsonDiff(
+  a: unknown,
+  b: unknown,
+  path = "$",
+): { path: string; incremental: unknown; rebuilt: unknown } | null {
+  if (a === b) return null;
+  const bothObjects =
+    typeof a === "object" &&
+    typeof b === "object" &&
+    a !== null &&
+    b !== null &&
+    Array.isArray(a) === Array.isArray(b);
+  if (!bothObjects) return { path, incremental: a, rebuilt: b };
+
+  if (Array.isArray(a) && Array.isArray(b)) {
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+      const id = (a[i] as { id?: unknown } | undefined)?.id;
+      const label = typeof id === "string" ? `${i}#${id}` : `${i}`;
+      const diff = firstJsonDiff(a[i], b[i], `${path}[${label}]`);
+      if (diff) return diff;
+    }
+    return null;
+  }
+
+  const ao = a as Record<string, unknown>;
+  const bo = b as Record<string, unknown>;
+  for (const key of new Set([...Object.keys(ao), ...Object.keys(bo)])) {
+    const diff = firstJsonDiff(ao[key], bo[key], `${path}.${key}`);
+    if (diff) return diff;
+  }
+  return null;
+}
+
+/** Dev-only: a value for a log line, cut short so a whole block can't flood it. */
+function previewJson(value: unknown): string {
+  if (value === undefined) return "(missing)";
+  const json = JSON.stringify(value);
+  return json.length > 300 ? `${json.slice(0, 300)}…` : json;
 }
 
 /**

@@ -376,6 +376,29 @@ export function setColumnWidths(
   return edits.length > 0 ? { edits } : undefined;
 }
 
+/**
+ * Set how wide the whole table is drawn, in page widths, or `null` to return it
+ * to its automatic width. See `tableWidth` for why page widths.
+ */
+export function setTableWidth(
+  document: StructuredDocument,
+  width: number | null,
+): TableCommand | undefined {
+  if (!document.nodes[document.rootId]) return undefined;
+  return {
+    edits: [
+      width === null
+        ? { kind: "node_attr_delete", nodeId: document.rootId, key: "width" }
+        : {
+            kind: "node_attr_set",
+            nodeId: document.rootId,
+            key: "width",
+            value: width,
+          },
+    ],
+  };
+}
+
 /** The blank grid a freshly created table starts as. */
 export function emptyTableSeed(rows: number, columns: number): TableSeed {
   return {

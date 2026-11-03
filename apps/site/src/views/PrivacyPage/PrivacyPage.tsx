@@ -1,5 +1,6 @@
 "use client";
 
+import { withAiDash } from "@/components/AiDash";
 import { Link } from "@/components/Link";
 import BrandMark from "@/components/BrandMark";
 import { REPO_URL, SiteHeader } from "@/components/SiteHeader";
@@ -68,10 +69,10 @@ export default function PrivacyPage() {
               <div>
                 <h3>{t("privacy.p2pSync", "Peer-to-peer sync")}</h3>
                 <p>
-                  {t(
+                  {withAiDash(t(
                     "privacy.p2pSyncDesc",
                     "When you collaborate, data flows directly between devices over encrypted WebRTC connections. Our signaling relay only helps peers find each other — it never sees your content.",
-                  )}
+                  ))}
                 </p>
               </div>
             </div>
@@ -107,10 +108,10 @@ export default function PrivacyPage() {
               <div>
                 <h3>{t("privacy.openSource", "Open source")}</h3>
                 <p>
-                  {t(
+                  {withAiDash(t(
                     "privacy.openSourceDesc",
                     "Don't take our word for it. The entire codebase is open source — you can verify every claim on this page yourself.",
-                  )}
+                  ))}
                 </p>
               </div>
             </div>

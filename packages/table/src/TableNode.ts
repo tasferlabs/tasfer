@@ -18,6 +18,7 @@ import { registerTableActions } from "./actions";
 import {
   registerTableCommands,
   setColumnWidths,
+  setTableWidth,
   TABLE_INSERT_COLUMN,
   TABLE_INSERT_ROW,
   TABLE_MOVE_COLUMN,
@@ -40,11 +41,22 @@ import {
   previewColumnMove,
   type TableCellLayout,
   type TableComposition,
+  tableGridWidth,
   type TableLayout,
   type TableLayoutCtx,
 } from "./geometry";
 import { registerTableInputActions } from "./input";
 import { tableToolsOverlay } from "./overlays";
+import {
+  revealTableSpan,
+  scrollTableBy,
+  tableOverflows,
+  type TableScrollbar,
+  tableScrollbar,
+  tableScrollX,
+  viewedTableLayout,
+  withTableScrollX,
+} from "./scroll";
 import {
   cellCaretHeight,
   cellCaretX,
@@ -61,10 +73,15 @@ import {
   cellText,
   columnWidth,
   getTableDocument,
+  MAX_TABLE_WIDTH,
   readTable,
+  tableWidth,
 } from "./structured";
 import type { ActionBus } from "@tasfer/editor/action-bus";
-import { SCROLLBAR_HOLD_DURATION } from "@tasfer/editor/constants";
+import {
+  SCROLLBAR_HOLD_DURATION,
+  SCROLLBAR_TOUCH_BUFFER,
+} from "@tasfer/editor/constants";
 import { withStoppedMomentum } from "@tasfer/editor/events/interaction-session";
 import type { RegionCtx } from "@tasfer/editor/events/regions";
 import { currentFontFamily } from "@tasfer/editor/fonts";
@@ -93,6 +110,7 @@ import {
   type NodeLayoutCtx,
   type NodePaintCtx,
   type NodeRegionCtx,
+  type NodeScrollCtx,
   type Point,
 } from "@tasfer/editor/rendering/nodes/Node";
 import type {
@@ -109,6 +127,7 @@ import type {
   ContentPoint,
   ContentSelection,
 } from "@tasfer/editor/structured-selection";
+import { recordUndoOps } from "@tasfer/editor/sync/crdt-undo";
 import {
   applyStructuredEdits,
   type StructuredDocument,
@@ -244,17 +263,24 @@ export class TableNode extends Node<TableBlock> {
     const view = readTable(document);
     if (view.rows.length === 0) return 0;
 
-    // Nominal column widths: a pinned column takes its stored fraction, and the
-    // rest share what is left. The fitter reaches a different answer from real
-    // text metrics — this only has to be close enough to get the line COUNT right.
+    // Nominal column widths: a pinned column takes its stored fraction of the
+    // grid, and the rest share what is left. The fitter reaches a different
+    // answer from real text metrics — this only has to be close enough to get
+    // the line COUNT right.
+    const gridWidth = tableGridWidth(
+      view.columns.length,
+      c.maxWidth,
+      style,
+      tableWidth(view.root),
+    );
     const pinned = view.columns.map((column) => columnWidth(column));
     const pinnedWidth = pinned.reduce<number>(
-      (total, fraction) => total + (fraction ?? 0) * c.maxWidth,
+      (total, fraction) => total + (fraction ?? 0) * gridWidth,
       0,
     );
     const autoCount = pinned.filter((fraction) => fraction === null).length;
     const autoWidth =
-      autoCount > 0 ? Math.max(0, c.maxWidth - pinnedWidth) / autoCount : 0;
+      autoCount > 0 ? Math.max(0, gridWidth - pinnedWidth) / autoCount : 0;
 
     // Average glyph width as a fraction of the font size, matching TextNode's
     // own estimate so a table and a paragraph guess alike.
@@ -268,7 +294,7 @@ export class TableNode extends Node<TableBlock> {
         const cell = view.rows[row].cells[column];
         if (!cell) continue;
         const width =
-          pinned[column] !== null ? pinned[column]! * c.maxWidth : autoWidth;
+          pinned[column] !== null ? pinned[column]! * gridWidth : autoWidth;
         const perLine = Math.max(
           1,
           Math.floor((width - style.cellPaddingX * 2) / averageGlyph),
@@ -299,8 +325,9 @@ export class TableNode extends Node<TableBlock> {
     // While a column-move drag is held, everything is drawn from the previewed
     // order — the grid shows where the column would land, and the document is
     // untouched until the release says so. Text being composed through an IME
-    // is drawn in its cell the same way, before it commits.
-    const layout = previewedLayout(composedLayout(passedLayout, c), c);
+    // is drawn in its cell the same way, before it commits. A table wider than
+    // the page is drawn scrolled to wherever this device has it.
+    const layout = shownLayout(passedLayout, c);
     const { ctx } = c;
     const style = layout.style;
     const x = c.origin.x;
@@ -316,13 +343,29 @@ export class TableNode extends Node<TableBlock> {
 
     const gridTop = y + layout.gridTop;
     const gridHeight = layout.gridHeight;
+    const overflows = tableOverflows(layout);
 
+    // A table wider than the page is seen through a page-wide window: every
+    // part of the grid is cut at its sides, and the columns past them are
+    // reached by scrolling.
     ctx.save();
+    if (overflows) {
+      ctx.beginPath();
+      ctx.rect(x, y, layout.maxWidth, layout.height);
+      ctx.clip();
+    }
 
     // The cell washes are clipped to the grid's rounded outline so none of them
     // can bleed past its corners.
+    ctx.save();
     ctx.beginPath();
-    ctx.roundRect(x, gridTop, layout.gridWidth, gridHeight, style.borderRadius);
+    ctx.roundRect(
+      x + layout.gridX,
+      gridTop,
+      layout.gridWidth,
+      gridHeight,
+      style.borderRadius,
+    );
     ctx.clip();
 
     this.paintActiveCell(layout, c, x, y);
@@ -340,8 +383,14 @@ export class TableNode extends Node<TableBlock> {
       resizingColumnEdge(c.state, c.block.id) ??
         hoveredColumnEdge(c.state, c.block.id),
     );
-    this.paintEdgeAdder(layout, c, x, y);
     this.paintColumnMove(layout, c, x, y);
+    ctx.restore();
+
+    if (overflows) {
+      this.paintEdgeFades(layout, c, x, y);
+      this.paintScrollbar(layout, c);
+    }
+    this.paintEdgeAdder(layout, c, x, y);
 
     return {
       block: c.block,
@@ -409,7 +458,12 @@ export class TableNode extends Node<TableBlock> {
     ctx.save();
     ctx.fillStyle = color;
     ctx.globalAlpha = opacity;
-    ctx.fillRect(x, y + layout.gridTop, layout.gridWidth, layout.gridHeight);
+    ctx.fillRect(
+      x + layout.gridX,
+      y + layout.gridTop,
+      layout.gridWidth,
+      layout.gridHeight,
+    );
     ctx.restore();
   }
 
@@ -490,7 +544,7 @@ export class TableNode extends Node<TableBlock> {
       return;
     }
     const box = {
-      x,
+      x: x + layout.gridX,
       y: y + layout.gridTop,
       width: layout.gridWidth,
       height: layout.gridHeight,
@@ -597,10 +651,10 @@ export class TableNode extends Node<TableBlock> {
     for (const cell of layout.cells) {
       if (cell.chars.length === 0) continue;
       const isRTL = cell.direction === "rtl";
-      // A line can still be wider than its cell when the grid was squeezed past
-      // the point wrapping can help — a single glyph is unbreakable, and the
-      // table must fit the block width regardless. Clip those cells to their own
-      // box so the overflow stops at the hairline instead of painting across the
+      // A line can still be wider than its cell when a column is narrower than
+      // wrapping can help — a single glyph is unbreakable, and a dragged column
+      // keeps the width it was given. Clip those cells to their own box so the
+      // overflow stops at the hairline instead of painting across the
       // neighbour. Clipped to the full cell, not the text area, so an italic or
       // descender overhang inside the padding still shows; and skipped entirely
       // for the ordinary table that fits, which pays no per-cell clip.
@@ -688,16 +742,17 @@ export class TableNode extends Node<TableBlock> {
       ctx.moveTo(edge, gridTop);
       ctx.lineTo(edge, gridTop + layout.gridHeight);
     }
+    const gridLeft = x + layout.gridX;
     for (let at = 1; at < layout.rows.length; at++) {
       const edge = align(y + layout.rows[at].y);
-      ctx.moveTo(x, edge);
-      ctx.lineTo(x + layout.gridWidth, edge);
+      ctx.moveTo(gridLeft, edge);
+      ctx.lineTo(gridLeft + layout.gridWidth, edge);
     }
     ctx.stroke();
 
     ctx.beginPath();
     ctx.roundRect(
-      align(x),
+      align(gridLeft),
       align(gridTop),
       layout.gridWidth - style.borderWidth,
       layout.gridHeight - style.borderWidth,
@@ -719,6 +774,18 @@ export class TableNode extends Node<TableBlock> {
       ctx.beginPath();
       ctx.moveTo(edge, gridTop);
       ctx.lineTo(edge, gridTop + layout.gridHeight);
+      ctx.stroke();
+    } else if (hoveredEdge === layout.columns.length && hoveredEdge > 0) {
+      // The right edge is lit just inside the border it covers — it sits on the
+      // page's edge, where the clip would halve a line centred on it — and
+      // clear of the rounded corners.
+      ctx.strokeStyle = style.resizeEdgeColor;
+      ctx.lineWidth = style.resizeEdgeWidth;
+      const edge =
+        Math.round(gridLeft + layout.gridWidth) - style.resizeEdgeWidth / 2;
+      ctx.beginPath();
+      ctx.moveTo(edge, gridTop + style.borderRadius);
+      ctx.lineTo(edge, gridTop + layout.gridHeight - style.borderRadius);
       ctx.stroke();
     }
     ctx.restore();
@@ -816,7 +883,7 @@ export class TableNode extends Node<TableBlock> {
     ctx.save();
     ctx.beginPath();
     ctx.roundRect(
-      x,
+      x + layout.gridX,
       gridTop,
       layout.gridWidth,
       layout.gridHeight,
@@ -850,12 +917,143 @@ export class TableNode extends Node<TableBlock> {
     ctx.restore();
   }
 
+  /**
+   * Soft edges where a wide table's grid runs on past the window: the cells
+   * fade out toward the side that has more, so a cut-off table reads as one
+   * that continues rather than one drawn wrong.
+   *
+   * The canvas is transparent (the page color is the element's own background),
+   * so the fade is made by erasing the table's pixels with a gradient rather than
+   * by painting a page-colored one over them — it works on any theme.
+   */
+  private paintEdgeFades(
+    layout: TableLayout,
+    c: NodePaintCtx,
+    x: number,
+    y: number,
+  ): void {
+    const { ctx } = c;
+    const width = Math.min(EDGE_FADE_WIDTH, layout.maxWidth / 8);
+    if (width <= 0) return;
+    const top = y + layout.gridTop - layout.style.borderWidth;
+    const height = layout.gridHeight + layout.style.borderWidth * 2;
+    const left = x;
+    const right = x + layout.maxWidth;
+    const hiddenLeft = layout.gridX < 0;
+    const hiddenRight = x + layout.gridX + layout.gridWidth > right + 1;
+    ctx.save();
+    ctx.globalCompositeOperation = "destination-out";
+    if (hiddenLeft) {
+      const fade = ctx.createLinearGradient(left, 0, left + width, 0);
+      fade.addColorStop(0, "rgba(0, 0, 0, 1)");
+      fade.addColorStop(1, "rgba(0, 0, 0, 0)");
+      ctx.fillStyle = fade;
+      ctx.fillRect(left, top, width, height);
+    }
+    if (hiddenRight) {
+      const fade = ctx.createLinearGradient(right - width, 0, right, 0);
+      fade.addColorStop(0, "rgba(0, 0, 0, 0)");
+      fade.addColorStop(1, "rgba(0, 0, 0, 1)");
+      ctx.fillStyle = fade;
+      ctx.fillRect(right - width, top, width, height);
+    }
+    ctx.restore();
+  }
+
+  /**
+   * The thumb under a wide table: how much of the grid is in view, and where.
+   * Always shown while the table is wider than the page — it is the one sign,
+   * besides the faded edge, that there are columns past it — and lit while the
+   * pointer rests on it or drags it, the way the page's scrollbar is. A finger
+   * holding it also thickens it (upward, so it does not slip under the finger),
+   * as the page's does. Stood down while the bottom "add a row"
+   * strip, which shares the margin, is lit. Sticks to the screen's bottom edge
+   * while the grid runs past it (see `tableScrollbar`).
+   */
+  private paintScrollbar(layout: TableLayout, c: NodePaintCtx): void {
+    if (hoveredEdgeAdd(c.state, c.block.id) === "bottom") return;
+    const thumb = tableScrollbar(layout, c.origin, c.viewport?.height);
+    if (!thumb) return;
+    const colors = c.styles.scrollbar;
+    const drag = scrollbarDragOf(c.state, c.block.id);
+    const height =
+      drag === "touch" ? thumb.height * TOUCH_DRAG_THUMB_SCALE : thumb.height;
+    const { ctx } = c;
+    ctx.save();
+    ctx.fillStyle = drag
+      ? colors.thumbActiveColor
+      : hoversScrollbar(c.state, c.block.id)
+        ? colors.thumbHoverColor
+        : colors.thumbColor;
+    ctx.beginPath();
+    ctx.roundRect(
+      thumb.x,
+      thumb.y + thumb.height - height,
+      thumb.width,
+      height,
+      height / 2,
+    );
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // ── Sideways scroll ───────────────────────────────────────────────────────
+
+  canScrollSideways(c: NodeScrollCtx): boolean {
+    return tableOverflows(this.layout(c));
+  }
+
+  scrollSideways(c: NodeScrollCtx, deltaX: number): EditorState | null {
+    return scrollTableBy(c.state, c.block.id, this.layout(c), deltaX);
+  }
+
+  /**
+   * Keep the local caret on screen in a wide table. Nothing moves while the
+   * caret itself can be seen — a click on a half-hidden cell does not jerk the
+   * table under the pointer. Once it cannot (a Tab or an arrow into a hidden
+   * column, typing past the window's edge), the table scrolls to show the
+   * caret's whole cell, or just the caret when the cell is wider than the page.
+   */
+  revealSideways(c: NodeScrollCtx, point: ContentPoint): EditorState | null {
+    const layout = this.layout(c);
+    if (!tableOverflows(layout)) return null;
+    const document = getTableDocument(c.block);
+    const caret = document && tableCaretFromContentPoint(document, point);
+    if (!caret) return null;
+    const cell = layout.cells.find(
+      (candidate) => candidate.cellId === caret.cellId,
+    );
+    if (!cell) return null;
+    const caretX = cellCaretX(cell, caret.offset);
+    const scrollX = Math.round(tableScrollX(c.state, c.block.id, layout));
+    if (caretX >= scrollX && caretX <= scrollX + layout.maxWidth) return null;
+    return cell.width <= layout.maxWidth
+      ? revealTableSpan(
+          c.state,
+          c.block.id,
+          layout,
+          cell.x,
+          cell.x + cell.width,
+        )
+      : revealTableSpan(
+          c.state,
+          c.block.id,
+          layout,
+          caretX - layout.style.cellPaddingX,
+          caretX + layout.style.cellPaddingX,
+        );
+  }
+
   // ── Caret and hit-testing ─────────────────────────────────────────────────
 
   /**
    * A pointer inside the table always resolves to a cell caret — the table has
    * no flat text for the ordinary path to land in, and clamping to the nearest
    * cell is what lets a drag that strays outside the grid keep selecting.
+   *
+   * In a wide table the point is also held inside the page-wide window first,
+   * so a drag out past its side selects up to the column at the edge rather
+   * than reaching a column scrolled out of sight.
    */
   contentSelectionFromPoint(
     passedLayout: NodeLayout,
@@ -863,15 +1061,22 @@ export class TableNode extends Node<TableBlock> {
     c: NodeContentHitCtx<TableBlock>,
     _options: NodeContentHitOptions,
   ) {
-    const layout = passedLayout as TableLayout;
+    const layout = viewedTableLayout(
+      passedLayout as TableLayout,
+      c.state,
+      c.block.id,
+    );
     const document = getTableDocument(c.block);
     if (!document) return null;
-    const cell = cellFromPoint(layout, local);
+    const point = tableOverflows(layout)
+      ? { x: Math.max(0, Math.min(layout.maxWidth, local.x)), y: local.y }
+      : local;
+    const cell = cellFromPoint(layout, point);
     if (!cell?.cellId) return null;
     return (
       tableCaretToContentSelection(document, c.block.id, {
         cellId: cell.cellId,
-        offset: cellOffsetFromPoint(cell, local),
+        offset: cellOffsetFromPoint(cell, point),
       }) ?? null
     );
   }
@@ -885,7 +1090,7 @@ export class TableNode extends Node<TableBlock> {
     // The caret rides its cell, so during a column-move drag it is placed in
     // the previewed order the grid is painted in — and during a composition,
     // in the cell as it is drawn with the preview folded in.
-    const layout = previewedLayout(composedLayout(passedLayout, c), c);
+    const layout = shownLayout(passedLayout, c);
     const document = getTableDocument(c.block);
     if (!document) return null;
     const stored = tableCaretFromContentPoint(document, point);
@@ -898,12 +1103,20 @@ export class TableNode extends Node<TableBlock> {
     const lineIndex = cellLineAtOffset(cell, caret.offset);
     const line = cell.lines[lineIndex];
     if (!line) return null;
+    // A caret in a column scrolled out of sight is pinned to the window's edge
+    // and flagged, never drawn in the page margin beside the table. Core then
+    // skips the local caret (scrolled back into view as soon as it moves, see
+    // `revealSideways`) and marks a peer's with an edge indicator on its row.
+    const caretX = cellCaretX(cell, caret.offset);
+    const offscreen =
+      caretX < -1 ? "left" : caretX > layout.maxWidth + 1 ? "right" : null;
     return {
-      x: c.origin.x + cellCaretX(cell, caret.offset),
+      x: c.origin.x + Math.max(0, Math.min(layout.maxWidth, caretX)),
       y: c.origin.y + line.y,
       // Text height, not the line box — core draws this rect verbatim, so the
       // node owns how tall its caret looks. See `cellCaretHeight`.
       height: cellCaretHeight(layout),
+      ...(offscreen ? { offscreen } : {}),
     };
   }
 
@@ -916,24 +1129,28 @@ export class TableNode extends Node<TableBlock> {
     selection: ContentSelection,
     c: NodeContentCaretCtx<TableBlock>,
   ): NodeContentSelectionGeometry | null {
-    const layout = previewedLayout(passedLayout as TableLayout, c);
+    const layout = viewedTableLayout(
+      previewedLayout(passedLayout as TableLayout, c),
+      c.state,
+      c.block.id,
+    );
     const band = tableContentBand(layout, c.block, selection);
     if (!band) return null;
     const { x, y } = c.origin;
-    const rects =
+    const boxes =
       band.kind === "text"
-        ? cellRangeRects(band.cell, band.from, band.to).map((rect) => ({
-            x: x + rect.x,
-            y: y + rect.y,
-            width: rect.width,
-            height: rect.height,
-          }))
-        : band.cells.map((cell) => ({
-            x: x + cell.x,
-            y: y + cell.y,
-            width: cell.width,
-            height: cell.height,
-          }));
+        ? cellRangeRects(band.cell, band.from, band.to)
+        : band.cells;
+    // Only the part in view: in a wide table, a range can run on into columns
+    // scrolled out of sight, and its handles belong on what can be seen.
+    const rects = boxes.flatMap((box) => {
+      const left = Math.max(box.x, 0);
+      const right = Math.min(box.x + box.width, layout.maxWidth);
+      if (right <= left) return [];
+      return [
+        { x: x + left, y: y + box.y, width: right - left, height: box.height },
+      ];
+    });
     if (rects.length === 0) return null;
     // Reading order: top row first, then left to right — the edges prose
     // handles hang from (see `selectionHighlightEdge`).
@@ -951,13 +1168,19 @@ export class TableNode extends Node<TableBlock> {
   // ── Editing affordances ───────────────────────────────────────────────────
 
   /**
-   * The column-resize handles: one grab band on every interior column edge.
+   * The column-resize handles: one grab band on every interior column edge,
+   * and one on the grid's right edge.
    *
-   * Only interior edges. The grid is always exactly as wide as the page — there
-   * is no horizontal scroll to reveal more — so the outer edges have nowhere to
-   * go; dragging one would either do nothing or push the table off the page.
-   * An interior edge instead trades width between the two columns it separates,
-   * which keeps the total fixed by construction.
+   * An interior edge trades width between the two columns it separates, which
+   * keeps the grid's total width fixed by construction. The right edge is the
+   * one that changes it: dragging it out widens the last column and the table
+   * with it, past the page if need be — the table then scrolls sideways — and
+   * dragging it back in narrows them down to the table's automatic width, never
+   * under it. The other columns keep their widths either way. In a wide table
+   * only the edges in view can be grabbed, and the right one is in view only
+   * once the table is scrolled to its end, where it sits on the page's edge:
+   * from there the drag pulls the grid through the window instead of moving
+   * the edge, and a pointer held at the screen's edge keeps it growing.
    *
    * On touch the drag arms behind a short hold rather than on contact. A column
    * edge sits in the middle of the reading area, where scrolls and long-press
@@ -969,14 +1192,18 @@ export class TableNode extends Node<TableBlock> {
    * its hover, and touch has none.
    */
   regions(c: NodeRegionCtx): readonly NodeHitRegion[] {
-    const layout = this.layout(c);
+    const layout = viewedTableLayout(this.layout(c), c.state, c.block.id);
     if (layout.columns.length === 0 || layout.rows.length === 0) return [];
     const gridTop = c.origin.y + layout.gridTop;
     const gridBottom = gridTop + layout.gridHeight;
     const blockId = c.block.id;
     const minimum = layout.style.minColumnWidth;
+    const windowLeft = c.origin.x;
+    const windowRight = c.origin.x + layout.maxWidth;
 
     const regions: NodeHitRegion[] = [this.edgeAddRegion(layout, c)];
+    const scrollbar = this.scrollbarRegion(layout, c);
+    if (scrollbar) regions.push(scrollbar);
     // Only interior edges resize, and a single column has nowhere to be moved
     // to, so a one-column grid has neither band.
     if (layout.columns.length < 2) return regions;
@@ -995,9 +1222,16 @@ export class TableNode extends Node<TableBlock> {
           const slop = pointerType === "touch" ? 10 : 4;
           for (let at = 1; at < layout.columns.length; at++) {
             const edge = c.origin.x + layout.columns[at].x;
+            if (edge < windowLeft || edge > windowRight) continue;
             if (Math.abs(p.x - edge) <= slop) {
               return { blockId, index: at };
             }
+          }
+          // The right edge, once it is in view — a pixel of slack for the
+          // rounded scroll offset, as the add strip allows.
+          const outer = c.origin.x + layout.gridX + layout.gridWidth;
+          if (outer <= windowRight + 1 && Math.abs(p.x - outer) <= slop) {
+            return { blockId, index: layout.columns.length };
           }
           return null;
         },
@@ -1014,7 +1248,33 @@ export class TableNode extends Node<TableBlock> {
           onStart: (hit, p, ctx) => {
             const document = tableDocumentById(ctx.state, blockId);
             if (!document) return null;
-            const columns = readTable(document).columns;
+            const view = readTable(document);
+            const columns = view.columns;
+            if (hit.index === layout.columns.length) {
+              hit.outer = {
+                pointerX: p.x,
+                maxWidth: layout.maxWidth,
+                gridWidth: layout.gridWidth,
+                automatic: tableGridWidth(
+                  layout.columns.length,
+                  layout.maxWidth,
+                  layout.style,
+                ),
+                widths: layout.columns.map((column) => column.width),
+                fractions: columns.map(columnWidth),
+                tableWidth: tableWidth(view.root),
+                scrollX: -layout.gridX,
+                grown: 0,
+                current: layout.gridWidth,
+              };
+              return {
+                state: setResizingEdge(
+                  withStoppedMomentum(ctx.state),
+                  blockId,
+                  hit.index,
+                ),
+              };
+            }
             const left = layout.columns[hit.index - 1];
             const right = layout.columns[hit.index];
             if (!left || !right) return null;
@@ -1042,6 +1302,10 @@ export class TableNode extends Node<TableBlock> {
           },
           onMove: (p, ctx) => {
             const hit = capturedResize(ctx);
+            if (hit?.outer) {
+              const gridWidth = draggedGridWidth(hit.outer, p.x, minimum);
+              return { state: tableWidthState(ctx.state, hit, gridWidth) };
+            }
             const next = hit && resizedFractions(hit, p.x, minimum);
             return {
               state: next
@@ -1052,6 +1316,13 @@ export class TableNode extends Node<TableBlock> {
           onEnd: (p, ctx) => {
             const hit = capturedResize(ctx);
             const released = setResizingEdge(ctx.state, blockId, null);
+            if (hit?.outer) {
+              const gridWidth =
+                p === null
+                  ? hit.outer.current
+                  : draggedGridWidth(hit.outer, p.x, minimum);
+              return commitTableWidth(released, hit, gridWidth);
+            }
             if (!hit?.start) return { state: released };
             // The live drag repainted without writing operations; the release
             // states the final widths once, which is all any peer ever sees.
@@ -1060,6 +1331,7 @@ export class TableNode extends Node<TableBlock> {
           onCancel: (ctx) => {
             const hit = capturedResize(ctx);
             const released = setResizingEdge(ctx.state, blockId, null);
+            if (hit?.outer) return restoreTableWidth(released, hit, hit.outer);
             const start = hit?.start;
             if (!hit || !start) return released;
             return widthState(
@@ -1068,6 +1340,28 @@ export class TableNode extends Node<TableBlock> {
               start.leftFraction,
               start.rightFraction,
             );
+          },
+          // The right edge held at the screen's edge keeps widening the table:
+          // the pointer has nowhere further to go, on a phone least of all.
+          onFrame: (p, ctx) => {
+            const hit = capturedResize(ctx);
+            const drag = hit?.outer;
+            if (!hit || !drag) return null;
+            const zone = ctx.viewport.width - WIDEN_EDGE_ZONE;
+            if (p.x < zone || p.x < drag.pointerX + WIDEN_ARM_DISTANCE) {
+              return null;
+            }
+            const reach = Math.min(1.5, (p.x - zone) / WIDEN_EDGE_ZONE);
+            drag.grown += WIDEN_SPEED * Math.max(0.25, reach);
+            const gridWidth = draggedGridWidth(drag, p.x, minimum);
+            // Growth past the cap is not banked, so easing back off answers at
+            // once instead of first spending what piled up against the cap.
+            drag.grown = Math.max(
+              0,
+              gridWidth - drag.gridWidth - (p.x - drag.pointerX),
+            );
+            if (gridWidth === drag.current) return null;
+            return tableWidthState(ctx.state, hit, gridWidth);
           },
         },
       }),
@@ -1117,6 +1411,7 @@ export class TableNode extends Node<TableBlock> {
         // gives: a readonly editor still uses `select` mode to drag-select.
         if (c.state.ui.isReadonlyBase || pointerType === "touch") return null;
         if (p.y < top || p.y > bottom) return null;
+        if (p.x < gridLeft || p.x > gridLeft + layout.maxWidth) return null;
         const index = columnAtX(layout, p.x - gridLeft);
         return index === null ? null : { blockId, index };
       },
@@ -1201,7 +1496,8 @@ export class TableNode extends Node<TableBlock> {
     return hitRegion({
       id: EDGE_ADD_REGION,
       // Above the resize bands: the two only meet at the grid's own corner, and
-      // an edge with nothing beyond it cannot be dragged anyway.
+      // along the right edge, where the strip's catchment stops short of the
+      // edge's own grab band (see `tableEdgeStrips`).
       priority: 70,
       modes: ["edit", "select"],
       hitTest: (p, pointerType): TableEdgeAddHit | null => {
@@ -1248,8 +1544,83 @@ export class TableNode extends Node<TableBlock> {
    * only — the host owns what they look like. See `./overlays`.
    */
   overlays(c: NodeRegionCtx): readonly NodeOverlay[] {
-    const overlay = tableToolsOverlay(this.layout(c), c);
+    const overlay = tableToolsOverlay(
+      viewedTableLayout(this.layout(c), c.state, c.block.id),
+      c,
+    );
     return overlay ? [overlay] : [];
+  }
+
+  /**
+   * The scrollbar thumb under a wide table, dragged like the page's own: a
+   * mouse grabs it at once, a finger after the same short hold — until then
+   * the touch scrolls or taps as usual, so a swipe that starts on the thumb is
+   * never stolen. Works in a read-only editor too: scrolling is reading, not
+   * editing.
+   */
+  private scrollbarRegion(
+    layout: TableLayout,
+    c: NodeRegionCtx,
+  ): NodeHitRegion<TableScrollbarHit> | null {
+    const thumb = tableScrollbar(layout, c.origin, c.viewport.height);
+    if (!thumb) return null;
+    const blockId = c.block.id;
+    const scrollX = -layout.gridX;
+    return hitRegion({
+      id: SCROLLBAR_REGION,
+      // Above the add strip, which shares the bottom margin: the thumb is the
+      // smaller target, so it wins where the two overlap.
+      priority: 75,
+      modes: ["edit", "select", "readonly"],
+      hitTest: (p, pointerType): TableScrollbarHit | null => {
+        const touch = pointerType === "touch";
+        const slop = touch ? SCROLLBAR_TOUCH_BUFFER : SCROLLBAR_HIT_SLOP;
+        if (p.y < thumb.y - slop || p.y > thumb.y + thumb.height + slop) {
+          return null;
+        }
+        const sideSlop = touch ? SCROLLBAR_TOUCH_BUFFER : 0;
+        if (
+          p.x < thumb.x - sideSlop ||
+          p.x > thumb.x + thumb.width + sideSlop
+        ) {
+          return null;
+        }
+        return { blockId, pressX: p.x, scrollX, thumb, touch };
+      },
+      hover: (hit) => ({
+        cursor: "pointer",
+        target: scrollbarTarget(hit.blockId),
+      }),
+      drag: {
+        touchHoldMs: SCROLLBAR_HOLD_DURATION,
+        activationIntensity: "medium",
+        cursor: "grabbing",
+        onStart: (hit, _p, ctx) => ({
+          state: setScrollbarDrag(
+            withStoppedMomentum(ctx.state),
+            blockId,
+            hit.touch ? "touch" : "mouse",
+          ),
+        }),
+        onMove: (p, ctx) => {
+          const hit = ctx.session.captured?.hit as
+            TableScrollbarHit | undefined;
+          if (!hit) return { state: ctx.state };
+          const target = hit.scrollX + (p.x - hit.pressX) * hit.thumb.scale;
+          const moved = scrollTableBy(
+            ctx.state,
+            blockId,
+            layout,
+            target - tableScrollX(ctx.state, blockId, layout),
+          );
+          return { state: moved ?? ctx.state };
+        },
+        onEnd: (_p, ctx) => ({
+          state: setScrollbarDrag(ctx.state, blockId, null),
+        }),
+        onCancel: (ctx) => setScrollbarDrag(ctx.state, blockId, null),
+      },
+    });
   }
 
   registerActions(bus: ActionBus): void {
@@ -1332,9 +1703,11 @@ const COLUMN_GRIP_WIDTH = 28;
 const COLUMN_GRIP_HEIGHT = 4;
 const COLUMN_GRIP_GAP = 1;
 
-/** The column whose span holds `localX` (relative to the grid's left edge). */
+/** The column whose span holds `localX` (relative to the block's left edge). */
 function columnAtX(layout: TableLayout, localX: number): number | null {
-  if (localX < 0 || localX > layout.gridWidth) return null;
+  if (localX < layout.gridX || localX > layout.gridX + layout.gridWidth) {
+    return null;
+  }
   for (let at = layout.columns.length - 1; at >= 0; at--) {
     if (localX >= layout.columns[at].x) return at;
   }
@@ -1372,10 +1745,19 @@ function columnIndexForGap(drag: ColumnDragState): number {
  * `columnDrag` is a column-move drag in flight. The hover from the press still
  * names the lifted column, but the gap the pointer is over is the drag's own
  * knowledge, and `paint` draws the drop edge from it.
+ *
+ * `scrollbarDrag` is the pointer holding the scrollbar thumb, if one is. A
+ * mouse's hover could say so, but a finger has none, and the thumb thickens
+ * only under a finger.
+ *
+ * `scrollX`, how far a wide table is scrolled sideways, shares the slot and is
+ * owned by `./scroll`.
  */
 interface TableViewState {
   resizeEdge?: number;
   columnDrag?: ColumnDragState;
+  scrollbarDrag?: "mouse" | "touch";
+  scrollX?: number;
 }
 
 /** Merge a column drag into a block's view-state (or clear it with `null`),
@@ -1431,6 +1813,24 @@ function previewedLayout(
   const drag = columnDragOf(c.state, c.block.id);
   if (!drag) return layout;
   return previewColumnMove(layout, drag.from, columnIndexForGap(drag));
+}
+
+/**
+ * The layout exactly as it is drawn: any composition folded in, any column
+ * drag previewed, scrolled sideways to where this device has the table.
+ */
+function shownLayout(
+  layout: NodeLayout,
+  c: Pick<NodeLayoutCtx, "maxWidth" | "styles" | "marks"> & {
+    readonly state: EditorState;
+    readonly block: Parameters<typeof getTableDocument>[0];
+  },
+): TableLayout {
+  return viewedTableLayout(
+    previewedLayout(composedLayout(layout, c), c),
+    c.state,
+    c.block.id,
+  );
 }
 
 /** The layout inputs a table block reads from its editor instance. */
@@ -1532,6 +1932,37 @@ function setResizingEdge(
   };
 }
 
+/** Mark which pointer holds a block's scrollbar thumb (or clear it with
+ *  `null`), preserving whatever else a host has parked in the same slot. */
+function setScrollbarDrag(
+  state: EditorState,
+  blockId: string,
+  pointer: "mouse" | "touch" | null,
+): EditorState {
+  const previous = state.ui.nodeViewState[blockId] as
+    TableViewState | undefined;
+  if ((previous?.scrollbarDrag ?? null) === pointer) return state;
+  const next: TableViewState = { ...previous };
+  if (pointer === null) delete next.scrollbarDrag;
+  else next.scrollbarDrag = pointer;
+  return {
+    ...state,
+    ui: {
+      ...state.ui,
+      nodeViewState: { ...state.ui.nodeViewState, [blockId]: next },
+    },
+  };
+}
+
+/** The pointer holding THIS table's scrollbar thumb, if any. */
+function scrollbarDragOf(
+  state: EditorState,
+  blockId: string,
+): "mouse" | "touch" | undefined {
+  const view = state.ui.nodeViewState[blockId] as TableViewState | undefined;
+  return view?.scrollbarDrag;
+}
+
 /** The interior edge of THIS table a resize drag is holding, if any. */
 function resizingColumnEdge(
   state: EditorState,
@@ -1556,6 +1987,46 @@ function hoveredEdgeAdd(state: EditorState, blockId: string): TableEdge | null {
   return edge === "right" || edge === "bottom" ? edge : null;
 }
 
+/** The id the wide-table scrollbar thumb is registered (and hit) under. */
+const SCROLLBAR_REGION = "table-scrollbar";
+
+/** Separator between the block and the thumb in a hover target name. */
+const SCROLLBAR_TARGET = ":scrollbar";
+
+/** How far above and below the thin thumb a mouse still grabs it. */
+const SCROLLBAR_HIT_SLOP = 5;
+
+/** How much thicker the thumb draws while a finger holds it — the page
+ *  scrollbar's own scale-up. */
+const TOUCH_DRAG_THUMB_SCALE = 1.5;
+
+/** How wide the fade is at a wide table's cut-off side. */
+const EDGE_FADE_WIDTH = 24;
+
+/** The name this table gives its scrollbar thumb, for `ui.regionHover`. */
+function scrollbarTarget(blockId: string): string {
+  return `${blockId}${SCROLLBAR_TARGET}`;
+}
+
+/** Whether the pointer is resting on (or dragging) THIS table's thumb. */
+function hoversScrollbar(state: EditorState, blockId: string): boolean {
+  const hover = state.ui.regionHover;
+  return (
+    hover?.regionId === SCROLLBAR_REGION &&
+    hover.target === scrollbarTarget(blockId)
+  );
+}
+
+/** Hit data for a scrollbar drag: where it was pressed, and the offset then. */
+interface TableScrollbarHit {
+  readonly blockId: string;
+  readonly pressX: number;
+  readonly scrollX: number;
+  readonly thumb: TableScrollbar;
+  /** Pressed by a finger, which thickens the thumb while it holds it. */
+  readonly touch: boolean;
+}
+
 /** Hit data for an edge-strip click: which table, and which strip. */
 interface TableEdgeAddHit {
   readonly blockId: string;
@@ -1568,11 +2039,19 @@ const EDGE_ADD_WASH_OPACITY = 0.16;
 /** Padding between the plus glyph and the band's short edges. */
 const EDGE_ADD_GLYPH_INSET = 6;
 
-/** Hit data for a column-resize drag: which interior edge, and its start state. */
+/** Hit data for a column-resize drag: which edge, and its start state. */
 interface ColumnResizeHit {
   readonly blockId: string;
-  /** The edge between columns `index - 1` and `index`. */
+  /**
+   * The edge between columns `index - 1` and `index`; the column count for the
+   * grid's right edge.
+   */
   readonly index: number;
+  /**
+   * Filled in `onStart` for the right edge, which drags the table's own width
+   * rather than trading between two columns.
+   */
+  outer?: TableWidthDrag;
   /** Filled in `onStart`; read back off `session.captured.hit` thereafter. */
   start?: {
     readonly pointerX: number;
@@ -1672,16 +2151,14 @@ function commitColumnWidths(
   pointerX: number | null,
   minimum: number,
 ): { readonly state: EditorState; readonly ops: Operation[] } {
-  const block = state.document.page.blocks.find(
-    (candidate) => candidate.id === hit.blockId,
-  );
-  const document = block ? getTableDocument(block) : undefined;
-  if (!block || !document) return { state, ops: [] };
+  const live = tableDocumentById(state, hit.blockId);
+  const start = hit.start;
+  if (!live || !start) return { state, ops: [] };
 
   // A release whose position is unknown (a window-level mouseup) keeps what the
   // last move produced rather than snapping back — so the widths are read back
   // out of the live document instead of recomputed from the pointer.
-  const columns = readTable(document).columns;
+  const columns = readTable(live).columns;
   const fractions =
     pointerX === null
       ? {
@@ -1689,16 +2166,207 @@ function commitColumnWidths(
           right: columnWidth(columns[hit.index]),
         }
       : resizedFractions(hit, pointerX, minimum);
-  const edits = fractions
-    ? widthEdits(document, hit, fractions.left, fractions.right)
-    : undefined;
-  if (!edits) return { state, ops: [] };
+  if (!fractions) return { state, ops: [] };
+
+  // Committed from the widths the press found, so undo returns to them.
+  const base = widthState(state, hit, start.leftFraction, start.rightFraction);
+  const block = base.document.page.blocks.find(
+    (candidate) => candidate.id === hit.blockId,
+  );
+  const document = block ? getTableDocument(block) : undefined;
+  const edits =
+    document && widthEdits(document, hit, fractions.left, fractions.right);
+  if (!block || !document || !edits) return { state, ops: [] };
 
   const committed = commitTableEdits(
-    state,
+    base,
     { block, document },
     edits,
     undefined,
   );
-  return { state: committed.state, ops: committed.ops };
+  return { state: withDragUndo(base, committed), ops: committed.ops };
+}
+
+/**
+ * Record a released drag's operations for undo against `base` — the document
+ * as the press found it — and hand back the state carrying that entry.
+ *
+ * The editor records an action's operations against the state it last had,
+ * and a live drag has already repainted that state at the dragged widths: the
+ * inverse it took would put back the widths the drag ended on, and undo would
+ * do nothing. An action that records its own entry is left to it (as undo and
+ * redo are), so the drag records one against the widths it started from.
+ */
+function withDragUndo(
+  base: EditorState,
+  committed: { readonly state: EditorState; readonly ops: Operation[] },
+): EditorState {
+  if (committed.ops.length === 0) return committed.state;
+  return recordUndoOps(
+    base,
+    committed.state,
+    committed.ops,
+    base.CRDTbinding.getPeerId(),
+  );
+}
+
+/**
+ * How close to the screen's right edge (px) a held table edge starts widening
+ * the table on its own, and how fast (px a frame, scaled by how far in).
+ */
+const WIDEN_EDGE_ZONE = 24;
+const WIDEN_SPEED = 8;
+/**
+ * How far right of where it was grabbed the pointer must be before holding it
+ * at the screen's edge widens the table. On a phone the edge is grabbed inside
+ * that zone, and merely holding it must not set it growing.
+ */
+const WIDEN_ARM_DISTANCE = 4;
+
+/** A drag of the grid's right edge, from press to release. */
+interface TableWidthDrag {
+  readonly pointerX: number;
+  /** The page width the table is laid out against; widths are stored per it. */
+  readonly maxWidth: number;
+  readonly gridWidth: number;
+  /** The width the table falls back to with no width of its own. */
+  readonly automatic: number;
+  /** Every column's width at the press; all but the last keep it. */
+  readonly widths: readonly number[];
+  // What the document held at the press, for a cancel to put back.
+  readonly fractions: readonly (number | null)[];
+  readonly tableWidth: number | null;
+  readonly scrollX: number;
+  /** Width added by holding the pointer at the screen's edge. */
+  grown: number;
+  /** The grid width last shown, which a release with no position commits. */
+  current: number;
+}
+
+/**
+ * The grid width the right edge dragged to `pointerX` implies: the press width
+ * plus the pointer's travel, never under the automatic width or a last column
+ * narrower than `minimum`, never over `MAX_TABLE_WIDTH` pages.
+ */
+function draggedGridWidth(
+  drag: TableWidthDrag,
+  pointerX: number,
+  minimum: number,
+): number {
+  const last = drag.widths[drag.widths.length - 1] ?? 0;
+  const others = drag.gridWidth - last;
+  const lowest = Math.max(drag.automatic, others + Math.min(minimum, last));
+  const highest = Math.max(lowest, Math.floor(drag.maxWidth * MAX_TABLE_WIDTH));
+  const wanted = drag.gridWidth + (pointerX - drag.pointerX) + drag.grown;
+  return Math.round(Math.max(lowest, Math.min(highest, wanted)));
+}
+
+/**
+ * The edits that draw the table `gridWidth` wide with every column but the last
+ * at its press width. Every column is pinned to its fraction of the new width:
+ * a column left automatic would take a share of the change.
+ */
+function tableWidthEdits(
+  document: StructuredDocument,
+  drag: TableWidthDrag,
+  gridWidth: number,
+): readonly StructuredEdit[] {
+  const count = drag.widths.length;
+  const others = drag.gridWidth - (drag.widths[count - 1] ?? 0);
+  const width = gridWidth <= drag.automatic ? null : gridWidth / drag.maxWidth;
+  return [
+    ...(setTableWidth(document, width)?.edits ?? []),
+    ...(setColumnWidths(
+      document,
+      drag.widths.map((columnWidth, at) => ({
+        columnIndex: at,
+        fraction:
+          (at === count - 1 ? gridWidth - others : columnWidth) / gridWidth,
+      })),
+    )?.edits ?? []),
+  ];
+}
+
+/**
+ * The live right-edge drag: the new widths applied locally, emitting no
+ * operations (see `widthState`), and the table kept scrolled to its end so the
+ * edge stays on the page's edge under the drag.
+ */
+function tableWidthState(
+  state: EditorState,
+  hit: ColumnResizeHit,
+  gridWidth: number,
+): EditorState {
+  const drag = hit.outer;
+  const document = tableDocumentById(state, hit.blockId);
+  if (!drag || !document) return state;
+  drag.current = gridWidth;
+  const resized = withTableDocument(
+    state,
+    hit.blockId,
+    applyStructuredEdits(document, tableWidthEdits(document, drag, gridWidth)),
+  );
+  return withTableScrollX(
+    resized,
+    hit.blockId,
+    Math.max(0, gridWidth - drag.maxWidth),
+  );
+}
+
+/** Write the released table width to the document as operations. */
+function commitTableWidth(
+  state: EditorState,
+  hit: ColumnResizeHit,
+  gridWidth: number,
+): { readonly state: EditorState; readonly ops: Operation[] } {
+  const drag = hit.outer;
+  if (!drag) return { state, ops: [] };
+  // Committed from the widths the press found, so undo returns to them (see
+  // `withDragUndo`).
+  const base = restoreTableWidth(state, hit, drag);
+  const block = base.document.page.blocks.find(
+    (candidate) => candidate.id === hit.blockId,
+  );
+  const document = block ? getTableDocument(block) : undefined;
+  if (!block || !document) return { state, ops: [] };
+  const committed = commitTableEdits(
+    base,
+    { block, document },
+    tableWidthEdits(document, drag, gridWidth),
+    undefined,
+  );
+  return {
+    state: withTableScrollX(
+      withDragUndo(base, committed),
+      hit.blockId,
+      Math.max(0, gridWidth - drag.maxWidth),
+    ),
+    ops: committed.ops,
+  };
+}
+
+/** Put a cancelled right-edge drag's widths and scroll back as they were. */
+function restoreTableWidth(
+  state: EditorState,
+  hit: ColumnResizeHit,
+  drag: TableWidthDrag,
+): EditorState {
+  const document = tableDocumentById(state, hit.blockId);
+  if (!document) return state;
+  const edits = [
+    ...(setTableWidth(document, drag.tableWidth)?.edits ?? []),
+    ...(setColumnWidths(
+      document,
+      drag.fractions.map((fraction, columnIndex) => ({
+        columnIndex,
+        fraction,
+      })),
+    )?.edits ?? []),
+  ];
+  const restored = withTableDocument(
+    state,
+    hit.blockId,
+    applyStructuredEdits(document, edits),
+  );
+  return withTableScrollX(restored, hit.blockId, drag.scrollX);
 }

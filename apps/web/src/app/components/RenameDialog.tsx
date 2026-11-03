@@ -24,6 +24,7 @@ import { useActiveEditor } from "../contexts/ActiveEditorContext";
 import { useCollaborativeDoc } from "../useCollaborativeDoc";
 import { TitleEditor } from "../TitleEditor";
 import useMobileLayout from "../hooks/useMobileLayout";
+import type { PageFrontier } from "@/platform/types";
 
 export interface RenameDialogProps {
   /** The page whose title is edited. */
@@ -134,7 +135,12 @@ function LoadedDocRenameInner({
   spaceId,
   onOpenChange,
 }: {
-  page: { id: string; blocks: unknown; spaceId?: string | null };
+  page: {
+    id: string;
+    blocks: unknown;
+    frontier: PageFrontier;
+    spaceId?: string | null;
+  };
   spaceId?: string;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -142,6 +148,7 @@ function LoadedDocRenameInner({
     pageId: page.id,
     spaceId: spaceId ?? page.spaceId ?? undefined,
     snapshot: Array.isArray(page.blocks) ? page.blocks : [],
+    frontier: page.frontier,
     readonly: false,
   });
 
