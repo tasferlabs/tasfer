@@ -18,7 +18,7 @@ Two rules govern everything below:
 **Brands / platforms**
 `GitHub` · `Chrome` · `Safari` · `Edge` · `Brave` · `Firefox` · `Android` ·
 `iPhone` · `iPad` · `iOS` · `macOS` · `Windows` · `Linux` · `App Store` ·
-`Google Play` · `Cloudflare` · `Workers` · `Dock` · `Git` · `GNU`
+`Google Play` · `Cloudflare` · `Workers` · `Dock` · `Git` · `GNU` · `Discord`
 
 **Formats / extensions**
 `Markdown` · `LaTeX` · `ZIP` · `PDF` · `PNG` · `JPG` · `SVG` · `.md` · `.txt` ·

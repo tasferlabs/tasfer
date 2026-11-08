@@ -9,6 +9,9 @@ export const SITE_NAME = "Tasfer";
 
 export const REPO_URL = "https://github.com/tasferlabs/tasfer";
 
+/** Community Discord invite. Also linked by hand from the support docs pages. */
+export const DISCORD_URL = "https://discord.gg/drfUeSA8bw";
+
 /**
  * `trailingSlash` is on, so every page is served at a slashed URL. Canonicals,
  * hreflang targets and sitemap entries have to use that exact form — the
@@ -69,7 +72,7 @@ export function organizationNode(): JsonLdNode {
     name: "Tasfer Labs",
     url: absoluteUrl(""),
     logo: `${SITE_ORIGIN}/logo.png`,
-    sameAs: [REPO_URL],
+    sameAs: [REPO_URL, DISCORD_URL],
   };
 }
 

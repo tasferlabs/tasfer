@@ -807,6 +807,7 @@
   "settings.information.privacy": "الخصوصية",
   "settings.information.sourceCode": "الشيفرة المصدرية",
   "settings.information.reportIssue": "الإبلاغ عن مشكلة",
+  "settings.information.community": "الانضمام إلى مجتمعنا على Discord",
   "settings.information.license": "تطبيق تصفير برنامج حر، مرخّص بموجب رخصة GNU AGPL-3.0.",
   "settings.information.thirdPartyLicenses": "تراخيص أطراف ثالثة",
   "settings.errorLog.title": "سجل الأخطاء",

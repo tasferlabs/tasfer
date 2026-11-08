@@ -5,6 +5,7 @@ import { AiDash, withAiDash } from "@/components/AiDash";
 import { Link } from "@/components/Link";
 import BrandMark from "@/components/BrandMark";
 import { REPO_URL, SiteHeader } from "@/components/SiteHeader";
+import { DISCORD_URL } from "@/lib/seo";
 import { useTranslation } from "react-i18next";
 import { APP_OPEN_URL } from "@/lib/appUrl";
 import "./HomePage.css";
@@ -661,7 +662,15 @@ export default function HomePage() {
                 {t(
                   "home.lp.hero.betaBody",
                   "It runs, it syncs, and it will break. Nothing you write here is guaranteed to survive an update.",
-                )}
+                )}{" "}
+                <a
+                  className="lp-title-link"
+                  href={DISCORD_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t("home.lp.hero.betaDiscord", "Hit a bug? Tell us on Discord.")}
+                </a>
               </span>
             </p>
           </div>
@@ -962,6 +971,9 @@ export default function HomePage() {
             <Link to="/download">{t("home.lp.nav.download", "download")}</Link>
             <a href={REPO_URL} target="_blank" rel="noreferrer">
               {t("home.lp.footer.source", "source")}
+            </a>
+            <a href={DISCORD_URL} target="_blank" rel="noreferrer">
+              {t("home.lp.footer.discord", "discord")}
             </a>
             <a
               href={`${REPO_URL}/blob/main/LICENSE`}

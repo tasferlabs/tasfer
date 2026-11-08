@@ -787,6 +787,7 @@
   "settings.information.privacy": "Privacy",
   "settings.information.sourceCode": "Source code",
   "settings.information.reportIssue": "Report an issue",
+  "settings.information.community": "Join us on Discord",
   "settings.information.license": "Tasfer App is free software, licensed under the GNU AGPL-3.0.",
   "settings.information.thirdPartyLicenses": "Third-party licenses",
   "settings.errorLog.title": "Error log",

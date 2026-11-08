@@ -3,6 +3,7 @@
 ## Getting help
 
 - Ask questions in [GitHub Discussions](https://github.com/tasferlabs/tasfer/discussions)
+- Chat with the community on [Discord](https://discord.gg/drfUeSA8bw)
 - Open a [GitHub issue](https://github.com/tasferlabs/tasfer/issues) for confirmed bugs or actionable feature requests
 
 ## Before opening an issue

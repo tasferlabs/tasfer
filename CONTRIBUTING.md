@@ -203,6 +203,7 @@ push to the AUR repository.
 
 ## Community
 
+- Talk with other contributors on [Discord](https://discord.gg/drfUeSA8bw)
 - Be respectful and constructive
 - Follow our [Code of Conduct](CODE_OF_CONDUCT.md)
 

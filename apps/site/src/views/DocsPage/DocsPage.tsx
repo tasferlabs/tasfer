@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { isLng } from "@/lib/i18n/locales";
 import { Icons } from "./docsIcons";
 import { SiteHeader } from "@/components/SiteHeader";
+import { DISCORD_URL } from "@/lib/seo";
 import "./DocsPage.css";
 
 const REPO_URL = "https://github.com/tasferlabs/tasfer";
@@ -160,6 +161,9 @@ export default function DocsPage() {
             </Link>
             <a href={REPO_URL} target="_blank" rel="noreferrer">
               {t("docs.hub.foot.source", "source")}
+            </a>
+            <a href={DISCORD_URL} target="_blank" rel="noreferrer">
+              {t("docs.hub.foot.discord", "discord")}
             </a>
           </div>
         </div>
