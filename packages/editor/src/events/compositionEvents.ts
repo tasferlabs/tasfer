@@ -8,6 +8,16 @@ import { scrollToMakeCursorVisible } from "../selection";
 import type { EditorState, ViewportState } from "../state-types";
 import type { Operation } from "../sync/sync";
 
+/**
+ * How many characters before the caret the composition replaces, when the host
+ * measured it from its input surface (see `CompositionState.replaces`). The
+ * editor entry attaches it to the native event before queueing; absent means
+ * unknown (start: 0, update: keep the current value).
+ */
+export type MeasuredCompositionEvent = CompositionEvent & {
+  readonly replaces?: number;
+};
+
 // Composition (IME) Event Handlers
 //
 // Math source (a block equation, an inline-math chip) composes like any other
@@ -34,6 +44,7 @@ export function handleCompositionStart(
 
   return state.actionBus.dispatchState(COMPOSITION_START, state, {
     data: event.data || "",
+    replaces: (event as MeasuredCompositionEvent).replaces,
   });
 }
 export function handleCompositionUpdate(
@@ -59,6 +70,7 @@ export function handleCompositionUpdate(
   // The actual text will be inserted on compositionend.
   return state.actionBus.dispatchState(COMPOSITION_UPDATE, state, {
     data: event.data || "",
+    replaces: (event as MeasuredCompositionEvent).replaces,
   });
 }
 export function handleCompositionEnd(
@@ -93,6 +105,7 @@ export function handleCompositionEnd(
   try {
     result = state.actionBus.dispatchState(COMPOSITION_END, state, {
       data: composedText,
+      replaces: (event as MeasuredCompositionEvent).replaces,
     });
   } catch (error) {
     // The commit itself failed — a schema insert rule, a node's typed-input

@@ -249,3 +249,31 @@ export function rescueCaretBeforeSentinel(
   // sentinel (it may have substituted an NBSP) and move the insertion after it.
   return prev[0] + delta.insert + prev.slice(1);
 }
+
+/**
+ * How many characters before the caret an IME composition replaces, measured
+ * from the managed surface. `before` is the surface region (sentinel stripped)
+ * when the composition began, `after` the region now, and `composed` the IME's
+ * current composition text. The managed caret always sits at the end of the
+ * region, so the composition occupies the tail of `after`, and whatever it
+ * displaced from the tail of `before` is what it replaces.
+ *
+ * Usually 0: the IME composes new text at the caret. Some Android keyboards
+ * (HeliBoard and other AOSP-LatinIME forks, SwiftKey) reopen the word already
+ * before the caret instead, then edit it — swap it for a suggestion, or shrink
+ * it on Backspace. That reopened word is the replaced span.
+ *
+ * Returns `null` when `after` is not "untouched prefix of `before` + `composed`"
+ * (the surface changed some other way), so the caller keeps its old behavior.
+ */
+export function measureCompositionReplace(
+  before: string,
+  after: string,
+  composed: string,
+): number | null {
+  const keep = after.length - composed.length;
+  if (keep < 0 || keep > before.length) return null;
+  if (!after.endsWith(composed)) return null;
+  if (before.slice(0, keep) !== after.slice(0, keep)) return null;
+  return before.length - keep;
+}

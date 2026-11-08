@@ -41,6 +41,7 @@ import { contentMarkEdit } from "../content-marks";
 import { IS_DEV } from "../env";
 import { edgeScrollDelta } from "../events/autoScroll";
 import { createChromeRegionRegistry } from "../events/chromeRegions";
+import type { MeasuredCompositionEvent } from "../events/compositionEvents";
 import {
   dragOrigin,
   dropEffectFor,
@@ -69,6 +70,7 @@ import {
   hasSentinel,
   isEmptyDelta,
   isWordBoundaryChar,
+  measureCompositionReplace,
   rescueCaretBeforeSentinel,
   sentenceStartOffset,
   stripSentinel,
@@ -1232,6 +1234,18 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   // surface against this to classify the edit (append / backspace / autocorrect
   // replacement).
   private lastSurfaceValue: string = this.SENTINEL;
+  // The IME composition in progress on the MANAGED surface (null otherwise, and
+  // always under the faithful strategy). `before` is the surface when it began;
+  // `replaces` is how many characters before the caret it replaces, once
+  // measured — non-zero when the keyboard reopened the word already there
+  // instead of composing new text (see `measureCompositionReplace`). Every
+  // composition event of the session carries the measured count to the engine.
+  private imeSession: {
+    before: string;
+    composed: string;
+    replaces: number | null;
+    events: CompositionEvent[];
+  } | null = null;
 
   // Guards async work that settles after destroy() from poking a torn-down loop.
   private destroyed = false;
@@ -1702,6 +1716,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   // synchronously before an out-of-band edit (an autocorrect replacement) so
   // that edit addresses an up-to-date document.
   private processQueuedEvents = (): EditorState => {
+    // A keyboard that reopens an existing word fires its first update without
+    // changing the surface, so no `input` measured it; the frame is the next
+    // point where the surface is settled.
+    this.settleComposition();
     const prevState = this._state;
 
     const handleEventsResult = handleEvents(
@@ -3481,7 +3499,11 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     const it = inputEvent.inputType;
 
     // Skip processing during IME composition - composition events handle it.
-    if (it === "insertCompositionText") return;
+    // The surface now shows the composition, so it can be measured.
+    if (it === "insertCompositionText") {
+      this.settleComposition();
+      return;
+    }
     if (this._state.ui.composition?.isComposing) return;
 
     const isBackwardDelete =
@@ -3704,6 +3726,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         ...this._state,
         ui: { ...this._state.ui, composition: null },
       };
+      this.imeSession = null;
       this.resetSentinel();
     }
 
@@ -3995,12 +4018,30 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
   // Handle composition events (IME input)
   private compositionStartHandler = (e: CompositionEvent) => {
+    // Track the session on the managed surface, where the engine cannot see
+    // what the keyboard is composing over (see `composition`).
+    const caretPoint = resolvePoint(this._state, "caret");
+    const caretBlock = caretPoint
+      ? this._state.document.page.blocks[caretPoint.blockIndex]
+      : undefined;
+    this.imeSession =
+      this.hiddenInput && !this.faithfulEligible(caretBlock)
+        ? {
+            before: this.hiddenInput.textContent ?? "",
+            composed: e.data ?? "",
+            replaces: null,
+            events: [],
+          }
+        : null;
+    this.trackCompositionEvent(e);
     // Mark composition as starting - this will be handled in events.ts
     this.eventsQueue.push(e);
     this.scheduleRender();
   };
 
   private compositionUpdateHandler = (e: CompositionEvent) => {
+    if (this.imeSession) this.imeSession.composed = e.data ?? "";
+    this.trackCompositionEvent(e);
     // Update composition text - this will be handled in events.ts
     this.eventsQueue.push(e);
     this.scheduleRender();
@@ -4009,12 +4050,71 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   private compositionEndHandler = (e: CompositionEvent) => {
     if (!this.hiddenInput) return;
 
+    const session = this.imeSession;
+    if (session) {
+      // The committed surface is final: measure against it directly.
+      this.trackCompositionEvent(e);
+      const measured = this.measureComposition(e.data ?? "");
+      this.annotateComposition(e, measured ?? session.replaces ?? undefined);
+      this.imeSession = null;
+    }
+
     // Finalize composition - this will be handled in events.ts
     this.eventsQueue.push(e);
     this.scheduleRender();
 
     // Restore the sentinel after composition ends.
     this.resetSentinel();
+  };
+
+  // Register a composition event with the managed session, attaching the
+  // replaced-character count when it is already known.
+  private trackCompositionEvent = (e: CompositionEvent) => {
+    const session = this.imeSession;
+    if (!session) return;
+    session.events.push(e);
+    if (session.replaces !== null)
+      this.annotateComposition(e, session.replaces);
+  };
+
+  // Measure how much text before the caret the composition replaces, from the
+  // live surface. Only meaningful once the surface reflects the composition: on
+  // its `input`, at the next frame, or on `compositionend` — never inside
+  // `compositionupdate`, which fires before the DOM changes.
+  private measureComposition = (composed: string): number | null => {
+    const session = this.imeSession;
+    if (!session || !this.hiddenInput) return null;
+    const current = this.hiddenInput.textContent ?? "";
+    if (
+      !hasSentinel(session.before, this.SENTINEL) ||
+      !hasSentinel(current, this.SENTINEL)
+    ) {
+      return null;
+    }
+    return measureCompositionReplace(
+      stripSentinel(session.before, this.SENTINEL),
+      stripSentinel(current, this.SENTINEL),
+      composed,
+    );
+  };
+
+  // Settle the session's replaced-character count (first measurement wins) and
+  // hand it to every composition event of the session still waiting in the queue.
+  private settleComposition = () => {
+    const session = this.imeSession;
+    if (!session || session.replaces !== null) return;
+    const measured = this.measureComposition(session.composed);
+    if (measured === null) return;
+    session.replaces = measured;
+    for (const e of session.events) this.annotateComposition(e, measured);
+  };
+
+  private annotateComposition = (e: CompositionEvent, replaces?: number) => {
+    if (replaces === undefined) return;
+    Object.defineProperty(e as MeasuredCompositionEvent, "replaces", {
+      value: replaces,
+      configurable: true,
+    });
   };
 
   // Handler to invalidate cached rect when canvas position might change
@@ -6215,7 +6315,9 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     options?: { viewportOffsetY?: number },
   ): void => {
     const target = typeof point === "object" && "kind" in point ? point : null;
-    const resolved = target ? null : resolvePoint(this._state, point as DocPoint);
+    const resolved = target
+      ? null
+      : resolvePoint(this._state, point as DocPoint);
     // A point inside content a node owns (a table cell) has no flat offset; it
     // is followed through its content point, anchored to its block.
     const contentPoint =

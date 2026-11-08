@@ -1511,6 +1511,13 @@ export function renderCursorLayer(
       ),
     );
     targetCursorIndex = compositionRange.start + offset;
+  } else if (state.ui.composition?.isComposing) {
+    // A recomposition whose text is now empty hides the reopened word; the
+    // caret sits where it began.
+    targetCursorIndex -= Math.min(
+      state.ui.composition.replaces ?? 0,
+      targetCursorIndex,
+    );
   }
 
   // Use shared cursor position calculation

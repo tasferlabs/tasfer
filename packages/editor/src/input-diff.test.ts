@@ -6,6 +6,7 @@ import {
   hasSentinel,
   isEmptyDelta,
   isWordBoundaryChar,
+  measureCompositionReplace,
   rescueCaretBeforeSentinel,
   sentenceStartOffset,
   stripSentinel,
@@ -311,5 +312,37 @@ describe("caretInProtectedSource", () => {
 
   it("is false in plain prose with no protected spans", () => {
     expect(caretInProtectedSource(false, [], 4)).toBe(false);
+  });
+});
+
+describe("measureCompositionReplace", () => {
+  it("is 0 for a composition typed fresh at the caret", () => {
+    expect(measureCompositionReplace("Hi ", "Hi the", "the")).toBe(0);
+    expect(measureCompositionReplace("", "H", "H")).toBe(0);
+    // A fresh composition whose text matches the tail is still fresh once the
+    // surface has grown by it.
+    expect(measureCompositionReplace("the", "thee", "e")).toBe(0);
+  });
+
+  it("measures a reopened word before the keyboard edits it", () => {
+    // HeliBoard: compositionupdate("He'll") with the surface unchanged.
+    expect(measureCompositionReplace("He'll", "He'll", "He'll")).toBe(5);
+  });
+
+  it("measures a suggestion swap on a reopened word", () => {
+    expect(measureCompositionReplace("He'll", "She'll", "She'll")).toBe(5);
+  });
+
+  it("measures Backspace shrinking a reopened word", () => {
+    expect(
+      measureCompositionReplace("he'll she'll", "he'll she'l", "she'l"),
+    ).toBe(6);
+    expect(measureCompositionReplace("he'll she'll", "he'll ", "")).toBe(6);
+  });
+
+  it("returns null when the surface changed outside the composition", () => {
+    expect(measureCompositionReplace("abc", "xbcd", "d")).toBeNull();
+    expect(measureCompositionReplace("abc", "abc", "zz")).toBeNull();
+    expect(measureCompositionReplace("ab", "abcdef", "f")).toBeNull();
   });
 });

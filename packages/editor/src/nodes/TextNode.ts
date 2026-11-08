@@ -303,6 +303,24 @@ export function getContentWithComposition(
   }
 
   const compositionText = state.ui.composition.text;
+  const caretIndex = state.document.cursor.position.textIndex;
+  // A recomposition (an IME that reopened the word before the caret) replaces
+  // that word: hide it and show the composed text in its place.
+  const replaces = Math.min(state.ui.composition.replaces ?? 0, caretIndex);
+  if (replaces > 0) {
+    const from = caretIndex - replaces;
+    const folded = foldComposition(
+      charRunsToChars(block.charRuns),
+      from,
+      compositionText,
+      { from, to: caretIndex },
+    );
+    return {
+      chars: folded.chars,
+      formats: block.formats,
+      compositionRange: folded.compositionRange,
+    };
+  }
   if (!compositionText) {
     return {
       chars: charRunsToChars(block.charRuns),
@@ -310,8 +328,6 @@ export function getContentWithComposition(
       compositionRange: null,
     };
   }
-
-  const caretIndex = state.document.cursor.position.textIndex;
 
   // Run the preview through the SAME node/mark transform the commit uses (see
   // transformTypedInput → the caret seam). This is what keeps a formula typeset

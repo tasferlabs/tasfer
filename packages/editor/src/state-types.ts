@@ -281,6 +281,14 @@ export interface CompositionState {
   /** Stable start in either flat block text or an extension-owned document. */
   readonly startPosition: Position | ContentPoint;
   readonly cursorOffset: number; // Cursor position within composition text
+  /**
+   * How many visible characters directly before the flat caret the composition
+   * replaces. Usually 0: the IME composes new text at the caret. Some Android
+   * keyboards (HeliBoard and other AOSP-LatinIME forks, SwiftKey) instead reopen
+   * the word already before the caret — "recomposition" — so the composed text
+   * replaces that word rather than adding to it. Absent means 0.
+   */
+  readonly replaces?: number;
 }
 
 // Active formats mode for typing

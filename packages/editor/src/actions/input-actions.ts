@@ -42,6 +42,12 @@ import { selectionIntersectsStructuredMark } from "./structured-marks";
 interface CompositionTextPayload {
   /** `event.data` for the composition event (empty string when null). */
   data: string;
+  /**
+   * Visible characters directly before the caret that the composition replaces
+   * (an IME that reopened an already-typed word; see
+   * {@link CompositionState.replaces}). Omitted or 0 for a normal composition.
+   */
+  replaces?: number;
 }
 
 /**
@@ -55,7 +61,7 @@ interface CompositionTextPayload {
  */
 export const COMPOSITION_START = stateAction<CompositionTextPayload>(
   "composition-start",
-  (state, { data }) => {
+  (state, { data, replaces }) => {
     const ops: Operation[] = [];
 
     // A composition may start in either flat block text or an extension-owned
@@ -98,6 +104,7 @@ export const COMPOSITION_START = stateAction<CompositionTextPayload>(
             text: data,
             startPosition,
             cursorOffset: data.length,
+            replaces: clampReplaces(state, replaces),
           },
         },
       },
@@ -106,10 +113,22 @@ export const COMPOSITION_START = stateAction<CompositionTextPayload>(
   },
 );
 
+// A recomposition can only replace flat text before the caret in its own block.
+function clampReplaces(state: EditorState, replaces: number | undefined) {
+  const cursor = state.document.cursor;
+  if (!replaces || replaces < 0 || !cursor) return 0;
+  return Math.min(replaces, cursor.position.textIndex);
+}
+
 /** Payload for {@link COMPOSITION_UPDATE} — the new composed text. */
 interface CompositionUpdatePayload {
   /** `event.data` for the composition update (empty string when null). */
   data: string;
+  /**
+   * Replaced characters before the caret, once known (see
+   * {@link CompositionTextPayload.replaces}). Omitted keeps the current value.
+   */
+  replaces?: number;
 }
 
 /**
@@ -124,7 +143,7 @@ interface CompositionUpdatePayload {
  */
 export const COMPOSITION_UPDATE = stateAction<CompositionUpdatePayload>(
   "composition-update",
-  (state, { data }) => {
+  (state, { data, replaces }) => {
     if (!state.ui.composition) return { state, ops: [] };
 
     const newText = data;
@@ -164,6 +183,10 @@ export const COMPOSITION_UPDATE = stateAction<CompositionUpdatePayload>(
             ...state.ui.composition,
             text: newText,
             cursorOffset,
+            replaces:
+              replaces === undefined
+                ? state.ui.composition.replaces
+                : clampReplaces(state, replaces),
           },
         },
       },
@@ -174,7 +197,9 @@ export const COMPOSITION_UPDATE = stateAction<CompositionUpdatePayload>(
 
 /**
  * Finish an IME composition: insert the final composed text at the caret and
- * clear the composition state. Emits the CRDT text/format ops from the insert
+ * clear the composition state. A recomposition (`replaces` > 0, an IME that
+ * reopened the word before the caret) replaces those characters instead of
+ * adding to them — an empty commit then deletes them. Emits the CRDT text/format ops from the insert
  * (none when there is nothing composed). The handler keeps the scroll-to-cursor
  * follow-up after committing, since that touches the viewport, not the state.
  *
@@ -182,8 +207,41 @@ export const COMPOSITION_UPDATE = stateAction<CompositionUpdatePayload>(
  */
 export const COMPOSITION_END = stateAction<CompositionTextPayload>(
   "composition-end",
-  (state, { data }) => {
+  (state, { data, replaces }) => {
     const ops: Operation[] = [];
+
+    // Select the reopened word so the commit replaces it (insertText replaces a
+    // selection and keeps its formatting).
+    const replaced = clampReplaces(
+      state,
+      replaces ?? state.ui.composition?.replaces,
+    );
+    const cursor = state.document.cursor;
+    if (replaced > 0 && cursor) {
+      const focus = cursor.position;
+      const anchor = {
+        blockIndex: focus.blockIndex,
+        textIndex: focus.textIndex - replaced,
+      };
+      state = {
+        ...state,
+        document: {
+          ...state.document,
+          selection: {
+            anchor,
+            focus,
+            isForward: true,
+            isCollapsed: false,
+            lastUpdate: Date.now(),
+          },
+        },
+      };
+      if (!data) {
+        const result = deleteSelectedText(state);
+        state = result.state;
+        ops.push(...result.ops);
+      }
+    }
 
     // Insert the final composed text
     if (data && (state.document.cursor || state.document.contentSelection)) {

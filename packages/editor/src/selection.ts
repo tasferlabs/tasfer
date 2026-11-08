@@ -561,12 +561,39 @@ export function getCursorCoordinatesWithComposition(
   const node = textNodeFor(state, block);
   if (!node) return null;
 
-  if (!state.ui.composition?.isComposing || !state.ui.composition.text) {
+  const composition = state.ui.composition;
+  const replaces = composition?.isComposing
+    ? Math.min(composition.replaces ?? 0, position.textIndex)
+    : 0;
+  if (!composition?.isComposing || (!composition.text && replaces === 0)) {
     return getCursorDocumentCoords(position, state, viewport, styles);
   }
 
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+
+  // A recomposition shows its text in place of the reopened word (see
+  // getContentWithComposition); the caret sits at the end of that text.
+  if (replaces > 0) {
+    const content = getContentWithComposition(
+      block,
+      state,
+      position.blockIndex,
+    );
+    const layout = node.computeLayout(block, maxWidth, styles, content);
+    const blockTop = getBlockTopDocument(
+      state,
+      position.blockIndex,
+      maxWidth,
+      styles,
+    );
+    return node.caretRect(
+      layout,
+      position.textIndex - replaces + composition.text.length,
+      styles.canvas.paddingLeft,
+      blockTop,
+    );
+  }
 
   // Fold the active composition into the layout exactly as paint() does, then
   // place the caret at the END of the injected preview. The preview goes through
@@ -577,9 +604,9 @@ export function getCursorCoordinatesWithComposition(
     state,
     block,
     position.textIndex,
-    state.ui.composition.text,
+    composition.text,
   );
-  const previewText = transform?.input ?? state.ui.composition.text;
+  const previewText = transform?.input ?? composition.text;
   const insertAt = transform?.insertAt ?? position.textIndex;
   const content = getContentWithComposition(block, state, position.blockIndex);
   const layout = node.computeLayout(block, maxWidth, styles, content);
