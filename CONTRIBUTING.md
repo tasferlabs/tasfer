@@ -6,7 +6,7 @@ Thank you for your interest in contributing to Tasfer! This guide will help you 
 
 ### Reporting Bugs
 
-All bug reports are welcome — no issue is too small. Before filing one, please search [existing issues](https://github.com/tasferlabs/tasfer/issues) to avoid duplicates.
+All bug reports are welcome. No issue is too small. Before filing one, please search [existing issues](https://github.com/tasferlabs/tasfer/issues) to avoid duplicates.
 
 When reporting a bug, include:
 
@@ -24,7 +24,7 @@ Open an issue with the **feature request** template. Describe the problem you're
 
 1. **Fork** the repository
 2. **Create a branch** from `dev` (`git checkout -b my-change dev`)
-3. **Make your changes** — keep commits focused and atomic
+3. **Make your changes**: keep commits focused and atomic
 4. **Test your changes** locally across platforms if applicable
 5. **Push** to your fork and open a **Pull Request** against `dev`
 
@@ -36,9 +36,9 @@ is merged into it for a release.
 - Keep PRs focused on a single change
 - Write a clear description of what changed and why
 - Reference any related issues
-- Make sure the app builds — `npm run build` in `apps/web` (this is the canonical
+—- Make sure the app builds: run `npm run build` in `apps/web` (this is the canonical
   typecheck; it also compiles the aliased `@tasfer/*` source)
-- If you touched the editor engine, run the tests — `npm test` in `packages/editor`
+- If you touched the editor engine, run the tests: `npm test` in `packages/editor`
 
 ## Development Setup
 
@@ -49,7 +49,7 @@ is merged into it for a release.
 
 ### Getting Started
 
-There is **no root `package.json`** and no workspace tool — each app and package
+There is **no root `package.json`** and no workspace tool. Each app and package
 manages its own dependencies and is built and run from its own directory. Install
 and run the part you're working on:
 
@@ -77,31 +77,12 @@ it on each device (including the per-device iOS Simulator step) is documented in
 [dev-docs/ssl-dev-setup.md](dev-docs/ssl-dev-setup.md).
 
 Building the native iOS app (macOS + Xcode only) also needs a one-time signing
-setup so your Apple Developer Team ID stays out of git — see
+setup so your Apple Developer Team ID stays out of git. See
 [apps/ios/README.md](apps/ios/README.md).
-
-### Project Structure
-
-```
-apps/
-├── web/        # Main React SPA (Vite + React 19 + TypeScript) — the first host
-├── desktop/    # Electron wrapper (IPC to native APIs)
-├── live/       # WebRTC signaling relay (Cloudflare Worker)
-├── site/       # Marketing site + docs (Next.js)
-├── ios/        # iOS (Capacitor)
-└── android/    # Android (Capacitor)
-packages/       # the @tasfer/* ecosystem — the product core, published for external consumers
-├── editor/             # @tasfer/editor — headless canvas + CRDT editor engine
-├── tex/                # @tasfer/tex — canvas-native LaTeX math layout & rendering
-├── react/              # @tasfer/react — React 19 bindings (useEditor, <Editor>)
-└── provider-*/         # sync transports: -core, -indexeddb, -relay, -webrtc
-examples/       # example apps built on @tasfer/* (tasfer-studio, foolscap)
-shared/         # small shared utilities (e.g. invariant)
-```
 
 ## Internationalization
 
-All user-facing strings must use i18next — never hardcode text in components.
+All user-facing strings must use i18next. Never hardcode text in components.
 
 - Translation files: `apps/web/public/app/locales/{lang}/translation.json`
 - In React: `const { t } = useTranslation()` then `t("key")`
@@ -109,97 +90,13 @@ All user-facing strings must use i18next — never hardcode text in components.
 ## Code Style
 
 - TypeScript throughout
-- The `@tasfer/*` packages have ESLint + Prettier configured — run `npm run lint`
+- The `@tasfer/*` packages have ESLint + Prettier configured. Run `npm run lint`
   and `npm run format` from the package you touched (custom rules live in
   `eslint-rules/`)
-- No global mutable state — the editor must support multiple instances on one page,
+- No global mutable state: the editor must support multiple instances on one page,
   so keep all state per-instance (enforced by the `no-global-mutable-state` rule)
 - Prefer small, focused functions
 - Avoid unnecessary abstractions
-
-## Releases
-
-Releases are cut by hand: bump the version, merge, then dispatch the workflow
-that builds it. Merging alone never cuts a release — the continuous deploys
-below are the only thing a push to `main` triggers.
-
-The version lives in one place: `appVersion` in [`version.json`](version.json) at
-the repo root. Every build derives its own version from it, so no build stamps a
-version of its own:
-
-| Build | How it reads the version |
-| --- | --- |
-| Web | `vite.config.ts` injects it as `APP_VERSION` |
-| Desktop | `apps/desktop/scripts/package.mjs` passes it to electron-builder as `extraMetadata.version`; `electron.vite.config.ts` injects it for dev runs |
-| Android | `app/build.gradle` parses `version.json`; `versionCode` is packed from the semver (`1.4.2` -> `10402`) |
-| iOS | `apps/ios/Version.xcconfig` (gitignored) is generated from it, and the Xcode project sets no version of its own |
-
-`version.json` is the only file to edit for an app release — no app manifest
-carries a version — so the bump is one line and no follow-up edits. The
-`packages/*` libraries are versioned in lockstep with each other, from
-`packagesVersion` in the same file, independently of the app.
-
-How the cycle works:
-
-- Bump `appVersion` in `version.json` on `dev`, then merge `dev` into `main`.
-- Dispatch **Release** on `main` with `publish: true`. It creates the
-  `v<appVersion>` GitHub release from `version.json` before building — never
-  electron-builder, which would race one publisher per artifact — then runs the
-  desktop build (`native-release.yml`) and the `tasfer` CLI build
-  (`cli-release.yml`) on that same ref and uploads both onto that release.
-  Those two files are only called by Release and have no dispatch button of
-  their own; if one of them fails, use "Re-run failed jobs" on the Release run.
-  macOS is the only desktop platform currently built; the Windows and Linux
-  targets are configured but switched off in the workflow.
-- The `packages/*` libraries go to npm by bumping `packagesVersion` in
-  `version.json`, then dispatching the **npm Publish** workflow, which builds
-  them in dependency order, stamps that version onto every manifest and pins the
-  peer ranges between them at publish time. No `packages/*` manifest carries a
-  version of its own, so the bump is one line here too. It has to be
-  dispatched directly rather than chained off anything: npm's trusted publishing
-  validates the *calling* workflow's filename. Versions already on the registry
-  are skipped, so re-running it is safe.
-- `apps/live` deploys to Cloudflare on every push to `main` that touches it.
-- `apps/web` and `apps/site` deploy continuously via Vercel (two projects with
-  root directories `apps/web` and `apps/site`; the web project needs "Include
-  source files outside of the Root Directory" enabled).
-
-Dry runs: the **npm Publish** workflow can be dispatched with `dry_run`, and
-**Release** can be dispatched with `publish: false` to build without
-publishing a release.
-
-### App Store & Play (after a desktop release)
-
-Store submissions run through the checked-in [`fastlane/Fastfile`](fastlane/Fastfile),
-normally via the **Store Release** workflow so the exact build and submission
-happens in a public CI log. Flow:
-
-1. Edit `fastlane/release_notes/<lang>.txt` (all languages are required).
-2. Commit them, then dispatch **Store Release** on that ref, choosing the
-   platform(s) and track: `beta` (TestFlight / Play open testing) or `release`
-   (submits for store review — dispatching it is the confirmation).
-
-Both stores derive their version and build number from `version.json`, so there
-is nothing to stamp. The build number is packed from the semver, which means a
-given version uploads once — set `TASFER_BUILD_NUMBER` to re-upload an iOS build
-of a version TestFlight has already seen.
-
-The same lanes run locally with `bundle exec fastlane <ios|android> <beta|release>`
-(production lanes prompt for confirmation). One-time local setup: copy
-`fastlane/.env.example` to `fastlane/.env`, and
-`apps/android/keystore.properties.example` to `apps/android/keystore.properties`.
-
-CI secrets: `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_CONTENT` (base64 `.p8`;
-iOS signs via Xcode cloud-managed signing, so no certificate export — the key
-needs the Admin role the first time), `PLAY_JSON_KEY` (service-account JSON),
-`ANDROID_KEYSTORE` (base64 `.jks`), `ANDROID_KEYSTORE_PASSWORD`,
-`ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. Keys are never committed.
-
-### AUR (manual, after a desktop release)
-
-From `aur/`: bump `pkgver`, reset `pkgrel` to 1, replace the checksum
-(`makepkg -g`), regenerate `.SRCINFO` (`makepkg --printsrcinfo > .SRCINFO`), and
-push to the AUR repository.
 
 ## Community
 
@@ -209,8 +106,8 @@ push to the AUR repository.
 
 ## License
 
-Tasfer is dual-licensed by directory — see [LICENSING.md](LICENSING.md) for the
-full breakdown:
+Tasfer is dual-licensed by directory (see [LICENSING.md](LICENSING.md) for the
+full breakdown):
 
 - **`packages/*` and `examples/*` are MIT.** Contributions there are accepted
   under the [MIT License](LICENSE-MIT).
