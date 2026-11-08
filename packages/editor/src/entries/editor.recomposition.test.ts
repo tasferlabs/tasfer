@@ -302,4 +302,18 @@ describe("Android keyboards that reopen the previous word (#34)", () => {
 
     expect(editor.getMarkdown().trim()).toBe("He'll");
   });
+
+  it("keeps the committed word on the surface instead of wiping it", async () => {
+    const { el, ime, frame } = setup("Hi");
+    await frame();
+    ime.commit(" ");
+    ime.start();
+    ime.update("there");
+    ime.end();
+    // Straight after the commit, before any frame: the keyboard must still see
+    // the text it just committed, or it treats the change as an outside edit.
+    expect(el.textContent).toBe(" Hi there");
+    await frame();
+    expect(el.textContent).toBe(" Hi there");
+  });
 });

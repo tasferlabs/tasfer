@@ -4063,6 +4063,16 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     this.eventsQueue.push(e);
     this.scheduleRender();
 
+    if (session) {
+      // Managed surface: leave the committed text in place. It already reads
+      // what the document will hold once the commit lands, and the render-frame
+      // resync rewrites it only if the commit came out different (autoformat).
+      // Wiping it here, as before, looked to the keyboard like an outside edit
+      // that moved the caret: AOSP-LatinIME keyboards (HeliBoard) then dropped
+      // their automatic space and reopened the previous word.
+      this.lastSurfaceValue = this.hiddenInput.textContent ?? this.SENTINEL;
+      return;
+    }
     // Restore the sentinel after composition ends.
     this.resetSentinel();
   };
