@@ -206,6 +206,7 @@ import {
   insertCharsAtPosition,
   markCharsInRange,
   orderKeyAfter,
+  remapPosition,
   sortBlocksByOrder,
 } from "../sync/crdt-utils";
 import type { IdentityAllocator } from "../sync/id";
@@ -6086,8 +6087,33 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     const visibleBlocks = getVisibleBlocks(page, this._state.view.window);
     this._state.view.visibleBlocks = visibleBlocks;
 
-    // Validate and adjust cursor position if needed
+    // Carry the caret and selection along with the text they sit in: a
+    // peer's edit earlier in the block, or a block inserted above, would
+    // otherwise leave them at the same offset over different text (an open
+    // IME composition then draws and commits in the wrong place). Positions
+    // whose block is gone fall through to the clamping below.
+    const prevPage = this._state.document.page;
+    const carry = (p: Position) => remapPosition(prevPage, page, p) ?? p;
     let cursor = this._state.document.cursor;
+    if (cursor) {
+      cursor = { ...cursor, position: carry(cursor.position) };
+    }
+    const prevSelection = this._state.document.selection;
+    let selection = prevSelection;
+    if (prevSelection) {
+      const anchor = carry(prevSelection.anchor);
+      const focus = carry(prevSelection.focus);
+      selection = {
+        ...prevSelection,
+        anchor,
+        focus,
+        isCollapsed:
+          anchor.blockIndex === focus.blockIndex &&
+          anchor.textIndex === focus.textIndex,
+      };
+    }
+
+    // Validate and adjust cursor position if needed
     if (cursor && visibleBlocks.length > 0) {
       const { blockIndex: blockIndex, textIndex } = cursor.position;
       // Find the last visible block's index in the full array
@@ -6139,7 +6165,6 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     }
 
     // Validate selection as well
-    let selection = this._state.document.selection;
     if (selection && visibleBlocks.length > 0) {
       // Find the last visible block's index in the full array
       const lastVisibleBlockForSelection =
