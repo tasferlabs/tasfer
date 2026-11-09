@@ -537,6 +537,38 @@ describe("Android keyboards that reopen the previous word (#34)", () => {
     expect(el.textContent).toBe(" hello \u00a9");
   });
 
+  it("a new word started before an autoformatted commit lands keeps its first letter", async () => {
+    // As above, but the keyboard starts a fresh word instead of reopening the
+    // one it committed: its first update is new text, not the old word.
+    const copyright: DataSchema = getBaseDataSchema().withFeatures({
+      inputRules: [
+        {
+          id: "test-copyright",
+          phase: "before-insert",
+          apply: ({ state, input }) =>
+            input === "(c)"
+              ? { ...insertText(state, "\u00a9"), handled: true }
+              : undefined,
+        },
+      ],
+    });
+    const { editor, ime, frame } = setup("hello", undefined, copyright);
+    await frame();
+    ime.commit(" ");
+    await frame();
+    ime.start();
+    ime.update("(c)");
+    ime.end();
+    ime.start();
+    ime.update("c");
+    ime.update("ca");
+    ime.update("cat");
+    ime.end();
+    await frame();
+
+    expect(editor.getMarkdown().trim()).toBe("hello \u00a9cat");
+  });
+
   describe("a peer's edit arriving while the caret sits in the text", () => {
     // A second replica of the editor's own page makes `edit`; the editor
     // adopts the merged page the way the doc wiring hands it over.

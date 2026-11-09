@@ -1265,7 +1265,8 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   // new, and is passed on as a composition at the caret.
   //
   // `baseline` is the session's text when it was abandoned (null: learned from
-  // its next update). `forwarded` is the new text passed on so far (null: none).
+  // its first text, see `typedPastAbandoned`). `forwarded` is the new text
+  // passed on so far (null: none).
   private staleComposition: AbandonedComposition | null = null;
   // The keyboard's latest composed text, as it sent it.
   private keyboardComposed = "";
@@ -4107,6 +4108,8 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // tells the keyboard its composition is over (see `staleComposition`).
     if (this.imeSession && commitPending && !this.surfaceMatchesDocument()) {
       this.imeSession = null;
+      // Whether it reopens a word or starts a new one shows in its first
+      // text (see `typedPastAbandoned`).
       this.staleComposition = { baseline: null, forwarded: null };
       this.scheduleRender();
       return;
@@ -4223,13 +4226,22 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   // keyboard is only repeating the old word, or changed it (an autocorrect),
   // which cannot be told apart from the word already committed. Once text was
   // passed on, shrinking back to the old word passes on "" (a Backspace).
+  //
+  // Without a baseline yet, the first text decides it. A session that reopens
+  // a word only relabels text already before the caret, so that text is the
+  // surface's tail, and it is the baseline. A new word's first text is not on
+  // the surface yet (`compositionupdate` fires before the DOM changes): it
+  // is all typed past nothing.
   private typedPastAbandoned = (
     stale: AbandonedComposition,
     data: string,
   ): string | null => {
     if (stale.baseline === null) {
-      stale.baseline = data;
-      return null;
+      if (!data) return null;
+      // Contenteditable may hold an NBSP where the keyboard has a space.
+      const plain = (text: string) => text.replace(/\u00a0/g, " ");
+      const surface = plain(this.hiddenInput?.textContent ?? "");
+      stale.baseline = surface.endsWith(plain(data)) ? data : "";
     }
     if (!data.startsWith(stale.baseline)) return null;
     const typed = data.slice(stale.baseline.length);
