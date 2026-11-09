@@ -172,10 +172,6 @@ import {
   type SpellMenuT,
 } from "../spell/spellContextMenuItems";
 import {
-  SuggestionBarSlot,
-  SuggestionBarSlotProvider,
-} from "../spell/SuggestionBar";
-import {
   appSchema,
   openCodeLanguageMenu,
   openImageUploadMenu,
@@ -4051,7 +4047,6 @@ function PageEditor({
 
   return (
     <TableToolsContext.Provider value={tableTools}>
-      <SuggestionBarSlotProvider>
       <div
         // The hook owns `containerRef` (it mounts the canvas here); we keep
         // `wrapperRef` for the existing layout/positioning reads. One element,
@@ -4117,8 +4112,8 @@ function PageEditor({
             mountedRef.current.portalContainer,
           )}
 
-        {/* Spellcheck — squiggles, ⌘./Ctrl+. fix-or-next, the suggestion
-          popover and the touch suggestion bar. Editable mounts only: a
+        {/* Spellcheck — squiggles, ⌘./Ctrl+. fix-or-next and the suggestion
+          popover. Editable mounts only: a
           readonly preview never flags anything. */}
         {!readonly &&
           mountedRef.current?.portalContainer &&
@@ -4247,7 +4242,6 @@ function PageEditor({
           <MobileKeyboardToolbar
             model={mobileToolbarModel}
             onAction={handleMobileToolbarAction}
-            slot={<SuggestionBarSlot />}
           />
         )}
 
@@ -4277,7 +4271,6 @@ function PageEditor({
             document.body,
           )}
       </div>
-      </SuggestionBarSlotProvider>
     </TableToolsContext.Provider>
   );
 }
