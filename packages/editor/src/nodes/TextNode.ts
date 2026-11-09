@@ -22,7 +22,11 @@
  * flowing into the text via `inlineText()`.
  */
 
-import { captureReopenedWord, planRecomposition } from "../composition";
+import {
+  captureReopenedWord,
+  planRecomposition,
+  reopenedWordIn,
+} from "../composition";
 import {
   batchChars,
   currentFontFamily,
@@ -312,6 +316,15 @@ export function getContentWithComposition(
   const word =
     state.ui.composition.reopened ??
     (replaces > 0 ? captureReopenedWord(state, replaces) : undefined);
+  // A word reopened in another block (the caret was moved out of it) neither
+  // draws nor commits here (see `reopenedWordIn`).
+  if (word && !reopenedWordIn(word, block.id)) {
+    return {
+      chars: charRunsToChars(block.charRuns),
+      formats: block.formats,
+      compositionRange: null,
+    };
+  }
   if (word) {
     // Draw what the commit will produce (see COMPOSITION_END): the same plan,
     // by character id, so a peer's edit to the word while it is open shows

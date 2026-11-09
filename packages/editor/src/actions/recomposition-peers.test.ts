@@ -352,8 +352,51 @@ describe("caret of a reopened word a peer deleted", () => {
     const open = reopen(a, 9, 5, "hello");
     const page = applyOps(open.document.page, deleteRange(4, 9)(b).ops);
     const composition = open.ui.composition!;
-    const runs = (page.blocks[0] as { charRuns?: never }).charRuns;
     // The caret was carried to 4, where the word was.
-    expect(undrawnCompositionCaret(composition, runs, 4)).toBe(4);
+    expect(undrawnCompositionCaret(composition, page.blocks[0], 4)).toBe(4);
+  });
+});
+
+describe("a reopened word whose block the caret left", () => {
+  // A peer deleted the word's paragraph, so the caret was moved into another
+  // block (see `updatePageFromSync`). The word's ids are not in that block.
+  function openThenLeave() {
+    const [a] = replicas("one hello\n\ntwo");
+    const open = reopen(a, 9, 5, "help");
+    const other = open.document.page.blocks.findIndex(
+      (b) => getBlockTextContent(b) === "two",
+    );
+    expect(other).toBeGreaterThan(0);
+    const state: EditorState = {
+      ...open,
+      document: {
+        ...open.document,
+        cursor: {
+          ...open.document.cursor!,
+          position: { blockIndex: other, textIndex: 3 },
+        },
+      },
+    };
+    return { state, other };
+  }
+
+  it("commits nothing into the block that holds the caret now", () => {
+    const { state, other } = openThenLeave();
+    const committed = commit("help")(state);
+    expect(committed.ops).toEqual([]);
+    const blocks = committed.state.document.page.blocks;
+    expect(getBlockTextContent(blocks[0])).toBe("one hello");
+    expect(getBlockTextContent(blocks[other])).toBe("two");
+    expect(committed.state.ui.composition).toBeNull();
+  });
+
+  it("draws nothing in that block, and the caret stays put", () => {
+    const { state, other } = openThenLeave();
+    const block = state.document.page.blocks[other];
+    const content = getContentWithComposition(block, state, other);
+    expect(content.compositionRange).toBeNull();
+    const drawn = content.chars.filter((c) => !c.deleted).map((c) => c.char);
+    expect(drawn.join("")).toBe("two");
+    expect(undrawnCompositionCaret(state.ui.composition!, block, 3)).toBe(3);
   });
 });

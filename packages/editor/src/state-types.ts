@@ -296,6 +296,12 @@ export interface CompositionState {
    * edit inside the word while it is open is never overwritten.
    */
   readonly reopened?: {
+    /**
+     * The block the word is in. The recomposition only applies while the caret
+     * is in this block: elsewhere (a peer deleted the block and the caret was
+     * moved out) it neither draws nor commits.
+     */
+    readonly blockId: string;
     readonly text: string;
     readonly charIds: readonly string[];
     /** The character before the word (null at the block start). */

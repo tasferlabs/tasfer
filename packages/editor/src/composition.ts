@@ -1,4 +1,4 @@
-import type { CharRun } from "./serlization/loadPage";
+import type { Block, CharRun } from "./serlization/loadPage";
 import type { CompositionState, EditorState, Position } from "./state-types";
 import type { ContentPoint } from "./structured-selection";
 import { isTextualBlock } from "./sync/block-registry";
@@ -114,6 +114,7 @@ export function captureReopenedWord(
   const visible = [...iterateVisibleChars(block.charRuns)];
   const chars = visible.slice(start, caret.textIndex);
   return {
+    blockId: block.id,
     text: chars.map((c) => c.char).join(""),
     charIds: chars.map((c) => c.id),
     beforeId: start > 0 ? (visible[start - 1]?.id ?? null) : null,
@@ -142,17 +143,33 @@ export function reopenedWordFor(
 }
 
 /**
+ * Whether a reopened word lives in `blockId`. The caret leaves the word's
+ * block only when something else moved it there (a peer deleted the block);
+ * the word's ids are then unknown to the caret's block, and a plan against it
+ * would land the new letters at that block's start.
+ */
+export function reopenedWordIn(
+  word: ReopenedWord | undefined,
+  blockId: string | undefined,
+): word is ReopenedWord {
+  return !!word && word.blockId === blockId;
+}
+
+/**
  * Where the caret of an open composition sits when nothing of it is drawn (a
  * recomposition the keyboard emptied, or a reopened word a peer deleted): where
  * the reopened word began, right after the character before it (found by id,
  * so a peer's edit does not throw it off), else `replaces` back from the caret.
+ * A word in another block than `block` is not drawn there: the caret stays.
  */
 export function undrawnCompositionCaret(
   composition: CompositionState,
-  runs: CharRun[] | undefined,
+  block: Block | undefined,
   caretIndex: number,
 ): number {
   const word = composition.reopened;
+  if (word && !reopenedWordIn(word, block?.id)) return caretIndex;
+  const runs = block && isTextualBlock(block) ? block.charRuns : undefined;
   const start = word ? getVisibleOffsetAfterChar(runs, word.beforeId) : null;
   return start ?? caretIndex - Math.min(composition.replaces ?? 0, caretIndex);
 }

@@ -1517,7 +1517,7 @@ export function renderCursorLayer(
     // caret sits where it began.
     targetCursorIndex = undrawnCompositionCaret(
       state.ui.composition,
-      isTextualBlock(block) ? block.charRuns : undefined,
+      block,
       targetCursorIndex,
     );
   }

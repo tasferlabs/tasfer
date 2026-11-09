@@ -30,6 +30,7 @@ import {
   planRecomposition,
   type ReopenedWord,
   reopenedWordFor,
+  reopenedWordIn,
 } from "../composition";
 import { moveCursorToPosition } from "../selection";
 import type { CompositionState, EditorState } from "../state-types";
@@ -273,6 +274,11 @@ export const COMPOSITION_END = stateAction<CompositionTextPayload>(
  * When a delete touches a structured mark (an inline math chip, a mention) or
  * an edit is refused, nothing is edited: keeping the old word is safer than
  * cutting into the chip or leaving the word half-replaced.
+ *
+ * Nor is anything edited when the caret is no longer in the word's block (a
+ * peer deleted it and the caret was moved out): the word is gone, as a word a
+ * peer deletes inside the block is, and the new letters must not land in
+ * whatever block holds the caret now.
  */
 function commitRecomposition(
   state: EditorState,
@@ -284,7 +290,9 @@ function commitRecomposition(
   if (!caret) return keep;
   const blockIndex = caret.blockIndex;
   const block = state.document.page.blocks[blockIndex];
-  if (!block || !isTextualBlock(block)) return keep;
+  if (!block || !isTextualBlock(block) || !reopenedWordIn(word, block.id)) {
+    return keep;
+  }
 
   const plan = planRecomposition(block.charRuns, word, data);
   if (!plan.deletes.length && !plan.inserted) return keep;

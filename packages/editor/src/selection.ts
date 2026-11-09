@@ -598,11 +598,7 @@ export function getCursorCoordinatesWithComposition(
     const index = range
       ? range.start +
         Math.min(composition.cursorOffset, range.end - range.start)
-      : undrawnCompositionCaret(
-          composition,
-          block.charRuns,
-          position.textIndex,
-        );
+      : undrawnCompositionCaret(composition, block, position.textIndex);
     return node.caretRect(layout, index, styles.canvas.paddingLeft, blockTop);
   }
 
