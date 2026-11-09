@@ -158,6 +158,7 @@ function setup(
   markdown: string,
   at?: { block: number; index: number },
   schema?: DataSchema,
+  inputStrategy: "managed" | "faithful" = "managed",
 ) {
   const { el, ime } = fakeSurface();
   vi.stubGlobal("document", {
@@ -170,7 +171,11 @@ function setup(
       collapse() {},
     }),
   });
+  const collapses: number[] = [];
   vi.stubGlobal("getSelection", () => ({
+    collapse(_node: unknown, offset: number) {
+      collapses.push(offset);
+    },
     rangeCount: 1,
     getRangeAt: () => ({
       collapsed: true,
@@ -194,7 +199,7 @@ function setup(
     state,
     viewport,
     el as unknown as HTMLElement,
-    { inputStrategy: "managed" },
+    { inputStrategy },
   );
   // One animation frame. Marked dirty first, as on a device where input and
   // the caret blink keep frames painting; otherwise an idle frame skips the
@@ -253,7 +258,7 @@ function setup(
     });
     if (thenFrame) await frame();
   };
-  return { editor, el, ime, frame, tap };
+  return { editor, el, ime, frame, tap, collapses };
 }
 
 describe("Android keyboards that reopen the previous word (#34)", () => {
@@ -473,6 +478,57 @@ describe("Android keyboards that reopen the previous word (#34)", () => {
     const second = "second";
     expect(editor.getMarkdown().trim()).toBe(
       `first hey\n\n${second.slice(0, caret.textIndex)}ok${second.slice(caret.textIndex)}`,
+    );
+  });
+
+  it("on the faithful surface (iOS) a tap commits the word without rewriting the surface", async () => {
+    // WebKit does not end a composition whose text is rewritten under it: the
+    // keyboard goes on composing into text that is gone, and every later key
+    // is lost (a device log with the Chinese keyboard). There the word is
+    // committed where it was typed, and only the DOM caret moves, off the
+    // composed text; the surface is left alone until the browser ends it.
+    const doc = globalThis.document as unknown as { body?: unknown };
+    if (!doc.body) doc.body = { appendChild() {}, removeChild() {} };
+
+    const { editor, el, ime, frame, tap, collapses } = setup(
+      "first\n\nsecond",
+      { block: 0, index: 5 },
+      undefined,
+      "faithful",
+    );
+    await frame();
+    ime.start();
+    ime.update("hey");
+    await frame();
+    const surface = el.textContent;
+
+    await tap(2, 3);
+    expect(editor.getMarkdown().trim()).toBe("firsthey\n\nsecond");
+    const state = (editor as unknown as { _state: EditorState })._state;
+    expect(state.ui.composition).toBeNull();
+    const caret = state.document.cursor!.position;
+    expect(caret.blockIndex).toBe(2);
+    // Off the composed text ("hey" ends at the caret), the text untouched,
+    // through a frame too.
+    expect(collapses).toEqual([surface.length - "hey".length]);
+    await frame();
+    expect(el.textContent).toBe(surface);
+
+    // The browser's end of that session lands nothing, and the surface is
+    // the editor's again.
+    ime.end();
+    await frame();
+    expect(editor.getMarkdown().trim()).toBe("firsthey\n\nsecond");
+    expect(el.textContent).toBe("second");
+
+    // The next composition types at the new caret.
+    ime.start();
+    ime.update("X");
+    ime.end();
+    await frame();
+    const second = "second";
+    expect(editor.getMarkdown().trim()).toBe(
+      `firsthey\n\n${second.slice(0, caret.textIndex)}X${second.slice(caret.textIndex)}`,
     );
   });
 

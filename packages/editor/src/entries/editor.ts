@@ -2196,7 +2196,8 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         if (
           this.hiddenInput &&
           this._state.view.isFocused &&
-          !this._state.ui.composition?.isComposing
+          !this._state.ui.composition?.isComposing &&
+          !this.browserOwnsSurface()
         ) {
           this.syncMirrorToSelection();
         }
@@ -2671,7 +2672,11 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // sentinel space into the document as a spurious space; syncing here, in
     // the synchronous focus handler, closes it. Skipped mid-composition (the
     // browser owns the surface content then), like the render-loop call.
-    if (focused && !this._state.ui.composition?.isComposing) {
+    if (
+      focused &&
+      !this._state.ui.composition?.isComposing &&
+      !this.browserOwnsSurface()
+    ) {
       this.syncMirrorToSelection();
     }
 
@@ -3786,6 +3791,15 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       this.resetSentinel();
     }
 
+    // The same for an abandoned composition the browser was left holding (see
+    // `browserOwnsSurface`): a key outside a composition means it ended
+    // without a `compositionend`, so the surface is ours to resync again.
+    if (this.browserOwnsSurface() && !e.isComposing) {
+      this.staleComposition = null;
+      this.browserComposing = false;
+      this.syncMirrorToSelection();
+    }
+
     // During composition (IME input), let the IME handle keys natively
     if (this._state.ui.composition?.isComposing) {
       // Escape cancels composition without inserting text
@@ -4208,17 +4222,55 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   //
   // Unfocused (Android blurs the editor around a touch), only the clear runs:
   // the focus handler writes the caret's text when focus returns.
+  //
+  // The faithful surface (iOS) must not be rewritten. WebKit does not end a
+  // composition whose text is rewritten under it: the keyboard goes on
+  // composing into text that is gone, and no later key reaches the page (seen
+  // on a device with the Chinese keyboard). So the surface is left alone until
+  // the browser's own `compositionend`, which the stale session then drops
+  // (see `browserOwnsSurface`). Only the DOM caret moves, off the composed
+  // text, the way a native tap moves it; on a device that did not end the
+  // composition at once — the keyboard ended it later by itself.
   private abandonBrowserComposition = () => {
-    this.browserComposing = false;
     this.staleComposition = {
       baseline: this.keyboardComposed,
       forwarded: null,
     };
     this.imeSession = null;
+    if (this.hiddenInput && this.inputStrategy === "faithful") {
+      this.moveSurfaceCaretOffComposition();
+      return;
+    }
+    this.browserComposing = false;
     if (!this.hiddenInput) return;
     this.setMirror("", false);
     this.lastSurfaceValue = "";
     if (this._state.view.isFocused) this.syncMirrorToSelection();
+  };
+
+  // The browser still holds a composition the engine already committed (the
+  // faithful surface, see `abandonBrowserComposition`): its text is still on
+  // the surface, and rewriting the surface now would strand the keyboard.
+  private browserOwnsSurface = (): boolean =>
+    this.staleComposition !== null && this.browserComposing;
+
+  // Collapse the surface's DOM caret off the open composition, without
+  // touching its text. The composed text ends at the caret, so its start is a
+  // different spot; with nothing composed, either end of the text is.
+  private moveSurfaceCaretOffComposition = () => {
+    const node = this.hiddenInput?.firstChild;
+    const caret = this.readSurfaceCaret();
+    const selection = window.getSelection();
+    if (!node || caret === null || !selection) return;
+    const start = Math.max(0, caret - this.keyboardComposed.length);
+    const target =
+      start !== caret ? start : caret > 0 ? 0 : (node.textContent ?? "").length;
+    if (target === caret) return;
+    try {
+      selection.collapse(node, target);
+    } catch {
+      // Defensive: a stray DOM state shouldn't break input handling.
+    }
   };
 
   // What the user typed past an abandoned session's text: `data` with the
