@@ -4187,9 +4187,19 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
   // Settle the session's replaced-character count (first measurement wins) and
   // hand it to every composition event of the session still waiting in the queue.
+  // Not while nothing is composed and the surface is untouched: that reads as
+  // "replaces 0" whether the keyboard starts a new word or is about to report
+  // the word it reopened (its first update can come a task after the start),
+  // and a wrong 0 would stick for the whole session.
   private settleComposition = () => {
     const session = this.imeSession;
     if (!session || session.replaces !== null) return;
+    if (
+      session.composed === "" &&
+      (this.hiddenInput?.textContent ?? "") === session.before
+    ) {
+      return;
+    }
     const measured = this.measureComposition(session.composed);
     if (measured === null) return;
     session.replaces = measured;
