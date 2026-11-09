@@ -4073,6 +4073,13 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
   // Handle composition events (IME input)
   private compositionStartHandler = (e: CompositionEvent) => {
+    // The previous commit is still queued: the keyboard started again (often
+    // reopening the word it just committed) before the frame that applies it.
+    // Apply it now, so the document this session is measured against holds it.
+    const commitPending = this.eventsQueue.some(
+      (queued) => queued.type === "compositionend",
+    );
+    if (commitPending) this.flushPendingInput();
     // A new session: whatever was left of an abandoned one is over.
     this.staleComposition = null;
     this.browserComposing = true;
@@ -4092,6 +4099,18 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
             events: [],
           }
         : null;
+    // That commit came out different from what the keyboard typed (an input
+    // rule rewrote it), and the surface still shows the keyboard's version: a
+    // word reopened there is not the document's text, and counting it back
+    // from the caret would replace other characters. Abandon the session
+    // instead. The next frame rewrites the surface to the document, which
+    // tells the keyboard its composition is over (see `staleComposition`).
+    if (this.imeSession && commitPending && !this.surfaceMatchesDocument()) {
+      this.imeSession = null;
+      this.staleComposition = { baseline: null, forwarded: null };
+      this.scheduleRender();
+      return;
+    }
     this.trackCompositionEvent(e);
     // Mark composition as starting - this will be handled in events.ts
     this.eventsQueue.push(e);
@@ -4220,6 +4239,25 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   // Hand the engine a composition event with different text.
   private setCompositionData = (e: CompositionEvent, data: string) => {
     Object.defineProperty(e, "data", { value: data, configurable: true });
+  };
+
+  // Whether the managed surface's text is the document's text before the
+  // caret. Unknown (no sentinel, no textual caret block) counts as a match.
+  private surfaceMatchesDocument = (): boolean => {
+    const surface = this.hiddenInput?.textContent ?? "";
+    if (!hasSentinel(surface, this.SENTINEL)) return true;
+    const caret = resolvePoint(this._state, "caret");
+    const block = caret
+      ? this._state.document.page.blocks[caret.blockIndex]
+      : undefined;
+    if (!caret || !block || block.deleted || !isTextualBlock(block)) {
+      return true;
+    }
+    // Contenteditable may hold an NBSP where the document has a space.
+    const plain = (text: string) => text.replace(/\u00a0/g, " ");
+    return plain(getBlockTextContent(block).slice(0, caret.offset)).endsWith(
+      plain(stripSentinel(surface, this.SENTINEL)),
+    );
   };
 
   // Register a composition event with the managed session, attaching the

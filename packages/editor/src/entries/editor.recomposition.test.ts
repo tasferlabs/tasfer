@@ -11,12 +11,14 @@
  * HeliBoard on Android Chromium.
  */
 import { insertText, splitBlock } from "../actions/actions";
+import { getBaseDataSchema } from "../baseDataSchema";
 import { getBlockTextContent } from "../node-shared";
 import { moveCursorToPosition } from "../selection";
 import { loadPage } from "../serlization/loadPage";
 import type { EditorState, Operation, ViewportState } from "../state-types";
 import { createInitialState } from "../state-utils";
 import { applyOps } from "../sync/reducer";
+import type { DataSchema } from "../sync/schema";
 import { Editor } from "./editor";
 import type { CanvasLayers } from "./layers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -152,7 +154,11 @@ function fakeSurface() {
   return { el, ime };
 }
 
-function setup(markdown: string, at?: { block: number; index: number }) {
+function setup(
+  markdown: string,
+  at?: { block: number; index: number },
+  schema?: DataSchema,
+) {
   const { el, ime } = fakeSurface();
   vi.stubGlobal("document", {
     ...globalThis.document,
@@ -177,7 +183,7 @@ function setup(markdown: string, at?: { block: number; index: number }) {
   Object.assign(window, { getSelection: globalThis.getSelection });
 
   const page = loadPage(markdown);
-  let state: EditorState = createInitialState(page);
+  let state: EditorState = createInitialState(page, { schema });
   const text = markdown;
   state = at
     ? moveCursorToPosition(state, at.block, at.index)
@@ -493,6 +499,42 @@ describe("Android keyboards that reopen the previous word (#34)", () => {
     await frame();
 
     expect(editor.getMarkdown().trim()).toBe("hello\n\nworld");
+  });
+
+  it("a word reopened before an autoformatted commit lands is not counted against stale text", async () => {
+    // The commit comes out different from what the keyboard typed ("(c)"
+    // becomes "©"), and the keyboard reopens the word before the frame that
+    // applies the commit. It reopened the keyboard's text, not the document's.
+    const copyright: DataSchema = getBaseDataSchema().withFeatures({
+      inputRules: [
+        {
+          id: "test-copyright",
+          phase: "before-insert",
+          apply: ({ state, input }) =>
+            input === "(c)"
+              ? { ...insertText(state, "\u00a9"), handled: true }
+              : undefined,
+        },
+      ],
+    });
+    const { editor, el, ime, frame } = setup("hello", undefined, copyright);
+    await frame();
+    ime.commit(" ");
+    await frame();
+    ime.start();
+    ime.update("(c)");
+    ime.end();
+    ime.start(3); // reopen what the keyboard just committed
+    await frame();
+    ime.end();
+    await frame();
+
+    const markdown = editor.getMarkdown().trim();
+    // Whatever lands, the text before the word is never eaten.
+    expect(markdown.startsWith("hello ")).toBe(true);
+    expect(markdown).toBe("hello \u00a9");
+    // The surface is back to the document's text.
+    expect(el.textContent).toBe(" hello \u00a9");
   });
 
   describe("a peer's edit arriving while the caret sits in the text", () => {
