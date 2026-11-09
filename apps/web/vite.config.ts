@@ -215,7 +215,8 @@ export default defineConfig({
     },
   },
   server: {
-    port: 4000,
+    // PORT lets the desktop app's Preview give each worktree its own free port.
+    port: Number(process.env.PORT) || 4000,
     https: lanHttps,
     // Replaced by our own devtools-styled overlay (see src/dev/viteErrorOverlay).
     hmr: { overlay: false },
