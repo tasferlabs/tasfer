@@ -40,6 +40,11 @@ import type {
   RenderedLine,
   TextStyle,
 } from "./state-types";
+import {
+  type ContentPoint,
+  type ContentSelection,
+  isContentSelectionCollapsed,
+} from "./structured-selection";
 import { getVisibleTextFromChars } from "./sync/char-runs";
 import type { StructuredContentMap } from "./sync/structured-content";
 
@@ -1245,4 +1250,173 @@ export function compositionRects(layout: TextLayout): TextRect[] {
 /** Visible length of a box's text. */
 export function textLength(layout: TextLayout): number {
   return getVisibleTextFromChars(layout.chars).length;
+}
+
+// ---------------------------------------------------------------------------
+// Inside a replacement run (a caret in an inline formula)
+// ---------------------------------------------------------------------------
+
+/**
+ * The replacement run whose attachment is `contentId` — the run a nested
+ * caret or range in that attachment sits in — or `undefined` when this box
+ * holds none.
+ */
+export function replacementRunForContent(
+  layout: TextLayout,
+  contentId: string,
+): ReplacementRun | undefined {
+  return layoutReplacementRuns(layout).find(
+    (run) => run.mark.attrs?.contentId === contentId,
+  );
+}
+
+/** The baseline of `line`, relative to the box. */
+function lineBaseline(layout: TextLayout, line: RenderedLine): number {
+  return line.y + (line.baselineOffset ?? layout.fontMetrics.ascent);
+}
+
+/**
+ * Where a caret INSIDE a replacement run's attachment stands, relative to the
+ * box — the nested-caret twin of {@link textCaretRect}. `null` when no run of
+ * this box owns `point`'s attachment or the run places no nested caret.
+ */
+export function textContentCaretRect(
+  layout: TextLayout,
+  point: ContentPoint,
+  blockId: string,
+): { x: number; y: number; height: number } | null {
+  const run = replacementRunForContent(layout, point.contentId);
+  if (!run?.replacement.contentCaretRect) return null;
+  for (const [lineIndex, line] of layout.lines.entries()) {
+    const fragment = replacementFragmentGeometry(layout, lineIndex, line, run);
+    if (!fragment) continue;
+    const caret = run.replacement.contentCaretRect(
+      fragment.text,
+      layout.textStyle.fontSize,
+      point,
+      {
+        blockId,
+        mark: run.mark,
+        attachments: layout.structuredContent,
+        sourceRange: fragment.sourceRange,
+      },
+    );
+    if (!caret) continue;
+    const baseline = lineBaseline(layout, line);
+    return {
+      x: fragment.left + caret.x,
+      y: baseline + caret.top,
+      height: caret.bottom - caret.top,
+    };
+  }
+  return null;
+}
+
+/**
+ * The highlight of a range INSIDE a replacement run's attachment, relative to
+ * the box — the nested twin of {@link textRangeRects}. Empty for a collapsed
+ * selection or one no run of this box owns.
+ */
+export function textContentSelectionRects(
+  layout: TextLayout,
+  selection: ContentSelection,
+  blockId: string,
+): TextRect[] {
+  if (isContentSelectionCollapsed(selection)) return [];
+  const run = replacementRunForContent(layout, selection.focus.contentId);
+  if (!run?.replacement.contentSelectionRects) return [];
+  const rects: TextRect[] = [];
+  for (const [lineIndex, line] of layout.lines.entries()) {
+    const fragment = replacementFragmentGeometry(layout, lineIndex, line, run);
+    if (!fragment) continue;
+    const pieces = run.replacement.contentSelectionRects(
+      fragment.text,
+      layout.textStyle.fontSize,
+      selection,
+      {
+        blockId,
+        mark: run.mark,
+        attachments: layout.structuredContent,
+        sourceRange: fragment.sourceRange,
+      },
+    );
+    if (!pieces) continue;
+    const baseline = lineBaseline(layout, line);
+    for (const piece of pieces) {
+      rects.push({
+        x: fragment.left + piece.x,
+        y: baseline + piece.top,
+        width: piece.width,
+        height: piece.bottom - piece.top,
+        baseline,
+      });
+    }
+  }
+  return rects;
+}
+
+/** How a pointer is resolving, for {@link textContentSelectionFromPoint}. */
+export interface TextContentHitOptions {
+  readonly pointerType?: "mouse" | "touch";
+  /** Finger/magnifier drag uses nearest-stop geometry with row hysteresis. */
+  readonly drag?: boolean;
+  /** The current endpoint, the drag's hysteresis anchor. */
+  readonly previousPoint?: ContentPoint | null;
+}
+
+/**
+ * The nested selection a point lands on INSIDE a replacement run (a click on
+ * a formula's numerator), with `x`/`y` relative to the box — or `null` off
+ * every run that resolves points inside itself, so the caller falls back to a
+ * flat offset ({@link textOffsetAtPoint}).
+ */
+export function textContentSelectionFromPoint(
+  layout: TextLayout,
+  x: number,
+  y: number,
+  blockId: string,
+  options: TextContentHitOptions = {},
+): ContentSelection | null {
+  const runs = layoutReplacementRuns(layout).filter(
+    (run) => run.replacement.contentSelectionFromPoint,
+  );
+  if (runs.length === 0) return null;
+  for (const [lineIndex, line] of layout.lines.entries()) {
+    if (y < line.y || y >= line.y + line.height) continue;
+    const baseline = lineBaseline(layout, line);
+    for (const run of runs) {
+      const fragment = replacementFragmentGeometry(
+        layout,
+        lineIndex,
+        line,
+        run,
+      );
+      if (!fragment) continue;
+      // A drag that started inside this run keeps resolving inside it, so a
+      // selection never jumps out of the formula mid-gesture.
+      const draggingInside =
+        options.drag &&
+        options.previousPoint?.contentId === run.mark.attrs?.contentId;
+      if (!draggingInside && (x < fragment.left || x > fragment.right)) {
+        continue;
+      }
+      const selection = run.replacement.contentSelectionFromPoint?.(
+        fragment.text,
+        layout.textStyle.fontSize,
+        x - fragment.left,
+        y - baseline,
+        {
+          blockId,
+          mark: run.mark,
+          attachments: layout.structuredContent,
+          sourceRange: fragment.sourceRange,
+          pointerType: options.pointerType,
+          drag: options.drag,
+          previousPoint: options.previousPoint,
+        },
+      );
+      if (selection) return selection;
+    }
+  }
+  return null;
 }

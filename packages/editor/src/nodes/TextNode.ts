@@ -90,24 +90,22 @@ import type {
   TextStyle,
 } from "../state-types";
 import { isCaretScratchActive, transformTypedInput } from "../state-utils";
-import {
-  type ContentSelection,
-  isContentSelectionCollapsed,
-} from "../structured-selection";
+import type { ContentSelection } from "../structured-selection";
 import { isTextualBlock } from "../sync/block-registry";
 import { charRunsToChars, getVisibleTextFromRuns } from "../sync/char-runs";
 import type { StructuredContentMap } from "../sync/structured-content";
 import {
   foldComposition,
-  layoutReplacementRuns,
   layoutText,
   type LineSlices,
   measureTextRange,
-  replacementFragmentGeometry,
   replacementRangeAtPoint,
   type ReplacementRun,
   replacementRuns,
   textCaretRect,
+  textContentCaretRect,
+  textContentSelectionFromPoint,
+  textContentSelectionRects,
   type TextLayout,
   textLength,
   textOffsetAtPoint,
@@ -197,6 +195,12 @@ export interface PaintTextRunArgs {
    * so a formula that reflows across lines paints its own piece on each.
    */
   readonly slices?: LineSlices;
+  /**
+   * A replacement run (an inline formula) to draw lit, as `[startIndex,
+   * endIndex)` visible offsets — the one under the pointer, or the one the
+   * caret is inside, exactly as a paragraph lights it.
+   */
+  readonly highlighted?: { startIndex: number; endIndex: number } | null;
 }
 
 /**
@@ -223,7 +227,7 @@ export function paintTextRun(args: PaintTextRunArgs): void {
     args.marks,
     args.isRTL,
     args.requestRedraw,
-    null,
+    args.highlighted ?? null,
     null,
     false,
     args.attachments,
@@ -1232,49 +1236,19 @@ export class TextNode<
     // exists for the shared signature and math's override consumes it.
     _edge?: "start" | "end",
   ): { x: number; y: number; height: number; exact?: boolean } {
-    const { textStyle, insetY } = layout;
+    const { insetY } = layout;
     const baseX = this.baseX(layout, originX);
 
     const nestedPoint = state?.document.contentSelection?.focus;
     if (blockId && nestedPoint?.blockId === blockId) {
-      const run = layoutReplacementRuns(layout).find(
-        (candidate) =>
-          candidate.mark.attrs?.contentId === nestedPoint.contentId &&
-          candidate.replacement.contentCaretRect,
-      );
-      if (run) {
-        for (const [lineIndex, line] of layout.lines.entries()) {
-          const fragment = replacementFragmentGeometry(
-            layout,
-            lineIndex,
-            line,
-            run,
-          );
-          if (!fragment) continue;
-          const nestedCaret = run.replacement.contentCaretRect?.(
-            fragment.text,
-            textStyle.fontSize,
-            nestedPoint,
-            {
-              blockId,
-              mark: run.mark,
-              attachments: layout.structuredContent,
-              sourceRange: fragment.sourceRange,
-            },
-          );
-          if (!nestedCaret) continue;
-          const baselineY =
-            blockTopY +
-            insetY +
-            line.y +
-            (line.baselineOffset ?? layout.fontMetrics.ascent);
-          return {
-            x: baseX + fragment.left + nestedCaret.x,
-            y: baselineY + nestedCaret.top,
-            height: nestedCaret.bottom - nestedCaret.top,
-            exact: true,
-          };
-        }
+      const nested = textContentCaretRect(layout, nestedPoint, blockId);
+      if (nested) {
+        return {
+          x: baseX + nested.x,
+          y: blockTopY + insetY + nested.y,
+          height: nested.height,
+          exact: true,
+        };
       }
     }
 
@@ -1316,58 +1290,13 @@ export class TextNode<
     options: NodeContentHitOptions,
   ): ContentSelection | null {
     const layout = layoutValue as TextNodeLayout;
-    if (!layout.marks) return null;
-    const runs = replacementRuns(
-      layout.chars,
-      layout.formats,
-      layout.marks,
-      layout.structuredContent,
-    ).filter((run) => run.replacement.contentSelectionFromPoint);
-    if (runs.length === 0) return null;
-
-    const baseX = this.baseX(layout, 0);
-    const pointX = local.x - baseX;
-    for (const [lineIndex, line] of layout.lines.entries()) {
-      const lineTop = layout.insetY + line.y;
-      if (local.y < lineTop || local.y >= lineTop + line.height) continue;
-      const baseline =
-        lineTop + (line.baselineOffset ?? layout.fontMetrics.ascent);
-      for (const run of runs) {
-        const fragment = replacementFragmentGeometry(
-          layout,
-          lineIndex,
-          line,
-          run,
-        );
-        if (!fragment) continue;
-        const previousOwnedByRun =
-          options.drag &&
-          options.previousPoint?.contentId === run.mark.attrs?.contentId;
-        if (
-          !previousOwnedByRun &&
-          (pointX < fragment.left || pointX > fragment.right)
-        ) {
-          continue;
-        }
-        const selection = run.replacement.contentSelectionFromPoint?.(
-          fragment.text,
-          layout.textStyle.fontSize,
-          pointX - fragment.left,
-          local.y - baseline,
-          {
-            blockId: c.block.id,
-            mark: run.mark,
-            attachments: layout.structuredContent,
-            sourceRange: fragment.sourceRange,
-            pointerType: options.pointerType,
-            drag: options.drag,
-            previousPoint: options.previousPoint,
-          },
-        );
-        if (selection) return selection;
-      }
-    }
-    return null;
+    return textContentSelectionFromPoint(
+      layout,
+      local.x - this.baseX(layout, 0),
+      local.y - layout.insetY,
+      c.block.id,
+      options,
+    );
   }
 
   /**
@@ -1626,60 +1555,17 @@ export class TextNode<
     }
 
     const nestedSelectionRects = (selection: ContentSelection): Rect[] => {
-      if (
-        isContentSelectionCollapsed(selection) ||
-        selection.focus.blockId !== block.id ||
-        !layout.marks
-      ) {
-        return [];
-      }
-      const run = replacementRuns(
-        renderChars,
-        renderFormats,
-        layout.marks,
-        layout.structuredContent,
-      ).find(
-        (candidate) =>
-          candidate.mark.attrs?.contentId === selection.focus.contentId &&
-          candidate.replacement.contentSelectionRects,
-      );
-      if (!run) return [];
-
+      if (selection.focus.blockId !== block.id) return [];
       const baseX = this.baseX(layout, x);
-      const rects: Rect[] = [];
-      for (const [lineIndex, line] of layout.lines.entries()) {
-        const fragment = replacementFragmentGeometry(
-          layout,
-          lineIndex,
-          line,
-          run,
-        );
-        if (!fragment) continue;
-        const fragmentRects = run.replacement.contentSelectionRects?.(
-          fragment.text,
-          textStyle.fontSize,
-          selection,
-          {
-            blockId: block.id,
-            mark: run.mark,
-            attachments: layout.structuredContent,
-            sourceRange: fragment.sourceRange,
-          },
-        );
-        if (!fragmentRects) continue;
-        const baselineY =
-          y + insetY + line.y + (line.baselineOffset ?? fontMetrics.ascent);
-        for (const rect of fragmentRects) {
-          rects.push({
-            x: baseX + fragment.left + rect.x,
-            y: baselineY + rect.top,
-            width: rect.width,
-            height: rect.bottom - rect.top,
-            baseline: baselineY,
-          });
-        }
-      }
-      return rects;
+      return textContentSelectionRects(layout, selection, block.id).map(
+        (rect) => ({
+          x: baseX + rect.x,
+          y: y + insetY + rect.y,
+          width: rect.width,
+          height: rect.height,
+          baseline: y + insetY + (rect.baseline ?? rect.y),
+        }),
+      );
     };
 
     // Range decorations (find highlights, etc. — behind the local selection).

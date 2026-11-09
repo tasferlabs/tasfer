@@ -44,6 +44,14 @@ import {
   DELETE_BACKWARD,
   DELETE_FORWARD,
 } from "@tasfer/editor/actions/edit-actions";
+import {
+  MOVE_CONTENT_TAB,
+  MOVE_CURSOR_LEFT,
+  MOVE_CURSOR_RIGHT,
+  MOVE_TO_LINE_START,
+} from "@tasfer/editor/actions/keyboard-actions";
+import { runFieldAsParagraph } from "@tasfer/editor/text-field-paragraph";
+import { cellField } from "@tasfer/table/context";
 import { resolveMarkRunsFromChars } from "@tasfer/editor/mark-runs";
 import {
   createMarkRegistry,
@@ -81,15 +89,25 @@ function tableIn(blocks: readonly Block[]): Block {
   return block;
 }
 
-/** Every math mark in the table's cells, with the formula it resolves to. */
+/**
+ * Every math mark still showing in the table's cells, with the formula it
+ * resolves to. A mark whose anchor was deleted is a removed formula — its
+ * attachment goes with it, exactly as in a paragraph.
+ */
 function cellFormulas(block: Block): { contentId: string; latex: string }[] {
   const document = getTableDocument(block);
   if (!document) throw new Error("expected a table document");
   const found: { contentId: string; latex: string }[] = [];
   for (const row of readTable(document).rows) {
     for (const cell of row.cells) {
+      const removed = new Set(
+        [...iterateAllChars([...(cell?.textFields.text ?? [])])]
+          .filter((char) => char.deleted)
+          .map((char) => char.id),
+      );
       for (const span of cell?.markFields?.text ?? []) {
         if (span.format.type !== "math") continue;
+        if (removed.has(span.startCharId)) continue;
         found.push({
           contentId: mathMarkContentId(span.format) ?? "",
           latex:
@@ -277,17 +295,21 @@ describe("editing a cell that holds a formula", () => {
     expect(cellView(editorOver(EDIT_SOURCE))).toBe("a [x] b");
   });
 
-  it("types on either side without growing the formula", () => {
+  it("types flush against the formula into it, as a paragraph does", () => {
     const state = editorOver(EDIT_SOURCE);
     expect(cellView(insertText(select(state, CHIP + 1), "z").state)).toBe(
-      "a [x]z b",
+      "a [xz] b",
     );
     expect(cellView(insertText(select(state, CHIP), "z").state)).toBe(
-      "a z[x] b",
+      "a [zx] b",
+    );
+    // A space is prose: it leaves the formula alone.
+    expect(cellView(insertText(select(state, CHIP + 1), " ").state)).toBe(
+      "a [x]  b",
     );
   });
 
-  it("removes the formula whole with one Backspace or Delete, and undo brings it back", () => {
+  it("reaches into the formula with Backspace or Delete, as a paragraph does, and undo brings it back", () => {
     const state = editorOver(EDIT_SOURCE);
     for (const [action, at] of [
       [DELETE_BACKWARD, CHIP + 1],
@@ -295,7 +317,7 @@ describe("editing a cell that holds a formula", () => {
     ] as const) {
       const before = select(state, at);
       const result = before.actionBus.dispatchState(action, before);
-      expect(cellView(result.state)).toBe("a  b");
+      expect(cellView(result.state)).toBe("a [] b");
 
       // The formula's attachment is still on the block, so the inverse ops —
       // what undo replays — restore the very same formula.
@@ -315,6 +337,34 @@ describe("editing a cell that holds a formula", () => {
         }),
       ).toBe("a [x] b");
     }
+  });
+
+  it("removes a formula's attachment only after the cell drops its mark", () => {
+    // Backspace until the formula is gone, gathering every op.
+    let state = select(editorOver(EDIT_SOURCE), CHIP + 1);
+    const ops: Operation[] = [];
+    for (let press = 0; press < 4 && cellView(state).includes("["); press++) {
+      const result = state.actionBus.dispatchState(DELETE_BACKWARD, state);
+      state = result.state;
+      ops.push(...result.ops);
+    }
+    expect(cellView(state)).toBe("a  b");
+    const rootId = getTableDocument(
+      tableIn(state.document.page.blocks),
+    )!.rootId;
+    const removed = ops.findIndex(
+      (op) =>
+        op.op === "content_edit" &&
+        op.contentId !== rootId &&
+        op.edit.kind === "document_delete",
+    );
+    expect(removed).toBeGreaterThan(-1);
+    // Nothing touches the cell after its formula's attachment is gone.
+    expect(
+      ops
+        .slice(removed + 1)
+        .some((op) => op.op === "content_edit" && op.contentId === rootId),
+    ).toBe(false);
   });
 
   it("keeps the formula when bold is toggled over it", () => {
@@ -355,8 +405,10 @@ describe("typing a formula in a cell", () => {
     expect(cellView(typed.state)).toBe("q[x]");
     expectOwnedFormulas(typed.state);
 
-    // The caret lands after the formula: the next letter is plain text.
-    expect(cellView(insertText(typed.state, "z").state)).toBe("q[x]z");
+    // The caret lands after the formula, where a letter continues it — the
+    // same as in a paragraph — and a space leaves it.
+    expect(cellView(insertText(typed.state, "z").state)).toBe("q[xz]");
+    expect(cellView(insertText(typed.state, " ").state)).toBe("q[x] ");
     expect(
       serializeToMarkdown(typed.state.document.page.blocks, undefined, {
         schema: appDataSchema,
@@ -688,8 +740,15 @@ describe("two peers editing cells that hold formulas", () => {
     const merged = concurrently(
       GRID,
       (s) => {
+        // As in a paragraph, the first Backspace empties the one-symbol
+        // formula and the second takes the empty formula away.
         const at = selectCells(s, [2, 3]);
-        return at.actionBus.dispatchState(DELETE_BACKWARD, at);
+        const first = at.actionBus.dispatchState(DELETE_BACKWARD, at);
+        const second = first.state.actionBus.dispatchState(
+          DELETE_BACKWARD,
+          first.state,
+        );
+        return { state: second.state, ops: [...first.ops, ...second.ops] };
       },
       (s) => {
         const at = selectCells(s, [3, 0]);
@@ -708,6 +767,222 @@ describe("two peers editing cells that hold formulas", () => {
       "one",
       "two",
     ]);
+    expectOwnedFormulas(merged);
+  });
+});
+
+// ─── Editing inside a formula ────────────────────────────────────────────────
+
+type Key = readonly [string, (state: EditorState) => StateStep];
+type StateStep = { state: EditorState; ops: Operation[] };
+
+const press =
+  (action: typeof MOVE_CURSOR_LEFT): Key[1] =>
+  (state) =>
+    state.actionBus.dispatchState(action, state);
+const typed =
+  (text: string): Key[1] =>
+  (state) =>
+    insertText(state, text);
+
+/** Run `keys` in order, gathering every op. */
+function run(state: EditorState, keys: readonly Key[]) {
+  const ops: Operation[] = [];
+  const steps: { inside: boolean; text: string }[] = [];
+  for (const [, key] of keys) {
+    const result = key(state);
+    state = result.state;
+    ops.push(...result.ops);
+    steps.push({ inside: insideFormula(state), text: "" });
+  }
+  return { state, ops, steps };
+}
+
+/** Whether the caret is in a formula's own tree, not the surrounding text. */
+function insideFormula(state: EditorState): boolean {
+  const focus = state.document.contentSelection?.focus;
+  if (!focus) return false;
+  const block = state.document.page.blocks.find((b) => b.id === focus.blockId);
+  return block?.structuredContent?.[focus.contentId]?.kind === "math";
+}
+
+/** The body cell's Markdown, or a lone paragraph's. */
+function proseOf(state: EditorState): string {
+  const markdown = serializeToMarkdown(state.document.page.blocks, undefined, {
+    schema: appDataSchema,
+  });
+  const line = markdown.split("\n").at(-1) ?? "";
+  return line.startsWith("| ") ? line.slice(2, -2) : line;
+}
+
+/** The body cell with the caret just after its formula (`a [x]| b`). */
+function afterCellFormula(): EditorState {
+  return select(editorOver(EDIT_SOURCE), CHIP + 1);
+}
+
+/** The same text as a paragraph, caret just after its formula. */
+function afterParagraphFormula(): EditorState {
+  return moveCursorToPosition(editorOver("a $x$ b"), 0, CHIP + 1);
+}
+
+/** Every step, as Markdown and where the caret is. */
+function trace(state: EditorState, keys: readonly Key[]) {
+  const out: string[] = [];
+  for (const [name, key] of keys) {
+    state = key(state).state;
+    out.push(
+      `${name} → ${proseOf(state)}${insideFormula(state) ? " (in formula)" : ""}`,
+    );
+  }
+  return out;
+}
+
+describe("editing inside a cell's formula, as a paragraph does", () => {
+  const keys: Key[] = [
+    ["←", press(MOVE_CURSOR_LEFT)],
+    ["y", typed("y")],
+    ["^", typed("^")],
+    ["2", typed("2")],
+    ["⌫", press(DELETE_BACKWARD)],
+    ["→", press(MOVE_CURSOR_RIGHT)],
+    ["→", press(MOVE_CURSOR_RIGHT)],
+    ["→", press(MOVE_CURSOR_RIGHT)],
+    ["z", typed("z")],
+  ];
+
+  it("enters, edits the tree and leaves exactly as a paragraph's formula", () => {
+    const cell = trace(afterCellFormula(), keys);
+    expect(cell).toEqual(trace(afterParagraphFormula(), keys));
+    // Spot-check the shared answer, so the comparison is about something.
+    expect(cell[0]).toBe("← → a $x$ b (in formula)");
+    expect(cell[3]).toBe("2 → a $x{y}^{2}$ b (in formula)");
+    expect(cell.at(-1)).toBe("z → a $x{y}^{}$ zb");
+  });
+
+  it("starts typing into the formula from Home, as a paragraph does", () => {
+    const home: Key[] = [
+      ["←", press(MOVE_CURSOR_LEFT)],
+      ["Home", press(MOVE_TO_LINE_START)],
+      ["q", typed("q")],
+    ];
+    expect(trace(afterCellFormula(), home)).toEqual(
+      trace(afterParagraphFormula(), home),
+    );
+  });
+
+  it("rebuilds the edits inside the formula from the operations alone", () => {
+    const start = afterCellFormula();
+    const edited = run(start, keys.slice(0, 4));
+    let page = start.document.page;
+    for (const op of edited.ops) page = applyOp(page, op, appSchema.data);
+    const replica = {
+      ...edited.state,
+      document: { ...edited.state.document, page },
+    };
+    expect(proseOf(replica)).toBe("a $x{y}^{2}$ b");
+    // Every op addresses the real table block, never the stand-in paragraph.
+    const tableId = tableIn(start.document.page.blocks).id;
+    expect(
+      edited.ops.every((op) => "blockId" in op && op.blockId === tableId),
+    ).toBe(true);
+  });
+
+  it("undoes a keystroke inside the formula", () => {
+    const inside = run(afterCellFormula(), keys.slice(0, 1)).state;
+    const typedY = insertText(inside, "y");
+    expect(proseOf(typedY.state)).toBe("a $xy$ b");
+    const inverses = invertOperations(
+      typedY.ops,
+      inside.document.page,
+      (page, op) => applyOp(page, op, appSchema.data),
+      inside.CRDTbinding,
+      appSchema.data,
+    );
+    let page = typedY.state.document.page;
+    for (const op of inverses) page = applyOp(page, op, appSchema.data);
+    expect(
+      proseOf({
+        ...typedY.state,
+        document: { ...typedY.state.document, page },
+      }),
+    ).toBe("a $x$ b");
+  });
+
+  it("pastes into the formula and copies from it, as a paragraph does", () => {
+    const pasteIn = (state: EditorState) => {
+      const inside = press(MOVE_CURSOR_LEFT)(state).state;
+      const pasted = pasteFromClipboardEvent(inside, {} as ClipboardEvent, {
+        text: "z",
+        html: "",
+        imageFile: null,
+      });
+      return pasted ? proseOf(pasted.state) : "<not pasted>";
+    };
+    expect(pasteIn(afterCellFormula())).toBe("a $xz$ b");
+    expect(pasteIn(afterCellFormula())).toBe(pasteIn(afterParagraphFormula()));
+  });
+
+  it("keeps Tab inside the formula instead of moving to the next cell", () => {
+    const inside = run(afterCellFormula(), keys.slice(0, 1)).state;
+    const tabbed = inside.actionBus.dispatchState(MOVE_CONTENT_TAB, inside, {
+      backward: false,
+    }).state;
+    expect(insideFormula(tabbed)).toBe(true);
+    expect(tabbed.document.contentSelection?.focus.contentId).toBe(
+      inside.document.contentSelection?.focus.contentId,
+    );
+  });
+
+  it("does not hold the whole table on Backspace at a formula in the first cell", () => {
+    const source = ["| $x$ a |", "| --- |", "| b |"].join("\n");
+    const state = editorOver(source);
+    const block = tableIn(state.document.page.blocks);
+    const document = getTableDocument(block)!;
+    const first = tableCellIds(document)[0];
+    const atStart = updateContentSelection(
+      state,
+      tableCaretToContentSelection(document, block.id, {
+        cellId: first,
+        offset: 0,
+      }),
+    );
+    const entered = press(MOVE_CURSOR_RIGHT)(atStart).state;
+    expect(insideFormula(entered)).toBe(true);
+    const deleted = press(DELETE_BACKWARD)(entered).state;
+    // Still editing in the table, not holding the block as a node selection.
+    expect(deleted.document.contentSelection).not.toBeNull();
+    expect(deleted.document.selection).toBeNull();
+  });
+
+  it("refuses a caret inside an attachment the cell does not point at", () => {
+    const state = editorOver(GRID);
+    const block = tableIn(state.document.page.blocks);
+    const document = getTableDocument(block)!;
+    const [, , , withY] = tableCellIds(document);
+    // Enter the formula in the `a $x$` cell, then lend that caret to `$y$`'s.
+    const inX = press(MOVE_CURSOR_LEFT)(selectCells(state, [2, 3])).state;
+    expect(insideFormula(inX)).toBe(true);
+    const result = runFieldAsParagraph(
+      inX,
+      cellField({ block, document }, withY),
+      { anchor: 0, focus: 0, content: inX.document.contentSelection! },
+      (paragraph) => insertText(paragraph, "q"),
+    );
+    expect(result).toEqual({ kind: "refused", reason: "missing" });
+  });
+});
+
+describe("two peers editing inside a cell's formula", () => {
+  it("one types in the formula while the other types in the same cell", () => {
+    const merged = concurrently(
+      GRID,
+      (s) => {
+        const inside = press(MOVE_CURSOR_LEFT)(selectCells(s, [2, 3])).state;
+        return insertText(inside, "w");
+      },
+      (s) => insertText(selectCells(s, [2, 0]), "Z"),
+    );
+    expect(cellsView(merged)[2]).toBe("Za [xw]");
     expectOwnedFormulas(merged);
   });
 });

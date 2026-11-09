@@ -397,6 +397,7 @@ export function registerTableInputActions(bus: ActionBus): void {
       // stream, so a delete must never merge two of them.
       if (
         action === DELETE_BACKWARD &&
+        !context.content &&
         run.kind === "applied" &&
         !run.edited &&
         !run.moved &&

@@ -10,12 +10,15 @@
  */
 
 import {
+  cellRuns,
   type TableCaret,
   tableCaretFromContentPoint,
   tableCaretToContentSelection,
+  tableCellIds,
 } from "./selection";
 import { CELL_TEXT_FIELD, getTableDocument } from "./structured";
 import type { StateResult } from "@tasfer/editor/action-bus";
+import { resolveMarkRunsFromChars } from "@tasfer/editor/mark-runs";
 import { clearSelection, moveCursorToPosition } from "@tasfer/editor/selection";
 import type { Block, Page } from "@tasfer/editor/serlization/loadPage";
 import type {
@@ -24,8 +27,13 @@ import type {
   Operation,
   Position,
 } from "@tasfer/editor/state-types";
-import { updateContentSelection } from "@tasfer/editor/structured-selection";
+import {
+  type ContentSelection,
+  updateContentSelection,
+} from "@tasfer/editor/structured-selection";
+import { iterateAllChars } from "@tasfer/editor/sync/char-runs";
 import { applyOp } from "@tasfer/editor/sync/reducer";
+import type { DataSchema } from "@tasfer/editor/sync/schema";
 import type {
   StructuredContentMap,
   StructuredDocument,
@@ -50,6 +58,13 @@ export interface TableContext {
   readonly caret: TableCaret;
   /** The fixed end; equal to {@link caret} when the selection is collapsed. */
   readonly anchor: TableCaret;
+  /**
+   * The selection inside a cell's formula, when the caret is in one — the
+   * formula's own tree, which the paragraph code edits (see {@link runInCell}).
+   * {@link caret} and {@link anchor} then both sit on the formula's start in
+   * its cell, which is where the grid's own moves start from.
+   */
+  readonly content?: ContentSelection;
 }
 
 /**
@@ -103,7 +118,7 @@ export function activeTableContext(
 ): TableContext | undefined {
   const selection = state.document.contentSelection;
   const focus = selection?.focus;
-  if (!selection || !focus || focus.kind !== "text") return undefined;
+  if (!selection || !focus) return undefined;
   const blockIndex = state.document.page.blocks.findIndex(
     (candidate) => candidate.id === focus.blockId,
   );
@@ -112,7 +127,28 @@ export function activeTableContext(
     return undefined;
   }
   const document = getTableDocument(block);
-  if (!document || document.rootId !== focus.contentId) return undefined;
+  if (!document) return undefined;
+  if (document.rootId !== focus.contentId) {
+    // Not the grid's own document: a caret inside one of its cells' formulas.
+    if (selection.anchor.contentId !== focus.contentId) return undefined;
+    const at = cellHoldingAttachment(
+      state.schema,
+      block,
+      document,
+      focus.contentId,
+    );
+    return at
+      ? {
+          block,
+          blockIndex,
+          document,
+          caret: at,
+          anchor: at,
+          content: selection,
+        }
+      : undefined;
+  }
+  if (focus.kind !== "text") return undefined;
   const caret = tableCaretFromContentPoint(document, focus);
   if (!caret) return undefined;
   const anchor =
@@ -120,6 +156,34 @@ export function activeTableContext(
       ? (tableCaretFromContentPoint(document, selection.anchor) ?? caret)
       : caret;
   return { block, blockIndex, document, caret, anchor };
+}
+
+/**
+ * The cell whose text holds the structured mark (an inline formula) pointing at
+ * attachment `contentId` on the table block, at the mark's start.
+ */
+export function cellHoldingAttachment(
+  schema: DataSchema,
+  block: Block,
+  document: StructuredDocument,
+  contentId: string,
+): TableCaret | undefined {
+  for (const cellId of tableCellIds(document)) {
+    const spans = document.nodes[cellId]?.markFields?.[CELL_TEXT_FIELD];
+    if (!spans?.length) continue;
+    const runs = cellRuns(document, cellId) ?? [];
+    for (const run of resolveMarkRunsFromChars(iterateAllChars(runs), spans)) {
+      if (!schema.structuredMark(run.name)) continue;
+      const references = schema.structuredMarkReferences(run.name, {
+        mark: { type: run.name, attrs: run.attrs },
+        attachments: block.structuredContent,
+      });
+      if (references.includes(contentId)) {
+        return { cellId, offset: run.startIndex };
+      }
+    }
+  }
+  return undefined;
 }
 
 /** One `content_edit` operation carrying `edit` against a table's attachment. */
@@ -234,11 +298,15 @@ export function cellField(
  */
 export function runInCell(
   state: EditorState,
-  context: Pick<TableContext, "block" | "document" | "caret" | "anchor">,
+  context: Pick<
+    TableContext,
+    "block" | "document" | "caret" | "anchor" | "content"
+  >,
   action: (paragraph: EditorState) => StateResult,
   range: FieldRange = {
     anchor: context.anchor.offset,
     focus: context.caret.offset,
+    ...(context.content ? { content: context.content } : {}),
   },
   cellId: string = context.caret.cellId,
 ): FieldRun {

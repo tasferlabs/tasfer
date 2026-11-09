@@ -144,6 +144,9 @@ function paragraphMove(
   const run = runInCell(state, context, (paragraph) =>
     paragraph.actionBus.dispatchState(action, paragraph),
   );
+  // Inside a formula the formula's own code answers every motion, leaving it
+  // included, exactly as in a paragraph: the grid never steps from there.
+  if (context.content) return claimRun(state, run);
   if (run.kind !== "applied") return undefined;
   const sideChanged =
     JSON.stringify(run.state.ui.activeMarksMode) !==
@@ -556,6 +559,17 @@ export function registerTableActions(bus: ActionBus): void {
     (state, { backward }) => {
       const context = activeTableContext(state);
       if (!context) return undefined;
+      // In a formula, Tab walks the formula's slots, as in a paragraph.
+      if (context.content) {
+        return claimRun(
+          state,
+          runInCell(state, context, (paragraph) =>
+            paragraph.actionBus.dispatchState(MOVE_CONTENT_TAB, paragraph, {
+              backward,
+            }),
+          ),
+        );
+      }
       const moved = stepTableCaret(
         context.document,
         context.caret,
@@ -567,12 +581,23 @@ export function registerTableActions(bus: ActionBus): void {
   );
 
   const vertical =
-    (direction: "up" | "down") =>
+    (direction: "up" | "down", action: StateAction<ViewportPayload>) =>
     (
       state: EditorState,
       { viewport }: ViewportPayload,
     ): Claimed | undefined => {
       const context = activeTableContext(state);
+      if (context?.content) {
+        // A formula's stacked rows (a fraction, a matrix) come first. Once it
+        // has no row left that way the press belongs to the line around it —
+        // in a cell, the grid's line above or below, from the formula's spot.
+        const run = runInCell(state, context, (paragraph) =>
+          paragraph.actionBus.dispatchState(action, paragraph, { viewport }),
+        );
+        if (run.kind === "applied" && run.moved && run.range.content) {
+          return claimRun(state, run);
+        }
+      }
       if (context) {
         const layout = tableLayoutFor(state, context.block, viewport);
         const moved = moveTableCaretVertically(
@@ -586,27 +611,44 @@ export function registerTableActions(bus: ActionBus): void {
       }
       return enterAdjacentTable(state, direction, viewport);
     };
-  bus.registerState(MOVE_CURSOR_UP, vertical("up"), 100);
-  bus.registerState(MOVE_CURSOR_DOWN, vertical("down"), 100);
+  bus.registerState(MOVE_CURSOR_UP, vertical("up", MOVE_CURSOR_UP), 100);
+  bus.registerState(MOVE_CURSOR_DOWN, vertical("down", MOVE_CURSOR_DOWN), 100);
 
   // A grid has no page to turn, so PageUp/PageDown take the row move their
   // arrow twins take — and, at the top and bottom rows, leave the table the
   // same way. Without this they would be dead keys inside a cell: core's own
   // page move addresses flat block text a table does not have.
-  bus.registerState(MOVE_CURSOR_PAGE_UP, vertical("up"), 100);
-  bus.registerState(MOVE_CURSOR_PAGE_DOWN, vertical("down"), 100);
+  bus.registerState(
+    MOVE_CURSOR_PAGE_UP,
+    vertical("up", MOVE_CURSOR_PAGE_UP),
+    100,
+  );
+  bus.registerState(
+    MOVE_CURSOR_PAGE_DOWN,
+    vertical("down", MOVE_CURSOR_PAGE_DOWN),
+    100,
+  );
 
   // Shift+Up/Down walks the same lines and columns the unshifted key does, but
   // stops at the grid's top and bottom instead of leaving the table: the range
   // it is growing is a nested one, and there is no half-nested selection.
   const extendVertical =
-    (direction: "up" | "down") =>
+    (direction: "up" | "down", action: StateAction<ViewportPayload>) =>
     (
       state: EditorState,
       { viewport }: ViewportPayload,
     ): Claimed | undefined => {
       const context = activeTableContext(state);
       if (!context) return undefined;
+      // A range inside a formula grows by the formula's own rows.
+      if (context.content) {
+        return claimRun(
+          state,
+          runInCell(state, context, (paragraph) =>
+            paragraph.actionBus.dispatchState(action, paragraph, { viewport }),
+          ),
+        );
+      }
       const layout = tableLayoutFor(state, context.block, viewport);
       // Cell-wise for the same reason the horizontal extension is (see
       // `extendMotion`): a covered cell's wrapped lines are not stops of their
@@ -621,10 +663,26 @@ export function registerTableActions(bus: ActionBus): void {
         ? placeRange(state, context, context.anchor, moved)
         : claim(state);
     };
-  bus.registerState(EXTEND_SELECTION_UP, extendVertical("up"), 100);
-  bus.registerState(EXTEND_SELECTION_DOWN, extendVertical("down"), 100);
-  bus.registerState(EXTEND_SELECTION_PAGE_UP, extendVertical("up"), 100);
-  bus.registerState(EXTEND_SELECTION_PAGE_DOWN, extendVertical("down"), 100);
+  bus.registerState(
+    EXTEND_SELECTION_UP,
+    extendVertical("up", EXTEND_SELECTION_UP),
+    100,
+  );
+  bus.registerState(
+    EXTEND_SELECTION_DOWN,
+    extendVertical("down", EXTEND_SELECTION_DOWN),
+    100,
+  );
+  bus.registerState(
+    EXTEND_SELECTION_PAGE_UP,
+    extendVertical("up", EXTEND_SELECTION_PAGE_UP),
+    100,
+  );
+  bus.registerState(
+    EXTEND_SELECTION_PAGE_DOWN,
+    extendVertical("down", EXTEND_SELECTION_PAGE_DOWN),
+    100,
+  );
 
   // Double- and triple-click (and their touch twins) select the word and the
   // cell around the caret the press before them already placed. They resolve no
@@ -660,6 +718,19 @@ export function registerTableActions(bus: ActionBus): void {
   const selectWord = (state: EditorState): Claimed | undefined => {
     const context = activeTableContext(state);
     if (!context) return undefined;
+    // A double-click on a formula takes the formula whole, as it does in a
+    // paragraph — the click before it already put the caret inside.
+    if (context.content) {
+      const { cellId, offset } = context.caret;
+      const selected =
+        placeRange(
+          state,
+          context,
+          { cellId, offset },
+          { cellId, offset: offset + 1 },
+        ) ?? claim(state);
+      return { ...selected, state: updateMode(selected.state, "select") };
+    }
     const run = runInCell(
       state,
       context,

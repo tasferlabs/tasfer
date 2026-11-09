@@ -641,24 +641,54 @@ returns its address). The field gets exactly the paragraph's behaviour, includin
 pending marks and the side of a mark edge, because it is the paragraph's code
 that runs.
 
+That includes a formula in the field. The paragraph's arrow keys walk into a
+formula and around its tree, and typing, pasting and deleting there edit the
+formula itself. While the caret is in a formula the selection is a nested one
+in the formula's attachment, not in your document. Hand it back as the range's
+`content`, and the result's `range.content` says where the caret went. When it
+is set, `anchor` and `focus` are the formula's offset in the field, which is the
+place to start from if the press should leave the formula your way (Down to the
+next row of a grid, say):
+
+```ts
+const inFormula = state.document.contentSelection; // focus.contentId: the formula's
+const run = runFieldAsParagraph(
+  state,
+  address,
+  { anchor: formulaOffset, focus: formulaOffset, content: inFormula },
+  (paragraph) =>
+    paragraph.actionBus.dispatchState(MOVE_CURSOR_UP, paragraph, { viewport }),
+);
+if (run.kind === "applied" && run.moved && run.range.content) {
+  // Still in the formula: it moved between its own rows.
+}
+```
+
 How it works: the field's characters and marks are handed to the action as the
 only paragraph on a one-block page, the same single-block surface a title
 editor is, with only the `paragraph` type allowed, along with every mark the
 host allows. The action's text ops are then re-addressed to the field as
 `content_edit` operations with the same character ids, so nothing about how the
-field is stored changes. When the action creates a structured mark (a typed
-`$x$` formula), the new attachment it points at is written onto your block,
-beside the field's document, before the mark itself. The
+field is stored changes. The attachments the field's structured marks point at
+are lent to the paragraph along with it, and an edit the action makes inside
+one (typing in a formula's tree) is written to your block's copy. When the
+action creates a structured mark (a typed `$x$` formula), the new attachment it
+points at is written onto your block, beside the field's document, before the
+mark itself. The
 result is `applied` with `edited` and `moved` flags, which tell you whether the
 action stopped at the field's edge and your node should take over (cross into
 a neighbour, say). Otherwise it is `refused`, and nothing changes:
 
-- `outside` — the action produced something other than a text edit of the
-  field or a new attachment for it, such as a new block.
+- `missing` — the field is not there, or `content` names an attachment the
+  field's marks do not point at.
+- `outside` — the action produced something other than an edit of the field,
+  of an attachment it points at, or a new attachment for it, such as a new
+  block.
 - `mismatch` — the field rebuilt from the translated edits did not match what
-  the paragraph code produced, character for character and mark for mark, or it
-  put on a structured mark with no attachment behind it. This check runs on
-  every call.
+  the paragraph code produced, character for character and mark for mark, an
+  attachment it wrote did not come out the same on your block, or it put on a
+  structured mark with no attachment behind it. This check runs on every call.
+- `no-caret` — the action left no caret in the field or in a formula of it.
 
 The spans anchor to character identities, so a mark survives edits inside its
 range and merges per character. Unlike a block's `formats`, they carry no HLC:

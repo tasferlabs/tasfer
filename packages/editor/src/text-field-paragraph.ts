@@ -20,19 +20,28 @@
  * against the stand-in block becomes the same edit against the field, with the
  * same character ids. Nothing about the stored format changes.
  *
+ * A structured mark in the field (an inline formula) points at an attachment
+ * the field's block holds beside the field's own document. The stand-in
+ * borrows each attachment the field's marks point at, the way a paragraph
+ * holds them on itself, so the paragraph code can also put a caret INSIDE one
+ * and edit it (a formula's tree) — the caret goes in and comes back as a
+ * nested selection on the field's block.
+ *
  * Two guards keep that translation from ever losing data:
  *
- *   - The paragraph code may only touch the stand-in's text, and create new
- *     attachments for a structured mark it puts on that text (a typed `$x$`
- *     formula); those are written onto the field's block, beside the field's
- *     own document, where a paragraph would hold them on itself. Any other op
- *     (a block insert, a type change, an edit inside an existing attachment)
- *     means the action did something a text field cannot hold, and the whole
- *     run is refused, as is a structured mark with no attachment behind it.
+ *   - The paragraph code may only touch the stand-in's text, the attachments
+ *     it borrowed, and new attachments for a structured mark it puts on that
+ *     text (a typed `$x$` formula); those are written onto the field's block,
+ *     where a paragraph would hold them on itself. Any other op (a block
+ *     insert, a type change, an edit to an attachment the field does not
+ *     point at) means the action did something a text field cannot hold, and
+ *     the whole run is refused, as is a structured mark with no attachment
+ *     behind it.
  *   - After translating, the field is rebuilt from the translated edits and
  *     compared with the stand-in the paragraph code left behind — every
- *     character id, tombstone and resolved mark. A mismatch refuses the run.
- *     A refused run changes nothing; it never commits a guess.
+ *     character id, tombstone and resolved mark — and so is every attachment
+ *     the run wrote. A mismatch refuses the run. A refused run changes
+ *     nothing; it never commits a guess.
  *
  * The module is node- and mark-agnostic: it addresses a field by ids and never
  * names a feature.
@@ -56,6 +65,8 @@ import type {
   UIState,
 } from "./state-types";
 import {
+  type ContentPoint,
+  type ContentSelection,
   type ContentTextPoint,
   updateContentSelection,
 } from "./structured-selection";
@@ -68,6 +79,8 @@ import { applyOp } from "./sync/reducer";
 import type { DataSchema } from "./sync/schema";
 import {
   applyStructuredEdits,
+  canonicalizeStructuredDocument,
+  type StructuredContentMap,
   type StructuredDocument,
   type StructuredEdit,
 } from "./sync/structured-content";
@@ -86,6 +99,13 @@ export interface TextFieldAddress {
 export interface FieldRange {
   readonly anchor: number;
   readonly focus: number;
+  /**
+   * A caret or range INSIDE an attachment one of the field's structured marks
+   * points at (the caret in an inline formula), addressed on the field's
+   * block. When set it is the selection; `anchor` and `focus` then name the
+   * mark's start in the field, where the formula sits in the text.
+   */
+  readonly content?: ContentSelection;
 }
 
 /** What running an action on a field as a paragraph came to. */
@@ -172,6 +192,63 @@ function fieldSchema(schema: DataSchema): DataSchema {
   return restricted;
 }
 
+/**
+ * The attachments the field's structured marks point at — what the stand-in
+ * borrows, so the paragraph code finds them on its block the way it would on a
+ * paragraph of its own.
+ */
+function lentAttachments(
+  schema: DataSchema,
+  spans: readonly MarkRange[],
+  held: StructuredContentMap,
+  ownContentId: string,
+): StructuredContentMap {
+  const lent: Record<string, StructuredDocument> = {};
+  for (const span of spans) {
+    if (!schema.structuredMark(span.format.type)) continue;
+    for (const id of schema.structuredMarkReferences(span.format.type, {
+      mark: span.format,
+      attachments: held,
+    })) {
+      if (id !== ownContentId && held[id]) lent[id] = held[id];
+    }
+  }
+  return lent;
+}
+
+/** `point` re-addressed to `blockId`, everything else kept. */
+function retargetPoint(point: ContentPoint, blockId: string): ContentPoint {
+  return point.blockId === blockId ? point : { ...point, blockId };
+}
+
+/** Every point of `selection` re-addressed to `blockId`. */
+function retarget(
+  selection: ContentSelection,
+  blockId: string,
+): ContentSelection {
+  return {
+    ...selection,
+    anchor: retargetPoint(selection.anchor, blockId),
+    focus: retargetPoint(selection.focus, blockId),
+    ...(selection.initialBoundary
+      ? {
+          initialBoundary: {
+            start: retargetPoint(selection.initialBoundary.start, blockId),
+            end: retargetPoint(selection.initialBoundary.end, blockId),
+          },
+        }
+      : {}),
+    ...(selection.unsnapped
+      ? {
+          unsnapped: {
+            anchor: retargetPoint(selection.unsnapped.anchor, blockId),
+            focus: retargetPoint(selection.unsnapped.focus, blockId),
+          },
+        }
+      : {}),
+  };
+}
+
 function cloneRuns(runs: readonly CharRun[]): CharRun[] {
   return runs.map((run) =>
     run.deletedMask
@@ -185,6 +262,7 @@ function standInBlock(
   address: TextFieldAddress,
   runs: readonly CharRun[],
   spans: readonly MarkRange[],
+  lent: StructuredContentMap,
 ): Block {
   const formats: MarkSpan[] = spans.map((span) => ({
     startCharId: span.startCharId,
@@ -200,6 +278,7 @@ function standInBlock(
     orderKey: "a0",
     charRuns: cloneRuns(runs),
     formats,
+    ...(Object.keys(lent).length > 0 ? { structuredContent: { ...lent } } : {}),
   } as Block;
 }
 
@@ -298,14 +377,19 @@ function standInState(
         : { ...composition, startPosition: position(offset) };
   }
   const suppressed = state.ui.suppressedInputRule;
+  // A caret inside a borrowed attachment is the stand-in's nested caret, as
+  // it would be in a paragraph: it clears the flat cursor and range.
+  const nested = range.content ? retarget(range.content, block.id) : null;
   return {
     ...state,
     schema: fieldSchema(state.schema),
     document: {
       page: { ...state.document.page, blocks: [block] },
-      cursor: { position: position(range.focus), lastUpdate: now },
+      cursor: nested
+        ? null
+        : { position: position(range.focus), lastUpdate: now },
       selection:
-        range.anchor === range.focus
+        nested || range.anchor === range.focus
           ? null
           : {
               anchor: position(range.anchor),
@@ -314,7 +398,7 @@ function standInState(
               isCollapsed: false,
               lastUpdate: now,
             },
-      contentSelection: null,
+      contentSelection: nested,
     },
     ui: {
       ...state.ui,
@@ -332,30 +416,37 @@ function standInState(
   };
 }
 
-/** A new attachment the paragraph code created on the stand-in. */
-interface NewAttachment {
+/** An edit the paragraph code made to an attachment beside the field. */
+interface AttachmentEdit {
   readonly contentId: string;
   readonly edit: ContentEdit["edit"];
 }
 
 /**
- * The stand-in's ops as edits on the field, plus the attachments it created
- * (a typed formula's document) for the field's block to hold beside the
- * field's own document — or `null` for any other op.
+ * The stand-in's ops as edits on the field, plus the edits it made to the
+ * attachments beside it, for the field's block — or `null` for any other op.
  *
- * An attachment is only taken when it is NEW: a `document_init` for a content
- * id neither the field's document nor any attachment already on the block
- * uses. Anything else written into an attachment means the action reached
- * past the field.
+ * Two kinds of attachment edit are taken. A `document_init` for a content id
+ * nothing on the block uses yet is a NEW attachment (a typed formula's
+ * document); it goes to `created`, written before anything else. Any edit to
+ * an attachment the stand-in borrowed, or to one this run created, is an edit
+ * inside it (typing in a formula's tree), kept in order. Anything else written
+ * into an attachment means the action reached past the field.
  */
 function translate(
   ops: readonly Operation[],
   standIn: string,
   address: TextFieldAddress,
   existing: Readonly<Record<string, unknown>>,
-): { edits: StructuredEdit[]; attachments: NewAttachment[] } | null {
+  lent: StructuredContentMap,
+): {
+  edits: StructuredEdit[];
+  created: AttachmentEdit[];
+  inside: AttachmentEdit[];
+} | null {
   const edits: StructuredEdit[] = [];
-  const attachments: NewAttachment[] = [];
+  const created: AttachmentEdit[] = [];
+  const inside: AttachmentEdit[] = [];
   const { nodeId, field } = address;
   for (const op of ops) {
     if (
@@ -364,9 +455,17 @@ function translate(
       op.edit.kind === "document_init" &&
       op.contentId !== address.contentId &&
       !(op.contentId in existing) &&
-      !attachments.some((created) => created.contentId === op.contentId)
+      !created.some((entry) => entry.contentId === op.contentId)
     ) {
-      attachments.push({ contentId: op.contentId, edit: op.edit });
+      created.push({ contentId: op.contentId, edit: op.edit });
+    } else if (
+      op.op === "content_edit" &&
+      op.blockId === standIn &&
+      op.contentId !== address.contentId &&
+      (op.contentId in lent ||
+        created.some((entry) => entry.contentId === op.contentId))
+    ) {
+      inside.push({ contentId: op.contentId, edit: op.edit });
     } else if (op.op === "text_insert" && op.blockId === standIn) {
       edits.push({
         kind: "text_insert",
@@ -390,7 +489,7 @@ function translate(
       return null;
     }
   }
-  return { edits, attachments };
+  return { edits, created, inside };
 }
 
 /**
@@ -420,8 +519,27 @@ function fingerprint(runs: readonly CharRun[], spans: readonly MarkRange[]) {
   ]);
 }
 
-function rangeOf(state: EditorState): FieldRange | null {
-  const { cursor, selection } = state.document;
+/**
+ * Where the paragraph code left the caret: a flat caret or range, or a nested
+ * selection inside one of the stand-in's attachments — given back on the
+ * field's block, with the flat ends at the start of the mark pointing at it.
+ */
+function rangeOf(
+  state: EditorState,
+  standIn: Block,
+  address: TextFieldAddress,
+): FieldRange | null {
+  const { cursor, selection, contentSelection } = state.document;
+  if (contentSelection) {
+    if (contentSelection.focus.blockId !== standIn.id) return null;
+    const at = structuredMarkStart(state.schema, standIn, contentSelection);
+    if (at === null) return null;
+    return {
+      anchor: at,
+      focus: at,
+      content: retarget(contentSelection, address.blockId),
+    };
+  }
   if (selection && !selection.isCollapsed) {
     if (selection.anchor.blockIndex !== 0 || selection.focus.blockIndex !== 0) {
       return null;
@@ -436,6 +554,53 @@ function rangeOf(state: EditorState): FieldRange | null {
     anchor: cursor.position.textIndex,
     focus: cursor.position.textIndex,
   };
+}
+
+/** The visible start of the stand-in mark pointing at the selection's attachment. */
+function structuredMarkStart(
+  schema: DataSchema,
+  block: Block,
+  selection: ContentSelection,
+): number | null {
+  const { charRuns, formats } = block as {
+    charRuns?: CharRun[];
+    formats?: MarkSpan[];
+  };
+  if (!charRuns || !formats) return null;
+  for (const run of resolveMarkRunsFromChars(
+    iterateAllChars([...charRuns]),
+    formats,
+  )) {
+    if (!schema.structuredMark(run.name)) continue;
+    const mark = { type: run.name, attrs: run.attrs };
+    const references = schema.structuredMarkReferences(run.name, {
+      mark,
+      attachments: block.structuredContent,
+    });
+    if (references.includes(selection.focus.contentId)) return run.startIndex;
+  }
+  return null;
+}
+
+/** Same document, compared by content (node order aside). */
+function sameDocument(
+  a: StructuredDocument | undefined,
+  b: StructuredDocument | undefined,
+): boolean {
+  if (!a || !b) return a === b;
+  return (
+    JSON.stringify(canonicalizeStructuredDocument(a)) ===
+    JSON.stringify(canonicalizeStructuredDocument(b))
+  );
+}
+
+/** Two field ranges at the same place (a nested caret's timestamp aside). */
+function sameRange(a: FieldRange, b: FieldRange): boolean {
+  if (a.anchor !== b.anchor || a.focus !== b.focus) return false;
+  if (!a.content || !b.content) return !a.content && !b.content;
+  const points = (selection: ContentSelection) =>
+    JSON.stringify([selection.anchor, selection.focus]);
+  return points(a.content) === points(b.content);
 }
 
 /**
@@ -512,20 +677,32 @@ export function runFieldAsParagraph(
   const field = attachment && fieldOf(attachment.document, address);
   if (!attachment || !field) return { kind: "refused", reason: "missing" };
 
-  const block = standInBlock(address, field.runs, field.spans);
+  const held = attachment.block.structuredContent ?? {};
+  const lent = lentAttachments(
+    state.schema,
+    field.spans,
+    held,
+    address.contentId,
+  );
+  // A nested caret can only be lent along with the attachment it sits in.
+  if (range.content) {
+    const { anchor, focus } = range.content;
+    if (
+      anchor.blockId !== address.blockId ||
+      focus.blockId !== address.blockId ||
+      anchor.contentId !== focus.contentId ||
+      !(focus.contentId in lent)
+    ) {
+      return { kind: "refused", reason: "missing" };
+    }
+  }
+  const block = standInBlock(address, field.runs, field.spans, lent);
   const before = standInState(state, address, block, range, field.runs);
   const result = action(before);
 
-  const translated = translate(
-    result.ops,
-    block.id,
-    address,
-    attachment.block.structuredContent ?? {},
-  );
+  const translated = translate(result.ops, block.id, address, held, lent);
   if (!translated) return { kind: "refused", reason: "outside" };
-  const { edits, attachments } = translated;
-  const landed = rangeOf(result.state);
-  if (!landed) return { kind: "refused", reason: "no-caret" };
+  const { edits, created, inside } = translated;
 
   // Rebuild the field from the translated edits and hold it to the stand-in
   // the paragraph code produced.
@@ -547,21 +724,22 @@ export function runFieldAsParagraph(
   ) {
     return { kind: "refused", reason: "mismatch" };
   }
+  const landed = rangeOf(result.state, standIn, address);
+  if (!landed) return { kind: "refused", reason: "no-caret" };
   // A structured mark this run puts on must point at an attachment the block
   // will hold — one already there, or one this run creates. A bare mark with
   // nothing behind it would serialize to syntax that reloads as literal text.
-  const held = attachment.block.structuredContent ?? {};
-  const created = new Set(attachments.map((entry) => entry.contentId));
+  const createdIds = new Set(created.map((entry) => entry.contentId));
   for (const edit of edits) {
     if (edit.kind !== "mark_set" || !edit.value) continue;
     if (!state.schema.structuredMark(edit.mark.type)) continue;
     const references = state.schema.structuredMarkReferences(edit.mark.type, {
       mark: edit.mark,
-      attachments: (standIn as Block).structuredContent ?? held,
+      attachments: standIn.structuredContent ?? held,
     });
     if (
       references.length === 0 ||
-      references.some((id) => !(id in held) && !created.has(id))
+      references.some((id) => !(id in held) && !createdIds.has(id))
     ) {
       return { kind: "refused", reason: "mismatch" };
     }
@@ -570,41 +748,62 @@ export function runFieldAsParagraph(
   // Commit: one content_edit per edit, through the reducer every peer runs.
   // New attachments go first, so no mark ever points at an attachment the log
   // has not created yet, and an undo (replayed in reverse) removes the mark
-  // before its attachment.
+  // before its attachment. Edits inside an attachment keep their order.
   let page = state.document.page;
   const ops: Operation[] = [];
-  for (const created of attachments) {
+  const commit = (contentId: string, edit: ContentEdit["edit"]) => {
     const op: ContentEdit = {
       op: "content_edit",
       id: state.CRDTbinding.nextId(),
       clock: state.CRDTbinding.getClock(),
       pageId: state.CRDTbinding.pageId,
       blockId: address.blockId,
-      contentId: created.contentId,
-      edit: created.edit,
-    };
-    page = applyOp(page, op, state.schema);
-    ops.push(op);
-  }
-  for (const edit of edits) {
-    const op: ContentEdit = {
-      op: "content_edit",
-      id: state.CRDTbinding.nextId(),
-      clock: state.CRDTbinding.getClock(),
-      pageId: state.CRDTbinding.pageId,
-      blockId: address.blockId,
-      contentId: address.contentId,
+      contentId,
       edit,
     };
     page = applyOp(page, op, state.schema);
     ops.push(op);
+  };
+  // An attachment the run removes (Backspace over a formula) goes LAST, after
+  // the field edits that drop the mark pointing at it, the way a paragraph
+  // orders it — so no mark ever points at an attachment already gone, and an
+  // undo brings the attachment back before the mark that needs it.
+  const removedLast = new Set(
+    inside.filter(
+      (entry, at) =>
+        entry.edit.kind === "document_delete" &&
+        !inside
+          .slice(at + 1)
+          .some((later) => later.contentId === entry.contentId),
+    ),
+  );
+  for (const entry of created) commit(entry.contentId, entry.edit);
+  for (const entry of inside) {
+    if (!removedLast.has(entry)) commit(entry.contentId, entry.edit);
   }
+  for (const edit of edits) commit(address.contentId, edit);
+  for (const entry of removedLast) commit(entry.contentId, entry.edit);
   const committedBlock = page.blocks.find(
     (candidate) => candidate.id === address.blockId,
   );
+  // Every attachment the run wrote must now read on the block exactly as the
+  // paragraph code left it on the stand-in.
+  for (const contentId of new Set([
+    ...createdIds,
+    ...inside.map((entry) => entry.contentId),
+  ])) {
+    if (
+      !sameDocument(
+        committedBlock?.structuredContent?.[contentId],
+        standIn.structuredContent?.[contentId],
+      )
+    ) {
+      return { kind: "refused", reason: "mismatch" };
+    }
+  }
+  const edited = ops.length > 0;
   // The block's memoized layout was computed for the old content.
-  if ((edits.length > 0 || attachments.length > 0) && committedBlock)
-    committedBlock.cachedLayout = undefined;
+  if (edited && committedBlock) committedBlock.cachedLayout = undefined;
 
   const runs = rebuilt.runs;
   let next: EditorState = { ...state, document: { ...state.document, page } };
@@ -613,11 +812,13 @@ export function runFieldAsParagraph(
       ...next,
       document: { ...next.document, cursor: null, selection: null },
     },
-    {
-      anchor: fieldPoint(address, runs, landed.anchor),
-      focus: fieldPoint(address, runs, landed.focus),
-      lastUpdate: Date.now(),
-    },
+    landed.content
+      ? { ...landed.content, lastUpdate: Date.now() }
+      : {
+          anchor: fieldPoint(address, runs, landed.anchor),
+          focus: fieldPoint(address, runs, landed.focus),
+          lastUpdate: Date.now(),
+        },
   );
   // Placing the nested caret resets the typing state a caret move resets; the
   // paragraph code already decided what that state is after this action.
@@ -631,8 +832,8 @@ export function runFieldAsParagraph(
     state: next,
     ops,
     range: landed,
-    edited: edits.length > 0 || attachments.length > 0,
-    moved: landed.anchor !== range.anchor || landed.focus !== range.focus,
+    edited,
+    moved: !sameRange(landed, range),
   };
 }
 
