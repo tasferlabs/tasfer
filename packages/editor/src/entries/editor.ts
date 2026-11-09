@@ -3440,6 +3440,17 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     return true;
   };
 
+  // Whether the keyboard's last delete removed more than the bare sentinel: a
+  // range that reached from the start of the field into the mirrored text.
+  private deletedPastSentinel = (): boolean => {
+    if (!this.surfaceAnchor || !this.hiddenInput) return false;
+    const prev = this.lastSurfaceValue + this.surfaceTail;
+    const prevRegion = stripSentinel(prev, this.SENTINEL);
+    if (prevRegion.length === 0) return false;
+    const delta = computeSurfaceDelta(prev, this.hiddenInput.textContent ?? "");
+    return delta.deleteEnd > prev.length - prevRegion.length;
+  };
+
   // A keyboard-made selection change on the surface (see adoptKeyboardSelection).
   private surfaceSelectionChangeHandler = () => {
     if (this.adoptKeyboardSelection()) this.scheduleRender();
@@ -3888,6 +3899,15 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // (`hasSentinel`), so its body is read below and the substitute never leaks
     // into the document; this fires only when the sentinel is genuinely gone.
     if (!hasSentinel(newSurface, this.SENTINEL)) {
+      // A range the keyboard selected to the start of the field (a glide
+      // delete) went with the sentinel: reconcile the whole surface. HeliBoard
+      // collapses its selection just before deleting, so this can't rely on the
+      // range having been adopted as the editor selection.
+      if (isBackwardDelete && this.deletedPastSentinel()) {
+        if (!this.applyWholeSurfaceEdit()) this.resetSentinel();
+        this.scheduleRender();
+        return;
+      }
       if (isBackwardDelete) {
         // The delete consumed the whole mirrored region (it was just the bare
         // sentinel — caret at a sentence start with no context): let the
