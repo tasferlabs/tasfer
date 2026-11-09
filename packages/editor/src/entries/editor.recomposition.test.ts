@@ -10,10 +10,13 @@
  * deleted nothing. The sequences below are shaped on a device log from
  * HeliBoard on Android Chromium.
  */
+import { insertText, splitBlock } from "../actions/actions";
+import { getBlockTextContent } from "../node-shared";
 import { moveCursorToPosition } from "../selection";
 import { loadPage } from "../serlization/loadPage";
-import type { EditorState, ViewportState } from "../state-types";
+import type { EditorState, Operation, ViewportState } from "../state-types";
 import { createInitialState } from "../state-utils";
+import { applyOps } from "../sync/reducer";
 import { Editor } from "./editor";
 import type { CanvasLayers } from "./layers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -430,5 +433,78 @@ describe("Android keyboards that reopen the previous word (#34)", () => {
     expect(editor.getMarkdown().trim()).toBe(
       `first hey\n\n${second.slice(0, caret.textIndex)}X${second.slice(caret.textIndex)}`,
     );
+  });
+
+  describe("a peer's edit arriving while the caret sits in the text", () => {
+    // A second replica of the editor's own page makes `edit`; the editor
+    // adopts the merged page the way the doc wiring hands it over.
+    function peerEdit(
+      editor: Editor,
+      edit: (peer: EditorState) => { state: EditorState; ops: Operation[] },
+    ) {
+      const internals = editor as unknown as { _state: EditorState };
+      const page = internals._state.document.page;
+      const { ops } = edit(createInitialState(page));
+      editor.updatePageFromSync(applyOps(page, ops), ops);
+    }
+
+    it("typing lands where the caret was, after text the peer added before it", async () => {
+      const { editor, ime, frame } = setup("hello");
+      await frame();
+
+      peerEdit(editor, (peer) =>
+        insertText(moveCursorToPosition(peer, 0, 0), "AB "),
+      );
+      await frame();
+      ime.start();
+      ime.update("X");
+      ime.end();
+      await frame();
+
+      expect(editor.getMarkdown().trim()).toBe("AB helloX");
+    });
+
+    it("the caret stays in its paragraph when the peer adds one above", async () => {
+      const { editor, ime, frame } = setup("first\n\nsecond", {
+        block: 2,
+        index: 6,
+      });
+      await frame();
+
+      // Enter at the end of "first": a new empty paragraph lands above ours.
+      peerEdit(editor, (peer) => splitBlock(moveCursorToPosition(peer, 0, 5)));
+      await frame();
+      ime.start();
+      ime.update("X");
+      ime.end();
+      await frame();
+
+      const state = (editor as unknown as { _state: EditorState })._state;
+      const caret = state.document.cursor!.position;
+      const texts = state.document.page.blocks
+        .filter((b) => !b.deleted)
+        .map((b) => getBlockTextContent(b));
+      expect(texts).toContain("secondX");
+      expect(
+        getBlockTextContent(state.document.page.blocks[caret.blockIndex]),
+      ).toBe("secondX");
+    });
+
+    it("a reopened word is committed in place after the peer typed before it", async () => {
+      const { editor, ime, frame } = setup("one helo");
+      await frame();
+
+      ime.start(4); // reopen "helo"
+      await frame();
+      peerEdit(editor, (peer) =>
+        insertText(moveCursorToPosition(peer, 0, 0), "AB "),
+      );
+      await frame();
+      ime.update("hello");
+      ime.end();
+      await frame();
+
+      expect(editor.getMarkdown().trim()).toBe("AB one hello");
+    });
   });
 });

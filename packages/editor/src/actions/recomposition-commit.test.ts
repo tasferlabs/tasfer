@@ -176,6 +176,30 @@ describe("tap during a composition while focus blinks", () => {
   });
 });
 
+describe("replaces known only after the start", () => {
+  it("pins the reopened word when the count arrives with an update", () => {
+    let state = createInitialState(loadPage("hello"));
+    state = moveCursorToPosition(state, 0, 5);
+    state = { ...state, view: { ...state.view, isFocused: true } };
+    state = state.actionBus.dispatchState(COMPOSITION_START, state, {
+      data: "",
+    }).state;
+    state = state.actionBus.dispatchState(COMPOSITION_UPDATE, state, {
+      data: "hello",
+      replaces: 5,
+    }).state;
+
+    expect(state.ui.composition?.replaces).toBe(5);
+    expect(state.ui.composition?.reopened?.text).toBe("hello");
+
+    const result = commit(state, "hello");
+    expect(result.ops).toEqual([]);
+    expect(getBlockTextContent(result.state.document.page.blocks[0])).toBe(
+      "hello",
+    );
+  });
+});
+
 describe("recomposition preview", () => {
   it("draws a reopened bold word bold while it is being changed", () => {
     // The bold span starts at the reopened word's first character; "hello" →

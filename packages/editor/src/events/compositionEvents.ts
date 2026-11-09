@@ -4,10 +4,11 @@ import {
   COMPOSITION_UPDATE,
 } from "../actions/input-actions";
 import { endComposition } from "../composition";
-import { getBlockTextContent } from "../node-shared";
 import { scrollToMakeCursorVisible } from "../selection";
 import type { EditorState, Position, ViewportState } from "../state-types";
 import { contentPointsEqual } from "../structured-selection";
+import { isTextualBlock } from "../sync/block-registry";
+import { getVisiblePositionOfChar } from "../sync/char-runs";
 import { crdtToPosition, positionToCRDT } from "../sync/crdt-utils";
 import type { Operation } from "../sync/sync";
 
@@ -194,19 +195,16 @@ export function commitCompositionOnCaretMove(
   // A reopened word the keyboard has not changed: nothing to commit. Common on
   // HeliBoard, which reopens the word the caret rests after, so a tap elsewhere
   // usually ends an untouched recomposition.
+  // Compared with the word as it was reopened, not the text before the caret
+  // now: a peer may have typed inside it since.
   const caret = before.document.cursor?.position;
   const replaces = composition.replaces ?? 0;
-  if (caret && replaces > 0 && !before.document.contentSelection) {
-    const block = after.document.page.blocks[caret.blockIndex];
-    const word = block
-      ? getBlockTextContent(block).slice(
-          Math.max(0, caret.textIndex - replaces),
-          caret.textIndex,
-        )
-      : "";
-    if (word === composition.text) {
-      return { state: endComposition(after), ops: [] };
-    }
+  if (
+    replaces > 0 &&
+    !before.document.contentSelection &&
+    composition.reopened?.text === composition.text
+  ) {
+    return { state: endComposition(after), ops: [] };
   }
 
   // Re-anchor the gesture's flat caret/selection to characters, so it survives
@@ -245,14 +243,16 @@ export function commitCompositionOnCaretMove(
   // COMPOSITION_END), so a tap inside the word usually stays on a kept
   // character. When the commit replaced the very character the caret was
   // anchored to, keep the same offset into the word instead: the CRDT fallback
-  // for a deleted character lands elsewhere in the block.
-  const wordStart = caret ? caret.textIndex - replaces : 0;
+  // for a deleted character lands elsewhere in the block. The word is found by
+  // its characters' ids — not by counting back from the caret, which a peer's
+  // edit earlier in the block would throw off.
+  const span = caret && replaces > 0 ? reopenedSpan(before, composition) : null;
+  const wordStart = span?.start ?? 0;
   const insideWord = (p: Position) =>
-    !!caret &&
-    replaces > 0 &&
-    p.blockIndex === caret.blockIndex &&
-    p.textIndex > wordStart &&
-    p.textIndex < caret.textIndex;
+    !!span &&
+    p.blockIndex === caret!.blockIndex &&
+    p.textIndex > span.start &&
+    p.textIndex < span.end;
   const restore = (p: Position, anchor: ReturnType<typeof anchorOf>) => {
     const moved = anchor && crdtToPosition(nextPage, anchor);
     if (!moved) return p;
@@ -290,6 +290,23 @@ export function commitCompositionOnCaretMove(
     },
     ops: committed.ops,
   };
+}
+
+// Where the reopened word sits in the state's text right now: from its first
+// still-visible character to just after its last.
+function reopenedSpan(
+  state: EditorState,
+  composition: NonNullable<EditorState["ui"]["composition"]>,
+): { start: number; end: number } | null {
+  const caret = state.document.cursor?.position;
+  const word = composition.reopened;
+  const block = caret ? state.document.page.blocks[caret.blockIndex] : null;
+  if (!word || !block || !isTextualBlock(block)) return null;
+  const positions = word.charIds
+    .map((id) => getVisiblePositionOfChar(block.charRuns, id))
+    .filter((p) => p >= 0);
+  if (!positions.length) return null;
+  return { start: Math.min(...positions), end: Math.max(...positions) + 1 };
 }
 
 // Whether the editor accepts text at all (focus aside).

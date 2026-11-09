@@ -7,6 +7,7 @@ import type {
   IndicatorHitArea,
   InteractionSession,
 } from "../events/interaction-session";
+import { undrawnCompositionCaret } from "../composition";
 import { currentFontFamily, getFontStack } from "../fonts";
 import { caretMarkEdgeSide, contentCaretMarkEdge } from "../mark-edge";
 import {
@@ -1514,8 +1515,9 @@ export function renderCursorLayer(
   } else if (state.ui.composition?.isComposing) {
     // A recomposition whose text is now empty hides the reopened word; the
     // caret sits where it began.
-    targetCursorIndex -= Math.min(
-      state.ui.composition.replaces ?? 0,
+    targetCursorIndex = undrawnCompositionCaret(
+      state.ui.composition,
+      isTextualBlock(block) ? block.charRuns : undefined,
       targetCursorIndex,
     );
   }

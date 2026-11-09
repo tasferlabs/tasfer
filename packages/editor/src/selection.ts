@@ -1,4 +1,5 @@
 import { nextCodePointEnd, prevCodePointStart } from "./code-points";
+import { undrawnCompositionCaret } from "./composition";
 import { currentFontFamily, measureCharsUpToIndex } from "./fonts";
 import { caretMarkEdgeSide, markEdgeAt, withMarkEdgeSide } from "./mark-edge";
 import {
@@ -562,8 +563,12 @@ export function getCursorCoordinatesWithComposition(
   if (!node) return null;
 
   const composition = state.ui.composition;
+  // A pinned reopened word counts even when the caret now sits before it: a
+  // peer who deleted the word pulled the caret back over it.
   const replaces = composition?.isComposing
-    ? Math.min(composition.replaces ?? 0, position.textIndex)
+    ? composition.reopened
+      ? composition.reopened.charIds.length
+      : Math.min(composition.replaces ?? 0, position.textIndex)
     : 0;
   if (!composition?.isComposing || (!composition.text && replaces === 0)) {
     return getCursorDocumentCoords(position, state, viewport, styles);
@@ -587,12 +592,18 @@ export function getCursorCoordinatesWithComposition(
       maxWidth,
       styles,
     );
-    return node.caretRect(
-      layout,
-      position.textIndex - replaces + composition.text.length,
-      styles.canvas.paddingLeft,
-      blockTop,
-    );
+    // At the keyboard's caret in the drawn word, as paint() places it; the
+    // word is found by its characters, not by counting back from the caret.
+    const range = content.compositionRange;
+    const index = range
+      ? range.start +
+        Math.min(composition.cursorOffset, range.end - range.start)
+      : undrawnCompositionCaret(
+          composition,
+          block.charRuns,
+          position.textIndex,
+        );
+    return node.caretRect(layout, index, styles.canvas.paddingLeft, blockTop);
   }
 
   // Fold the active composition into the layout exactly as paint() does, then

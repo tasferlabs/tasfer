@@ -289,6 +289,18 @@ export interface CompositionState {
    * replaces that word rather than adding to it. Absent means 0.
    */
   readonly replaces?: number;
+  /**
+   * The reopened word as it was when the keyboard reopened it: its text and the
+   * CRDT ids of its characters. Set whenever `replaces` > 0. The commit edits
+   * these characters by id, not by counting back from the caret, so a peer's
+   * edit inside the word while it is open is never overwritten.
+   */
+  readonly reopened?: {
+    readonly text: string;
+    readonly charIds: readonly string[];
+    /** The character before the word (null at the block start). */
+    readonly beforeId: string | null;
+  };
 }
 
 // Active formats mode for typing
