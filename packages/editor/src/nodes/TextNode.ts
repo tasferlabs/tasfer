@@ -22,6 +22,7 @@
  * flowing into the text via `inlineText()`.
  */
 
+import { sharedEnds } from "../composition";
 import {
   batchChars,
   currentFontFamily,
@@ -33,6 +34,7 @@ import {
   type WrappedLine,
   wrapText,
 } from "../fonts";
+import { inheritedTypingMarks } from "../mark-edge";
 import {
   getBlockTextContent,
   memoizeNodeLayout,
@@ -308,17 +310,41 @@ export function getContentWithComposition(
   // that word: hide it and show the composed text in its place.
   const replaces = Math.min(state.ui.composition.replaces ?? 0, caretIndex);
   if (replaces > 0) {
-    const from = caretIndex - replaces;
+    // Draw what the commit will produce (see COMPOSITION_END): the start and
+    // end the old and new word share stay as they are, with their own
+    // formatting; only the middle is swapped for the preview.
+    const wordStart = caretIndex - replaces;
+    const word = getVisibleTextFromRuns(block.charRuns).slice(
+      wordStart,
+      caretIndex,
+    );
+    const { prefix, suffix } = sharedEnds(word, compositionText);
+    const from = wordStart + prefix;
+    const to = caretIndex - suffix;
+    const middle = compositionText.slice(
+      prefix,
+      compositionText.length - suffix,
+    );
     const folded = foldComposition(
       charRunsToChars(block.charRuns),
       from,
-      compositionText,
-      { from, to: caretIndex },
+      middle,
+      { from, to },
     );
     return {
       chars: folded.chars,
-      formats: block.formats,
-      compositionRange: folded.compositionRange,
+      formats: recompositionFormats(
+        state,
+        block,
+        block.formats,
+        folded.chars,
+        from < to ? from + 1 : from,
+        middle.length,
+      ),
+      // The whole word is the composition, as the keyboard sees it.
+      compositionRange: compositionText
+        ? { start: wordStart, end: wordStart + compositionText.length }
+        : null,
     };
   }
   if (!compositionText) {
@@ -365,6 +391,71 @@ export function getContentWithComposition(
     formats: block.formats, // Keep formats as-is
     compositionRange: folded.compositionRange,
   };
+}
+
+/**
+ * Formats for a recomposition preview: the preview characters take the marks
+ * the commit will give them, no more and no fewer. A span covers characters
+ * by their order, so left alone it would cover the preview only by where it
+ * happens to sit — a bold word whose span starts at the replaced character
+ * would preview plain. Render-only: the block's spans are not changed.
+ *
+ * `inheritAt` is the text index whose marks the commit inherits (the first
+ * replaced character, or the caret for a pure insertion — see `insertText`).
+ */
+function recompositionFormats(
+  state: EditorState,
+  block: Block,
+  spans: MarkSpan[],
+  chars: readonly Char[],
+  inheritAt: number,
+  previewLength: number,
+): MarkSpan[] {
+  if (previewLength === 0) return spans;
+  const first = chars.findIndex((c) => c.id === "composition-0");
+  const last = first + previewLength - 1;
+  if (first < 0) return spans;
+  const ordinal = new Map(chars.map((c, i) => [c.id, i]));
+  const structured = (span: MarkRange) =>
+    !!state.schema.structuredMark(span.format.type);
+
+  // Cut every flat span that reaches over the preview into the parts on
+  // either side of it.
+  const formats: MarkSpan[] = [];
+  for (const span of spans) {
+    const start = ordinal.get(span.startCharId);
+    const end = ordinal.get(span.endCharId);
+    if (
+      start === undefined ||
+      end === undefined ||
+      start > last ||
+      end < first ||
+      structured(span)
+    ) {
+      formats.push(span);
+      continue;
+    }
+    formats.push(
+      { ...span, endCharId: chars[first - 1].id },
+      { ...span, startCharId: chars[last + 1].id },
+    );
+  }
+
+  const marks =
+    state.ui.activeMarksMode.type === "explicit"
+      ? state.ui.activeMarksMode.formats
+      : inheritedTypingMarks(state, block, inheritAt);
+  const counter = Math.max(0, ...spans.map((f) => f.clock.counter)) + 1;
+  for (const format of marks) {
+    if (state.schema.structuredMark(format.type)) continue;
+    formats.push({
+      format,
+      startCharId: chars[first].id,
+      endCharId: chars[last].id,
+      clock: { counter, peerId: "" },
+    });
+  }
+  return formats;
 }
 
 // ---------------------------------------------------------------------------

@@ -25,6 +25,9 @@
  */
 
 import { action, stateAction } from "../action-bus";
+import { sharedEnds } from "../composition";
+import { getBlockTextContent } from "../node-shared";
+import { moveCursorToPosition } from "../selection";
 import type { EditorState } from "../state-types";
 import type { Operation } from "../sync/sync";
 import {
@@ -208,61 +211,113 @@ export const COMPOSITION_UPDATE = stateAction<CompositionUpdatePayload>(
 export const COMPOSITION_END = stateAction<CompositionTextPayload>(
   "composition-end",
   (state, { data, replaces }) => {
-    const ops: Operation[] = [];
-
-    // Select the reopened word so the commit replaces it (insertText replaces a
-    // selection and keeps its formatting).
     const replaced = clampReplaces(
       state,
       replaces ?? state.ui.composition?.replaces,
     );
-    const cursor = state.document.cursor;
-    if (replaced > 0 && cursor) {
-      const focus = cursor.position;
-      const anchor = {
-        blockIndex: focus.blockIndex,
-        textIndex: focus.textIndex - replaced,
-      };
-      state = {
-        ...state,
-        document: {
-          ...state.document,
-          selection: {
-            anchor,
-            focus,
-            isForward: true,
-            isCollapsed: false,
-            lastUpdate: Date.now(),
-          },
-        },
-      };
-      if (!data) {
-        const result = deleteSelectedText(state);
-        state = result.state;
-        ops.push(...result.ops);
-      }
-    }
-
-    // Insert the final composed text
-    if (data && (state.document.cursor || state.document.contentSelection)) {
-      const result = insertText(state, data);
-      state = result.state;
-      ops.push(...result.ops);
-    }
+    const result =
+      replaced > 0 && state.document.cursor
+        ? commitRecomposition(state, data, replaced)
+        : data && (state.document.cursor || state.document.contentSelection)
+          ? insertText(state, data)
+          : { state, ops: [] };
 
     // Clear composition state
     return {
       state: {
-        ...state,
+        ...result.state,
         ui: {
-          ...state.ui,
+          ...result.state.ui,
           composition: null,
         },
       },
-      ops,
+      ops: result.ops,
     };
   },
 );
+
+/**
+ * Commit a recomposition: the keyboard reopened the `replaced` characters
+ * before the caret and now commits `data` in their place.
+ *
+ * Only the part that differs is replaced. The characters the old word and the
+ * new one share at the start and end stay as they are, so they keep their
+ * formatting, their CRDT ids (and with them comments, links and remote
+ * carets), and a word committed unchanged emits no ops at all. The caret ends
+ * after the whole word, as the keyboard expects.
+ *
+ * When the differing part touches a structured mark (an inline math chip, a
+ * mention) or the replacement is refused, nothing is edited: keeping the old
+ * word is safer than cutting into the chip or leaving the word selected.
+ */
+function commitRecomposition(
+  state: EditorState,
+  data: string,
+  replaced: number,
+): { state: EditorState; ops: Operation[] } {
+  const original = state;
+  const caret = state.document.cursor!.position;
+  const block = state.document.page.blocks[caret.blockIndex];
+  const wordStart = caret.textIndex - replaced;
+  const word = block
+    ? getBlockTextContent(block).slice(wordStart, caret.textIndex)
+    : "";
+  const { prefix, suffix } = sharedEnds(word, data);
+  const from = wordStart + prefix;
+  const to = caret.textIndex - suffix;
+  const inserted = data.slice(prefix, data.length - suffix);
+  if (from === to && !inserted) return { state, ops: [] };
+
+  const position = (textIndex: number) => ({
+    blockIndex: caret.blockIndex,
+    textIndex,
+  });
+  state =
+    from === to
+      ? moveCursorToPosition(state, caret.blockIndex, from, true)
+      : {
+          ...state,
+          document: {
+            ...state.document,
+            selection: {
+              anchor: position(from),
+              focus: position(to),
+              isForward: true,
+              isCollapsed: false,
+              lastUpdate: Date.now(),
+            },
+          },
+        };
+  if (from !== to && selectionIntersectsStructuredMark(state)) {
+    return { state: original, ops: [] };
+  }
+
+  const result = inserted
+    ? insertText(state, inserted)
+    : deleteSelectionThroughOwner(state);
+  const cursor = result.state.document.cursor;
+  const selection = result.state.document.selection;
+  if (
+    result.ops.length === 0 ||
+    !cursor ||
+    (selection && !selection.isCollapsed)
+  ) {
+    // Refused (an input rule, a structured mark at the caret): keep the word.
+    return { state: original, ops: [] };
+  }
+  // Step over the unchanged end of the word, back to where the caret was.
+  return {
+    state: suffix
+      ? moveCursorToPosition(
+          result.state,
+          cursor.position.blockIndex,
+          cursor.position.textIndex + suffix,
+          true,
+        )
+      : result.state,
+    ops: result.ops,
+  };
+}
 
 // ─── Clipboard (copy / cut / paste) ──────────────────────────────────────────
 

@@ -229,8 +229,31 @@ export function commitCompositionOnCaretMove(
   if (!committed) return { state: endComposition(after), ops: [] };
 
   const nextPage = committed.state.document.page;
-  const restore = (p: Position, anchor: ReturnType<typeof anchorOf>) =>
-    (anchor && crdtToPosition(nextPage, anchor)) || p;
+  // A recomposition replaces only the characters that changed (see
+  // COMPOSITION_END), so a tap inside the word usually stays on a kept
+  // character. When the commit replaced the very character the caret was
+  // anchored to, keep the same offset into the word instead: the CRDT fallback
+  // for a deleted character lands elsewhere in the block.
+  const wordStart = caret ? caret.textIndex - replaces : 0;
+  const insideWord = (p: Position) =>
+    !!caret &&
+    replaces > 0 &&
+    p.blockIndex === caret.blockIndex &&
+    p.textIndex > wordStart &&
+    p.textIndex < caret.textIndex;
+  const restore = (p: Position, anchor: ReturnType<typeof anchorOf>) => {
+    const moved = anchor && crdtToPosition(nextPage, anchor);
+    if (!moved) return p;
+    const kept =
+      !anchor.afterCharId ||
+      positionToCRDT(nextPage, moved)?.afterCharId === anchor.afterCharId;
+    if (kept || !insideWord(p)) return moved;
+    return {
+      blockIndex: p.blockIndex,
+      textIndex:
+        wordStart + Math.min(p.textIndex - wordStart, composition.text.length),
+    };
+  };
   return {
     state: {
       ...committed.state,
