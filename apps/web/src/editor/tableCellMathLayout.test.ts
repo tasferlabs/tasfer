@@ -162,7 +162,7 @@ function inside(state: EditorState): EditorState {
   const cellId = tableCellIds(document)[1];
   const after = updateContentSelection(
     state,
-    tableCaretToContentSelection(document, block.id, { cellId, offset: 3 }),
+    tableCaretToContentSelection(document, block.id, { cellId, offset: 3 })!,
   );
   return after.actionBus.dispatchState(MOVE_CURSOR_LEFT, after).state;
 }
@@ -271,7 +271,7 @@ describe("the caret inside a cell's formula", () => {
       tableCaretToContentSelection(document, block.id, {
         cellId: tableCellIds(document)[1],
         offset: 3,
-      }),
+      })!,
     );
     const ops = [];
     // A Backspace per symbol, and one for the empty formula.

@@ -945,7 +945,7 @@ describe("editing inside a cell's formula, as a paragraph does", () => {
       tableCaretToContentSelection(document, block.id, {
         cellId: first,
         offset: 0,
-      }),
+      })!,
     );
     const entered = press(MOVE_CURSOR_RIGHT)(atStart).state;
     expect(insideFormula(entered)).toBe(true);
