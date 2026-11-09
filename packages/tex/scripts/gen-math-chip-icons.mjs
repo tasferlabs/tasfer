@@ -11,10 +11,10 @@
 // native bar tints to the toolbar foreground (so dark/light mode both work).
 //
 // The construct set is read straight from the engine catalog SOURCE
-// (packages/editor/src/nodes/math-commands.ts) by text-parsing it — the same
-// approach gen-mobile-toolbar-icons.mjs uses — so this script needs no
-// cross-package import (the catalog lives in @tasfer/editor, which does not
-// resolve from packages/tex).
+// (packages/math/src/math-commands.ts) by text-parsing it — the same approach
+// gen-mobile-toolbar-icons.mjs uses — so this script needs no cross-package
+// import (the catalog lives in @tasfer/math, which depends on @tasfer/tex, so
+// importing it from here would be a cycle).
 //
 // Asset name per construct: `mathChipAssetName(id)`. Keep it byte-identical to
 // the copy in apps/web/src/app/mobileToolbar.ts — the runtime model names the
@@ -64,9 +64,8 @@ const FONT_DIR = join(texRoot, "src", "fonts");
 const CATALOG_SOURCE = join(
   repoRoot,
   "packages",
-  "editor",
+  "math",
   "src",
-  "nodes",
   "math-commands.ts",
 );
 const CATALOG_DIR = join(
