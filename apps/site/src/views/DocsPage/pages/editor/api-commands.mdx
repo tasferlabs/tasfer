@@ -211,6 +211,14 @@ const off = editor.registerAction(OPEN_LINK, ({ url }) => {
 });
 ```
 
+A `StateAction` that edits at the caret the way a key press does can be
+declared forwardable, `stateAction(name, transform, { forwardable: true })`.
+When none of its own handlers claims it, the action goes to the bus's
+forwarders (`bus.registerForwarder`) before its default runs. A node that edits
+its text fields with the paragraph's code uses this to answer a feature's
+actions inside a field without knowing them (see
+[Editing a field with the paragraph's code](/docs/editor/api-schema#field-as-paragraph)).
+
 Dispatch one yourself with `editor.dispatch(action, payload)`. For a plain action the return value is whether a handler claimed it; for a `MutationAction` it's whether the document changed.
 
 <Callout kind="note" title="Two entry points, one machinery.">

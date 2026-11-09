@@ -282,6 +282,8 @@ export type {
   MutationHandler,
   Mutator,
   StateAction,
+  StateActionOptions,
+  StateForwarder,
   StateHandler,
   StateMutator,
   StateResult,

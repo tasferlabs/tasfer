@@ -55,7 +55,11 @@ import {
   tableRangeToContentSelection,
 } from "./selection";
 import { getTableDocument } from "./structured";
-import type { ActionBus, StateAction } from "@tasfer/editor/action-bus";
+import type {
+  ActionBus,
+  DispatchArgs,
+  StateAction,
+} from "@tasfer/editor/action-bus";
 import { selectWordAtPosition } from "@tasfer/editor/actions/actions";
 import {
   appendTrailingParagraph,
@@ -325,6 +329,27 @@ function enterAdjacentTable(
 
 /** Register every table caret motion on one editor instance's bus. */
 export function registerTableActions(bus: ActionBus): void {
+  // An action a feature declares for its own content (a formula's command
+  // insert, a matrix resize) reaches the cell's formula the way a key press
+  // does: run in the cell as the paragraph's code. The table never names it.
+  bus.registerForwarder(
+    <P>(state: EditorState, action: StateAction<P>, payload: P) => {
+      const context = activeTableContext(state);
+      if (!context?.content) return undefined;
+      return claimRun(
+        state,
+        runInCell(state, context, (paragraph) =>
+          paragraph.actionBus.dispatchState(
+            action,
+            paragraph,
+            ...([payload] as DispatchArgs<P>),
+          ),
+        ),
+      );
+    },
+    100,
+  );
+
   // Horizontal steps. LEFT and RIGHT are visual keys, so they map onto the
   // logical steps the other way round in a right-to-left cell — for whole words
   // as much as for single characters.

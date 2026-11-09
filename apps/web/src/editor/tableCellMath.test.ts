@@ -10,6 +10,7 @@
  */
 
 import { appDataSchema } from "../appDataSchema";
+import { INSERT_MATH_COMMAND } from "@tasfer/math/actions";
 import {
   getStructuredMathMarkSource,
   mathMarkContentId,
@@ -952,6 +953,36 @@ describe("editing inside a cell's formula, as a paragraph does", () => {
     // Still editing in the table, not holding the block as a node selection.
     expect(deleted.document.contentSelection).not.toBeNull();
     expect(deleted.document.selection).toBeNull();
+  });
+
+  it("completes a typed `\\fra` from the command menu, as a paragraph does", () => {
+    // What the menu's Enter (or click) dispatches for `\frac`.
+    const complete = (state: EditorState) => {
+      let inside = press(MOVE_CURSOR_LEFT)(state).state;
+      for (const char of String.raw`\fra`)
+        inside = insertText(inside, char).state;
+      const result = inside.actionBus.dispatchState(
+        INSERT_MATH_COMMAND,
+        inside,
+        {
+          text: String.raw`\frac{}{}`,
+          caretOffset: 6,
+          trigger: "\\",
+        },
+      );
+      return {
+        claimed: result.claimed,
+        prose: proseOf(result.state),
+        inside: insideFormula(result.state),
+      };
+    };
+    const cell = complete(afterCellFormula());
+    expect(cell).toEqual(complete(afterParagraphFormula()));
+    expect(cell).toEqual({
+      claimed: true,
+      prose: String.raw`a $x\frac{}{}$ b`,
+      inside: true,
+    });
   });
 
   it("refuses a caret inside an attachment the cell does not point at", () => {

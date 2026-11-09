@@ -664,6 +664,31 @@ if (run.kind === "applied" && run.moved && run.range.content) {
 }
 ```
 
+A feature also has actions of its own for that content, which your node cannot
+name without depending on the feature: math's command menu inserts `\frac`
+through `INSERT_MATH_COMMAND`, and its matrix editor resizes through
+`RESIZE_MATH_MATRIX`. Such an action is declared forwardable, and one
+forwarder runs every one of them in your field. It gets the action itself, so
+it can hand the same action and payload to the paragraph:
+
+```ts
+bus.registerForwarder((state, action, payload) => {
+  const context = activeContext(state);
+  if (!context?.inFormula) return undefined; // not ours: the action goes on
+  const run = runFieldAsParagraph(state, address, range, (paragraph) =>
+    paragraph.actionBus.dispatchState(action, paragraph, payload),
+  );
+  return run.kind === "applied"
+    ? { state: run.state, ops: run.ops, handled: true }
+    : { state, ops: [], handled: true };
+}, 100);
+```
+
+A forwarder runs only when the action's own handlers all passed, which is
+always the case for these in your block, since the feature's handlers look for
+a paragraph. Inside the paragraph your forwarder finds no context of its own
+and passes, so the feature's handler answers there.
+
 How it works: the field's characters and marks are handed to the action as the
 only paragraph on a one-block page, the same single-block surface a title
 editor is, with only the `paragraph` type allowed, along with every mark the

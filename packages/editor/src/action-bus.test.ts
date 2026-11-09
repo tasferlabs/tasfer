@@ -504,3 +504,70 @@ describe("registerState and the claimed flag", () => {
     expect(order).toEqual(["link@100"]);
   });
 });
+
+// ─── Forwarders: forwardable actions no handler claimed ──────────────────────
+
+describe("registerForwarder", () => {
+  const step = (state: EditorState): StateResult => ({
+    state: fakeState(cursorOf(state) + 1),
+    ops: [sentinelOp("default")],
+  });
+
+  it("runs for a forwardable action before its default, after its handlers pass", () => {
+    const bus = createActionBus();
+    const forwardable = stateAction<{ by: number }>("fwd", step, {
+      forwardable: true,
+    });
+    const order: string[] = [];
+    bus.registerState(forwardable, () => {
+      order.push("handler");
+    });
+    bus.registerForwarder((state, action, payload) => {
+      order.push(`forwarder:${action.name}`);
+      return {
+        state: fakeState(cursorOf(state) + (payload as { by: number }).by),
+        ops: [sentinelOp("forwarded")],
+        handled: true,
+      };
+    });
+    const result = bus.dispatchState(forwardable, fakeState(0), { by: 5 });
+    expect(order).toEqual(["handler", "forwarder:fwd"]);
+    expect(result.claimed).toBe(true);
+    expect(cursorOf(result.state)).toBe(5);
+    expect(opTags(result)).toEqual(["forwarded"]);
+  });
+
+  it("is skipped when a handler claims, and for actions not marked forwardable", () => {
+    const bus = createActionBus();
+    const forwardable = stateAction("fwd", step, { forwardable: true });
+    const plain = stateAction("plain", step);
+    let forwarded = 0;
+    bus.registerForwarder(() => {
+      forwarded++;
+      return undefined;
+    });
+    bus.registerState(forwardable, (state) => ({
+      state,
+      ops: [],
+      handled: true,
+    }));
+    bus.dispatchState(forwardable, fakeState(0));
+    expect(opTags(bus.dispatchState(plain, fakeState(0)))).toEqual(["default"]);
+    expect(forwarded).toBe(0);
+  });
+
+  it("falls through to the default when every forwarder passes, and unsubscribes", () => {
+    const bus = createActionBus();
+    const forwardable = stateAction("fwd", step, { forwardable: true });
+    let calls = 0;
+    const off = bus.registerForwarder(() => {
+      calls++;
+    });
+    expect(opTags(bus.dispatchState(forwardable, fakeState(0)))).toEqual([
+      "default",
+    ]);
+    off();
+    bus.dispatchState(forwardable, fakeState(0));
+    expect(calls).toBe(1);
+  });
+});
