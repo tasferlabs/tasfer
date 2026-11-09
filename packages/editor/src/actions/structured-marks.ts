@@ -40,6 +40,7 @@ import {
   type StructuredContentMap,
   type StructuredDocument,
 } from "../sync/structured-content";
+import { cloneDocumentMarkReferences } from "../sync/structured-mark-references";
 
 export interface CreateFeatureMarkResult {
   readonly newPage: Page;
@@ -108,14 +109,30 @@ export function cloneStructuredBlockContent(
     }
     clonedContentIds[sourceContentId] = cloned.contentId;
     structuredContent[cloned.contentId] = cloned.document;
+  }
+  // A document may hold structured marks of its own (a formula in a table
+  // cell) pointing at sibling attachments. Re-address them only now, once the
+  // whole map is known — the referenced attachment may sort after its holder.
+  for (const contentId of Object.keys(structuredContent).sort()) {
+    const document = cloneDocumentMarkReferences(
+      structuredContent[contentId],
+      schema,
+      {
+        sourceBlockId: source.id,
+        targetBlockId,
+        attachments: sourceContent,
+        clonedContentIds,
+      },
+    );
+    structuredContent[contentId] = document;
     ops.push({
       op: "content_edit",
       id: binding.nextId(),
       clock: binding.getClock(),
       pageId: binding.pageId,
       blockId: targetBlockId,
-      contentId: cloned.contentId,
-      edit: { kind: "document_init", document: cloned.document },
+      contentId,
+      edit: { kind: "document_init", document },
     });
   }
   return { structuredContent, clonedContentIds, ops };

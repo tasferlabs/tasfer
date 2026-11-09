@@ -44,7 +44,10 @@ import {
   charRunsToChars,
   getVisibleTextFromChars,
 } from "@tasfer/editor/sync/char-runs";
-import type { StructuredDocument } from "@tasfer/editor/sync/structured-content";
+import type {
+  StructuredContentMap,
+  StructuredDocument,
+} from "@tasfer/editor/sync/structured-content";
 import {
   foldComposition,
   layoutText,
@@ -157,6 +160,12 @@ export interface TableLayoutCtx {
   readonly fontFamily: FontFamily;
   readonly fonts: FontStyles;
   readonly marks?: MarkRegistry;
+  /**
+   * The table block's attachments. A cell's structured marks (an inline
+   * formula) point at the ones beside the table's own document; measuring
+   * reads them, so a formula reserves its real width instead of a placeholder.
+   */
+  readonly attachments?: StructuredContentMap;
 }
 
 /**
@@ -429,6 +438,7 @@ export function layoutTable(
           direction: cell.direction,
           align: columns[column].align,
           marks: ctx.marks,
+          structuredContent: ctx.attachments,
           compositionRange: cell.compositionRange,
         }),
       );

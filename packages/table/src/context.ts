@@ -27,6 +27,7 @@ import type {
 import { updateContentSelection } from "@tasfer/editor/structured-selection";
 import { applyOp } from "@tasfer/editor/sync/reducer";
 import type {
+  StructuredContentMap,
   StructuredDocument,
   StructuredEdit,
 } from "@tasfer/editor/sync/structured-content";
@@ -146,15 +147,34 @@ export function tableContentEdit(
  * character reach the CRDT by exactly the same route — which is what makes them
  * merge, undo and sync alike. A `caret` of `undefined` leaves the selection
  * where it is (the edits did not move it).
+ *
+ * `attachments` are new documents for the table block to hold beside the
+ * table's own — what a pasted cell formula points at. They are written first,
+ * so no mark ever references an attachment the log has not created yet, and
+ * an undo (which replays in reverse) removes the mark before its attachment.
  */
 export function commitTableEdits(
   state: EditorState,
   context: Pick<TableContext, "block" | "document">,
   edits: readonly StructuredEdit[],
   caret: TableCaret | undefined,
+  attachments?: StructuredContentMap,
 ): Claimed {
   let page = state.document.page;
   const ops: Operation[] = [];
+  for (const contentId of Object.keys(attachments ?? {}).sort()) {
+    const operation: ContentEdit = {
+      op: "content_edit",
+      id: state.CRDTbinding.nextId(),
+      clock: state.CRDTbinding.getClock(),
+      pageId: state.CRDTbinding.pageId,
+      blockId: context.block.id,
+      contentId,
+      edit: { kind: "document_init", document: attachments![contentId] },
+    };
+    page = applyOp(page, operation, state.schema);
+    ops.push(operation);
+  }
   for (const edit of edits) {
     const operation = tableContentEdit(
       state,

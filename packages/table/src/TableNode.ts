@@ -666,8 +666,14 @@ export class TableNode extends Node<TableBlock> {
         c.ctx.clip();
       }
       this.paintCompositionUnderline(cell, c, x, y);
-      for (const line of cell.lines) {
-        if (line.text.length === 0) continue;
+      cell.lines.forEach((line, lineIndex) => {
+        // A formula reflowing across lines can own no character on a line it
+        // still draws a piece of; its slices, not its text, say so.
+        const slices = cell.text.lineSlices[lineIndex];
+        const drawsSlice =
+          slices !== undefined &&
+          (slices.lead !== undefined || slices.anchored.size > 0);
+        if (line.text.length === 0 && !drawsSlice) return;
         paintTextRun({
           ctx: c.ctx,
           chars: cell.chars,
@@ -684,8 +690,11 @@ export class TableNode extends Node<TableBlock> {
           marks: c.marks,
           isRTL,
           requestRedraw: c.requestRedraw,
+          // A cell's formula lives beside the table's document on the block.
+          attachments: c.block.structuredContent,
+          slices,
         });
-      }
+      });
       if (overflows) c.ctx.restore();
     }
   }
@@ -1835,7 +1844,9 @@ function shownLayout(
 
 /** The layout inputs a table block reads from its editor instance. */
 function tableLayoutCtx(
-  c: Pick<NodeLayoutCtx, "maxWidth" | "styles" | "marks">,
+  c: Pick<NodeLayoutCtx, "maxWidth" | "styles" | "marks"> & {
+    readonly block: Parameters<typeof getTableDocument>[0];
+  },
 ): TableLayoutCtx {
   return {
     maxWidth: c.maxWidth,
@@ -1843,6 +1854,7 @@ function tableLayoutCtx(
     fontFamily: currentFontFamily(c.styles),
     fonts: c.styles.fonts,
     marks: c.marks,
+    attachments: c.block.structuredContent,
   };
 }
 

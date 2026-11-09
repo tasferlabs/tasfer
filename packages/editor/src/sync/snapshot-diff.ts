@@ -27,6 +27,7 @@ import { getVisibleTextFromRuns, iterateVisibleChars } from "./char-runs";
 import { generateKeyBetween } from "./fractional-index";
 import type { DataSchema } from "./schema";
 import { canonicalizeStructuredDocument } from "./structured-content";
+import { cloneDocumentMarkReferences } from "./structured-mark-references";
 import type { IdentityAllocator } from "@shared/identity";
 
 // =============================================================================
@@ -509,7 +510,21 @@ export function blocksToOps(blocks: Block[], ctx: OpsContext): Operation[] {
       } as BlockSet);
     }
 
-    for (const attachment of clonedStructuredContent) {
+    for (const cloned of clonedStructuredContent) {
+      // Structured marks held inside a document (a formula in a table cell)
+      // re-address now that every attachment of the block has its target id.
+      const attachment =
+        schema && newBlockId !== block.id
+          ? {
+              contentId: cloned.contentId,
+              document: cloneDocumentMarkReferences(cloned.document, schema, {
+                sourceBlockId: block.id,
+                targetBlockId: newBlockId,
+                attachments: block.structuredContent,
+                clonedContentIds,
+              }),
+            }
+          : cloned;
       ops.push({
         op: "content_edit",
         id: nextId(),

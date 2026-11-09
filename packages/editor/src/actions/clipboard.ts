@@ -70,8 +70,12 @@ import {
 import { createIdGenerator, generateBlockId } from "../sync/id";
 import { applyOps, findNextVisibleBlockIndex } from "../sync/reducer";
 import type { DataSchema } from "../sync/schema";
-import type { StructuredContentMap } from "../sync/structured-content";
+import type {
+  StructuredContentMap,
+  StructuredDocument,
+} from "../sync/structured-content";
 import { hasStructuredContent } from "../sync/structured-content";
+import { attachmentMarkReferences } from "../sync/structured-mark-references";
 import TurndownService from "turndown";
 
 function globalGenerateBlockId(binding: CRDTbinding): string {
@@ -660,7 +664,47 @@ function getStructuredSelectionSlice(
   const block = findBlock(state.document.page, focus.blockId);
   const document = block?.structuredContent?.[focus.contentId];
   if (!block || block.deleted || !document) return undefined;
-  return state.schema.serializeContentSelection(document, selection);
+  const slice = state.schema.serializeContentSelection(document, selection);
+  if (!slice?.blocks || !block.structuredContent) return slice;
+  // A slice block that keeps a structured mark (a table cell's inline formula)
+  // still names an attachment of the source block. Carry each one it names
+  // across, so the clipboard's Markdown spells the formula and a paste can
+  // clone it — the slice's own documents are left as the kind built them.
+  return {
+    ...slice,
+    blocks: slice.blocks.map((sliced) =>
+      withReferencedAttachments(sliced, block.structuredContent!, state.schema),
+    ),
+  };
+}
+
+/**
+ * `block` plus every attachment from `source` that its structured marks — in
+ * its own text or inside its documents' text fields — reference and it lacks.
+ */
+function withReferencedAttachments(
+  block: Block,
+  source: StructuredContentMap,
+  schema: DataSchema,
+): Block {
+  const own = block.structuredContent ?? {};
+  const wanted = attachmentMarkReferences(own, schema);
+  if (isTextualBlock(block)) {
+    for (const span of block.formats) {
+      for (const id of schema.structuredMarkReferences(span.format.type, {
+        mark: span.format,
+        attachments: source,
+      })) {
+        wanted.add(id);
+      }
+    }
+  }
+  const adopted: Record<string, StructuredDocument> = {};
+  for (const id of wanted) {
+    if (!own[id] && source[id]) adopted[id] = source[id];
+  }
+  if (Object.keys(adopted).length === 0) return block;
+  return { ...block, structuredContent: { ...own, ...adopted } } as Block;
 }
 
 /**

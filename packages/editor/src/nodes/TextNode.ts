@@ -186,6 +186,17 @@ export interface PaintTextRunArgs {
   readonly marks: MarkRegistry;
   readonly isRTL: boolean;
   readonly requestRedraw: () => void;
+  /**
+   * Attachments the text's structured marks point at (an inline formula's
+   * tree) — the owning block's `structuredContent`. Without them a formula
+   * paints as its placeholder.
+   */
+  readonly attachments?: StructuredContentMap;
+  /**
+   * The replacement slices this line renders (`TextLayout.lineSlices[line]`),
+   * so a formula that reflows across lines paints its own piece on each.
+   */
+  readonly slices?: LineSlices;
 }
 
 /**
@@ -212,6 +223,11 @@ export function paintTextRun(args: PaintTextRunArgs): void {
     args.marks,
     args.isRTL,
     args.requestRedraw,
+    null,
+    null,
+    false,
+    args.attachments,
+    args.slices,
   );
 }
 

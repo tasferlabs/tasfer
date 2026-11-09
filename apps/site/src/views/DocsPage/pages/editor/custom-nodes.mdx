@@ -112,6 +112,8 @@ paintTextRun({
   marks,
   isRTL,
   requestRedraw,
+  attachments, // optional: your block's structuredContent, so an inline formula paints as itself
+  slices, // optional: layout.lineSlices[line], for a formula that wraps across lines
 });
 ```
 
@@ -136,6 +138,7 @@ const text = layoutText({
   direction, // "ltr" | "rtl"
   align, // optional: "left" | "center" | "right"; null hugs the reading start
   marks,
+  structuredContent, // optional: your block's attachments, so an inline formula measures as itself
 });
 
 const caret = textCaretRect(text, offset); // { x, y, height }
@@ -403,7 +406,12 @@ recognizers for the type's own syntax, and `defineMark` also accepts
 initialization, canonical-source resolution from the attachment, attachment
 references, clone rewrites). A structured mark stores no source text in block
 characters: it anchors on a single placeholder character and its attachment is
-the only content authority. A custom syntax rule only takes
+the only content authority. The same mark can also sit in a text field inside
+a structured document (in its `markFields`), pointing at another attachment on
+the same block — that is how a table cell holds an inline formula. The engine
+re-addresses those references whenever it copies a block (paste, snapshot
+restore) and carries the referenced attachments onto clipboard slices, so a
+custom node with rich-text fields gets this without extra code. A custom syntax rule only takes
 effect when a codec claims the tokens it emits; the generic `<x-type/>`
 round-trip claims none, so pair the rule with a hand-written codec — the way
 the optional math specs carry the `$$…$$` and `$…$` recognizers next to the

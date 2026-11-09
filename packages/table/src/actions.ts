@@ -186,6 +186,7 @@ function tableLayoutFor(
     fontFamily: currentFontFamily(styles),
     fonts: styles.fonts,
     marks: state.marks,
+    attachments: block.structuredContent,
   });
   return viewedTableLayout(layout, state, block.id);
 }

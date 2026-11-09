@@ -17,8 +17,8 @@
  * `runInCell`). Only a range across cells is decided here: every covered cell
  * is marked whole, the way deleting such a range clears them whole.
  *
- * Plain marks only. A mark whose content lives in an attachment (inline math)
- * is refused — see {@link toggleTableMark}.
+ * Plain marks only. Toggling on a mark whose content lives in an attachment
+ * (inline math) is refused — see {@link toggleTableMark}.
  */
 
 import {
@@ -145,13 +145,11 @@ function markEdits(
  * A *structured* mark (inline math) is refused outright. Its content does not
  * live in the characters it covers: it belongs to a separate attachment, and
  * the covered text collapses to one anchor character holding the mark's place.
- * A cell has no route to either — nothing creates the attachment, and cell
- * source is parsed without a schema, so the syntax is not read back. Writing
- * the bare `mark_set` this function otherwise emits would produce a mark with
- * no formula behind it, which serializes to syntax that reloads as literal
- * text. Refusing here closes every route at once — the context menu, the
- * mobile drawer, a keybinding, the public `setMark` — rather than each caller
- * separately.
+ * A cell CAN hold one — Markdown import and paste write the attachment beside
+ * the table's document on the block — but toggling one on here would emit a
+ * bare `mark_set` with no formula behind it. Refusing here closes every route
+ * at once — the context menu, the mobile drawer, a keybinding, the public
+ * `setMark` — rather than each caller separately.
  */
 export function toggleTableMark(
   state: EditorState,

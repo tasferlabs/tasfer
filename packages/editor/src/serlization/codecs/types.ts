@@ -103,6 +103,22 @@ export interface InputCtx {
    * still consumes the block's tokens (trigger + trailing newline) itself.
    */
   rawText(text: string): CharRun[];
+  /**
+   * Parse a standalone string of inline Markdown — text a block keeps outside
+   * the token stream, such as one table cell's source — with this parse's
+   * schema and id counters. Structured marks arrive with their attachments in
+   * `structuredContent`, as from {@link inlineText}; a codec must carry them
+   * onto its block. Returns `undefined` when the source does not parse as one
+   * line of inline content (it is a block construct), so the caller can keep
+   * it literally.
+   */
+  inlineMarkdown(source: string):
+    | {
+        charRuns: CharRun[];
+        formats: MarkSpan[];
+        structuredContent?: StructuredContentMap;
+      }
+    | undefined;
   match(...types: TokenType[]): boolean;
   check(type: TokenType): boolean;
   advance(): Token;
