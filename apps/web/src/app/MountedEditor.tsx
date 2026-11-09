@@ -71,6 +71,7 @@ import {
   clearFailedImageCache,
   canHaveFormats,
   isAndroid,
+  isIOS,
   isTextualBlock,
   isTouchDevice,
   isTouchOnlyDevice,
@@ -197,6 +198,7 @@ import {
   usePageSettings,
 } from "./contexts/PageSettingsContext";
 import useMobileLayout from "./hooks/useMobileLayout";
+import { readWebKeyboardOverlap } from "./hooks/useKeyboardInset";
 import {
   activeBlockMathCommand,
   createMobileToolbarModel,
@@ -1891,19 +1893,45 @@ function PageEditor({
       "padding-bottom:var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px));";
     document.body.appendChild(probe);
     let closedSafeAreaBottom = 0;
+    // Chrome on iOS resizes the window itself to the area above the keyboard
+    // (measured on an iPhone: innerHeight, clientHeight and visualViewport
+    // height all 392 with the keyboard up), so "visible area shorter than the
+    // window" reads 0 there. Compare against the tallest window seen at this
+    // width instead. iOS only: on desktop a window dragged smaller would look
+    // the same as a keyboard.
+    const trackFullHeight = isIOS();
+    // With the keyboard up, Chrome on iOS keeps a thin address strip above it
+    // and the resized window runs underneath that strip, so `bottom: 0` hides
+    // the lower edge of the toolbar. Nothing reports the strip (the safe-area
+    // inset reads 0), so lift by a fixed amount, tuned by eye on an iPhone 17
+    // Pro.
+    const chromeIOSStripOverlap =
+      trackFullHeight && /CriOS/.test(navigator.userAgent) ? 13 : 0;
+    let fullHeight = 0;
+    let fullHeightWidth = 0;
     const sync = () => {
       if (hasNativeKeyboardRef.current) return;
-      const inset = window.innerHeight - vv.height - vv.offsetTop;
-      // inset <= 0 means no keyboard overlays the viewport at all — the only
+      const overlap = readWebKeyboardOverlap(vv);
+      const { inset } = overlap;
+      let { shrink } = overlap;
+      if (trackFullHeight) {
+        if (window.innerWidth !== fullHeightWidth) {
+          fullHeightWidth = window.innerWidth;
+          fullHeight = 0;
+        }
+        fullHeight = Math.max(fullHeight, overlap.layoutHeight);
+        shrink = fullHeight - vv.height;
+      }
+      // shrink <= 0 means no keyboard overlays the viewport at all — the only
       // state where the nav-bar inset is visible to CSS. Not `!open`: an IME
       // raised by a non-editor input keeps `open` false while already zeroing
       // the env value.
-      if (inset <= 0) {
+      if (shrink <= 0) {
         closedSafeAreaBottom =
           parseFloat(getComputedStyle(probe).paddingBottom) || 0;
       }
       const open =
-        editorFocusedRef.current && inset > MOBILE_WEB_KEYBOARD_MIN_INSET;
+        editorFocusedRef.current && shrink > MOBILE_WEB_KEYBOARD_MIN_INSET;
       setKeyboardOpen(open);
       // Browsers that overlay the keyboard on the layout viewport (iOS Safari,
       // edge-to-edge Android Chrome) leave `position: fixed` elements behind
@@ -1911,20 +1939,38 @@ function PageEditor({
       // native-message path. Browsers that resize the layout viewport instead
       // report ~0 here and `bottom: 0` is already right. Rounded because
       // vv.height is fractional; the `open` gate keeps over-scroll
-      // rubber-banding (negative insets) and desktop viewports at 0. Mirrors
+      // rubber-banding and desktop viewports at 0. `open` reads the shrink and
+      // the offset reads the inset: once iOS slides the page up to reveal the
+      // caret the inset falls (to 0 at a full slide) while the keyboard is
+      // still up, so gating on it would hide the toolbar. Shared with
       // useKeyboardInset's web fallback.
+      // The strip only overlaps once Chrome has resized the window (inset 0).
+      const stripOverlap = inset < 1 ? chromeIOSStripOverlap : 0;
       setKeyboardHeight(
-        open ? Math.round(inset + (isAndroid() ? closedSafeAreaBottom : 0)) : 0,
+        open
+          ? Math.round(
+              inset + stripOverlap + (isAndroid() ? closedSafeAreaBottom : 0),
+            )
+          : 0,
       );
     };
     sync();
     syncWebKeyboardRef.current = sync;
     vv.addEventListener("resize", sync);
     vv.addEventListener("scroll", sync);
+    // The page slide also scrolls the window; listen there too so the offset
+    // never keeps a pre-slide value.
+    window.addEventListener("scroll", sync, { passive: true });
+    // Chrome on iOS shrinks visualViewport first and resizes the window a
+    // moment later, with no second visualViewport event; without this the
+    // toolbar keeps the in-between offset and floats above the keyboard.
+    window.addEventListener("resize", sync);
     return () => {
       syncWebKeyboardRef.current = null;
       vv.removeEventListener("resize", sync);
       vv.removeEventListener("scroll", sync);
+      window.removeEventListener("scroll", sync);
+      window.removeEventListener("resize", sync);
       probe.remove();
     };
   }, []);
