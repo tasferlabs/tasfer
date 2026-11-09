@@ -244,6 +244,15 @@ export type {
   StructuredTextFieldRef,
 } from "./sync/schema";
 export type { TextFieldInfo, TextFieldMark } from "./text-fields";
+// Edit a structured text field with the paragraph's own text code.
+export {
+  armedFieldRevert,
+  FIELD_PARAGRAPH_REVERT,
+  type FieldRange,
+  type FieldRun,
+  runFieldAsParagraph,
+  type TextFieldAddress,
+} from "./text-field-paragraph";
 
 // Action bus — declare imperative actions (`action`) that hosts hook
 // via `editor.registerAction` (override by returning `true`, or observe by

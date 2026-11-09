@@ -581,6 +581,57 @@ formats to the characters your insert path adds next — that is what makes
 "Ctrl+B, then type" come out bold inside a cell. Marks active on a nested
 selection are reported by `editor.state.activeMarks` for free.
 
+<h3 id="field-as-paragraph">Editing a field with the paragraph's code</h3>
+
+You rarely have to write those handlers yourself. `runFieldAsParagraph` runs
+any flat-text action on one text field, as if the field were a lone paragraph
+whose caret is your selection, and commits what the action did to the field:
+
+```ts
+import { runFieldAsParagraph, TOGGLE_MARK } from "@tasfer/editor";
+
+bus.registerState(
+  TOGGLE_MARK,
+  (state, { name }) => {
+    const context = activeContext(state);
+    if (!context) return undefined;
+    const run = runFieldAsParagraph(
+      state,
+      { blockId, contentId, nodeId, field: "text" },
+      { anchor: context.anchorOffset, focus: context.focusOffset },
+      (paragraph) =>
+        paragraph.actionBus.dispatchState(TOGGLE_MARK, paragraph, { name }),
+    );
+    return run.kind === "applied"
+      ? { state: run.state, ops: run.ops, handled: true }
+      : { state, ops: [], handled: true };
+  },
+  100,
+);
+```
+
+The same call covers typing (`insertText` from your input rule), the delete
+keys, the arrow keys, and Backspace taking back a markdown shortcut
+(`REVERT_INPUT_RULE`, armed for the field while `armedFieldRevert(state)`
+returns its address). The field gets exactly the paragraph's behaviour, including
+pending marks and the side of a mark edge, because it is the paragraph's code
+that runs.
+
+How it works: the field's characters and marks are handed to the action as the
+only paragraph on a one-block page, the same single-block surface a title
+editor is, with only the `paragraph` type and plain marks allowed. The action's
+text ops are then re-addressed to the field as `content_edit` operations with
+the same character ids, so nothing about how the field is stored changes. The
+result is `applied` with `edited` and `moved` flags, which tell you whether the
+action stopped at the field's edge and your node should take over (cross into
+a neighbour, say). Otherwise it is `refused`, and nothing changes:
+
+- `outside` — the action produced something other than a text edit of the
+  field, such as a new block.
+- `mismatch` — the field rebuilt from the translated edits did not match what
+  the paragraph code produced, character for character and mark for mark. This
+  check runs on every call.
+
 The spans anchor to character identities, so a mark survives edits inside its
 range and merges per character. Unlike a block's `formats`, they carry no HLC:
 structured edits fold in canonical op-log order, so the last write already wins.
