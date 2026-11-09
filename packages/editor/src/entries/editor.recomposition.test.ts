@@ -126,6 +126,16 @@ function fakeSurface() {
       composing = 0;
       fire("compositionend", { data });
     },
+    /** A real keydown outside a composition, as Firefox sends for the space. */
+    keydown(key: string) {
+      fire("keydown", {
+        key,
+        code: "",
+        keyCode: key === " " ? 32 : 0,
+        isComposing: false,
+        isTrusted: true,
+      });
+    },
     /** Commit plain text outside a composition (e.g. the automatic space). */
     commit(text: string) {
       el.textContent += text;
@@ -359,6 +369,26 @@ describe("Android keyboards that reopen the previous word (#34)", () => {
     expect(el.textContent).toBe(" Hi there");
     await frame();
     expect(el.textContent).toBe(" Hi there");
+  });
+
+  it("keeps a word whose space keydown arrives before the frame (Firefox)", async () => {
+    // Firefox on Android sends HeliBoard's automatic space as a real keydown
+    // (not composing) in the same task as `compositionend`, before the frame
+    // that applies it. A frame mid-word had already opened the composition in
+    // the editor, so the keydown met an editor still composing.
+    const { editor, ime, frame } = setup("Hi");
+    await frame();
+    ime.commit(" ");
+    for (const word of ["there", "you"]) {
+      ime.start();
+      ime.update(word);
+      await frame(); // a frame lands mid-word
+      ime.end();
+      ime.keydown(" ");
+      ime.commit(" ");
+      await frame();
+    }
+    expect(editor.getMarkdown().trim()).toBe("Hi there you");
   });
 
   it("a tap on another line commits the word where it was typed", async () => {

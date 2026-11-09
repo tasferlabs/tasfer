@@ -3741,6 +3741,19 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       return;
     }
 
+    // The browser already ended the composition and its `compositionend` is
+    // still queued for the next frame: the engine is only behind, not stranded.
+    // Firefox on Android sends HeliBoard's automatic space as a real keydown in
+    // the same task as `compositionend`. Apply the queue first so the word is
+    // committed before the key; the self-heal below would otherwise drop it.
+    if (
+      this._state.ui.composition?.isComposing &&
+      !this.browserComposing &&
+      this.eventsQueue.some((queued) => queued.type === "compositionend")
+    ) {
+      this.flushPendingInput();
+    }
+
     // Self-heal a stranded composition flag. If we still think we're composing
     // but the browser reports this keydown is NOT part of a composition, a prior
     // `compositionend` was dropped or reordered — common on Android soft
