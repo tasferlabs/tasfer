@@ -203,7 +203,11 @@ function setup(markdown: string, at?: { block: number; index: number }) {
   };
   // A completed one-finger tap at a document position, through the real touch
   // pipeline (hit-test included).
-  const tap = async (blockIndex: number, textIndex: number) => {
+  const tap = async (
+    blockIndex: number,
+    textIndex: number,
+    { thenFrame = true }: { thenFrame?: boolean } = {},
+  ) => {
     const tapInternals = editor as unknown as {
       coordsAtIndexPosition: (p: {
         blockIndex: number;
@@ -241,7 +245,7 @@ function setup(markdown: string, at?: { block: number; index: number }) {
       changedTouches: [],
       preventDefault() {},
     });
-    await frame();
+    if (thenFrame) await frame();
   };
   return { editor, el, ime, frame, tap };
 }
@@ -433,6 +437,31 @@ describe("Android keyboards that reopen the previous word (#34)", () => {
     expect(editor.getMarkdown().trim()).toBe(
       `first hey\n\n${second.slice(0, caret.textIndex)}X${second.slice(caret.textIndex)}`,
     );
+  });
+
+  it("a keyboard update queued behind a tap does not reopen the tapped word", async () => {
+    // The keyboard's next update for the reopened word lands in the same
+    // frame as the tap. It belongs to the session the tap just committed, so
+    // it must not start a new composition at the tapped spot carrying the old
+    // session's replaced-character count.
+    const doc = globalThis.document as unknown as { body?: unknown };
+    if (!doc.body) doc.body = { appendChild() {}, removeChild() {} };
+
+    const { editor, ime, frame, tap } = setup("hello\n\nworld", {
+      block: 0,
+      index: 5,
+    });
+    await frame();
+    ime.start(5); // reopen "hello"
+    await frame();
+
+    await tap(2, 5, { thenFrame: false });
+    ime.update("hello");
+    await frame();
+    ime.end();
+    await frame();
+
+    expect(editor.getMarkdown().trim()).toBe("hello\n\nworld");
   });
 
   describe("a peer's edit arriving while the caret sits in the text", () => {
