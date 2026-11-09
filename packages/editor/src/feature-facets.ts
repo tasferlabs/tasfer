@@ -58,6 +58,19 @@ export interface FeatureInputRuleCtx {
   readonly state: EditorState;
   /** The exact text supplied by the input event. */
   readonly input: string;
+  /**
+   * How the insert was asked for — the typing path's `wrapSelection`, for
+   * example. A rule that hands the input on to `insertText` (a feature running
+   * the paragraph's typing code on its own text) passes these through, so the
+   * keystroke behaves as it would have in a paragraph.
+   */
+  readonly options?: FeatureInputOptions;
+}
+
+/** The `insertText` options an input rule sees (see `InsertTextOptions`). */
+export interface FeatureInputOptions {
+  readonly wrapSelection?: boolean;
+  readonly inlineMarkdown?: boolean;
 }
 
 /** A rule contribution to the pure editor-state input pipeline. */

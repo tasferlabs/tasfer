@@ -87,10 +87,14 @@ interface FormatSegment {
  * Try to wrap the current selection for a typed character. Returns the
  * transformed state + ops, or `null` when the keystroke is not a wrap trigger
  * here (caller falls back to the ordinary replace-selection-and-type path).
+ *
+ * `marks: false` leaves out the markdown half — a delimiter never wraps the
+ * selection in its mark — while brackets and quotes still pair.
  */
 export function wrapSelectionOnInput(
   state: EditorState,
   input: string,
+  { marks = true }: { readonly marks?: boolean } = {},
 ): ActionResult | null {
   if (input.length !== 1) return null;
   const selection = state.document.selection;
@@ -121,7 +125,7 @@ export function wrapSelectionOnInput(
     return null;
 
   return (
-    wrapWithMarks(state, start, end, input) ??
+    (marks ? wrapWithMarks(state, start, end, input) : null) ??
     wrapWithPair(state, start, end, input)
   );
 }
