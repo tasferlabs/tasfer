@@ -865,7 +865,11 @@ export function handleMouseMove(
         textPosition,
         blockUnderPoint,
         viewport,
-        resolveCoords: (pos) => getCursorDocumentCoords(pos, state, viewport),
+        // Anchor on the painted range like the hit-tests above: summing exact
+        // heights from block 0 drifts from the height index's estimates for
+        // off-screen blocks, which threw the link tooltip far off its link.
+        resolveCoords: (pos) =>
+          getCursorDocumentCoords(pos, state, viewport, undefined, visibility),
         resolveContentCoords: (point) =>
           getContentPointDocumentCoords(
             point,
