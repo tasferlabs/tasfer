@@ -1281,6 +1281,14 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   // composition events belong to that finished session and are dropped:
   // honoring them would re-insert the word at the new caret.
   private staleComposition = false;
+  // A composition the keyboard opened over a word that touches the caret on its
+  // right — HeliBoard reopens the word under the caret after every cursor move,
+  // so mid-word the composed word straddles the caret. The engine's
+  // composition model only replaces text BEFORE the caret, so such a session
+  // bypasses it: each change the keyboard makes is applied to the document as a
+  // whole-surface diff, as it happens (see `applyWholeSurfaceEdit`). Android
+  // whole-block surface only.
+  private diffComposition = false;
 
   // Guards async work that settles after destroy() from poking a torn-down loop.
   private destroyed = false;
@@ -3215,6 +3223,17 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   private syncMirrorToSelection = (forceRangedSelection = false) => {
     if (!this.hiddenInput) return;
 
+    // The keyboard owns the surface during a diff composition; leave it alone
+    // while it still mirrors the editor. Anything else (a tap moved the caret, a
+    // remote edit) ends the session: the rewrite below tells the keyboard, and
+    // its leftover composition events are dropped as stale.
+    if (this.diffComposition) {
+      if (this.surfaceMatchesEditor()) return;
+      this.diffComposition = false;
+      this.browserComposing = false;
+      this.staleComposition = true;
+    }
+
     // Toggle native predictive text off while the caret is in verbatim source,
     // independent of which surface branch below runs.
     this.applyAutosuggestForCaret();
@@ -3438,6 +3457,46 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       this.keyboardSelectionSig = this.selectionSignature(this._state);
     }
     return true;
+  };
+
+  // Whether a composition starting now would straddle the caret: on the
+  // Android whole-block surface, with the DOM caret touching a word on its
+  // right (mid-word, or at a word's start). A keyboard that reopens the word
+  // under the caret then composes over text on both sides of it.
+  private compositionStraddlesCaret = (): boolean => {
+    if (!this.mirrorWholeBlock || !this.surfaceAnchor || !this.hiddenInput) {
+      return false;
+    }
+    const surface = this.hiddenInput.textContent ?? "";
+    if (surface !== this.lastSurfaceValue + this.surfaceTail) return false;
+    const caret = this.readSurfaceCaret();
+    if (caret === null) return false;
+    const next = surface[caret];
+    return next !== undefined && !isWordBoundaryChar(next);
+  };
+
+  // Whether the managed surface still mirrors the editor exactly: unchanged
+  // text and a collapsed DOM caret that maps onto the editor's caret.
+  private surfaceMatchesEditor = (): boolean => {
+    const anchor = this.surfaceAnchor;
+    if (!anchor || !this.hiddenInput) return false;
+    const surface = this.lastSurfaceValue + this.surfaceTail;
+    if (this.hiddenInput.textContent !== surface) return false;
+    if (!hasSentinel(surface, this.SENTINEL)) return false;
+    const sentinelLength =
+      surface.length - stripSentinel(surface, this.SENTINEL).length;
+    const dom = this.readSurfaceCaret();
+    const selection = this._state.document.selection;
+    if (dom === null || (selection && !selection.isCollapsed)) return false;
+    const caret = resolvePoint(this._state, "caret");
+    const block = caret
+      ? this._state.document.page.blocks[caret.blockIndex]
+      : undefined;
+    return (
+      !!caret &&
+      block?.id === anchor.blockId &&
+      caret.offset === anchor.start + dom - sentinelLength
+    );
   };
 
   // Whether the keyboard's last delete removed more than the bare sentinel: a
@@ -3777,6 +3836,22 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     const inputEvent = e as InputEvent;
     const it = inputEvent.inputType;
 
+    // A composition straddling the caret (see `diffComposition`): every change
+    // the keyboard makes lands as a whole-surface diff.
+    if (
+      this.diffComposition &&
+      it !== "insertParagraph" &&
+      it !== "insertLineBreak"
+    ) {
+      if (!this.applyWholeSurfaceEdit()) {
+        this.diffComposition = false;
+        this.staleComposition = true;
+        this.resetSentinel();
+      }
+      this.scheduleRender();
+      return;
+    }
+
     // Skip processing during IME composition - composition events handle it.
     // The surface now shows the composition, so it can be measured.
     if (it === "insertCompositionText") {
@@ -4060,6 +4135,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       this.browserComposing = false;
       this.resetSentinel();
     }
+
+    // A diff composition (see `diffComposition`): the keyboard edits the
+    // surface itself and the input handler applies the result.
+    if (this.diffComposition && e.isComposing) return;
 
     // During composition (IME input), let the IME handle keys natively
     if (this._state.ui.composition?.isComposing) {
@@ -4351,7 +4430,15 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   private compositionStartHandler = (e: CompositionEvent) => {
     // A new session: whatever was left of an abandoned one is over.
     this.staleComposition = false;
+    // The keyboard may have moved the caret right before reopening the word
+    // under it, with its `selectionchange` still queued: take the move first.
+    this.adoptKeyboardSelection();
     this.browserComposing = true;
+    if (this.compositionStraddlesCaret()) {
+      this.diffComposition = true;
+      this.imeSession = null;
+      return;
+    }
     // Track the session on the managed surface, where the engine cannot see
     // what the keyboard is composing over (see `composition`).
     const caretPoint = resolvePoint(this._state, "caret");
@@ -4374,6 +4461,8 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   };
 
   private compositionUpdateHandler = (e: CompositionEvent) => {
+    // Applied from the surface by the input handler, not the engine.
+    if (this.diffComposition) return;
     if (this.staleComposition) {
       // The abandoned session is still talking; the next frame's surface
       // resync tells the browser again that it is over.
@@ -4390,6 +4479,20 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   private compositionEndHandler = (e: CompositionEvent) => {
     this.browserComposing = false;
     if (!this.hiddenInput) return;
+
+    if (this.diffComposition) {
+      this.diffComposition = false;
+      // A commit that changed the text without an input event of its own.
+      if (
+        this.hiddenInput.textContent !==
+          this.lastSurfaceValue + this.surfaceTail &&
+        !this.applyWholeSurfaceEdit()
+      ) {
+        this.resetSentinel();
+      }
+      this.scheduleRender();
+      return;
+    }
 
     if (this.staleComposition) {
       // The end of a session the engine already committed: its text is in the

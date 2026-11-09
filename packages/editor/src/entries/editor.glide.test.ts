@@ -315,6 +315,40 @@ describe("Android keyboards that move the surface selection themselves", () => {
     expect(show()).toBe(" |");
   });
 
+  it("keeps a word HeliBoard reopens around a mid-word caret", async () => {
+    const { ime, frame, text, show } = setup("ten hello");
+    await frame();
+    ime.select(9); // glide one step left: " ten hell|o"
+    await frame();
+    ime.reopen(5, 10); // the word touched by the caret
+    await frame();
+    ime.end();
+    await frame();
+    ime.select(8); // the next glide step
+    await frame();
+    ime.reopen(5, 10);
+    await frame();
+    ime.end();
+    await frame();
+    expect(text()).toBe("ten hello");
+    expect(show()).toBe(" ten hel|lo");
+  });
+
+  it("applies typing inside a word HeliBoard reopened around the caret", async () => {
+    const { ime, frame, text, caretAt } = setup("ten hello");
+    await frame();
+    ime.select(8); // " ten hel|lo"
+    await frame();
+    ime.reopen(5, 10);
+    await frame();
+    ime.update("helxlo");
+    await frame();
+    ime.end();
+    await frame();
+    expect(text()).toBe("ten helxlo");
+    expect(caretAt()).toBe(10);
+  });
+
   it("still types at the end of a paragraph through the composition engine", async () => {
     const { ime, frame, text } = setup("Hi");
     await frame();
