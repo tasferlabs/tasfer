@@ -29,6 +29,10 @@ mkcert -cert-file certs/lan-cert.pem -key-file certs/lan-key.pem \
 Find `<your-LAN-IP>` with `ipconfig getifaddr en0`. `apps/web/certs/` is
 gitignored. If the cert is missing, `--host` falls back to plain HTTP and warns.
 
+Generate the cert in the main checkout. A git worktree has no `certs/` of its
+own, so its dev server uses the main checkout's cert. A `certs/` folder inside
+a worktree takes priority if you create one.
+
 The cert's Subject Alternative Names must include the exact IP the device
 connects to. If your LAN IP changes, regenerate the cert with the new IP and
 update `server.url` in [`apps/web/capacitor.config.js`](../apps/web/capacitor.config.js).

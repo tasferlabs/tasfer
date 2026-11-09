@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import { execSync } from "child_process";
 import { existsSync, readFileSync } from "fs";
 import { DateTime } from "luxon";
-import { join, resolve } from "path";
+import { dirname, join, resolve } from "path";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 import { microfrontends } from "@vercel/microfrontends/experimental/vite";
@@ -66,23 +66,47 @@ const buildCommit = resolveBuildCommit();
 //   mkdir -p certs
 //   mkcert -cert-file certs/lan-cert.pem -key-file certs/lan-key.pem \
 //     <your-LAN-IP> localhost tasfer.app
-// `certs/` is gitignored. If host mode is requested without the cert present we
-// fall back to HTTP and warn, rather than failing to start.
+// `certs/` is gitignored, so a git worktree starts without it. Its own `certs/`
+// wins; otherwise we use the main checkout's, so one cert serves every worktree.
+// If host mode is requested without the cert present we fall back to HTTP and
+// warn, rather than failing to start.
 const isHostMode = process.argv.some(
   (arg) => arg === "--host" || arg.startsWith("--host="),
 );
 
-const certDir = resolve(__dirname, "certs");
-const certPath = join(certDir, "lan-cert.pem");
-const keyPath = join(certDir, "lan-key.pem");
-const lanHttps =
-  isHostMode && existsSync(certPath) && existsSync(keyPath)
-    ? { cert: readFileSync(certPath), key: readFileSync(keyPath) }
-    : undefined;
+// apps/web/certs in the main checkout, found through the git dir that all
+// worktrees share. Undefined outside a git checkout or when git is missing.
+function mainCheckoutCertDir(): string | undefined {
+  try {
+    const commonDir = execSync(
+      "git rev-parse --path-format=absolute --git-common-dir",
+      { cwd: __dirname, encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
+    ).trim();
+    return join(dirname(commonDir), "apps", "web", "certs");
+  } catch {
+    return undefined;
+  }
+}
+
+function loadLanCert(): { cert: Buffer; key: Buffer } | undefined {
+  const dirs = [resolve(__dirname, "certs"), mainCheckoutCertDir()];
+  for (const dir of dirs) {
+    if (!dir) continue;
+    const certPath = join(dir, "lan-cert.pem");
+    const keyPath = join(dir, "lan-key.pem");
+    if (existsSync(certPath) && existsSync(keyPath)) {
+      return { cert: readFileSync(certPath), key: readFileSync(keyPath) };
+    }
+  }
+  return undefined;
+}
+
+const lanHttps = isHostMode ? loadLanCert() : undefined;
 
 if (isHostMode && !lanHttps) {
   console.warn(
-    "\n[vite] --host requested but no mkcert cert found in apps/web/certs/.\n" +
+    "\n[vite] --host requested but no mkcert cert found in apps/web/certs/\n" +
+      "       (checked this checkout and the main git checkout).\n" +
       "       Serving over plain HTTP: the LAN origin will be an INSECURE\n" +
       "       context and crypto.subtle / OPFS / Web Locks will be undefined.\n" +
       "       Generate a trusted cert:\n" +
@@ -188,7 +212,8 @@ export default defineConfig({
     },
   },
   server: {
-    port: 4000,
+    // PORT lets the desktop app's Preview give each worktree its own free port.
+    port: Number(process.env.PORT) || 4000,
     https: lanHttps,
     // Replaced by our own devtools-styled overlay (see src/dev/viteErrorOverlay).
     hmr: { overlay: false },
