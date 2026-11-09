@@ -126,16 +126,19 @@ export function handleCompositionEnd(
  * the commit threw — and the caller must end the composition without
  * inserting: losing the word is cheaper than a stranded `isComposing`, which
  * blocks every later keystroke (see handleCompositionEnd).
+ *
+ * `requireFocus: false` is for a pointer gesture on this editor: Android
+ * WebViews blur and refocus around a touch, so the focus flag can be briefly
+ * off while the tap is handled, and the word must still land.
  */
 function commitComposition(
   state: EditorState,
   data: string,
   replaces?: number,
+  { requireFocus = true }: { requireFocus?: boolean } = {},
 ): { state: EditorState; ops: Operation[] } | null {
   const canInsert =
-    state.view.isFocused &&
-    state.ui.mode !== "readonly" &&
-    state.ui.mode !== "suspended";
+    (state.view.isFocused || !requireFocus) && canTakeText(state);
   if (!canInsert) return null;
   try {
     return state.actionBus.dispatchState(COMPOSITION_END, state, {
@@ -175,6 +178,11 @@ export function commitCompositionOnCaretMove(
     return null;
   }
   if (!caretMoved(before, after)) return null;
+  // Read-only or suspended: nothing can be inserted now. Leave the composition
+  // open; the keyboard's own compositionend ends it (see handleCompositionEnd).
+  // Ending it here instead would drop the word AND mark the keyboard's commit
+  // stale, so it could never land.
+  if (!canTakeText(after)) return null;
 
   if (!composition.text) {
     // Nothing to insert. An empty recomposition — a reopened word the keyboard
@@ -225,7 +233,11 @@ export function commitCompositionOnCaretMove(
       contentSelection: before.document.contentSelection,
     },
   };
-  const committed = commitComposition(base, composition.text);
+  const committed = commitComposition(base, composition.text, undefined, {
+    requireFocus: false,
+  });
+  // Only a commit that threw gets here: end the composition rather than
+  // strand `isComposing` (see commitComposition).
   if (!committed) return { state: endComposition(after), ops: [] };
 
   const nextPage = committed.state.document.page;
@@ -278,6 +290,11 @@ export function commitCompositionOnCaretMove(
     },
     ops: committed.ops,
   };
+}
+
+// Whether the editor accepts text at all (focus aside).
+function canTakeText(state: EditorState): boolean {
+  return state.ui.mode !== "readonly" && state.ui.mode !== "suspended";
 }
 
 // Whether the event moved the caret or changed the selection.

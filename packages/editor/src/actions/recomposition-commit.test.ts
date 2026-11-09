@@ -145,6 +145,37 @@ describe("recomposition commit", () => {
   });
 });
 
+describe("tap during a composition while focus blinks", () => {
+  it("still commits the word where it was typed", () => {
+    // Android WebViews blur and refocus around a touch: the tap can be handled
+    // while the editor is momentarily unfocused.
+    const open = reopened("hello more", 5, 5, "help");
+    const tapped = moveCursorToPosition(
+      { ...open, view: { ...open.view, isFocused: false } },
+      0,
+      10,
+    );
+
+    const left = commitCompositionOnCaretMove(open, tapped)!;
+
+    expect(getBlockTextContent(left.state.document.page.blocks[0])).toBe(
+      "help more",
+    );
+    expect(left.state.ui.composition).toBeNull();
+  });
+
+  it("leaves the composition open when the editor is read-only", () => {
+    const open = reopened("hello more", 5, 5, "help");
+    const tapped = moveCursorToPosition(
+      { ...open, ui: { ...open.ui, mode: "readonly" } },
+      0,
+      10,
+    );
+
+    expect(commitCompositionOnCaretMove(open, tapped)).toBeNull();
+  });
+});
+
 describe("recomposition preview", () => {
   it("draws a reopened bold word bold while it is being changed", () => {
     // The bold span starts at the reopened word's first character; "hello" →
