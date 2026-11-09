@@ -102,6 +102,7 @@ function dispatchCursorCrossed(
   newState: EditorState,
   viewport: ViewportState,
   direction: "left" | "right",
+  visibility?: VisibleBlockRange,
 ): EditorState {
   const prevCursor = prevState.document.cursor;
   const newCursor = newState.document.cursor;
@@ -119,7 +120,11 @@ function dispatchCursorCrossed(
     newIndex: newCursor.position.textIndex,
     direction,
     viewport,
-    resolveCoords: (pos) => getCursorDocumentCoords(pos, newState, viewport),
+    // Anchor on the painted range, not a sum of exact heights from block 0:
+    // the height index carries estimates for off-screen blocks, so the sum
+    // drifts from where the caret is actually drawn.
+    resolveCoords: (pos) =>
+      getCursorDocumentCoords(pos, newState, viewport, undefined, visibility),
   }).state;
 }
 
@@ -745,7 +750,13 @@ export function handleKeyDown(
         // off the tracked block.
         newState = selectVisualBlockAfterMove(newState);
 
-        newState = dispatchCursorCrossed(state, newState, viewport, "left");
+        newState = dispatchCursorCrossed(
+          state,
+          newState,
+          viewport,
+          "left",
+          visibility,
+        );
       }
       break;
     case "ArrowRight":
@@ -863,7 +874,13 @@ export function handleKeyDown(
         // off the tracked block.
         newState = selectVisualBlockAfterMove(newState);
 
-        newState = dispatchCursorCrossed(state, newState, viewport, "right");
+        newState = dispatchCursorCrossed(
+          state,
+          newState,
+          viewport,
+          "right",
+          visibility,
+        );
       }
       break;
     case "ArrowUp":
