@@ -423,7 +423,7 @@ describe("Android keyboards that reopen the previous word (#34)", () => {
 
     // The keyboard had not noticed yet: what is left of its session must not
     // land a second copy at the new caret.
-    ime.update("heyo");
+    ime.update("hey");
     ime.end();
     await frame();
     expect(editor.getMarkdown().trim()).toBe("first hey\n\nsecond");
@@ -436,6 +436,37 @@ describe("Android keyboards that reopen the previous word (#34)", () => {
     const second = "second";
     expect(editor.getMarkdown().trim()).toBe(
       `first hey\n\n${second.slice(0, caret.textIndex)}X${second.slice(caret.textIndex)}`,
+    );
+  });
+
+  it("letters typed into a session the keyboard kept after a tap land at the new caret", async () => {
+    // The keyboard missed the signal that its composition is over and goes on
+    // composing the old word. Only the letters past it are new typing.
+    const doc = globalThis.document as unknown as { body?: unknown };
+    if (!doc.body) doc.body = { appendChild() {}, removeChild() {} };
+
+    const { editor, ime, frame, tap } = setup("first\n\nsecond", {
+      block: 0,
+      index: 5,
+    });
+    await frame();
+    ime.commit(" ");
+    ime.start();
+    ime.update("hey");
+    await frame();
+
+    await tap(2, 3);
+    const state = (editor as unknown as { _state: EditorState })._state;
+    const caret = state.document.cursor!.position;
+    ime.update("heyo");
+    await frame();
+    ime.update("heyok");
+    ime.end();
+    await frame();
+
+    const second = "second";
+    expect(editor.getMarkdown().trim()).toBe(
+      `first hey\n\n${second.slice(0, caret.textIndex)}ok${second.slice(caret.textIndex)}`,
     );
   });
 

@@ -1067,6 +1067,13 @@ export interface EditorWiring {
 // action-bus `Action` type (imported above), which is a different concept.
 type StateAction = (s: EditorState) => ActionResult;
 
+// A keyboard composition the engine already committed (see
+// `Editor.staleComposition`).
+interface AbandonedComposition {
+  baseline: string | null;
+  forwarded: string | null;
+}
+
 /**
  * The canvas editor instance. Attaches the engine to a set of layered canvases
  * and (optionally) an accessible contenteditable input surface, runs the render
@@ -1253,9 +1260,15 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   // The engine ended the browser's composition itself — a tap moved the caret
   // and the composed text was committed where it was typed (see
   // `commitCompositionOnCaretMove`). Until the keyboard notices, its leftover
-  // composition events belong to that finished session and are dropped:
-  // honoring them would re-insert the word at the new caret.
-  private staleComposition = false;
+  // composition events belong to that finished session: honoring them would
+  // re-insert the word at the new caret. Only what the user types past it is
+  // new, and is passed on as a composition at the caret.
+  //
+  // `baseline` is the session's text when it was abandoned (null: learned from
+  // its next update). `forwarded` is the new text passed on so far (null: none).
+  private staleComposition: AbandonedComposition | null = null;
+  // The keyboard's latest composed text, as it sent it.
+  private keyboardComposed = "";
 
   // Guards async work that settles after destroy() from poking a torn-down loop.
   private destroyed = false;
@@ -4061,8 +4074,9 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   // Handle composition events (IME input)
   private compositionStartHandler = (e: CompositionEvent) => {
     // A new session: whatever was left of an abandoned one is over.
-    this.staleComposition = false;
+    this.staleComposition = null;
     this.browserComposing = true;
+    this.keyboardComposed = e.data ?? "";
     // Track the session on the managed surface, where the engine cannot see
     // what the keyboard is composing over (see `composition`).
     const caretPoint = resolvePoint(this._state, "caret");
@@ -4085,9 +4099,22 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   };
 
   private compositionUpdateHandler = (e: CompositionEvent) => {
-    if (this.staleComposition) {
-      // The abandoned session is still talking; the next frame's surface
-      // resync tells the browser again that it is over.
+    this.keyboardComposed = e.data ?? "";
+    const stale = this.staleComposition;
+    if (stale) {
+      const typed = this.typedPastAbandoned(stale, e.data ?? "");
+      if (typed === null) {
+        // The abandoned session is still talking; the next frame's surface
+        // resync tells the browser again that it is over.
+        this.scheduleRender();
+        return;
+      }
+      // The keyboard kept the session and the user typed on: compose that
+      // new text at the caret.
+      stale.forwarded = typed;
+      this.browserComposing = true;
+      this.setCompositionData(e, typed);
+      this.eventsQueue.push(e);
       this.scheduleRender();
       return;
     }
@@ -4102,11 +4129,22 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     this.browserComposing = false;
     if (!this.hiddenInput) return;
 
-    if (this.staleComposition) {
+    const stale = this.staleComposition;
+    if (stale) {
+      this.staleComposition = null;
+      if (stale.forwarded !== null) {
+        // Commit the new text typed past the abandoned word (see the update
+        // handler); a final word that no longer extends it keeps what was
+        // shown. The frame's resync then repairs the surface.
+        const typed = this.typedPastAbandoned(stale, e.data ?? "");
+        this.setCompositionData(e, typed ?? stale.forwarded);
+        this.eventsQueue.push(e);
+        this.scheduleRender();
+        return;
+      }
       // The end of a session the engine already committed: its text is in the
       // document at the old spot. Drop it, and put the surface back to the
       // caret in case the browser wrote the commit into it.
-      this.staleComposition = false;
       // Fired from inside our own surface rewrite: that rewrite is the repair.
       if (!this.isMirrorUpdating) this.syncMirrorToSelection();
       return;
@@ -4145,14 +4183,43 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   // the keyboard — that the composition is over, the same signal a native field
   // gives when its caret moves. Cleared first so the rewrite always changes the
   // DOM, even where the new caret's surface text happens to match.
+  //
+  // Unfocused (Android blurs the editor around a touch), only the clear runs:
+  // the focus handler writes the caret's text when focus returns.
   private abandonBrowserComposition = () => {
     this.browserComposing = false;
-    this.staleComposition = true;
+    this.staleComposition = {
+      baseline: this.keyboardComposed,
+      forwarded: null,
+    };
     this.imeSession = null;
-    if (!this.hiddenInput || !this._state.view.isFocused) return;
+    if (!this.hiddenInput) return;
     this.setMirror("", false);
     this.lastSurfaceValue = "";
-    this.syncMirrorToSelection();
+    if (this._state.view.isFocused) this.syncMirrorToSelection();
+  };
+
+  // What the user typed past an abandoned session's text: `data` with the
+  // abandoned text in front removed. Null when there is nothing new — the
+  // keyboard is only repeating the old word, or changed it (an autocorrect),
+  // which cannot be told apart from the word already committed. Once text was
+  // passed on, shrinking back to the old word passes on "" (a Backspace).
+  private typedPastAbandoned = (
+    stale: AbandonedComposition,
+    data: string,
+  ): string | null => {
+    if (stale.baseline === null) {
+      stale.baseline = data;
+      return null;
+    }
+    if (!data.startsWith(stale.baseline)) return null;
+    const typed = data.slice(stale.baseline.length);
+    return typed || stale.forwarded !== null ? typed : null;
+  };
+
+  // Hand the engine a composition event with different text.
+  private setCompositionData = (e: CompositionEvent, data: string) => {
+    Object.defineProperty(e, "data", { value: data, configurable: true });
   };
 
   // Register a composition event with the managed session, attaching the
