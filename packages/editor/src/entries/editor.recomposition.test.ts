@@ -139,7 +139,7 @@ function fakeSurface() {
   return { el, ime };
 }
 
-function setup(markdown: string) {
+function setup(markdown: string, at?: { block: number; index: number }) {
   const { el, ime } = fakeSurface();
   vi.stubGlobal("document", {
     ...globalThis.document,
@@ -166,7 +166,9 @@ function setup(markdown: string) {
   const page = loadPage(markdown);
   let state: EditorState = createInitialState(page);
   const text = markdown;
-  state = moveCursorToPosition(state, 0, text.length);
+  state = at
+    ? moveCursorToPosition(state, at.block, at.index)
+    : moveCursorToPosition(state, 0, text.length);
   state = { ...state, view: { ...state.view, isFocused: true } };
   const editor = new Editor(
     canvasLayers(),
@@ -186,7 +188,49 @@ function setup(markdown: string) {
     internals.scheduleRender();
     await internals.renderFrame();
   };
-  return { editor, el, ime, frame };
+  // A completed one-finger tap at a document position, through the real touch
+  // pipeline (hit-test included).
+  const tap = async (blockIndex: number, textIndex: number) => {
+    const tapInternals = editor as unknown as {
+      coordsAtIndexPosition: (p: {
+        blockIndex: number;
+        textIndex: number;
+      }) => { x: number; y: number; height: number } | null;
+      session: { touch: unknown };
+      eventsQueue: unknown[];
+    };
+    const at = tapInternals.coordsAtIndexPosition({ blockIndex, textIndex })!;
+    const x = at.x + 1;
+    const y = at.y + 4; // inside the line (the stub canvas reports no height)
+    const now = Date.now();
+    tapInternals.session.touch = {
+      startY: y,
+      startScrollY: 0,
+      lastY: y,
+      lastTime: now,
+      velocityY: 0,
+      velocityHistory: [],
+      startX: x,
+      startTime: now,
+      isLongPress: false,
+      hasMoved: false,
+      currentTouchX: x,
+      currentTouchY: y,
+      isTouchingSelection: false,
+      isTouchingCursor: false,
+      isCursorDrag: false,
+      touchRadiusX: 8,
+      touchRadiusY: 8,
+    };
+    tapInternals.eventsQueue.push({
+      type: "touchend",
+      touches: [],
+      changedTouches: [],
+      preventDefault() {},
+    });
+    await frame();
+  };
+  return { editor, el, ime, frame, tap };
 }
 
 describe("Android keyboards that reopen the previous word (#34)", () => {
@@ -315,5 +359,46 @@ describe("Android keyboards that reopen the previous word (#34)", () => {
     expect(el.textContent).toBe(" Hi there");
     await frame();
     expect(el.textContent).toBe(" Hi there");
+  });
+
+  it("a tap on another line commits the word where it was typed", async () => {
+    // handleTouchEnd's scrollbar hit-test probes document.body.
+    const doc = globalThis.document as unknown as { body?: unknown };
+    if (!doc.body) doc.body = { appendChild() {}, removeChild() {} };
+
+    const { editor, ime, frame, tap } = setup("first\n\nsecond", {
+      block: 0,
+      index: 5,
+    });
+    await frame();
+    ime.commit(" ");
+    ime.start();
+    ime.update("hey");
+    await frame();
+
+    await tap(2, 3);
+    expect(editor.getMarkdown().trim()).toBe("first hey\n\nsecond");
+    const state = (editor as unknown as { _state: EditorState })._state;
+    expect(state.ui.composition).toBeNull();
+    // On the tapped line (the stub canvas's metrics decide the exact column).
+    const caret = state.document.cursor!.position;
+    expect(caret.blockIndex).toBe(2);
+
+    // The keyboard had not noticed yet: what is left of its session must not
+    // land a second copy at the new caret.
+    ime.update("heyo");
+    ime.end();
+    await frame();
+    expect(editor.getMarkdown().trim()).toBe("first hey\n\nsecond");
+
+    // The next composition types at the new caret as usual.
+    ime.start();
+    ime.update("X");
+    ime.end();
+    await frame();
+    const second = "second";
+    expect(editor.getMarkdown().trim()).toBe(
+      `first hey\n\n${second.slice(0, caret.textIndex)}X${second.slice(caret.textIndex)}`,
+    );
   });
 });

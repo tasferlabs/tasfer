@@ -38,6 +38,7 @@ import {
 import { applyEdgeScroll } from "./autoScroll";
 import { dragContentHandleToPoint } from "./chromeRegions";
 import {
+  commitCompositionOnCaretMove,
   handleCompositionEnd,
   handleCompositionStart,
   handleCompositionUpdate,
@@ -846,6 +847,22 @@ export function handleEvents(
         state = compResult.state;
         collectedOps.push(...compResult.ops);
         break;
+    }
+
+    // A tap, click or drag that moved the caret mid-composition commits the
+    // composed text where it was typed, instead of the composition following
+    // the caret to its new spot. Pointer gestures only (keys inside a
+    // composition belong to the IME), and only ones that edited nothing, so the
+    // pre-event caret still addresses the same text.
+    if (
+      /^(mouse|touch|pointer|click|dblclick|contextmenu)/.test(event.type) &&
+      collectedOps.length === opsBeforeEvent
+    ) {
+      const left = commitCompositionOnCaretMove(beforeEvent, state);
+      if (left) {
+        state = left.state;
+        collectedOps.push(...left.ops);
+      }
     }
 
     // The authoring backstop. Undo/redo is exempt — it restores a state this

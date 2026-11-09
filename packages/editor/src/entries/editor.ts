@@ -1246,6 +1246,15 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     replaces: number | null;
     events: CompositionEvent[];
   } | null = null;
+  // Between `compositionstart` and `compositionend`: the browser (and the
+  // keyboard behind it) has a composition open on the input surface.
+  private browserComposing = false;
+  // The engine ended the browser's composition itself — a tap moved the caret
+  // and the composed text was committed where it was typed (see
+  // `commitCompositionOnCaretMove`). Until the keyboard notices, its leftover
+  // composition events belong to that finished session and are dropped:
+  // honoring them would re-insert the word at the new caret.
+  private staleComposition = false;
 
   // Guards async work that settles after destroy() from poking a torn-down loop.
   private destroyed = false;
@@ -1736,6 +1745,16 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     );
 
     this._state = handleEventsResult.state;
+
+    // The frame ended a composition the browser still has open (the caret was
+    // moved away from it): close it on the keyboard's side too.
+    if (
+      this.browserComposing &&
+      prevState.ui.composition &&
+      !this._state.ui.composition
+    ) {
+      this.abandonBrowserComposition();
+    }
 
     // Contain the caret/selection within this editor's block window (no-op when
     // unwindowed) before recording undo, so a windowed editor's navigation can
@@ -3505,6 +3524,14 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       return;
     }
     if (this._state.ui.composition?.isComposing) return;
+    // DOM changes of an abandoned composition: its text is already committed.
+    if (
+      this.staleComposition &&
+      (inputEvent.isComposing || it?.includes("Composition"))
+    ) {
+      this.scheduleRender();
+      return;
+    }
 
     const isBackwardDelete =
       it === "deleteContentBackward" ||
@@ -3727,6 +3754,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         ui: { ...this._state.ui, composition: null },
       };
       this.imeSession = null;
+      this.browserComposing = false;
       this.resetSentinel();
     }
 
@@ -4018,6 +4046,9 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
   // Handle composition events (IME input)
   private compositionStartHandler = (e: CompositionEvent) => {
+    // A new session: whatever was left of an abandoned one is over.
+    this.staleComposition = false;
+    this.browserComposing = true;
     // Track the session on the managed surface, where the engine cannot see
     // what the keyboard is composing over (see `composition`).
     const caretPoint = resolvePoint(this._state, "caret");
@@ -4040,6 +4071,12 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   };
 
   private compositionUpdateHandler = (e: CompositionEvent) => {
+    if (this.staleComposition) {
+      // The abandoned session is still talking; the next frame's surface
+      // resync tells the browser again that it is over.
+      this.scheduleRender();
+      return;
+    }
     if (this.imeSession) this.imeSession.composed = e.data ?? "";
     this.trackCompositionEvent(e);
     // Update composition text - this will be handled in events.ts
@@ -4048,7 +4085,18 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   };
 
   private compositionEndHandler = (e: CompositionEvent) => {
+    this.browserComposing = false;
     if (!this.hiddenInput) return;
+
+    if (this.staleComposition) {
+      // The end of a session the engine already committed: its text is in the
+      // document at the old spot. Drop it, and put the surface back to the
+      // caret in case the browser wrote the commit into it.
+      this.staleComposition = false;
+      // Fired from inside our own surface rewrite: that rewrite is the repair.
+      if (!this.isMirrorUpdating) this.syncMirrorToSelection();
+      return;
+    }
 
     const session = this.imeSession;
     if (session) {
@@ -4075,6 +4123,22 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     }
     // Restore the sentinel after composition ends.
     this.resetSentinel();
+  };
+
+  // The engine ended a composition the browser still has open (see
+  // `staleComposition`). Rewrite the surface for the new caret: the composed
+  // text disappearing from under the browser is what tells it — and through it
+  // the keyboard — that the composition is over, the same signal a native field
+  // gives when its caret moves. Cleared first so the rewrite always changes the
+  // DOM, even where the new caret's surface text happens to match.
+  private abandonBrowserComposition = () => {
+    this.browserComposing = false;
+    this.staleComposition = true;
+    this.imeSession = null;
+    if (!this.hiddenInput || !this._state.view.isFocused) return;
+    this.setMirror("", false);
+    this.lastSurfaceValue = "";
+    this.syncMirrorToSelection();
   };
 
   // Register a composition event with the managed session, attaching the
