@@ -33,7 +33,7 @@ import {
   startSelection,
   updateSelectionFocus,
 } from "../selection";
-import type { ViewportState } from "../state-types";
+import type { EditorState, Position, ViewportState } from "../state-types";
 import { getBlockTextLength } from "../state-utils";
 import {
   moveToLineEnd,
@@ -221,14 +221,30 @@ export const MOVE_TO_DOCUMENT_END = stateAction(
 // start a selection at the caret if none exists, run the underlying caret move,
 // then drag the selection focus to the new caret position.
 
+/**
+ * The state a Shift+key extends from: the live selection, or a new one
+ * anchored at the caret.
+ *
+ * A collapsed selection the caret has since left is not an anchor. Walking a
+ * Shift range back onto its anchor leaves exactly that behind, and typing moves
+ * the caret without touching it — so extending from it would select the text
+ * just typed, from a spot the user had already left.
+ */
+function extensionBase(state: EditorState, caret: Position): EditorState {
+  const selection = state.document.selection;
+  const stale =
+    selection?.isCollapsed === true &&
+    (selection.focus.blockIndex !== caret.blockIndex ||
+      selection.focus.textIndex !== caret.textIndex);
+  return selection && !stale ? state : startSelection(state, caret);
+}
+
 /** Extend the selection one position to the left (Shift+ArrowLeft). */
 export const EXTEND_SELECTION_LEFT = stateAction(
   "extend-selection-left",
   (state) => {
     if (!state.document.cursor) return { state, ops: [] };
-    const base = state.document.selection
-      ? state
-      : startSelection(state, state.document.cursor.position);
+    const base = extensionBase(state, state.document.cursor.position);
     const moved = moveCursorLeft(base);
     if (moved.document.cursor) {
       return {
@@ -245,9 +261,7 @@ export const EXTEND_SELECTION_RIGHT = stateAction(
   "extend-selection-right",
   (state) => {
     if (!state.document.cursor) return { state, ops: [] };
-    const base = state.document.selection
-      ? state
-      : startSelection(state, state.document.cursor.position);
+    const base = extensionBase(state, state.document.cursor.position);
     const moved = moveCursorRight(base);
     if (moved.document.cursor) {
       return {
@@ -264,9 +278,7 @@ export const EXTEND_SELECTION_UP = stateAction<ViewportPayload>(
   "extend-selection-up",
   (state, { viewport }) => {
     if (!state.document.cursor) return { state, ops: [] };
-    const base = state.document.selection
-      ? state
-      : startSelection(state, state.document.cursor.position);
+    const base = extensionBase(state, state.document.cursor.position);
     const moved = moveCursorUp(base, viewport);
     if (moved.document.cursor) {
       return {
@@ -283,9 +295,7 @@ export const EXTEND_SELECTION_DOWN = stateAction<ViewportPayload>(
   "extend-selection-down",
   (state, { viewport }) => {
     if (!state.document.cursor) return { state, ops: [] };
-    const base = state.document.selection
-      ? state
-      : startSelection(state, state.document.cursor.position);
+    const base = extensionBase(state, state.document.cursor.position);
     const moved = moveCursorDown(base, viewport);
     if (moved.document.cursor) {
       return {
@@ -302,9 +312,7 @@ export const EXTEND_SELECTION_PAGE_UP = stateAction<ViewportPayload>(
   "extend-selection-page-up",
   (state, { viewport }) => {
     if (!state.document.cursor) return { state, ops: [] };
-    const base = state.document.selection
-      ? state
-      : startSelection(state, state.document.cursor.position);
+    const base = extensionBase(state, state.document.cursor.position);
     const moved = moveCursorPageUp(base, viewport);
     if (moved.document.cursor) {
       return {
@@ -321,9 +329,7 @@ export const EXTEND_SELECTION_PAGE_DOWN = stateAction<ViewportPayload>(
   "extend-selection-page-down",
   (state, { viewport }) => {
     if (!state.document.cursor) return { state, ops: [] };
-    const base = state.document.selection
-      ? state
-      : startSelection(state, state.document.cursor.position);
+    const base = extensionBase(state, state.document.cursor.position);
     const moved = moveCursorPageDown(base, viewport);
     if (moved.document.cursor) {
       return {
@@ -340,9 +346,7 @@ export const EXTEND_SELECTION_WORD_LEFT = stateAction(
   "extend-selection-word-left",
   (state) => {
     if (!state.document.cursor) return { state, ops: [] };
-    const base = state.document.selection
-      ? state
-      : startSelection(state, state.document.cursor.position);
+    const base = extensionBase(state, state.document.cursor.position);
     const moved = moveToPreviousWord(base);
     if (moved.document.cursor) {
       return {
@@ -359,9 +363,7 @@ export const EXTEND_SELECTION_WORD_RIGHT = stateAction(
   "extend-selection-word-right",
   (state) => {
     if (!state.document.cursor) return { state, ops: [] };
-    const base = state.document.selection
-      ? state
-      : startSelection(state, state.document.cursor.position);
+    const base = extensionBase(state, state.document.cursor.position);
     const moved = moveToNextWord(base);
     if (moved.document.cursor) {
       return {
@@ -381,9 +383,7 @@ export const EXTEND_SELECTION_HOME = stateAction<{ isCtrl: boolean }>(
   "extend-selection-home",
   (state, { isCtrl }) => {
     if (!state.document.cursor) return { state, ops: [] };
-    const base = state.document.selection
-      ? state
-      : startSelection(state, state.document.cursor.position);
+    const base = extensionBase(state, state.document.cursor.position);
     const moved = isCtrl
       ? moveCursorToPosition(base, 0, 0)
       : moveToLineStart(base);
@@ -405,9 +405,7 @@ export const EXTEND_SELECTION_END = stateAction<{ isCtrl: boolean }>(
   "extend-selection-end",
   (state, { isCtrl }) => {
     if (!state.document.cursor) return { state, ops: [] };
-    const base = state.document.selection
-      ? state
-      : startSelection(state, state.document.cursor.position);
+    const base = extensionBase(state, state.document.cursor.position);
 
     let moved = base;
     if (isCtrl) {
