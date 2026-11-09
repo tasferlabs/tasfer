@@ -312,7 +312,8 @@ Hosts assembling a schema by hand build the rule directly, with
 installed.
 
 With the option on, a cell runs the paragraph's inline shortcuts unchanged
-(`**bold**`, `*italic*`, `~~strike~~` and `` `code` ``). They fire on the
+(`**bold**`, `*italic*`, `~~strike~~` and `` `code` ``, plus `$x$` inline math
+when the math extension is installed). They fire on the
 keystroke that closes the delimiter, and pasted text is untouched. Typing a
 delimiter over a selection wraps the selection in its mark. Backspace, or the
 first undo, right after a shortcut fires takes it back and leaves the syntax
@@ -323,8 +324,11 @@ block prefixes stay literal in a cell, since a GFM cell cannot be a heading or
 a list.
 
 The switch underneath is `insertText`'s `inlineMarkdown` option (default on).
-An input rule receives the typing path's options as `ctx.options` and passes
-them on when it hands the keystroke to `insertText`.
+An input rule receives the typing path's options as `ctx.options`, in both the
+`before-insert` and `after-insert` phases, and passes them on when it hands the
+keystroke to `insertText`. A rule that adds a shortcut of its own should leave
+the text literal when `ctx.options?.inlineMarkdown === false`, the way math's
+`$x$` rule does.
 
 ### On the canvas
 
@@ -639,18 +643,22 @@ that runs.
 
 How it works: the field's characters and marks are handed to the action as the
 only paragraph on a one-block page, the same single-block surface a title
-editor is, with only the `paragraph` type and plain marks allowed. The action's
-text ops are then re-addressed to the field as `content_edit` operations with
-the same character ids, so nothing about how the field is stored changes. The
+editor is, with only the `paragraph` type allowed, along with every mark the
+host allows. The action's text ops are then re-addressed to the field as
+`content_edit` operations with the same character ids, so nothing about how the
+field is stored changes. When the action creates a structured mark (a typed
+`$x$` formula), the new attachment it points at is written onto your block,
+beside the field's document, before the mark itself. The
 result is `applied` with `edited` and `moved` flags, which tell you whether the
 action stopped at the field's edge and your node should take over (cross into
 a neighbour, say). Otherwise it is `refused`, and nothing changes:
 
 - `outside` — the action produced something other than a text edit of the
-  field, such as a new block.
+  field or a new attachment for it, such as a new block.
 - `mismatch` — the field rebuilt from the translated edits did not match what
-  the paragraph code produced, character for character and mark for mark. This
-  check runs on every call.
+  the paragraph code produced, character for character and mark for mark, or it
+  put on a structured mark with no attachment behind it. This check runs on
+  every call.
 
 The spans anchor to character identities, so a mark survives edits inside its
 range and merges per character. Unlike a block's `formats`, they carry no HLC:

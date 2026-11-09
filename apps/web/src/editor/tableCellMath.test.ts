@@ -330,6 +330,98 @@ describe("editing a cell that holds a formula", () => {
   });
 });
 
+// ─── Typing a formula ────────────────────────────────────────────────────────
+
+const TYPE_SOURCE = ["| A |", "| --- |", "| q |"].join("\n");
+
+/** Type `text` one keystroke at a time, the way a keyboard does. */
+function typeIn(state: EditorState, text: string, literal = false) {
+  const ops: Operation[] = [];
+  for (const char of text) {
+    const result = insertText(
+      state,
+      char,
+      literal ? { inlineMarkdown: false } : undefined,
+    );
+    state = result.state;
+    ops.push(...result.ops);
+  }
+  return { state, ops };
+}
+
+describe("typing a formula in a cell", () => {
+  it("turns a typed `$x$` into a formula, the way a paragraph does", () => {
+    const typed = typeIn(select(editorOver(TYPE_SOURCE), 1), "$x$");
+    expect(cellView(typed.state)).toBe("q[x]");
+    expectOwnedFormulas(typed.state);
+
+    // The caret lands after the formula: the next letter is plain text.
+    expect(cellView(insertText(typed.state, "z").state)).toBe("q[x]z");
+    expect(
+      serializeToMarkdown(typed.state.document.page.blocks, undefined, {
+        schema: appDataSchema,
+      }),
+    ).toBe(["| A |", "| --- |", "| q$x$ |"].join("\n"));
+  });
+
+  it("also takes the euro alias", () => {
+    const typed = typeIn(select(editorOver(TYPE_SOURCE), 1), "\u20acx\u20ac");
+    expect(cellView(typed.state)).toBe("q[x]");
+  });
+
+  it("rebuilds the typed formula from the operations alone", () => {
+    const start = select(editorOver(TYPE_SOURCE), 1);
+    const typed = typeIn(start, "$x$");
+    let page = start.document.page;
+    for (const op of typed.ops) page = applyOp(page, op, appSchema.data);
+    const replica = {
+      ...typed.state,
+      document: { ...typed.state.document, page },
+    };
+    expect(cellView(replica)).toBe("q[x]");
+    expectOwnedFormulas(replica);
+  });
+
+  it("undo of the closing `$` gives the typed source back", () => {
+    const before = typeIn(select(editorOver(TYPE_SOURCE), 1), "$x").state;
+    const closed = insertText(before, "$");
+    expect(cellView(closed.state)).toBe("q[x]");
+    const inverses = invertOperations(
+      closed.ops,
+      before.document.page,
+      (page, op) => applyOp(page, op, appSchema.data),
+      before.CRDTbinding,
+      appSchema.data,
+    );
+    let page = closed.state.document.page;
+    for (const op of inverses) page = applyOp(page, op, appSchema.data);
+    expect(
+      cellView({
+        ...closed.state,
+        document: { ...closed.state.document, page },
+      }),
+    ).toBe("q$x");
+  });
+
+  it("wraps a selection in a formula when `$` is typed over it", () => {
+    const state = select(editorOver(TYPE_SOURCE), 0, 1);
+    const wrapped = insertText(state, "$", { wrapSelection: true });
+    expect(cellView(wrapped.state)).toBe("[q]");
+    expectOwnedFormulas(wrapped.state);
+  });
+
+  it("keeps dollars literal when inline markdown is off", () => {
+    const typed = typeIn(select(editorOver(TYPE_SOURCE), 1), "$x$", true);
+    expect(cellView(typed.state)).toBe("q$x$");
+  });
+
+  it("types a second formula beside the first, each with its own attachment", () => {
+    const typed = typeIn(select(editorOver(EDIT_SOURCE), 5), " $y$");
+    expect(cellView(typed.state)).toBe("a [x] b [y]");
+    expectOwnedFormulas(typed.state);
+  });
+});
+
 // ─── Copy and paste ──────────────────────────────────────────────────────────
 
 /** Every cell, row-major, as text with `[latex]` for each formula. */
@@ -579,6 +671,16 @@ describe("two peers editing cells that hold formulas", () => {
       copyThenPaste(selectCells(s, [2, 0], [2, 3]), selectCells(s, [5, 3]));
     const merged = concurrently(GRID, paste, paste);
     expect(cellsView(merged)[5]).toBe("twoa [x]a [x]");
+    expectOwnedFormulas(merged);
+  });
+
+  it("one types a formula while the other types in the same cell", () => {
+    const merged = concurrently(
+      GRID,
+      (s) => typeIn(selectCells(s, [4, 3]), "$z$"),
+      (s) => insertText(selectCells(s, [4, 0]), "Z"),
+    );
+    expect(cellsView(merged)[4]).toBe("Zone[z]");
     expectOwnedFormulas(merged);
   });
 

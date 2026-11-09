@@ -22,9 +22,13 @@
  *
  * Two guards keep that translation from ever losing data:
  *
- *   - The paragraph code may only touch the stand-in's text. Any other op (a
- *     block insert, a type change, a nested attachment) means the action did
- *     something a text field cannot hold, and the whole run is refused.
+ *   - The paragraph code may only touch the stand-in's text, and create new
+ *     attachments for a structured mark it puts on that text (a typed `$x$`
+ *     formula); those are written onto the field's block, beside the field's
+ *     own document, where a paragraph would hold them on itself. Any other op
+ *     (a block insert, a type change, an edit inside an existing attachment)
+ *     means the action did something a text field cannot hold, and the whole
+ *     run is refused, as is a structured mark with no attachment behind it.
  *   - After translating, the field is rebuilt from the translated edits and
  *     compared with the stand-in the paragraph code left behind — every
  *     character id, tombstone and resolved mark. A mismatch refuses the run.
@@ -136,10 +140,12 @@ function standInId(address: TextFieldAddress): string {
 
 /**
  * The schema the paragraph code runs under: paragraphs only, so a typed `# `
- * stays text instead of asking for a heading the field cannot become, and only
- * flat marks — a structured mark (an inline formula) needs an attachment of
- * its own, which a field inside an attachment cannot carry. Memoized per
- * schema instance; a schema is immutable, so this is a pure cache.
+ * stays text instead of asking for a heading the field cannot become, with
+ * every mark the host allows. That includes structured marks (an inline
+ * formula): the attachment one points at sits beside the field's document on
+ * the block, so a rule that creates one (a typed `$x$`) writes it there — see
+ * {@link translate}. Memoized per schema instance; a schema is immutable, so
+ * this is a pure cache.
  */
 const fieldSchemas = new WeakMap<DataSchema, DataSchema>();
 
@@ -149,9 +155,7 @@ function fieldSchema(schema: DataSchema): DataSchema {
   const marks = schema
     .markSpecs()
     .map((spec) => spec.type)
-    .filter(
-      (type) => schema.isMarkAllowed(type) && !schema.structuredMark(type),
-    );
+    .filter((type) => schema.isMarkAllowed(type));
   let restricted: DataSchema;
   try {
     restricted = schema.restrict({ blocks: ["paragraph"], marks });
@@ -328,16 +332,42 @@ function standInState(
   };
 }
 
-/** The stand-in's text ops as edits on the field, or `null` for any other op. */
+/** A new attachment the paragraph code created on the stand-in. */
+interface NewAttachment {
+  readonly contentId: string;
+  readonly edit: ContentEdit["edit"];
+}
+
+/**
+ * The stand-in's ops as edits on the field, plus the attachments it created
+ * (a typed formula's document) for the field's block to hold beside the
+ * field's own document — or `null` for any other op.
+ *
+ * An attachment is only taken when it is NEW: a `document_init` for a content
+ * id neither the field's document nor any attachment already on the block
+ * uses. Anything else written into an attachment means the action reached
+ * past the field.
+ */
 function translate(
   ops: readonly Operation[],
   standIn: string,
   address: TextFieldAddress,
-): StructuredEdit[] | null {
+  existing: Readonly<Record<string, unknown>>,
+): { edits: StructuredEdit[]; attachments: NewAttachment[] } | null {
   const edits: StructuredEdit[] = [];
+  const attachments: NewAttachment[] = [];
   const { nodeId, field } = address;
   for (const op of ops) {
-    if (op.op === "text_insert" && op.blockId === standIn) {
+    if (
+      op.op === "content_edit" &&
+      op.blockId === standIn &&
+      op.edit.kind === "document_init" &&
+      op.contentId !== address.contentId &&
+      !(op.contentId in existing) &&
+      !attachments.some((created) => created.contentId === op.contentId)
+    ) {
+      attachments.push({ contentId: op.contentId, edit: op.edit });
+    } else if (op.op === "text_insert" && op.blockId === standIn) {
       edits.push({
         kind: "text_insert",
         nodeId,
@@ -360,7 +390,7 @@ function translate(
       return null;
     }
   }
-  return edits;
+  return { edits, attachments };
 }
 
 /**
@@ -486,8 +516,14 @@ export function runFieldAsParagraph(
   const before = standInState(state, address, block, range, field.runs);
   const result = action(before);
 
-  const edits = translate(result.ops, block.id, address);
-  if (!edits) return { kind: "refused", reason: "outside" };
+  const translated = translate(
+    result.ops,
+    block.id,
+    address,
+    attachment.block.structuredContent ?? {},
+  );
+  if (!translated) return { kind: "refused", reason: "outside" };
+  const { edits, attachments } = translated;
   const landed = rangeOf(result.state);
   if (!landed) return { kind: "refused", reason: "no-caret" };
 
@@ -511,10 +547,45 @@ export function runFieldAsParagraph(
   ) {
     return { kind: "refused", reason: "mismatch" };
   }
+  // A structured mark this run puts on must point at an attachment the block
+  // will hold — one already there, or one this run creates. A bare mark with
+  // nothing behind it would serialize to syntax that reloads as literal text.
+  const held = attachment.block.structuredContent ?? {};
+  const created = new Set(attachments.map((entry) => entry.contentId));
+  for (const edit of edits) {
+    if (edit.kind !== "mark_set" || !edit.value) continue;
+    if (!state.schema.structuredMark(edit.mark.type)) continue;
+    const references = state.schema.structuredMarkReferences(edit.mark.type, {
+      mark: edit.mark,
+      attachments: (standIn as Block).structuredContent ?? held,
+    });
+    if (
+      references.length === 0 ||
+      references.some((id) => !(id in held) && !created.has(id))
+    ) {
+      return { kind: "refused", reason: "mismatch" };
+    }
+  }
 
   // Commit: one content_edit per edit, through the reducer every peer runs.
+  // New attachments go first, so no mark ever points at an attachment the log
+  // has not created yet, and an undo (replayed in reverse) removes the mark
+  // before its attachment.
   let page = state.document.page;
   const ops: Operation[] = [];
+  for (const created of attachments) {
+    const op: ContentEdit = {
+      op: "content_edit",
+      id: state.CRDTbinding.nextId(),
+      clock: state.CRDTbinding.getClock(),
+      pageId: state.CRDTbinding.pageId,
+      blockId: address.blockId,
+      contentId: created.contentId,
+      edit: created.edit,
+    };
+    page = applyOp(page, op, state.schema);
+    ops.push(op);
+  }
   for (const edit of edits) {
     const op: ContentEdit = {
       op: "content_edit",
@@ -532,7 +603,7 @@ export function runFieldAsParagraph(
     (candidate) => candidate.id === address.blockId,
   );
   // The block's memoized layout was computed for the old content.
-  if (edits.length > 0 && committedBlock)
+  if ((edits.length > 0 || attachments.length > 0) && committedBlock)
     committedBlock.cachedLayout = undefined;
 
   const runs = rebuilt.runs;
@@ -560,7 +631,7 @@ export function runFieldAsParagraph(
     state: next,
     ops,
     range: landed,
-    edited: edits.length > 0,
+    edited: edits.length > 0 || attachments.length > 0,
     moved: landed.anchor !== range.anchor || landed.focus !== range.focus,
   };
 }
