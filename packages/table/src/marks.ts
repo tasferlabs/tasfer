@@ -13,11 +13,21 @@
  * the Markdown importer already writes — the cell ends up in exactly the state
  * an imported `**bold**` cell would.
  *
+ * Inside one cell the toggle is the paragraph's own, run on the cell (see
+ * `runInCell`). Only a range across cells is decided here: every covered cell
+ * is marked whole, the way deleting such a range clears them whole.
+ *
  * Plain marks only. A mark whose content lives in an attachment (inline math)
  * is refused — see {@link toggleTableMark}.
  */
 
-import { type Claimed, commitTableEdits, type TableContext } from "./context";
+import {
+  type Claimed,
+  claimRun,
+  commitTableEdits,
+  runInCell,
+  type TableContext,
+} from "./context";
 import { cellLength, cellRuns, coveredCellIds } from "./selection";
 import type { ActionBus } from "@tasfer/editor/action-bus";
 import { inheritedMarksInText } from "@tasfer/editor/mark-edge";
@@ -126,10 +136,11 @@ function markEdits(
 /**
  * Toggle `name` over whatever the table selection covers.
  *
- * A collapsed caret sets the engine's explicit pending-mark mode rather than
- * writing an edit — there is nothing to mark yet. The next typed character
- * picks it up (see `insertIntoCell`), which is what makes "Ctrl+B, then type"
- * behave in a cell the way it does in a paragraph.
+ * Within one cell this is the paragraph's toggle: a bare caret arms the mark
+ * for what is typed next, a range is marked or unmarked as a paragraph's is.
+ * Across cells, a range of empty cells arms the mark the same way, and any
+ * other range marks every covered cell whole — unless all of it already
+ * carries the mark, which clears it.
  *
  * A *structured* mark (inline math) is refused outright. Its content does not
  * live in the characters it covers: it belongs to a separate attachment, and
@@ -151,6 +162,17 @@ export function toggleTableMark(
   if (state.schema.structuredMark(name)) return undefined;
   const definition = state.marks.get(name);
   if (definition?.togglable !== true) return undefined;
+
+  // Inside one cell the toggle is the paragraph's own, run on the cell — the
+  // pending mark at a bare caret, the side of a mark edge, partial ranges.
+  if (context.anchor.cellId === context.caret.cellId) {
+    return claimRun(
+      state,
+      runInCell(state, context, (paragraph) =>
+        paragraph.actionBus.dispatchState(TOGGLE_MARK, paragraph, { name }),
+      ),
+    );
+  }
 
   const spans = coveredSpans(context);
   const collapsed = spans.every((span) => span.from === span.to);

@@ -284,6 +284,18 @@ Because a cell holds ordinary editor text, marks work inside it (see
 `markFields` below). Cell content is _inline_ Markdown, matching GFM: `**bold**`
 is bold, while `# not a heading` stays literal.
 
+Editing inside a cell runs the paragraph's own text code (see
+[Editing a field with the paragraph's code](#field-as-paragraph)): typing,
+typing over a selection, every delete key, mark toggles, an IME commit, a URL
+turning into a link when you type a space after it, and the caret moving
+within the cell. So a cell behaves exactly like a paragraph that cannot turn
+into another block. What stays the table's own is what a grid adds:
+a range across cells clears or formats those cells whole, Backspace never
+joins two cells (at the start of the first cell it selects the table), the
+arrow keys cross into the next cell at a cell's edge, and Enter moves down a
+row. Pasting into a cell is also the table's own (see below), so a grid
+pasted from a spreadsheet spreads across cells.
+
 ### Markdown shortcuts in cells
 
 Typing `**bold**` in a cell can auto-format the way it does in a paragraph. It
@@ -299,12 +311,20 @@ Hosts assembling a schema by hand build the rule directly, with
 `tableInputRule` export. Both carry the same rule id, so only one can be
 installed.
 
-The recognizers are the engine's own (`**bold**`, `*italic*`, `~~strike~~` and
-`` `code` ``), and they fire on the keystroke that closes the delimiter — pasted
-text is untouched. Backspace, or the first undo, immediately after one takes the
-wrap back and leaves the syntax literal, which is how you type `*text*` in a
-cell. Only inline syntax applies: block prefixes stay literal in a cell, since a
-GFM cell cannot be a heading or a list.
+With the option on, a cell runs the paragraph's inline shortcuts unchanged
+(`**bold**`, `*italic*`, `~~strike~~` and `` `code` ``). They fire on the
+keystroke that closes the delimiter, and pasted text is untouched. Typing a
+delimiter over a selection wraps the selection in its mark. Backspace, or the
+first undo, right after a shortcut fires takes it back and leaves the syntax
+as typed, which is how you type `*text*` in a cell. With the option off, those
+characters always stay literal, while brackets and quotes typed over a
+selection still wrap it, as they do in a paragraph. Only inline syntax applies:
+block prefixes stay literal in a cell, since a GFM cell cannot be a heading or
+a list.
+
+The switch underneath is `insertText`'s `inlineMarkdown` option (default on).
+An input rule receives the typing path's options as `ctx.options` and passes
+them on when it hands the keystroke to `insertText`.
 
 ### On the canvas
 

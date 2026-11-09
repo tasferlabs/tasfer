@@ -14,7 +14,7 @@ import {
   tableCaretFromContentPoint,
   tableCaretToContentSelection,
 } from "./selection";
-import { getTableDocument } from "./structured";
+import { CELL_TEXT_FIELD, getTableDocument } from "./structured";
 import type { StateResult } from "@tasfer/editor/action-bus";
 import { clearSelection, moveCursorToPosition } from "@tasfer/editor/selection";
 import type { Block, Page } from "@tasfer/editor/serlization/loadPage";
@@ -30,6 +30,12 @@ import type {
   StructuredDocument,
   StructuredEdit,
 } from "@tasfer/editor/sync/structured-content";
+import {
+  type FieldRange,
+  type FieldRun,
+  runFieldAsParagraph,
+  type TextFieldAddress,
+} from "@tasfer/editor/text-field-paragraph";
 
 /** A claimed handler result: state changed (or deliberately did not), plus ops. */
 export type Claimed = StateResult & { readonly handled: true };
@@ -183,6 +189,51 @@ export function commitTableEdits(
     });
   }
   return { state: next, ops, handled: true };
+}
+
+/** A cell's text, addressed the way the paragraph code borrows it. */
+export function cellField(
+  context: Pick<TableContext, "block" | "document">,
+  cellId: string,
+): TextFieldAddress {
+  return {
+    blockId: context.block.id,
+    contentId: context.document.rootId,
+    nodeId: cellId,
+    field: CELL_TEXT_FIELD,
+  };
+}
+
+/**
+ * Run a paragraph action on a cell — by default the one the selection is in,
+ * over the selection's range there. The caller keeps a range across cells for
+ * itself: that is the grid's to handle, not a paragraph's.
+ *
+ * This is how every in-cell text behaviour is implemented: the engine's own
+ * flat-text action, run on the cell (see `@tasfer/editor/text-field-paragraph`).
+ */
+export function runInCell(
+  state: EditorState,
+  context: Pick<TableContext, "block" | "document" | "caret" | "anchor">,
+  action: (paragraph: EditorState) => StateResult,
+  range: FieldRange = {
+    anchor: context.anchor.offset,
+    focus: context.caret.offset,
+  },
+  cellId: string = context.caret.cellId,
+): FieldRun {
+  return runFieldAsParagraph(state, cellField(context, cellId), range, action);
+}
+
+/**
+ * A paragraph run as a claimed result. A refused run — the paragraph code
+ * reached for something a cell cannot hold — stays claimed and changes
+ * nothing, so the key never falls through to flat-text handling either.
+ */
+export function claimRun(state: EditorState, run: FieldRun): Claimed {
+  return run.kind === "applied"
+    ? { state: run.state, ops: run.ops, handled: true }
+    : { state, ops: [], handled: true };
 }
 
 /**

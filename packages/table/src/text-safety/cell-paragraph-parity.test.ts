@@ -14,6 +14,8 @@
 import {
   allCells,
   cellSurface,
+  markdownCellSurface,
+  markdownParagraphSurface,
   NEIGHBOURS,
   type Offsets,
   paragraphSurface,
@@ -29,6 +31,7 @@ import {
   DELETE_TO_LINE_START,
   DELETE_WORD_BACKWARD,
   DELETE_WORD_FORWARD,
+  REVERT_INPUT_RULE,
 } from "@tasfer/editor/actions/edit-actions";
 import {
   COMPOSITION_END,
@@ -36,10 +39,23 @@ import {
   COMPOSITION_UPDATE,
 } from "@tasfer/editor/actions/input-actions";
 import {
+  EXTEND_SELECTION_LEFT,
+  EXTEND_SELECTION_RIGHT,
+  EXTEND_SELECTION_WORD_LEFT,
+  EXTEND_SELECTION_WORD_RIGHT,
   MOVE_CURSOR_LEFT,
   MOVE_CURSOR_RIGHT,
+  MOVE_TO_LINE_END,
+  MOVE_TO_LINE_START,
+  MOVE_TO_NEXT_WORD,
+  MOVE_TO_PREVIOUS_WORD,
 } from "@tasfer/editor/actions/keyboard-actions";
-import { TOGGLE_EMPHASIS, TOGGLE_STRONG } from "@tasfer/editor/rendering/marks";
+import {
+  TOGGLE_CODE,
+  TOGGLE_EMPHASIS,
+  TOGGLE_STRIKE,
+  TOGGLE_STRONG,
+} from "@tasfer/editor/rendering/marks";
 import type { EditorState } from "@tasfer/editor/state-types";
 import { describe, expect, it } from "vitest";
 
@@ -52,8 +68,20 @@ const KEYS = {
   LineDelete: DELETE_TO_LINE_END,
   Bold: TOGGLE_STRONG,
   Italic: TOGGLE_EMPHASIS,
+  Strike: TOGGLE_STRIKE,
+  Code: TOGGLE_CODE,
   ArrowLeft: MOVE_CURSOR_LEFT,
   ArrowRight: MOVE_CURSOR_RIGHT,
+  WordLeft: MOVE_TO_PREVIOUS_WORD,
+  WordRight: MOVE_TO_NEXT_WORD,
+  Home: MOVE_TO_LINE_START,
+  End: MOVE_TO_LINE_END,
+  ShiftLeft: EXTEND_SELECTION_LEFT,
+  ShiftRight: EXTEND_SELECTION_RIGHT,
+  ShiftWordLeft: EXTEND_SELECTION_WORD_LEFT,
+  ShiftWordRight: EXTEND_SELECTION_WORD_RIGHT,
+  /** The take-back Backspace and the first undo both dispatch. */
+  Revert: REVERT_INPUT_RULE,
 } as const;
 
 type Step =
@@ -105,7 +133,7 @@ function trace(surface: TextSurface, initial: string, steps: Step[]): Trace[] {
       text: surface.read(state),
       selection: surface.selection(state),
     });
-    if (surface === cellSurface) {
+    if (surface === cellSurface || surface === markdownCellSurface) {
       const [headA, headB, , side] = allCells(state).map(plain);
       expect({ headA, headB, side }).toEqual(NEIGHBOURS);
     }
@@ -113,9 +141,16 @@ function trace(surface: TextSurface, initial: string, steps: Step[]): Trace[] {
   return out;
 }
 
-function expectParity(initial: string, steps: Step[]) {
-  const paragraph = trace(paragraphSurface, initial, steps);
-  const cell = trace(cellSurface, initial, steps);
+function expectParity(
+  initial: string,
+  steps: Step[],
+  surfaces: readonly [TextSurface, TextSurface] = [
+    paragraphSurface,
+    cellSurface,
+  ],
+) {
+  const paragraph = trace(surfaces[0], initial, steps);
+  const cell = trace(surfaces[1], initial, steps);
   // Compared step by step so a failure names the first step that diverged.
   for (let i = 0; i < steps.length; i++) {
     expect(cell[i], `after step ${i}: ${cell[i].step}`).toEqual(paragraph[i]);
@@ -306,6 +341,190 @@ describe("a cell stores what a paragraph stores", () => {
       { key: "WordBackspace" },
       { caret: 4 },
       { key: "WordDelete" },
+    ]);
+  });
+});
+
+describe("a cell moves and selects as a paragraph does", () => {
+  it("word moves both ways, over punctuation", () => {
+    expectParity("one, two... three", [
+      { caret: 9 },
+      { key: "WordLeft" },
+      { type: "|" },
+      { key: "WordRight" },
+      { type: "|" },
+      { key: "WordRight" },
+      { type: "|" },
+    ]);
+  });
+
+  it("Home and End inside the text", () => {
+    expectParity("one two", [
+      { caret: 3 },
+      { key: "Home" },
+      { type: "[" },
+      { key: "End" },
+      { type: "]" },
+    ]);
+  });
+
+  it("Shift+arrow and Shift+word build a selection typing replaces", () => {
+    expectParity("one two three", [
+      { caret: 4 },
+      { key: "ShiftRight" },
+      { key: "ShiftRight" },
+      { key: "ShiftLeft" },
+      { type: "X" },
+      // Every step stays inside the text: walking past its end is where a
+      // cell (a grid of them) and a paragraph part ways on purpose.
+      { caret: 9 },
+      { key: "ShiftWordLeft" },
+      { key: "ShiftWordLeft" },
+      { key: "ShiftWordRight" },
+      { type: "Y" },
+    ]);
+  });
+
+  it("arrowing into a mark from the outside keeps typing out of it", () => {
+    expectParity("one two three", [
+      { select: [4, 7] },
+      { key: "Bold" },
+      { caret: 9 },
+      { key: "ArrowLeft" },
+      { key: "ArrowLeft" },
+      { key: "ArrowLeft" },
+      { type: "A" },
+      { caret: 2 },
+      { key: "ArrowRight" },
+      { key: "ArrowRight" },
+      { key: "ArrowRight" },
+      { type: "B" },
+    ]);
+  });
+});
+
+describe("a cell formats as a paragraph does", () => {
+  it("strike and code toggles over a range and at a caret", () => {
+    expectParity("one two three", [
+      { select: [0, 3] },
+      { key: "Strike" },
+      { select: [8, 13] },
+      { key: "Code" },
+      { caret: 3 },
+      { type: "S" },
+      { caret: 14 },
+      { type: "C" },
+      { caret: 7 },
+      { key: "Code" },
+      { type: "K" },
+    ]);
+  });
+
+  it("typing over a marked selection takes its first character's marks", () => {
+    expectParity("one two three", [
+      { select: [4, 7] },
+      { key: "Bold" },
+      { select: [5, 11] },
+      { type: "X" },
+      { select: [7, 2] },
+      { type: "Y" },
+    ]);
+  });
+
+  it("toggling a mark across a range that is partly marked", () => {
+    expectParity("one two three", [
+      { select: [4, 7] },
+      { key: "Italic" },
+      { select: [2, 9] },
+      { key: "Italic" },
+      { select: [2, 9] },
+      { key: "Italic" },
+    ]);
+  });
+});
+
+describe("a cell with markdown shortcuts formats as a paragraph does", () => {
+  const MARKDOWN = [markdownParagraphSurface, markdownCellSurface] as const;
+
+  it("closing delimiters wrap the text before them", () => {
+    expectParity(
+      "one",
+      [
+        { caret: 3 },
+        { type: " " },
+        { type: "*" },
+        { type: "*" },
+        { type: "b" },
+        { type: "*" },
+        { type: "*" },
+        { type: " " },
+        { type: "_" },
+        { type: "i" },
+        { type: "_" },
+        { type: " " },
+        { type: "~" },
+        { type: "~" },
+        { type: "s" },
+        { type: "~" },
+        { type: "~" },
+        { type: " " },
+        { type: "`" },
+        { type: "c" },
+        { type: "`" },
+      ],
+      MARKDOWN,
+    );
+  });
+
+  it("the take-back puts the literal syntax back", () => {
+    expectParity(
+      "go",
+      [
+        { caret: 2 },
+        { type: " " },
+        { type: "*" },
+        { type: "a" },
+        { type: "*" },
+        { key: "Revert" },
+        { type: " " },
+        { type: "`" },
+        { type: "x" },
+        { type: "`" },
+        { key: "Revert" },
+        { key: "Revert" },
+      ],
+      MARKDOWN,
+    );
+  });
+
+  it("a delimiter typed inside a word stays literal", () => {
+    expectParity(
+      "snake",
+      [{ caret: 5 }, { type: "_" }, { type: "c" }, { type: "_" }],
+      MARKDOWN,
+    );
+  });
+
+  it("a block prefix stays literal text in a cell", () => {
+    // A paragraph would become a heading here; a cell has no block to turn
+    // into one, so both keep the typed characters as text and the cell must
+    // not lose any of them.
+    const cell = markdownCellSurface;
+    let state = cell.select(cell.create("x"), 0, 0);
+    for (const ch of "# hi") {
+      state = run(state, cell, { type: ch });
+    }
+    expect(plain(cell.read(state))).toBe("# hix");
+  });
+});
+
+describe("a cell links as a paragraph does", () => {
+  it("a URL followed by a space becomes a link", () => {
+    expectParity("see", [
+      { caret: 3 },
+      { type: " https://example.com" },
+      { type: " " },
+      { type: "x" },
     ]);
   });
 });

@@ -1,35 +1,39 @@
 /**
  * Editing inside a table cell: typing, deleting, and what Enter does.
  *
- * A table block has no flat text, so none of the engine's ordinary text edits
- * can land in one. Typing is claimed through the schema's input-rule seam
- * (`owns` — the read-only ownership query every mutation surface consults,
- * including paste and IME), and the key-driven deletes are claimed on the
- * action bus. Both emit generic `content_edit` operations against the cell's
- * text field, so a table edit syncs, undoes and merges exactly like any other
- * structured content.
+ * A cell's text is edited by the paragraph's own code. Each handler here hands
+ * the cell to `runFieldAsParagraph` (`@tasfer/editor/text-field-paragraph`),
+ * which runs the engine's flat-text action — `insertText`, Backspace, a word
+ * delete, the markdown take-back — on the cell as if it were a lone paragraph
+ * and commits the result as `content_edit` operations against the cell's text
+ * field. A cell therefore types, deletes, formats and auto-formats exactly as
+ * a paragraph does, with no second copy of those rules to drift.
  *
- * A host can additionally opt cells into the engine's inline markdown shortcuts
- * (`**bold**` and friends) — see {@link TableInputOptions} and
- * `./markdown-shortcuts`.
+ * What stays here is what a grid has and a paragraph does not:
+ *
+ *   - a range across cells clears the covered cells whole;
+ *   - the cell's edges are walls — Backspace never merges two cells, and at the
+ *     very start of the grid it holds the table whole instead;
+ *   - Enter moves down a row (growing one at the bottom), Shift+Enter leaves.
+ *
+ * Typing is claimed through the schema's input-rule seam (`owns` — the
+ * read-only ownership query every mutation surface consults, including paste
+ * and IME), and the key-driven edits on the action bus.
+ *
+ * A host can turn the inline markdown shortcuts (`**bold**` and friends) on
+ * for cells — see {@link TableInputOptions}.
  */
 
 import { insertRow } from "./commands";
 import {
   activeTableContext,
   type Claimed,
+  claimRun,
   commitTableEdits,
+  runInCell,
   selectTableBlock,
   type TableContext,
 } from "./context";
-import {
-  armCellWrapRevert,
-  armedCellWrap,
-  type CellWrapRevert,
-  detectCellMarkdown,
-  isInlineMarkdownDelimiter,
-  revertCellWrap,
-} from "./markdown-shortcuts";
 import { registerTableMarkActions } from "./marks";
 import {
   cellAt,
@@ -40,8 +44,9 @@ import {
   type TableCaret,
   tableCellIds,
 } from "./selection";
-import { CELL_NODE, cellRunsFromText } from "./structured";
-import type { ActionBus } from "@tasfer/editor/action-bus";
+import { CELL_NODE, CELL_TEXT_FIELD } from "./structured";
+import type { ActionBus, StateAction } from "@tasfer/editor/action-bus";
+import { deleteSelectedText, insertText } from "@tasfer/editor/actions/actions";
 import {
   DELETE_BACKWARD,
   DELETE_FORWARD,
@@ -54,37 +59,25 @@ import {
   REVERT_INPUT_RULE,
   SPLIT_BLOCK,
 } from "@tasfer/editor/actions/edit-actions";
-import {
-  nextCodePointEnd,
-  prevCodePointStart,
-} from "@tasfer/editor/code-points";
-import type { FeatureInputRule } from "@tasfer/editor/feature-facets";
-import { inheritedMarksInText } from "@tasfer/editor/mark-edge";
 import type {
-  CharRun,
-  Mark,
-  MarkSpan,
-} from "@tasfer/editor/serlization/loadPage";
+  FeatureInputOptions,
+  FeatureInputRule,
+} from "@tasfer/editor/feature-facets";
+import { inheritedMarksInText } from "@tasfer/editor/mark-edge";
+import type { Mark, MarkSpan } from "@tasfer/editor/serlization/loadPage";
 import type { EditorState } from "@tasfer/editor/state-types";
 import { updateContentSelection } from "@tasfer/editor/structured-selection";
-import {
-  getCharIdsInRangeFromRuns,
-  getVisibleTextFromRuns,
-} from "@tasfer/editor/sync/char-runs";
+import { getCharIdsInRangeFromRuns } from "@tasfer/editor/sync/char-runs";
 import {
   allCharsHaveFormat,
   getFormatsAtCharPosition,
 } from "@tasfer/editor/sync/crdt-utils";
 import {
-  applyStructuredEdits,
   getStructuredMarks,
   type StructuredDocument,
   type StructuredEdit,
 } from "@tasfer/editor/sync/structured-content";
-import {
-  findWordDeleteBoundaryLeft,
-  findWordDeleteBoundaryRight,
-} from "@tasfer/editor/word-chars";
+import { armedFieldRevert } from "@tasfer/editor/text-field-paragraph";
 
 /** Delete edits clearing every cell a selection covers, plus the landing caret. */
 export function clearRange(
@@ -103,7 +96,12 @@ export function clearRange(
     if (charIds.length === 0) return undefined;
     return {
       edits: [
-        { kind: "text_delete", nodeId: caret.cellId, field: "text", charIds },
+        {
+          kind: "text_delete",
+          nodeId: caret.cellId,
+          field: CELL_TEXT_FIELD,
+          charIds,
+        },
       ],
       caret: { cellId: caret.cellId, offset: from },
     };
@@ -114,28 +112,30 @@ export function clearRange(
   // selection, which is also the unit the selection band paints.
   const covered = coveredCellIds(document, anchor, caret);
   if (covered.length === 0) return undefined;
-  const edits: StructuredEdit[] = [];
-  for (const cellId of covered) {
-    const charIds = getCharIdsInRangeFromRuns(
-      cellRuns(document, cellId) ?? [],
-      0,
-      cellLength(document, cellId),
-    );
-    if (charIds.length > 0) {
-      edits.push({
-        kind: "text_delete",
-        nodeId: cellId,
-        field: "text",
-        charIds,
-      });
-    }
-  }
-  return { edits, caret: { cellId: covered[0], offset: 0 } };
+  return {
+    edits: covered.flatMap((cellId) => clearCellEdits(document, cellId)),
+    caret: { cellId: covered[0], offset: 0 },
+  };
+}
+
+/** The edit deleting every visible character of one cell (none when empty). */
+function clearCellEdits(
+  document: StructuredDocument,
+  cellId: string,
+): StructuredEdit[] {
+  const charIds = getCharIdsInRangeFromRuns(
+    cellRuns(document, cellId) ?? [],
+    0,
+    cellLength(document, cellId),
+  );
+  return charIds.length > 0
+    ? [{ kind: "text_delete", nodeId: cellId, field: CELL_TEXT_FIELD, charIds }]
+    : [];
 }
 
 /**
  * The flat marks on the first character a selection covers, or `undefined`
- * for a bare caret — what text typed over the selection takes.
+ * for a bare caret — what text pasted over the selection takes.
  */
 export function firstSelectedMarks(
   state: EditorState,
@@ -159,45 +159,21 @@ export function firstSelectedMarks(
   return inheritedMarksInText(
     state,
     cellRuns(document, cellId) ?? [],
-    getStructuredMarks(document, cellId, "text") as MarkSpan[],
+    getStructuredMarks(document, cellId, CELL_TEXT_FIELD) as MarkSpan[],
     from + 1,
   );
 }
 
 /**
- * The `mark_set` edits giving the characters just typed exactly `wanted`.
+ * The `mark_set` edits giving pasted characters exactly `wanted`: `charIds`
+ * are the visible characters starting at `caret`, in order. A paste calls this
+ * once per run of equally-formatted characters.
  *
- * Typed inside a run, the new text already sits within its span; only an edge
- * (or a toggle) needs the mark set on it. And a span whose end is anchored to a
- * deleted character still reaches past the visible run, so text typed on the
- * outer side of that edge would come out marked though the caret says it is
- * outside — those marks are cleared from the typed text.
- */
-function typedMarkEdits(
-  state: EditorState,
-  typed: StructuredDocument,
-  caret: TableCaret,
-  inserted: readonly CharRun[],
-  wanted: readonly Mark[],
-): StructuredEdit[] {
-  return insertedMarkEdits(
-    state,
-    typed,
-    caret,
-    inserted.flatMap((run) =>
-      Array.from(
-        { length: run.text.length },
-        (_unused, at) => `${run.peerId}:${run.startCounter + at}`,
-      ),
-    ),
-    wanted,
-  );
-}
-
-/**
- * {@link typedMarkEdits} for characters already addressed by id: `charIds` are
- * the visible characters starting at `caret`, in order. A paste calls this once
- * per run of equally-formatted characters.
+ * Inside a run the new text already sits within its span; only an edge needs
+ * the mark set on it. And a span whose end is anchored to a deleted character
+ * still reaches past the visible run, so text landing on the outer side of
+ * that edge would come out marked though the caret says it is outside — those
+ * marks are cleared from it.
  */
 export function insertedMarkEdits(
   state: EditorState,
@@ -208,7 +184,11 @@ export function insertedMarkEdits(
 ): StructuredEdit[] {
   if (charIds.length === 0) return [];
   const runs = cellRuns(typed, caret.cellId) ?? [];
-  const spans = getStructuredMarks(typed, caret.cellId, "text") as MarkSpan[];
+  const spans = getStructuredMarks(
+    typed,
+    caret.cellId,
+    CELL_TEXT_FIELD,
+  ) as MarkSpan[];
   const from = caret.offset;
   const to = from + charIds.length;
   const edits: StructuredEdit[] = [];
@@ -218,7 +198,7 @@ export function insertedMarkEdits(
     edits.push({
       kind: "mark_set",
       nodeId: caret.cellId,
-      field: "text",
+      field: CELL_TEXT_FIELD,
       charIds: [...charIds],
       mark,
       value: true,
@@ -236,101 +216,13 @@ export function insertedMarkEdits(
     edits.push({
       kind: "mark_set",
       nodeId: caret.cellId,
-      field: "text",
+      field: CELL_TEXT_FIELD,
       charIds: [...charIds],
       mark: { type },
       value: false,
     });
   }
   return edits;
-}
-
-/** Insert `input` at the caret, replacing any selected range first. */
-function insertIntoCell(
-  state: EditorState,
-  context: TableContext,
-  input: string,
-  markdownShortcuts: boolean,
-): Claimed {
-  // Typing over a selection takes the formatting of the text it replaces (its
-  // first character), read before the deletion removes it — as a paragraph does.
-  const replacedMarks = firstSelectedMarks(state, context);
-  const cleared = clearRange(context);
-  const edits: StructuredEdit[] = cleared ? [...cleared.edits] : [];
-  const caret = cleared?.caret ?? context.caret;
-  if (input.length === 0) return commitTableEdits(state, context, edits, caret);
-
-  // Re-read the runs after the deletion so the insert anchors to what survives:
-  // the character before the caret may have just been tombstoned.
-  const document =
-    edits.length > 0
-      ? applyStructuredEdits(context.document, edits)
-      : context.document;
-  const runs = cellRuns(document, caret.cellId);
-  if (!runs) return commitTableEdits(state, context, edits, caret);
-  const afterCharId = charIdBefore(runs, caret.offset);
-
-  const charRuns = cellRunsFromText(input, state.CRDTbinding);
-  edits.push({
-    kind: "text_insert",
-    nodeId: caret.cellId,
-    field: "text",
-    afterCharId,
-    charRuns,
-  });
-
-  // The marks the typed text takes: an explicit set (a Ctrl+B toggle, or the
-  // caret on the after side of a mark edge), else the marks of the text behind
-  // the caret — so typing at the end of a bold run stays bold, the way it does
-  // in a paragraph (see `@tasfer/editor/mark-edge`).
-  const typingMarks =
-    state.ui.activeMarksMode.type === "explicit"
-      ? state.ui.activeMarksMode.formats
-      : (replacedMarks ??
-        inheritedMarksInText(
-          state,
-          runs,
-          getStructuredMarks(document, caret.cellId, "text") as MarkSpan[],
-          caret.offset,
-        ));
-  edits.push(
-    ...typedMarkEdits(
-      state,
-      applyStructuredEdits(context.document, edits),
-      caret,
-      charRuns,
-      typingMarks,
-    ),
-  );
-
-  let landing: TableCaret = {
-    cellId: caret.cellId,
-    offset: caret.offset + input.length,
-  };
-
-  // Markdown auto-format, when the host asked for it and this keystroke could
-  // close a wrap. Detection runs against the document the edits above produce,
-  // because the closing delimiter it matches on only has a character id once it
-  // has been inserted; the wrap's own edits then ride in the same batch, so one
-  // keystroke stays one transaction to undo, sync and merge.
-  let wrapped: CellWrapRevert | undefined;
-  if (markdownShortcuts && isInlineMarkdownDelimiter(input)) {
-    const typed = applyStructuredEdits(context.document, edits);
-    const wrap = detectCellMarkdown(
-      state,
-      typed,
-      landing.cellId,
-      landing.offset,
-    );
-    if (wrap) {
-      edits.push(...wrap.edits);
-      landing = { cellId: landing.cellId, offset: wrap.offset };
-      wrapped = { ...wrap.revert, blockId: context.block.id };
-    }
-  }
-
-  const committed = commitTableEdits(state, context, edits, landing);
-  return wrapped ? armCellWrapRevert(committed, wrapped) : committed;
 }
 
 /** The id of the visible character immediately before `offset`, or null. */
@@ -343,16 +235,100 @@ export function charIdBefore(
   return ids[0] ?? null;
 }
 
+/**
+ * Insert `input` at the caret, replacing any selected range first — the
+ * paragraph's `insertText`, run on the cell.
+ *
+ * A range across cells is the grid's: every covered cell but the first is
+ * cleared, and the input then replaces the first cell's whole text, which is
+ * the paragraph's "type over a selection" from there on (it takes the marks of
+ * the first character it replaces).
+ */
+function insertIntoCell(
+  state: EditorState,
+  context: TableContext,
+  input: string,
+  options: FeatureInputOptions,
+): Claimed {
+  const type = (paragraph: EditorState) =>
+    insertText(paragraph, input, options);
+  if (context.anchor.cellId === context.caret.cellId) {
+    // An IME commit over a range. A paragraph takes the range out when the
+    // session STARTS and types the commit at the bare caret left behind; a
+    // nested range instead stands until the commit, so a cancelled session
+    // never costs the selected text. Both of the paragraph's steps run here,
+    // at the commit, so the text lands — and takes its marks — exactly as in
+    // a paragraph.
+    const composing =
+      state.ui.composition !== null &&
+      context.anchor.offset !== context.caret.offset;
+    return claimRun(
+      state,
+      runInCell(
+        state,
+        context,
+        composing
+          ? (paragraph) => {
+              const cleared = deleteSelectedText(paragraph);
+              const typed = type(cleared.state);
+              return {
+                state: typed.state,
+                ops: [...cleared.ops, ...typed.ops],
+              };
+            }
+          : type,
+      ),
+    );
+  }
+
+  const covered = coveredCellIds(
+    context.document,
+    context.anchor,
+    context.caret,
+  );
+  const [first, ...rest] = covered;
+  if (first === undefined) return { state, ops: [], handled: true };
+  const cleared = commitTableEdits(
+    state,
+    context,
+    rest.flatMap((cellId) => clearCellEdits(context.document, cellId)),
+    { cellId: first, offset: 0 },
+  );
+  // Typing over a range that crosses cells replaces it, never wraps it: a
+  // typed `(` or `*` would otherwise wrap the first cell's whole text, which
+  // the user never selected as one piece.
+  const run = runInCell(
+    cleared.state,
+    context,
+    (paragraph) =>
+      insertText(paragraph, input, { ...options, wrapSelection: false }),
+    {
+      anchor: 0,
+      focus: cellLength(context.document, first),
+    },
+    first,
+  );
+  // All or nothing: a refused first cell drops the other cells' clears too, so
+  // the keystroke never half-applies. `cleared` is a new state whose ops were
+  // never returned, so answering with the original state discards it.
+  if (run.kind === "refused") return { state, ops: [], handled: true };
+  return {
+    state: run.state,
+    ops: [...cleared.ops, ...run.ops],
+    handled: true,
+  };
+}
+
 /** What a host can turn on in the cell-input rule. */
 export interface TableInputOptions {
   /**
    * Run the engine's inline markdown shortcuts inside cells, so `**bold**`,
-   * `*italic*`, `~~strike~~` and `` `code` `` auto-format as they are typed.
+   * `*italic*`, `~~strike~~` and `` `code` `` auto-format as they are typed,
+   * and a typed delimiter wraps a selection in its mark — exactly as in a
+   * paragraph, Backspace (and the first undo) taking the format back.
    *
    * Off by default: a cell is one line of a grid, and a table of glob patterns
-   * or shell snippets wants `*` and `` ` `` to stay literal. Turning it on also
-   * gives Backspace (and the first undo) the engine's take-it-back behavior,
-   * which is what keeps the literal syntax typable.
+   * or shell snippets wants `*` and `` ` `` to stay literal.
    */
   readonly markdownShortcuts?: boolean;
 }
@@ -374,10 +350,14 @@ export function createTableInputRule(
     phase: "before-insert",
     priority: 1_000,
     owns: ({ state }) => activeTableContext(state) !== undefined,
-    apply: ({ state, input }) => {
+    apply: ({ state, input, options: typing }) => {
       const context = activeTableContext(state);
       return context
-        ? insertIntoCell(state, context, input, markdownShortcuts)
+        ? insertIntoCell(state, context, input, {
+            ...typing,
+            inlineMarkdown:
+              markdownShortcuts && typing?.inlineMarkdown !== false,
+          })
         : undefined;
     },
   };
@@ -388,149 +368,90 @@ export const tableInputRule: FeatureInputRule = createTableInputRule();
 
 /** Register the key-driven cell edits on one editor instance's bus. */
 export function registerTableInputActions(bus: ActionBus): void {
+  /**
+   * A delete key in a cell: the paragraph's own handler for `action`, run on
+   * the cell. What a paragraph would do past its edge — merge into the block
+   * beside it — a cell never does: the paragraph code runs as a lone block, so
+   * at the cell's edge it finds nothing to merge with and the key stays put.
+   */
   const remove =
-    (direction: "backward" | "forward") =>
+    (action: StateAction<void>) =>
     (state: EditorState): Claimed | undefined => {
       const context = activeTableContext(state);
       if (!context) return undefined;
 
-      const cleared = clearRange(context);
-      if (cleared) {
-        return commitTableEdits(state, context, cleared.edits, cleared.caret);
+      if (context.anchor.cellId !== context.caret.cellId) {
+        const cleared = clearRange(context);
+        return cleared
+          ? commitTableEdits(state, context, cleared.edits, cleared.caret)
+          : { state, ops: [], handled: true };
       }
 
-      const { document, caret } = context;
-      const text = getVisibleTextFromRuns(cellRuns(document, caret.cellId));
-      const from =
-        direction === "backward"
-          ? prevCodePointStart(text, caret.offset)
-          : caret.offset;
-      const to =
-        direction === "backward"
-          ? caret.offset
-          : nextCodePointEnd(text, caret.offset);
-      const charIds =
-        to > from
-          ? getCharIdsInRangeFromRuns(
-              cellRuns(document, caret.cellId),
-              from,
-              to,
-            )
-          : [];
-      if (charIds.length === 0) {
-        // Backspace at the very start of the grid escalates to holding the
-        // table whole, so a second press deletes it — the block equation's
-        // gesture, and the only keyboard route out of a table that has one.
-        // Everywhere else the key stays claimed and inert: a table's cells are
-        // a grid, not a text stream, so Backspace must never merge two of them.
-        if (
-          direction === "backward" &&
-          caret.offset === 0 &&
-          !state.ui.composition &&
-          context.anchor.cellId === caret.cellId &&
-          context.anchor.offset === caret.offset &&
-          tableCellIds(document)[0] === caret.cellId
-        ) {
-          return selectTableBlock(state, context);
-        }
-        return { state, ops: [], handled: true };
-      }
-      return commitTableEdits(
-        state,
-        context,
-        [
-          {
-            kind: "text_delete",
-            nodeId: caret.cellId,
-            field: "text",
-            charIds,
-          },
-        ],
-        { cellId: caret.cellId, offset: from },
+      const run = runInCell(state, context, (paragraph) =>
+        paragraph.actionBus.dispatchState(action, paragraph),
       );
+      // Backspace at the very start of the grid escalates to holding the table
+      // whole, so a second press deletes it — the block equation's gesture,
+      // and the only keyboard route out of a table that has one. Everywhere
+      // else the cell's edge is a wall: a table's cells are a grid, not a text
+      // stream, so a delete must never merge two of them.
+      if (
+        action === DELETE_BACKWARD &&
+        run.kind === "applied" &&
+        !run.edited &&
+        !run.moved &&
+        context.caret.offset === 0 &&
+        context.anchor.offset === 0 &&
+        !state.ui.composition &&
+        tableCellIds(context.document)[0] === context.caret.cellId
+      ) {
+        return selectTableBlock(state, context);
+      }
+      return claimRun(state, run);
     };
   registerTableMarkActions(bus, activeTableContext);
 
   // Take back a cell's markdown auto-format, ahead of the engine's own handler
-  // — which stands down on a feature-owned record. Backspace and the first undo
-  // both arrive here (see `keysEvents`), and returning nothing when no cell wrap
-  // is armed lets them fall through to deleting and undoing as usual.
+  // — which stands down on a feature-owned record. Backspace and the first
+  // undo both arrive here (see `keysEvents`); the paragraph's own revert runs
+  // on the cell. With nothing armed for this cell, the key falls through to
+  // deleting and undoing as usual.
   bus.registerState(
     REVERT_INPUT_RULE,
     (state) => {
-      const armed = armedCellWrap(state);
-      return armed ? revertCellWrap(state, armed) : undefined;
+      const armed = armedFieldRevert(state);
+      const context = armed && activeTableContext(state);
+      if (
+        !armed ||
+        !context ||
+        armed.blockId !== context.block.id ||
+        armed.contentId !== context.document.rootId ||
+        armed.nodeId !== context.caret.cellId
+      ) {
+        return undefined;
+      }
+      return claimRun(
+        state,
+        runInCell(state, context, (paragraph) =>
+          paragraph.actionBus.dispatchState(REVERT_INPUT_RULE, paragraph),
+        ),
+      );
     },
     100,
   );
 
-  bus.registerState(DELETE_BACKWARD, remove("backward"), 100);
-  bus.registerState(DELETE_FORWARD, remove("forward"), 100);
-
-  // The word- and line-wise deletes every other text surface answers to: ⌥⌫
-  // and ⌥⌦ (Ctrl+⌫ / Ctrl+⌦ off Apple) for a word, ⌘⌫ and ⌘⌦ — plus ⌃K — for
-  // the rest of the line. The engine's own handlers address flat block text and
-  // stand down on a table block, so without these the chords reached a cell and
-  // silently did nothing, while the matching MOVES (⌥←, ⌘←, …) already worked.
-  //
-  // A cell holds one line, so the line edges are the cell's own edges — the
-  // same span `MOVE_TO_LINE_START`/`_END` travel to.
-  const removeTo =
-    (reach: (text: string, offset: number) => number) =>
-    (state: EditorState): Claimed | undefined => {
-      const context = activeTableContext(state);
-      if (!context) return undefined;
-
-      const cleared = clearRange(context);
-      if (cleared) {
-        return commitTableEdits(state, context, cleared.edits, cleared.caret);
-      }
-
-      const { document, caret } = context;
-      const runs = cellRuns(document, caret.cellId);
-      const target = reach(getVisibleTextFromRuns(runs), caret.offset);
-      const from = Math.min(target, caret.offset);
-      const to = Math.max(target, caret.offset);
-      const charIds =
-        to > from ? getCharIdsInRangeFromRuns(runs, from, to) : [];
-      // Nothing in reach means the caret already sits at that edge of the cell.
-      // The key stays claimed and inert rather than carrying on into the
-      // neighbour: a word delete must no more merge two cells than Backspace
-      // does. Holding the table whole stays plain Backspace's gesture. (In
-      // prose a ⌘-delete on the line edge does fall back to a plain delete and
-      // joins the neighbouring block — a cell has no such join to offer.)
-      if (charIds.length === 0) return { state, ops: [], handled: true };
-      return commitTableEdits(
-        state,
-        context,
-        [{ kind: "text_delete", nodeId: caret.cellId, field: "text", charIds }],
-        { cellId: caret.cellId, offset: from },
-      );
-    };
-
-  // The boundary walk is the engine's own, so a word breaks in the same places
-  // inside a cell as in the paragraph above it — including the scripts whose
-  // word shape is not spaces (CJK, vocalized Arabic).
-  bus.registerState(
+  // Every delete chord a paragraph answers to: ⌫ and ⌦; ⌥⌫ / ⌥⌦ (Ctrl+⌫ /
+  // Ctrl+⌦ off Apple) for a word; ⌘⌫ / ⌘⌦ and ⌃K for the rest of the line.
+  for (const action of [
+    DELETE_BACKWARD,
+    DELETE_FORWARD,
     DELETE_WORD_BACKWARD,
-    removeTo(findWordDeleteBoundaryLeft),
-    100,
-  );
-  bus.registerState(
     DELETE_WORD_FORWARD,
-    removeTo(findWordDeleteBoundaryRight),
-    100,
-  );
-  bus.registerState(
     DELETE_TO_LINE_START,
-    removeTo(() => 0),
-    100,
-  );
-  bus.registerState(
     DELETE_TO_LINE_END,
-    removeTo((text) => text.length),
-    100,
-  );
+  ]) {
+    bus.registerState(action, remove(action), 100);
+  }
 
   // Enter / Shift+Enter in a cell (policy: dev-docs/enter-key.md). A GFM cell
   // holds one line, so Enter cannot split it. It moves to the cell below in the

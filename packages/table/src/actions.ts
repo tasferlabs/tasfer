@@ -31,6 +31,8 @@
 import {
   activeTableContext,
   type Claimed,
+  claimRun,
+  runInCell,
   selectTableBlock,
   type TableContext,
 } from "./context";
@@ -53,7 +55,8 @@ import {
   tableRangeToContentSelection,
 } from "./selection";
 import { getTableDocument } from "./structured";
-import type { ActionBus } from "@tasfer/editor/action-bus";
+import type { ActionBus, StateAction } from "@tasfer/editor/action-bus";
+import { selectWordAtPosition } from "@tasfer/editor/actions/actions";
 import {
   appendTrailingParagraph,
   prependLeadingParagraph,
@@ -121,6 +124,31 @@ import type { StructuredDocument } from "@tasfer/editor/sync/structured-content"
 /** A claimed motion: state changed (or deliberately did not), no ops. */
 function claim(state: EditorState): Claimed {
   return { state, ops: [], handled: true };
+}
+
+/**
+ * The paragraph's own caret motion `action`, run on the cell the selection is
+ * in — or `undefined` when it does nothing there (the caret already sits at
+ * the cell's edge, or the range spans cells), so the grid's step takes over.
+ *
+ * "Does nothing" means the caret did not move AND the typing side did not
+ * change: at a mark edge the first press only switches which side the caret
+ * types on, which is a paragraph behaviour too.
+ */
+function paragraphMove(
+  state: EditorState,
+  context: TableContext,
+  action: StateAction<void>,
+): Claimed | undefined {
+  if (context.anchor.cellId !== context.caret.cellId) return undefined;
+  const run = runInCell(state, context, (paragraph) =>
+    paragraph.actionBus.dispatchState(action, paragraph),
+  );
+  if (run.kind !== "applied") return undefined;
+  const sideChanged =
+    JSON.stringify(run.state.ui.activeMarksMode) !==
+    JSON.stringify(state.ui.activeMarksMode);
+  return run.moved || sideChanged ? claimRun(state, run) : undefined;
 }
 
 /**
@@ -307,10 +335,18 @@ export function registerTableActions(bus: ActionBus): void {
   };
 
   const step =
-    (key: "left" | "right", unit: "character" | "word") =>
+    (
+      key: "left" | "right",
+      unit: "character" | "word",
+      action: StateAction<void>,
+    ) =>
     (state: EditorState): Claimed | undefined => {
       const context = activeTableContext(state);
       if (!context) return undefined;
+      // Inside the cell the caret moves exactly as a paragraph's does; only at
+      // the cell's edge does the grid take over and step into the next cell.
+      const inCell = paragraphMove(state, context, action);
+      if (inCell) return inCell;
       const direction = horizontal(context, key, unit);
       const forward = direction === "forward";
       // At a mark edge the first character press only switches which side the
@@ -337,10 +373,26 @@ export function registerTableActions(bus: ActionBus): void {
         ? claim(withMarkEdgeSide(placed.state, landed.edge, "after"))
         : placed;
     };
-  bus.registerState(MOVE_CURSOR_LEFT, step("left", "character"), 100);
-  bus.registerState(MOVE_CURSOR_RIGHT, step("right", "character"), 100);
-  bus.registerState(MOVE_TO_PREVIOUS_WORD, step("left", "word"), 100);
-  bus.registerState(MOVE_TO_NEXT_WORD, step("right", "word"), 100);
+  bus.registerState(
+    MOVE_CURSOR_LEFT,
+    step("left", "character", MOVE_CURSOR_LEFT),
+    100,
+  );
+  bus.registerState(
+    MOVE_CURSOR_RIGHT,
+    step("right", "character", MOVE_CURSOR_RIGHT),
+    100,
+  );
+  bus.registerState(
+    MOVE_TO_PREVIOUS_WORD,
+    step("left", "word", MOVE_TO_PREVIOUS_WORD),
+    100,
+  );
+  bus.registerState(
+    MOVE_TO_NEXT_WORD,
+    step("right", "word", MOVE_TO_NEXT_WORD),
+    100,
+  );
 
   // The step a Shift+key takes. While the range is still inside one cell it is
   // the ordinary character or word step its unshifted twin takes; once the range
@@ -395,10 +447,18 @@ export function registerTableActions(bus: ActionBus): void {
   };
 
   const extendStep =
-    (key: "left" | "right", unit: "character" | "word") =>
+    (
+      key: "left" | "right",
+      unit: "character" | "word",
+      action: StateAction<void>,
+    ) =>
     (state: EditorState): Claimed | undefined => {
       const context = activeTableContext(state);
       if (!context) return undefined;
+      // A range inside one cell grows as a paragraph's does; at the cell's
+      // edge it crosses into the next cell by the grid's rule below.
+      const inCell = paragraphMove(state, context, action);
+      if (inCell) return inCell;
       const moved = extendTarget(context, key, unit);
       // At the grid's first and last stop the range simply stops growing; the
       // key stays claimed so the selection never spills into the flat model.
@@ -408,52 +468,85 @@ export function registerTableActions(bus: ActionBus): void {
     };
   bus.registerState(
     EXTEND_SELECTION_LEFT,
-    extendStep("left", "character"),
+    extendStep("left", "character", EXTEND_SELECTION_LEFT),
     100,
   );
   bus.registerState(
     EXTEND_SELECTION_RIGHT,
-    extendStep("right", "character"),
+    extendStep("right", "character", EXTEND_SELECTION_RIGHT),
     100,
   );
   bus.registerState(
     EXTEND_SELECTION_WORD_LEFT,
-    extendStep("left", "word"),
+    extendStep("left", "word", EXTEND_SELECTION_WORD_LEFT),
     100,
   );
   bus.registerState(
     EXTEND_SELECTION_WORD_RIGHT,
-    extendStep("right", "word"),
+    extendStep("right", "word", EXTEND_SELECTION_WORD_RIGHT),
     100,
   );
 
+  // Home / End go to the cell's own edges — the paragraph's Home and End, run
+  // on the cell, whose line edges are its block edges. A range across cells
+  // collapses into the focus's cell instead.
   const edge =
-    (motion: TableCaretStep) =>
+    (motion: TableCaretStep, action: StateAction<void>) =>
     (state: EditorState): Claimed | undefined => {
       const context = activeTableContext(state);
       if (!context) return undefined;
+      if (context.anchor.cellId === context.caret.cellId) {
+        return claimRun(
+          state,
+          runInCell(state, context, (paragraph) =>
+            paragraph.actionBus.dispatchState(action, paragraph),
+          ),
+        );
+      }
       const moved = stepTableCaret(context.document, context.caret, motion);
       return moved ? placeCaret(state, context, moved) : claim(state);
     };
-  bus.registerState(MOVE_TO_LINE_START, edge("cell-start"), 100);
-  bus.registerState(MOVE_TO_LINE_END, edge("cell-end"), 100);
+  bus.registerState(
+    MOVE_TO_LINE_START,
+    edge("cell-start", MOVE_TO_LINE_START),
+    100,
+  );
+  bus.registerState(MOVE_TO_LINE_END, edge("cell-end", MOVE_TO_LINE_END), 100);
 
   // Shift+Home / Shift+End select to the cell's own edges. Their Ctrl variants
   // address the document's start and end, which is a flat position — left to
   // the generic handlers, which is also how a table is escaped that way.
   const extendEdge =
-    (motion: TableCaretStep) =>
+    (motion: TableCaretStep, action: StateAction<{ isCtrl: boolean }>) =>
     (state: EditorState, { isCtrl }: { isCtrl: boolean }) => {
       if (isCtrl) return undefined;
       const context = activeTableContext(state);
       if (!context) return undefined;
+      if (context.anchor.cellId === context.caret.cellId) {
+        return claimRun(
+          state,
+          runInCell(state, context, (paragraph) =>
+            paragraph.actionBus.dispatchState(action, paragraph, {
+              isCtrl: false,
+            }),
+          ),
+        );
+      }
       const moved = stepTableCaret(context.document, context.caret, motion);
       return moved
         ? placeRange(state, context, context.anchor, moved)
         : claim(state);
     };
-  bus.registerState(EXTEND_SELECTION_HOME, extendEdge("cell-start"), 100);
-  bus.registerState(EXTEND_SELECTION_END, extendEdge("cell-end"), 100);
+  bus.registerState(
+    EXTEND_SELECTION_HOME,
+    extendEdge("cell-start", EXTEND_SELECTION_HOME),
+    100,
+  );
+  bus.registerState(
+    EXTEND_SELECTION_END,
+    extendEdge("cell-end", EXTEND_SELECTION_END),
+    100,
+  );
 
   // Tab walks the cells in row-major order. At the last cell it does NOT claim
   // the key, leaving the ordinary Tab behavior in place.
@@ -560,8 +653,30 @@ export function registerTableActions(bus: ActionBus): void {
         selected && { ...selected, state: updateMode(selected.state, "select") }
       );
     };
-  bus.registerState(SELECT_WORD_AT_POINT, selectAround(cellWordRange), 100);
-  bus.registerState(TAP_SELECT_WORD, selectAround(cellWordRange), 100);
+  // A double-click (or double-tap) takes the word around the caret the press
+  // just placed — the paragraph's own word selection, run on the cell, so a
+  // word ends at the same characters it does in the prose beside the table.
+  const selectWord = (state: EditorState): Claimed | undefined => {
+    const context = activeTableContext(state);
+    if (!context) return undefined;
+    const run = runInCell(
+      state,
+      context,
+      (paragraph) => ({
+        state: selectWordAtPosition(paragraph, {
+          blockIndex: 0,
+          textIndex: context.caret.offset,
+        }),
+        ops: [],
+      }),
+      { anchor: context.caret.offset, focus: context.caret.offset },
+    );
+    const selected = claimRun(state, run);
+    // The gesture leaves the editor in `select` mode, as `selectAround` does.
+    return { ...selected, state: updateMode(selected.state, "select") };
+  };
+  bus.registerState(SELECT_WORD_AT_POINT, selectWord, 100);
+  bus.registerState(TAP_SELECT_WORD, selectWord, 100);
   bus.registerState(SELECT_LINE_AT_POINT, selectAround(cellTextRange), 100);
   bus.registerState(TAP_SELECT_LINE, selectAround(cellTextRange), 100);
 
