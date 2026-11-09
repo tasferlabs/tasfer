@@ -6,7 +6,7 @@
       "cwd": "apps/web",
       "runtimeExecutable": "sh",
       "runtimeArgs": ["-c", "[ -d node_modules ] || npm install --no-audit --no-fund; exec npm run dev"],
-      "port": 4000,
+      "port": 4001,
       "autoPort": true
     }
   ]
