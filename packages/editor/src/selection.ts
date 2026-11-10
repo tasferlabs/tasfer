@@ -635,6 +635,8 @@ export function getCursorCoordinatesWithComposition(
       position.blockIndex,
       maxWidth,
       styles,
+      viewport,
+      visibility,
     );
     // At the keyboard's caret in the drawn word, as paint() places it; the
     // word is found by its characters, not by counting back from the caret.
