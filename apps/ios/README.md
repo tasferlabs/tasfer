@@ -13,7 +13,7 @@ that expose device features to the web layer.
 
 ## Signing setup
 
-The Apple Developer Team ID is not tracked. Store Release CI reads
+The Apple Developer Team ID is not tracked. The Release workflow reads
 `APPLE_TEAM_ID` from GitHub Actions secrets and passes it to Xcode through
 Fastlane. Local Xcode builds read the team from a gitignored override.
 

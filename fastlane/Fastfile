@@ -1,6 +1,6 @@
 # Tasfer store-release automation (iOS App Store + Google Play).
 #
-# Normally run in CI via the Store Release workflow (public logs); the same
+# Normally run in CI via the Release workflow (public logs); the same
 # lanes work locally from the repo root:
 #   bundle exec fastlane ios beta         TestFlight
 #   bundle exec fastlane ios release      App Store, submits for review

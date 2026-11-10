@@ -3,7 +3,7 @@
  *
  * The CLI ships as a release archive per platform: a self-contained `tasfer`
  * executable plus the native modules it loads beside itself (see
- * `.github/workflows/cli-release.yml`). Updating is therefore a download and a
+ * `.github/workflows/release.yml`). Updating is therefore a download and a
  * directory swap, not a package manager — a self-hoster who curled a tarball
  * onto a box should not have to remember where they got it.
  *

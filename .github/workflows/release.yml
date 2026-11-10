@@ -1,60 +1,127 @@
 name: Release
 
-# Cuts `v<appVersion>` and drives every native build into it from one dispatch.
+# Every release from one place: desktop installers, the `tasfer` CLI, the
+# @tasfer/* npm packages, and the iOS / Android store builds. Tick what you
+# want when you dispatch it.
 #
-# Desktop installers and the `tasfer` binaries share a release by design — the
-# CLI is the app without a screen, so it carries appVersion and rides its tag
-# (see scripts/release/cli-version.mjs). Sharing a tag only stays honest if
-# both come from the same tree, and dispatching the two builds separately gave
-# no way to enforce that: ship the installers from one commit, the CLI from a
-# later one, and the release says 0.1.6 for both with nothing recording the
-# difference. Calling both from here pins them to this workflow's ref, so the
-# skew cannot happen rather than merely being caught.
+# There is no tag input. Everything builds from main, and the version comes
+# from version.json on main. So: bump appVersion, merge to main, then dispatch
+# on main. A run dispatched on any other branch fails in `main-only`.
 #
-# The builds stay in their own files. They share no runner, matrix axis, or
-# secret: the desktop job signs and notarizes on one macOS runner that
-# cross-builds both arches, while the CLI fans out over four platform-arch
-# runners and needs no secrets at all. Folding them into one matrix would make
-# a two-minute CLI re-run wait on notarization.
+# Something failed? Re-run the failed jobs of the same run. Release creation
+# falls through when the release is already there, and every upload replaces
+# files by name, so a re-run into a live release is safe.
 #
-# The two assets sets never collide: electron-builder writes versionless
-# `Tasfer-<arch>.<ext>`, the CLI writes `tasfer-<version>-<platform>-<arch>.tar.gz`,
-# and every upload clobbers by name.
+# The GitHub release is cut as a draft and only goes live in `go-live`, once
+# desktop and CLI have uploaded everything. Installed apps read the latest live
+# release the moment it exists: a live release still missing `latest-mac.yml` —
+# as 0.1.12 and 0.1.13 were after their Mac builds failed — shows every Mac user
+# "Couldn't check for updates" until someone re-runs the build. A draft is
+# invisible to them, so a failed build leaves the previous release in place.
+# Re-running the failed jobs re-runs `go-live` after them.
 #
-# iOS and Android are not here — store submissions go through Store Release
-# after release notes are curated.
+# Desktop and CLI land in the same `v<appVersion>` GitHub release. The CLI is
+# the app without a screen, so it carries the app's version (see
+# scripts/release/cli-version.mjs). Their files never clash: electron-builder
+# writes `Tasfer-<arch>.<ext>`, the CLI writes
+# `tasfer-<version>-<platform>-<arch>.tar.gz`.
 #
-# publish=false is the dry run: both pipelines build in full and upload to the
-# workflow run instead of a release.
+# npm trusted publishing checks the name of the workflow file that runs the
+# publish. Every @tasfer/* package on npmjs.com must name `release.yml` as its
+# trusted publisher, or the npm job fails with ENEEDAUTH.
+#
+# Store builds: edit and commit fastlane/release_notes/<lang>.txt (every
+# language) before dispatching. Each store has its own choice, and the choice
+# is the fastlane lane. Picking "release" IS the confirmation to submit for
+# review (RELEASE_CONFIRM=yes below). "beta" goes to TestFlight / Play open
+# testing. "closed" is Play closed testing.
 
 on:
   workflow_dispatch:
     inputs:
-      publish:
-        description: "Upload to the v<appVersion> GitHub release"
+      desktop:
+        description: "Desktop installers → v<appVersion> GitHub release"
+        type: boolean
+        default: true
+      cli:
+        description: "tasfer CLI binaries → v<appVersion> GitHub release"
+        type: boolean
+        default: true
+      npm:
+        description: "@tasfer/* packages → npm"
         type: boolean
         default: false
+      npm_stage:
+        description: "npm: stage the publish for approval instead of publishing"
+        type: boolean
+        default: false
+      npm_verbose:
+        description: "npm: log what npm does, including the OIDC exchange"
+        type: boolean
+        default: false
+      ios:
+        description: "App Store: beta = TestFlight; release = submit for review"
+        type: choice
+        options: [none, beta, release]
+        default: none
+      # Android is off — uncomment these with the `android` job.
+      # android:
+      #   description: "Google Play: closed = closed testing; beta = open testing; release = submit for review"
+      #   type: choice
+      #   options: [none, closed, beta, release]
+      #   default: none
+      # play_closed_track:
+      #   description: "Play closed-testing track name (android = closed only; blank = alpha)"
+      #   type: string
+      #   default: ""
 
 permissions:
-  contents: write
+  contents: read
+
+# One release at a time. Never cancel a running one: a half-finished store
+# upload or npm publish is worse than waiting.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 defaults:
   run:
     shell: bash
 
 jobs:
-  # The sole creator. Both builds keep their own create-if-missing step for the
-  # standalone-dispatch path, but with this ahead of them they find the release
-  # already there and fall through — which is also what keeps them from racing
-  # each other to POST /releases, where the loser dies on 422 and strands its
-  # assets.
-  prepare:
+  # Releases ship from main only. Every job waits on this one, so a dispatch on
+  # any other branch fails here before anything builds or uploads.
+  main-only:
     runs-on: ubuntu-latest
+    steps:
+      - name: Check the run is on main
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::Releases run from main only — this run is on $GITHUB_REF. Dispatch it again on main."
+            exit 1
+          fi
+
+  # ─── GitHub release ──────────────────────────────────────────────────────────
+
+  # The only job that creates the release. electron-builder must never do it:
+  # with no release to upload into, each of its uploaders races to create one,
+  # the losers fail with 422 and their files go missing (v0.1.3 shipped with a
+  # single blockmap that way). It also tags the default branch instead of the
+  # commit being built. The CLI uploads race the same way.
+  #
+  # It is a draft, so it has no git tag yet; GitHub creates the tag at
+  # `--target` when `go-live` publishes it. electron-builder and
+  # `gh release upload` both find a draft by its tag name.
+  github-release:
+    needs: main-only
+    if: inputs.desktop || inputs.cli
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
 
       - name: Ensure the v<appVersion> release exists
-        if: inputs.publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -65,21 +132,528 @@ jobs:
             exit 0
           fi
           gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" --title "${tag#v}" --generate-notes --latest
+            --target "$GITHUB_SHA" --title "${tag#v}" --generate-notes --draft
 
-  # `./` resolves both at this workflow's ref, which is the whole point.
+  # Takes the draft live once desktop and CLI have both uploaded (whichever of
+  # them this run builds). The file check is there because electron-builder can
+  # skip an upload with only a warning; a release that goes live without
+  # `latest-mac.yml` breaks update checks for every Mac user. Keep the list in
+  # step with the artifact names in electron-builder.yml and the download
+  # page's FILES.
+  go-live:
+    needs: [github-release, desktop, cli-publish]
+    if: >-
+      ${{ always()
+      && needs.github-release.result == 'success'
+      && (!inputs.desktop || needs.desktop.result == 'success')
+      && (!inputs.cli || needs.cli-publish.result == 'success') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the release has every file
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WANT_DESKTOP: ${{ inputs.desktop }}
+          WANT_CLI: ${{ inputs.cli }}
+        run: |
+          set -euo pipefail
+          tag="v$(node scripts/release/app-version.mjs)"
+          assets="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name')"
+          files=()
+          if [[ "$WANT_DESKTOP" == "true" ]]; then
+            files+=(latest-mac.yml Tasfer-arm64.dmg Tasfer-arm64.zip Tasfer-x64.dmg Tasfer-x64.zip)
+          fi
+          if [[ "$WANT_CLI" == "true" ]]; then
+            files+=(tasfer-checksums.txt)
+          fi
+          missing=0
+          for file in "${files[@]}"; do
+            if ! grep -qxF "$file" <<< "$assets"; then
+              echo "::error::$tag is missing $file"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Make the release live
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="v$(node scripts/release/app-version.mjs)"
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+
+  # ─── Desktop (Electron) ──────────────────────────────────────────────────────
+
   desktop:
-    needs: prepare
-    uses: ./.github/workflows/native-release.yml
-    with:
-      publish: ${{ inputs.publish }}
-    secrets: inherit
+    needs: github-release
+    if: inputs.desktop
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        include:
+          # Pinned off macos-latest: the macos-26-arm64 20260907 image fails
+          # electron-builder's signing keychain setup (`security
+          # set-key-partition-list` → SecKeychainUnlock rejects its own temp
+          # keychain password). 20260728 signed fine. Move back once a newer
+          # image signs again.
+          - os: macos-15
+            platform: mac
+          # Windows is off until code signing is sorted out. An unsigned
+          # installer hands every visitor a SmartScreen warning, and the
+          # publisher name is baked into each client's app-update.yml — so the
+          # first signed release must already carry the identity we intend to
+          # keep.
+          # - os: windows-latest
+          #   platform: win
+          # Linux is off as well. The download page links no Linux asset —
+          # DownloadPage.tsx keeps its card and `linux*` FILES entries
+          # commented out — so this runner was publishing AppImage/deb/pacman
+          # that nothing pointed at. Uncomment here and restore that card
+          # together.
+          # - os: ubuntu-latest
+          #   platform: linux
 
-  # Not `needs: desktop` — nothing the CLI builds depends on the installers,
-  # and a signing failure should not cost the binaries their release.
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: |
+            apps/web/package-lock.json
+            apps/desktop/package-lock.json
+            packages/*/package-lock.json
+
+      # web's postinstall also installs the source-aliased packages/*
+      - name: Install
+        run: |
+          (cd apps/web && npm ci)
+          (cd apps/desktop && npm ci)
+
+      - name: Build web app
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Build Electron
+        working-directory: apps/desktop
+        run: npm run build
+
+      # Notarization reuses the App Store Connect API key the store builds use,
+      # so there is no separate Apple ID or app-specific password. All three
+      # values must be exported together — electron-builder fails on a partial
+      # set, but skips notarization (with a warning) when none are present.
+      - name: Write App Store Connect API key
+        if: matrix.platform == 'mac'
+        env:
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${ASC_KEY_CONTENT:-}" || -z "${ASC_KEY_ID:-}" || -z "${ASC_ISSUER_ID:-}" ]]; then
+            echo "::notice::App Store Connect API key secrets are incomplete — the macOS build will not be notarized"
+            exit 0
+          fi
+
+          key_path="$RUNNER_TEMP/AuthKey.p8"
+          if ! printf '%s' "$ASC_KEY_CONTENT" | base64 -d > "$key_path"; then
+            echo "::error::ASC_KEY_CONTENT is not valid base64"
+            exit 1
+          fi
+          if ! openssl pkey -in "$key_path" -check -noout >/dev/null 2>&1; then
+            echo "::error::ASC_KEY_CONTENT does not decode to a valid App Store Connect .p8 private key"
+            exit 1
+          fi
+
+          {
+            echo "APPLE_API_KEY=$key_path"
+            echo "APPLE_API_KEY_ID=$ASC_KEY_ID"
+            echo "APPLE_API_ISSUER=$ASC_ISSUER_ID"
+          } >> "$GITHUB_ENV"
+
+      # Tried twice. The last step of notarization downloads Apple's approval
+      # ticket into the app (`stapler`), and that download keeps losing its
+      # connection from GitHub's Mac runners ("The network connection was
+      # lost", Error 68) — it failed the first try of both 0.1.12 and 0.1.13.
+      # @electron/notarize already retries it, but only within a few seconds.
+      # A second full run redoes the signing and notarization, and its uploads
+      # replace whatever the first run sent.
+      - name: Package
+        working-directory: apps/desktop
+        run: |
+          for attempt in 1 2; do
+            if npm run package -- --${{ matrix.platform }} --publish always; then
+              exit 0
+            fi
+            if [[ $attempt -lt 2 ]]; then
+              echo "::warning::Packaging failed on try $attempt — trying again in 60 seconds"
+              sleep 60
+            fi
+          done
+          exit 1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # electron-builder refuses to upload into a release published more
+          # than two hours ago, warning instead of failing — a re-run of a
+          # half-published release would look green and upload nothing.
+          EP_GH_IGNORE_TIME: "true"
+          # macOS code signing — a Developer ID Application certificate. Absent,
+          # electron-builder still produces the artifacts, but unsigned: macOS
+          # refuses to launch them and the updater cannot install them.
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Windows code signing — re-enable with the win matrix entry above.
+          # WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          # WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+
+  # ─── CLI (apps/cli) ──────────────────────────────────────────────────────────
+  #
+  # `tasfer update` and the `install.sh` served from the site read these releases
+  # through the GitHub API, match an asset by `<platform>-<arch>` and check it
+  # against `tasfer-checksums.txt`. So the asset names and that file are a
+  # contract with the shipped binaries, not just build output. A `v*` release
+  # with no `tasfer-*` asset is one they skip.
+  #
+  # macOS and Linux only. Adding Windows back is a matrix entry plus a zip
+  # branch here and in apps/cli/src/cli/update.ts.
+
+  # Not `needs: desktop` — the CLI does not depend on the installers, so the
+  # two build side by side. Both have to finish before `go-live` makes the
+  # release live.
   cli:
-    needs: prepare
-    uses: ./.github/workflows/cli-release.yml
-    with:
-      publish: ${{ inputs.publish }}
-    secrets: inherit
+    needs: github-release
+    if: inputs.cli
+    strategy:
+      # One platform failing should not stop the others. A platform missing
+      # from a release is one `tasfer update` passes over ("no update yet"),
+      # and a re-run fills the gap.
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: darwin-arm64
+          - os: macos-15-intel
+            target: darwin-x64
+          - os: ubuntu-latest
+            target: linux-x64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+
+      # `--no-package-lock` crashes the npm that ships with Node 22
+      # ("Cannot read properties of null (reading 'edgesOut')") on
+      # node-datachannel's optional @node-datachannel/android-arm64, which was
+      # never published. Installing from the lockfile skips that fetch.
+      - name: Install
+        working-directory: apps/cli
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        working-directory: apps/cli
+        run: npm run typecheck
+
+      # macOS binaries are ad-hoc signed. That is enough for a curl'd archive,
+      # since nothing quarantines it; a browser download would need a Developer
+      # ID here (set MAC_SIGN_IDENTITY once the certificate is imported).
+      - name: Build the binary
+        working-directory: apps/cli
+        run: npm run build:binary
+
+      - name: Archive
+        id: archive
+        working-directory: apps/cli/build
+        run: |
+          set -euo pipefail
+          version="$(node ../../../scripts/release/cli-version.mjs)"
+          dir="tasfer-${version}-${{ matrix.target }}"
+          [ -d "$dir" ] || { echo "::error::$dir was not built"; exit 1; }
+
+          archive="$dir.tar.gz"
+          tar -czf "$archive" "$dir"
+
+          # One `<sha256>  <name>` line, the shape update and install.sh parse.
+          if command -v sha256sum > /dev/null; then
+            sha256sum "$archive" > "$archive.sha256"
+          else
+            shasum -a 256 "$archive" > "$archive.sha256"
+          fi
+
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          cat "$archive.sha256"
+
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-${{ matrix.target }}
+          path: |
+            apps/cli/build/${{ steps.archive.outputs.archive }}
+            apps/cli/build/${{ steps.archive.outputs.archive }}.sha256
+
+  # The checksums file is written after every platform is in, because it covers
+  # all of them and `tasfer update` refuses an archive it has no line for.
+  cli-publish:
+    needs: cli
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: cli-*
+          path: assets
+          merge-multiple: true
+
+      - name: Collect checksums
+        working-directory: assets
+        run: |
+          set -euo pipefail
+          cat ./*.sha256 > tasfer-checksums.txt
+          rm ./*.sha256
+          cat tasfer-checksums.txt
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$(node scripts/release/cli-version.mjs --tag)"
+          gh release upload "$tag" assets/* --repo "$GITHUB_REPOSITORY" --clobber
+
+  # ─── npm (@tasfer/*) ─────────────────────────────────────────────────────────
+  #
+  # Trusted publishing: npm swaps the job's OIDC token for a publish token by
+  # itself and attests provenance. A package with no trusted publisher naming
+  # this file fails with ENEEDAUTH rather than falling back to a token.
+
+  npm:
+    needs: main-only
+    if: inputs.npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC for trusted publishing + provenance
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: packages/*/package-lock.json
+          registry-url: https://registry.npmjs.org
+
+      # Node 22 bundles npm 10; trusted publishing needs 11.5.1 or newer.
+      - name: Use a current npm
+        run: npm install -g npm@latest
+
+      - name: Install
+        run: |
+          for p in tex editor math code table provider-core provider-indexeddb provider-relay provider-webrtc react; do
+            (cd "packages/$p" && npm ci)
+          done
+
+      - name: Build in dependency order
+        run: bash packages/build-all.sh
+
+      - name: Stamp the version from version.json
+        run: node scripts/release/package-version.mjs --write
+
+      - name: Pin intra-repo peer ranges
+        run: node scripts/release/pin-peer-ranges.mjs
+
+      - name: Publish
+        env:
+          STAGE: ${{ inputs.npm_stage }}
+          NPM_CONFIG_LOGLEVEL: ${{ inputs.npm_verbose && 'verbose' || 'notice' }}
+        run: |
+          for p in tex editor math code table provider-core provider-indexeddb provider-relay provider-webrtc react; do
+            cd "packages/$p"
+            name=$(node -p "require('./package.json').name")
+            version=$(node -p "require('./package.json').version")
+            if npm view "$name@$version" version > /dev/null 2>&1; then
+              echo "▸ $name@$version already published, skipping"
+            elif [ "$STAGE" = "true" ]; then
+              echo "▸ staging $name@$version"
+              npm stage publish
+            else
+              echo "▸ publishing $name@$version"
+              npm publish
+            fi
+            cd ../..
+          done
+
+  # ─── App Store / Google Play ─────────────────────────────────────────────────
+  #
+  # Runs the same checked-in fastlane lanes a maintainer would run locally. iOS
+  # and Android read their version from version.json at build time.
+  #
+  # iOS signing uses Xcode cloud-managed signing through the ASC API key — no
+  # certificate export. The key needs the Admin role the first time (to create
+  # the cloud distribution certificate); App Manager works after that.
+
+  ios:
+    needs: main-only
+    if: inputs.ios != 'none'
+    # Must stay on an image with Xcode 26+. App Store Connect rejects the
+    # upload otherwise: "This app was built with the iOS 18.5 SDK. All iOS and
+    # iPadOS apps must be built with the iOS 26 SDK or later." So unlike the
+    # desktop job, this one cannot be pinned back to macos-15.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: |
+            apps/web/package-lock.json
+            packages/*/package-lock.json
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+
+      # web's postinstall also installs the source-aliased packages/*;
+      # the Xcode build phase then builds + syncs the web bundle itself.
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Write App Store Connect API key
+        env:
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+
+          for name in ASC_KEY_CONTENT ASC_KEY_ID ASC_ISSUER_ID APPLE_TEAM_ID; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::$name is missing from GitHub Actions repository secrets"
+              exit 1
+            fi
+          done
+
+          if [[ ! "$ASC_KEY_ID" =~ ^[A-Z0-9]{10}$ ]]; then
+            echo "::error::ASC_KEY_ID must be the 10-character Key ID shown beside the team API key"
+            exit 1
+          fi
+          if [[ ! "$ASC_ISSUER_ID" =~ ^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$ ]]; then
+            echo "::error::ASC_ISSUER_ID must be the UUID shown at the top of App Store Connect's Team Keys page"
+            exit 1
+          fi
+          if [[ ! "$APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]; then
+            echo "::error::APPLE_TEAM_ID must be the 10-character Team ID from Apple Developer membership details"
+            exit 1
+          fi
+
+          key_path="$RUNNER_TEMP/AuthKey.p8"
+          if ! printf '%s' "$ASC_KEY_CONTENT" | base64 -d > "$key_path"; then
+            echo "::error::ASC_KEY_CONTENT is not valid base64"
+            exit 1
+          fi
+          if ! grep -q '^-----BEGIN PRIVATE KEY-----$' "$key_path" || ! openssl pkey -in "$key_path" -check -noout >/dev/null 2>&1; then
+            echo "::error::ASC_KEY_CONTENT does not decode to a valid App Store Connect .p8 private key"
+            exit 1
+          fi
+
+      - name: Build and upload
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APP_REVIEW_FIRST_NAME: ${{ secrets.APP_REVIEW_FIRST_NAME }}
+          APP_REVIEW_LAST_NAME: ${{ secrets.APP_REVIEW_LAST_NAME }}
+          APP_REVIEW_PHONE_NUMBER: ${{ secrets.APP_REVIEW_PHONE_NUMBER }}
+          APP_REVIEW_EMAIL_ADDRESS: ${{ secrets.APP_REVIEW_EMAIL_ADDRESS }}
+          RELEASE_CONFIRM: yes
+        run: bundle exec fastlane ios ${{ inputs.ios }}
+
+  # Android is off. Uncomment this job together with the `android` and
+  # `play_closed_track` inputs.
+  # android:
+  #   needs: main-only
+  #   if: inputs.android != 'none'
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v7
+  #
+  #     - uses: actions/setup-node@v7
+  #       with:
+  #         node-version-file: .node-version
+  #         cache: npm
+  #         cache-dependency-path: |
+  #           apps/web/package-lock.json
+  #           packages/*/package-lock.json
+  #
+  #     - uses: actions/setup-java@v5
+  #       with:
+  #         distribution: temurin
+  #         java-version: 21
+  #
+  #     - uses: ruby/setup-ruby@v1
+  #       with:
+  #         bundler-cache: true
+  #
+  #     # web's postinstall also installs the source-aliased packages/*;
+  #     # the Gradle preBuild task then builds + syncs the web bundle itself.
+  #     - name: Install web dependencies
+  #       working-directory: apps/web
+  #       run: npm ci
+  #
+  #     # capacitor-cordova-android-plugins is gitignored and must exist before
+  #     # Gradle configuration; the in-build sync only runs `cap copy`. The empty
+  #     # assets/public placeholder stops `cap update` from running a full copy,
+  #     # which would need the web bundle the Gradle build hasn't built yet.
+  #     - name: Generate Capacitor Android project
+  #       working-directory: apps/web
+  #       run: |
+  #         mkdir -p ../android/app/src/main/assets/public
+  #         npx cap update android
+  #
+  #     - name: Write signing keys
+  #       env:
+  #         ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+  #         ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+  #         ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+  #         ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+  #         PLAY_JSON_KEY: ${{ secrets.PLAY_JSON_KEY }}
+  #       run: |
+  #         printf '%s' "$ANDROID_KEYSTORE" | base64 -d > apps/android/app/upload-keystore.jks
+  #         cat > apps/android/keystore.properties <<EOF
+  #         storeFile=app/upload-keystore.jks
+  #         storePassword=$ANDROID_KEYSTORE_PASSWORD
+  #         keyAlias=$ANDROID_KEY_ALIAS
+  #         keyPassword=$ANDROID_KEY_PASSWORD
+  #         EOF
+  #         printf '%s' "$PLAY_JSON_KEY" > "$RUNNER_TEMP/play-key.json"
+  #
+  #     - name: Build and upload
+  #       env:
+  #         PLAY_JSON_KEY_PATH: ${{ runner.temp }}/play-key.json
+  #         PLAY_CLOSED_TRACK: ${{ inputs.play_closed_track }}
+  #         RELEASE_CONFIRM: yes
+  #       run: bundle exec fastlane android ${{ inputs.android }}
