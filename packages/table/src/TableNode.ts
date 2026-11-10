@@ -133,7 +133,13 @@ import {
   type StructuredDocument,
   type StructuredEdit,
 } from "@tasfer/editor/sync/structured-content";
-import { compositionRects } from "@tasfer/editor/text-layout";
+import {
+  compositionRects,
+  replacementRunForContent,
+  textContentCaretRect,
+  textContentSelectionFromPoint,
+  textContentSelectionRects,
+} from "@tasfer/editor/text-layout";
 
 /** Stroke width of the composition underline, matching the paragraph's. */
 const COMPOSITION_UNDERLINE_WIDTH = 1.5;
@@ -182,13 +188,45 @@ function tableContentBand(
       isForward: boolean;
     }
   | { kind: "cells"; cells: TableCellLayout[]; isForward: boolean }
+  | {
+      kind: "content";
+      rects: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        baseline: number;
+      }[];
+      isForward: boolean;
+    }
   | null {
   if (selection.focus.blockId !== block.id) return null;
+  const document = getTableDocument(block);
+  if (!document) return null;
+  if (selection.focus.contentId !== document.rootId) {
+    // A range inside a cell's formula: the formula draws its own highlight.
+    const cell = cellWithContent(layout, selection.focus.contentId);
+    if (!cell) return null;
+    const rects = textContentSelectionRects(cell.text, selection, block.id).map(
+      (rect) => ({
+        x: cell.textX + rect.x,
+        y: cell.textY + rect.y,
+        width: rect.width,
+        height: rect.height,
+        baseline: cell.textY + (rect.baseline ?? rect.y),
+      }),
+    );
+    return rects.length > 0
+      ? {
+          kind: "content",
+          rects,
+          isForward: formulaRangeIsForward(cell, selection, block.id),
+        }
+      : null;
+  }
   if (selection.anchor.kind !== "text" || selection.focus.kind !== "text") {
     return null;
   }
-  const document = getTableDocument(block);
-  if (!document) return null;
   const anchor = tableCaretFromContentPoint(document, selection.anchor);
   const focus = tableCaretFromContentPoint(document, selection.focus);
   if (!anchor || !focus) return null;
@@ -225,6 +263,39 @@ function tableContentBand(
     ),
     isForward: from <= to,
   };
+}
+
+/**
+ * Whether a range inside a cell's formula runs forward — its anchor before its
+ * focus in reading order (a higher line, or further left on the same one; a
+ * formula lays out left to right whatever the cell's direction). The touch
+ * handles hang from that order, so a range dragged backward keeps its anchor
+ * handle on the anchor.
+ */
+function formulaRangeIsForward(
+  cell: TableCellLayout,
+  selection: ContentSelection,
+  blockId: string,
+): boolean {
+  const anchor = textContentCaretRect(cell.text, selection.anchor, blockId);
+  const focus = textContentCaretRect(cell.text, selection.focus, blockId);
+  if (!anchor || !focus) return true;
+  const sameLine =
+    anchor.y < focus.y + focus.height && focus.y < anchor.y + anchor.height;
+  return sameLine ? anchor.x <= focus.x : anchor.y < focus.y;
+}
+
+/**
+ * The cell whose text holds the formula (any replacement run) attached as
+ * `contentId` — where a caret or range inside that formula is drawn.
+ */
+function cellWithContent(
+  layout: TableLayout,
+  contentId: string,
+): TableCellLayout | undefined {
+  return layout.cells.find(
+    (cell) => replacementRunForContent(cell.text, contentId) !== undefined,
+  );
 }
 
 /** The resolved table style, with the paragraph metrics as a safety net. */
@@ -562,11 +633,21 @@ export class TableNode extends Node<TableBlock> {
     const selection = c.state.document.contentSelection;
     if (!selection || selection.focus.blockId !== c.block.id) return;
     const { anchor, focus } = selection;
-    if (anchor.kind !== "text" || focus.kind !== "text") return;
-    if (anchor.nodeId !== focus.nodeId) return;
-    const cell = layout.cells.find(
-      (candidate) => candidate.cellId === focus.nodeId,
-    );
+    // A caret inside a cell's formula is in that cell.
+    const inFormula =
+      getTableDocument(c.block)?.rootId !== focus.contentId
+        ? cellWithContent(layout, focus.contentId)
+        : undefined;
+    if (!inFormula) {
+      if (anchor.kind !== "text" || focus.kind !== "text") return;
+      if (anchor.nodeId !== focus.nodeId) return;
+    }
+    const cell =
+      inFormula ??
+      layout.cells.find(
+        (candidate) =>
+          focus.kind === "text" && candidate.cellId === focus.nodeId,
+      );
     if (!cell || cell.rowIndex === 0) return;
     c.ctx.fillStyle = layout.style.activeCellBackgroundColor;
     c.ctx.fillRect(x + cell.x, y + cell.y, cell.width, cell.height);
@@ -619,8 +700,11 @@ export class TableNode extends Node<TableBlock> {
     // Same fill, opacity and corner rounding prose uses, so a selection that
     // starts in a paragraph and a selection inside a cell look like one thing.
     const rects: DecorationRect[] =
-      band.kind === "text"
-        ? cellRangeRects(band.cell, band.from, band.to).map((rect) => ({
+      band.kind === "text" || band.kind === "content"
+        ? (band.kind === "text"
+            ? cellRangeRects(band.cell, band.from, band.to)
+            : band.rects
+          ).map((rect) => ({
             ...rect,
             x: x + rect.x,
             y: y + rect.y,
@@ -648,9 +732,27 @@ export class TableNode extends Node<TableBlock> {
     y: number,
   ): void {
     const style = layout.style;
+    // The formula the caret is inside stays lit while it is edited, the way a
+    // paragraph lights it.
+    // So does the one under the pointer.
+    const focus = c.state.document.contentSelection?.focus;
+    const activeContent =
+      focus?.blockId === c.block.id ? focus.contentId : undefined;
+    const hover = c.state.ui.inlineMathHover;
+    const hoveredContent =
+      hover?.blockIndex === c.blockIndex ? hover.contentId : undefined;
     for (const cell of layout.cells) {
       if (cell.chars.length === 0) continue;
       const isRTL = cell.direction === "rtl";
+      // As in a paragraph, a hovered formula is the one lit: the pointer
+      // outranks the caret.
+      const shown = hoveredContent ?? activeContent;
+      const lit = shown
+        ? replacementRunForContent(cell.text, shown)
+        : undefined;
+      const highlighted = lit
+        ? { startIndex: lit.start, endIndex: lit.end }
+        : null;
       // A line can still be wider than its cell when a column is narrower than
       // wrapping can help — a single glyph is unbreakable, and a dragged column
       // keeps the width it was given. Clip those cells to their own box so the
@@ -666,8 +768,14 @@ export class TableNode extends Node<TableBlock> {
         c.ctx.clip();
       }
       this.paintCompositionUnderline(cell, c, x, y);
-      for (const line of cell.lines) {
-        if (line.text.length === 0) continue;
+      cell.lines.forEach((line, lineIndex) => {
+        // A formula reflowing across lines can own no character on a line it
+        // still draws a piece of; its slices, not its text, say so.
+        const slices = cell.text.lineSlices[lineIndex];
+        const drawsSlice =
+          slices !== undefined &&
+          (slices.lead !== undefined || slices.anchored.size > 0);
+        if (line.text.length === 0 && !drawsSlice) return;
         paintTextRun({
           ctx: c.ctx,
           chars: cell.chars,
@@ -684,8 +792,12 @@ export class TableNode extends Node<TableBlock> {
           marks: c.marks,
           isRTL,
           requestRedraw: c.requestRedraw,
+          // A cell's formula lives beside the table's document on the block.
+          attachments: c.block.structuredContent,
+          slices,
+          highlighted,
         });
-      }
+      });
       if (overflows) c.ctx.restore();
     }
   }
@@ -1073,6 +1185,16 @@ export class TableNode extends Node<TableBlock> {
       : local;
     const cell = cellFromPoint(layout, point);
     if (!cell?.cellId) return null;
+    // A point on a formula lands inside it — the construct under the pointer,
+    // exactly as a click on a paragraph's formula does.
+    const inside = textContentSelectionFromPoint(
+      cell.text,
+      point.x - cell.textX,
+      point.y - cell.textY,
+      c.block.id,
+      _options,
+    );
+    if (inside) return inside;
     return (
       tableCaretToContentSelection(document, c.block.id, {
         cellId: cell.cellId,
@@ -1093,6 +1215,9 @@ export class TableNode extends Node<TableBlock> {
     const layout = shownLayout(passedLayout, c);
     const document = getTableDocument(c.block);
     if (!document) return null;
+    if (point.contentId !== document.rootId) {
+      return formulaCaretRect(layout, point, c);
+    }
     const stored = tableCaretFromContentPoint(document, point);
     if (!stored) return null;
     const caret = composedCaret(c, point, stored);
@@ -1140,7 +1265,9 @@ export class TableNode extends Node<TableBlock> {
     const boxes =
       band.kind === "text"
         ? cellRangeRects(band.cell, band.from, band.to)
-        : band.cells;
+        : band.kind === "content"
+          ? band.rects
+          : band.cells;
     // Only the part in view: in a wide table, a range can run on into columns
     // scrolled out of sight, and its handles belong on what can be seen.
     const rects = boxes.flatMap((box) => {
@@ -1642,6 +1769,30 @@ export class TableNode extends Node<TableBlock> {
  * construction the edge under the pointer — including during the drag, where
  * the hover from the press still stands.
  */
+/**
+ * The caret inside a cell's formula, placed by the formula itself, pinned to
+ * the page-wide window the way a cell caret is.
+ */
+function formulaCaretRect(
+  layout: TableLayout,
+  point: ContentPoint,
+  c: NodeContentCaretCtx<TableBlock>,
+): NodeCaretRect | null {
+  const cell = cellWithContent(layout, point.contentId);
+  if (!cell) return null;
+  const rect = textContentCaretRect(cell.text, point, c.block.id);
+  if (!rect) return null;
+  const caretX = cell.textX + rect.x;
+  const offscreen =
+    caretX < -1 ? "left" : caretX > layout.maxWidth + 1 ? "right" : null;
+  return {
+    x: c.origin.x + Math.max(0, Math.min(layout.maxWidth, caretX)),
+    y: c.origin.y + cell.textY + rect.y,
+    height: rect.height,
+    ...(offscreen ? { offscreen } : {}),
+  };
+}
+
 function columnEdgeTarget(blockId: string, index: number): string {
   return `${blockId}${COLUMN_EDGE_TARGET}${index}`;
 }
@@ -1835,7 +1986,9 @@ function shownLayout(
 
 /** The layout inputs a table block reads from its editor instance. */
 function tableLayoutCtx(
-  c: Pick<NodeLayoutCtx, "maxWidth" | "styles" | "marks">,
+  c: Pick<NodeLayoutCtx, "maxWidth" | "styles" | "marks"> & {
+    readonly block: Parameters<typeof getTableDocument>[0];
+  },
 ): TableLayoutCtx {
   return {
     maxWidth: c.maxWidth,
@@ -1843,6 +1996,7 @@ function tableLayoutCtx(
     fontFamily: currentFontFamily(c.styles),
     fonts: c.styles.fonts,
     marks: c.marks,
+    attachments: c.block.structuredContent,
   };
 }
 

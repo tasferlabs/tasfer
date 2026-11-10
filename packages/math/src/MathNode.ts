@@ -34,6 +34,7 @@ import {
   getMathDocumentForBlock,
   getMathStructuredDocument,
   getStructuredMathSource,
+  MATH_STRUCTURED_KIND,
   mathContentIdForBlock,
   parseMathDocumentInit,
 } from "./structured";
@@ -2495,6 +2496,25 @@ export class MathNode extends TextNode<MathBlock> {
           ) {
             inlineMathHover = { ...run };
           }
+        } else if (mathBlockIndex === null && blockUnderPoint !== null) {
+          // A formula inside another node's content (a table cell): its own
+          // hit-test says whether the pointer is on it, as a click would.
+          const block = state.document.page.blocks[blockUnderPoint];
+          if (block && !block.deleted && !isTextualBlock(block)) {
+            const hit = resolveContentSelection();
+            const document =
+              hit?.focus.blockId === block.id
+                ? block.structuredContent?.[hit.focus.contentId]
+                : undefined;
+            if (hit && document?.kind === MATH_STRUCTURED_KIND) {
+              inlineMathHover = {
+                blockIndex: blockUnderPoint,
+                startIndex: -1,
+                endIndex: -1,
+                contentId: hit.focus.contentId,
+              };
+            }
+          }
         }
         return {
           state: state.actionBus.dispatchState(SET_INLINE_MATH_HOVER, state, {
@@ -2859,6 +2879,8 @@ export interface InlineMathHover {
   blockIndex: number;
   startIndex: number;
   endIndex: number;
+  /** See `UIState.inlineMathHover.contentId`: a formula inside a node's content. */
+  contentId?: string;
 }
 
 /** Set or clear the hovered block-math index (full-block backdrop). Pure, no ops. */
@@ -2892,7 +2914,8 @@ export const SET_INLINE_MATH_HOVER = stateAction<{
       hover &&
       (prev.blockIndex !== hover.blockIndex ||
         prev.startIndex !== hover.startIndex ||
-        prev.endIndex !== hover.endIndex));
+        prev.endIndex !== hover.endIndex ||
+        prev.contentId !== hover.contentId));
   if (!changed) return { state, ops: [] };
   return {
     state: { ...state, ui: { ...state.ui, inlineMathHover: hover } },

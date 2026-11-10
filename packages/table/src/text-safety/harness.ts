@@ -47,6 +47,21 @@ import {
 
 export const schema = baseSchema.use(tableExtension());
 
+/** The app's configuration: cells run the inline markdown shortcuts. */
+export const markdownSchema = baseSchema.use(
+  tableExtension({ markdownShortcuts: true }),
+);
+
+/**
+ * The paragraph a cell is held to: one that cannot turn into another block.
+ * A typed `# ` or `- ` makes a heading or a list of a paragraph; a cell has no
+ * block to convert, so the fair reference keeps the prefix as text too.
+ */
+const paragraphOnly = schema.restrict({ blocks: ["paragraph"] });
+const markdownParagraphOnly = markdownSchema.restrict({
+  blocks: ["paragraph"],
+});
+
 export function markdownOf(state: EditorState): string {
   return serializeToMarkdown(state.document.page.blocks, undefined, {
     schema: schema.data,
@@ -54,16 +69,20 @@ export function markdownOf(state: EditorState): string {
 }
 
 /** A fresh editor over `source`, stamping ops as `peerId`. */
-export function editorOf(source: string, peerId = "local"): EditorState {
+export function editorOf(
+  source: string,
+  peerId = "local",
+  editorSchema: Pick<typeof schema, "data" | "nodes" | "marks"> = schema,
+): EditorState {
   const bus = createActionBus();
   registerTableInputActions(bus);
   // Caret moves (the arrow keys), as a mounted table registers them.
   registerTableActions(bus);
-  const page = loadPage(source, schema.data);
+  const page = loadPage(source, editorSchema.data);
   const state = createInitialState(page, {
-    schema: schema.data,
-    nodes: createNodeRegistry(schema.nodes),
-    marks: createMarkRegistry(schema.marks),
+    schema: editorSchema.data,
+    nodes: createNodeRegistry(editorSchema.nodes),
+    marks: createMarkRegistry(editorSchema.marks),
     crdtBinding: createCRDTbinding(page.id, peerId),
   });
   return { ...state, actionBus: bus };
@@ -134,7 +153,7 @@ function paragraphBlock(state: EditorState): Block & {
 
 export const paragraphSurface: TextSurface = {
   name: "paragraph",
-  create: (text, peerId) => editorOf(text, peerId),
+  create: (text, peerId) => editorOf(text, peerId, paragraphOnly),
   select(state, anchor, focus) {
     // The cursor always rests on the focus; a range is a selection on top.
     state = moveCursorToPosition(updateSelection(state, null), 0, focus);
@@ -149,8 +168,10 @@ export const paragraphSurface: TextSurface = {
     return richText(block.charRuns, block.formats);
   },
   selection(state) {
+    // A collapsed selection can linger after a Shift move walks back onto its
+    // anchor; the cursor, not that leftover, is where the next edit lands.
     const selection = state.document.selection;
-    if (selection) {
+    if (selection && !selection.isCollapsed) {
       return {
         anchor: selection.anchor.textIndex,
         focus: selection.focus.textIndex,
@@ -255,6 +276,20 @@ export const cellSurface: TextSurface = {
     };
     return { anchor: offset(selection.anchor), focus: offset(selection.focus) };
   },
+};
+
+/** A paragraph in the app's schema — the reference {@link markdownCellSurface} is held to. */
+export const markdownParagraphSurface: TextSurface = {
+  ...paragraphSurface,
+  name: "paragraph (markdown schema)",
+  create: (text, peerId) => editorOf(text, peerId, markdownParagraphOnly),
+};
+
+/** {@link cellSurface} with the inline markdown shortcuts on, as the app runs it. */
+export const markdownCellSurface: TextSurface = {
+  ...cellSurface,
+  name: "table cell (markdown shortcuts)",
+  create: (text, peerId) => editorOf(tableSource(text), peerId, markdownSchema),
 };
 
 // ─── Replicas ────────────────────────────────────────────────────────────────

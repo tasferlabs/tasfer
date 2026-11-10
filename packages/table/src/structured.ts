@@ -42,6 +42,7 @@ import {
   getStructuredChildren,
   getStructuredText,
   structuredContentId,
+  type StructuredContentMap,
   type StructuredDocument,
   type StructuredMutation,
   type StructuredNode,
@@ -221,6 +222,12 @@ export function readTable(document: StructuredDocument): TableView {
 export interface TableCellSeed {
   readonly charRuns: readonly CharRun[];
   readonly marks?: readonly MarkRange[];
+  /**
+   * Attachments the cell's structured marks (an inline formula) point at.
+   * They do not live in the table document: the caller carries them onto the
+   * table block, beside it, the way a paragraph carries its own.
+   */
+  readonly attachments?: StructuredContentMap;
 }
 
 /**

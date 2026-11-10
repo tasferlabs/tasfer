@@ -131,6 +131,22 @@ export type StateHandler<P = void> = (
  */
 export interface StateAction<P = void> extends Action<P> {
   readonly transform: StateMutator<P>;
+  /** See {@link StateActionOptions.forwardable}. */
+  readonly forwardable?: boolean;
+}
+
+/** Options for {@link stateAction}. */
+export interface StateActionOptions {
+  /**
+   * The action edits at the caret, the way a key press does, so a node that
+   * edits its text fields with the paragraph's own code may run it there
+   * instead. Set it on an action a feature declares for its own content (an
+   * inline formula's command insert): a node that holds that content in a
+   * field (a table cell's formula) and registered a
+   * {@link ActionBus.registerForwarder forwarder} then answers it without
+   * having to know the action. Off by default.
+   */
+  readonly forwardable?: boolean;
 }
 
 /**
@@ -141,9 +157,25 @@ export interface StateAction<P = void> extends Action<P> {
 export function stateAction<P = void>(
   name: string,
   transform: StateMutator<P>,
+  options: StateActionOptions = {},
 ): StateAction<P> {
-  return { name, transform };
+  return options.forwardable
+    ? { name, transform, forwardable: true }
+    : { name, transform };
 }
+
+/**
+ * A handler for every {@link StateActionOptions.forwardable forwardable}
+ * action no action-specific handler claimed — see
+ * {@link ActionBus.registerForwarder}. It gets the action itself, so it can
+ * dispatch the same action somewhere else (a stand-in paragraph) with the
+ * same payload.
+ */
+export type StateForwarder = <P>(
+  state: EditorState,
+  action: StateAction<P>,
+  payload: P,
+) => (StateResult & { handled?: boolean }) | void;
 
 /** Narrow a action to a state action (dispatch picks the pure-transform path). */
 export function isStateAction<P>(c: Action<P>): c is StateAction<P> {
@@ -219,6 +251,14 @@ export interface ActionBus {
     ...args: DispatchArgs<P>
   ): StateResult & { claimed: boolean };
   /**
+   * Register `forwarder` for every {@link StateActionOptions.forwardable
+   * forwardable} state action. It runs after that action's own handlers have
+   * all passed and before its default transform, high→low `priority` among
+   * forwarders, with the same claim semantics as a handler. Returns an
+   * unsubscribe function.
+   */
+  registerForwarder(forwarder: StateForwarder, priority?: number): () => void;
+  /**
    * Registered handlers for `action`, high→low priority. For drivers that
    * invoke handlers with a non-standard signature — mutation actions thread a
    * {@link ChangeApi} through one transaction instead of going via `dispatch`.
@@ -233,6 +273,7 @@ interface Registered {
 
 export function createActionBus(): ActionBus {
   const handlers = new Map<Action<unknown>, Registered[]>();
+  const forwarders: { forwarder: StateForwarder; priority: number }[] = [];
   // Shared registration body for both `register` (payload handlers, the
   // `dispatch` path) and `registerState` (state handlers, the `dispatchState`
   // path). Both kinds live in one list keyed by action; the dispatch method that
@@ -310,11 +351,34 @@ export function createActionBus(): ActionBus {
           }
         }
       }
+      if (!claimed && action.forwardable) {
+        for (const { forwarder } of forwarders.slice()) {
+          const r = forwarder(working.state, action, payload as never);
+          if (r) {
+            working = { state: r.state, ops: working.ops.concat(r.ops) };
+            if (r.handled) {
+              claimed = true;
+              break;
+            }
+          }
+        }
+      }
       if (!claimed) {
         const r = action.transform(working.state, payload as never);
         working = { state: r.state, ops: working.ops.concat(r.ops) };
       }
       return { ...working, claimed };
+    },
+    registerForwarder(forwarder, priority = 0) {
+      const entry = { forwarder, priority };
+      // Sorted high→low, ties in registration order — as for handlers.
+      const at = forwarders.findIndex((e) => e.priority < priority);
+      if (at === -1) forwarders.push(entry);
+      else forwarders.splice(at, 0, entry);
+      return () => {
+        const i = forwarders.indexOf(entry);
+        if (i > -1) forwarders.splice(i, 1);
+      };
     },
     handlersFor(action) {
       const list = handlers.get(action as Action<unknown>) ?? [];

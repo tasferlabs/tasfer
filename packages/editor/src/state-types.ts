@@ -578,6 +578,13 @@ export interface UIState {
     readonly blockIndex: number;
     readonly startIndex: number;
     readonly endIndex: number;
+    /**
+     * The hovered formula's attachment, when it sits inside another node's
+     * structured content (a table cell) rather than in the block's own text —
+     * that node lights the run showing it. `startIndex`/`endIndex` are then
+     * `-1`: the block has no flat text to index.
+     */
+    readonly contentId?: string;
   } | null;
   readonly hoveredMathBlockIndex: number | null;
   /**

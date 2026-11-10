@@ -112,6 +112,9 @@ paintTextRun({
   marks,
   isRTL,
   requestRedraw,
+  attachments, // optional: your block's structuredContent, so an inline formula paints as itself
+  slices, // optional: layout.lineSlices[line], for a formula that wraps across lines
+  highlighted, // optional: { startIndex, endIndex } of a formula to draw lit (hovered, or holding the caret)
 });
 ```
 
@@ -136,6 +139,7 @@ const text = layoutText({
   direction, // "ltr" | "rtl"
   align, // optional: "left" | "center" | "right"; null hugs the reading start
   marks,
+  structuredContent, // optional: your block's attachments, so an inline formula measures as itself
 });
 
 const caret = textCaretRect(text, offset); // { x, y, height }
@@ -146,6 +150,30 @@ for (const line of text.lines) {
   const { left, right } = lineEdges(text, line); // after alignment
   // paintTextRun({ …, x: boxX + (isRTL ? right : left), … })
 }
+```
+
+A formula in that text can hold the caret itself (its fraction's numerator, a matrix cell). The caret then is a nested selection in the formula's attachment, and these place it, highlight a range in it and resolve a click into it — the same code a paragraph's formula uses, in the same box-relative coordinates:
+
+```ts
+import {
+  replacementRunForContent,
+  textContentCaretRect,
+  textContentSelectionFromPoint,
+  textContentSelectionRects,
+} from "@tasfer/editor";
+
+// A click on the formula lands inside it; null anywhere else, so fall back to
+// textOffsetAtPoint.
+const inside = textContentSelectionFromPoint(text, x - boxX, y - boxY, blockId, {
+  pointerType, // "mouse" | "touch"
+});
+
+const point = state.document.contentSelection.focus;
+const nestedCaret = textContentCaretRect(text, point, blockId); // { x, y, height } | null
+const nestedHighlight = textContentSelectionRects(text, selection, blockId);
+
+// The run holding attachment `contentId`, to pass to paintTextRun as `highlighted`.
+const run = replacementRunForContent(text, point.contentId); // { start, end, … }
 ```
 
 For text still being composed through an IME, `foldComposition(chars, offset, preview)` returns the characters with the preview folded in and its `compositionRange`; lay those out (passing the range to `layoutText`) and underline `compositionRects(text)`. Nothing it returns is stored.
@@ -403,7 +431,16 @@ recognizers for the type's own syntax, and `defineMark` also accepts
 initialization, canonical-source resolution from the attachment, attachment
 references, clone rewrites). A structured mark stores no source text in block
 characters: it anchors on a single placeholder character and its attachment is
-the only content authority. A custom syntax rule only takes
+the only content authority. The same mark can also sit in a text field inside
+a structured document (in its `markFields`), pointing at another attachment on
+the same block — that is how a table cell holds an inline formula.
+`runFieldAsParagraph` lends those attachments to the paragraph code, so a field
+gets the paragraph's whole formula editing: it writes a new attachment when the
+paragraph code creates the mark (a typed `$x$`), and carries a caret inside one
+in and out (see [Editing a field with the paragraph's code](api-schema#field-as-paragraph)). The engine
+re-addresses those references whenever it copies a block (paste, snapshot
+restore) and carries the referenced attachments onto clipboard slices, so a
+custom node with rich-text fields gets this without extra code. A custom syntax rule only takes
 effect when a codec claims the tokens it emits; the generic `<x-type/>`
 round-trip claims none, so pair the rule with a hand-written codec — the way
 the optional math specs carry the `$$…$$` and `$…$` recognizers next to the

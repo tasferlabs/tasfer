@@ -175,11 +175,17 @@ const inlineDollarRule: FeatureInputRule = {
   id: "math.input.inline-dollar-pair",
   phase: "after-insert",
   priority: 90,
-  apply: ({ state, input }) => {
+  apply: ({ state, input, options }) => {
     // The legacy shortcut was deliberately keystroke-only: paste/IME commits
     // containing a complete `$…$` source remain literal until parsed/imported.
     const delimiter = asMathDelimiter(input);
-    if (!delimiter || !state.schema.isMarkAllowed("math")) {
+    // `$…$` is an inline markdown shortcut like `**…**`: text that turned
+    // those off (a table cell of shell snippets) keeps its dollars literal.
+    if (
+      !delimiter ||
+      options?.inlineMarkdown === false ||
+      !state.schema.isMarkAllowed("math")
+    ) {
       return undefined;
     }
 

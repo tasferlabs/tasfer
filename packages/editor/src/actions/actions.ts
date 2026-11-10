@@ -1725,6 +1725,17 @@ export interface InsertTextOptions {
    * action); IME commits and programmatic inserts keep replace semantics.
    */
   wrapSelection?: boolean;
+  /**
+   * `false` keeps typed markdown delimiters literal: a closing `*`, `~` or
+   * `` ` `` never auto-formats the text before it, and under
+   * {@link wrapSelection} a delimiter never wraps the selection in its mark
+   * (brackets and quotes still pair). Feature input rules see it too, so an
+   * installed shortcut of the same kind (inline math's `$…$`) stays literal
+   * with it. Defaults to on, as prose has it; a host turns it off for text
+   * where those characters are content (a table cell of glob patterns or shell
+   * snippets).
+   */
+  inlineMarkdown?: boolean;
 }
 
 export function insertText(
@@ -1750,6 +1761,7 @@ export function insertText(
     "before-insert",
     state,
     originalInput,
+    options,
   );
   state = beforeFeature.state;
   ops.push(...beforeFeature.ops);
@@ -1781,7 +1793,9 @@ export function insertText(
     // quotes literally; a markdown delimiter applies its mark) instead of
     // replacing it. A successful wrap is the whole edit for this keystroke.
     if (options?.wrapSelection) {
-      const wrapped = wrapSelectionOnInput(state, input);
+      const wrapped = wrapSelectionOnInput(state, input, {
+        marks: options.inlineMarkdown !== false,
+      });
       if (wrapped) return wrapped;
     }
     // Typing over a selection takes the formatting of the text it replaces
@@ -1990,7 +2004,12 @@ export function insertText(
     | Omit<InlineWrapRevert, "caretAfter">
     | null = null;
 
-  if (isClosingDelimiter && !inCodeBlock && !suppressInlineMarkdown) {
+  if (
+    isClosingDelimiter &&
+    !inCodeBlock &&
+    !suppressInlineMarkdown &&
+    options?.inlineMarkdown !== false
+  ) {
     const markdownResult = detectAndApplyInlineMarkdown(
       pageAcc,
       oldBlock.id,
@@ -2105,6 +2124,7 @@ export function insertText(
     "after-insert",
     newState,
     originalInput,
+    options,
   );
   newState = afterFeature.state;
   ops.push(...afterFeature.ops);

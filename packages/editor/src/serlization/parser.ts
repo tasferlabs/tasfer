@@ -21,7 +21,7 @@ import type {
 import type { InputCtx, ParsedTag } from "./codecs";
 import type { Block, Char, CharRun, Mark, MarkSpan, Page } from "./loadPage";
 import { markKey } from "./loadPage";
-import {
+import tokenizePage, {
   HTML_TAG,
   INDENT,
   LINK_END,
@@ -272,6 +272,38 @@ function makeInputCtx(context: ParserContext, indent: number): InputCtx {
         });
       }
       return charsToRuns(chars);
+    },
+    inlineMarkdown: (source: string) => {
+      if (source === "") return { charRuns: [], formats: [] };
+      // A nested parse over the same schema and the SAME id counters, so the
+      // characters and attachments it mints never collide with the rest of
+      // the page (two cells each holding `$x$` get two distinct attachments).
+      const untyped = new Set<string>();
+      const nested: ParserContext = {
+        tokens: tokenizePage(source, context.schema),
+        current: 0,
+        blockIdCounter: context.blockIdCounter,
+        charIdCounter: context.charIdCounter,
+        schema: context.schema,
+        untypedBlockIds: untyped,
+      };
+      const blocks: Block[] = [];
+      while (!isEnd(nested)) blocks.push(parseBlock(nested));
+      context.blockIdCounter = nested.blockIdCounter;
+      context.charIdCounter = nested.charIdCounter;
+      // Inline content is exactly what parses as one block the source gave no
+      // marker for; anything else was a block construct.
+      const block = blocks.length === 1 ? blocks[0] : undefined;
+      if (!block || !untyped.has(block.id) || !("charRuns" in block)) {
+        return undefined;
+      }
+      return {
+        charRuns: block.charRuns,
+        formats: block.formats,
+        ...(block.structuredContent
+          ? { structuredContent: block.structuredContent }
+          : {}),
+      };
     },
     match: (...types: TokenType[]) => match(context, ...types),
     check: (type: TokenType) => check(context, type),

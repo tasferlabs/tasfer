@@ -35,7 +35,11 @@ import {
   firstSelectedMarks,
   insertedMarkEdits,
 } from "./input";
-import { cellSeedFromMarkdown, matchGfmTable } from "./markdown";
+import {
+  cellSeedFromMarkdown,
+  inlineMarkdownParser,
+  matchGfmTable,
+} from "./markdown";
 import {
   cellPosition,
   cellRect,
@@ -59,6 +63,7 @@ import { clearSelection } from "@tasfer/editor/selection";
 import type {
   CharRun,
   Mark,
+  MarkRange,
   MarkSpan,
 } from "@tasfer/editor/serlization/loadPage";
 import type { EditorState } from "@tasfer/editor/state-types";
@@ -71,6 +76,7 @@ import { generateKeyBetween } from "@tasfer/editor/sync/fractional-index";
 import { areMarksEqual } from "@tasfer/editor/sync/mark-spans";
 import {
   applyStructuredEdits,
+  canonicalizeStructuredDocument,
   getStructuredMarks,
   type StructuredDocument,
   type StructuredEdit,
@@ -208,23 +214,86 @@ export function tableContentPaste(
     : pasteInline(state, context, clipboard.source, clipboard.rich);
 }
 
-/** Cell content for one clipboard source, with identities from the document. */
+/**
+ * Cell content for one clipboard source, with identities from the document.
+ *
+ * A rich source is read with the editor's whole schema, so an inline formula
+ * copied in Tasfer pastes as a formula. Its attachment comes out of the parse
+ * in the parser's own id space; it is cloned onto `blockId` with fresh
+ * identities and its mark re-pointed at the clone, so two pastes of the same
+ * formula never share (or collide on) an attachment. A structured mark whose
+ * attachment cannot be cloned is dropped rather than stranded.
+ */
 function seedFor(
   state: EditorState,
   source: string,
   rich: boolean,
+  blockId: string,
 ): TableCellSeed {
   if (!rich) return { charRuns: cellRunsFromText(source, state.CRDTbinding) };
-  const seed = cellSeedFromMarkdown(source, state.CRDTbinding);
-  // A cell never carries a structured mark (see `./marks`), so one arriving
-  // from elsewhere is dropped rather than stranded without its attachment.
+  const seed = cellSeedFromMarkdown(
+    source,
+    state.CRDTbinding,
+    inlineMarkdownParser(state.schema),
+  );
+  const { schema } = state;
+  const parsed = seed.attachments;
+  const clonedContentIds: Record<string, string> = {};
+  const attachments: Record<string, StructuredDocument> = {};
+  for (const contentId of Object.keys(parsed ?? {}).sort()) {
+    const cloned = schema.cloneStructuredContent({
+      document: canonicalizeStructuredDocument(parsed![contentId]),
+      sourceBlockId: CLIPBOARD_BLOCK,
+      targetBlockId: blockId,
+      sourceContentId: contentId,
+      identities: state.CRDTbinding,
+    });
+    if (!cloned || cloned.document.rootId !== cloned.contentId) continue;
+    clonedContentIds[contentId] = cloned.contentId;
+    attachments[cloned.contentId] = cloned.document;
+  }
+  const marks = (seed.marks ?? []).flatMap((range): MarkRange[] => {
+    const { format } = range;
+    if (!schema.structuredMark(format.type)) return [range];
+    const references = schema.structuredMarkReferences(format.type, {
+      mark: format,
+      attachments: parsed,
+    });
+    if (
+      references.length === 0 ||
+      references.some((contentId) => !clonedContentIds[contentId])
+    ) {
+      return [];
+    }
+    const mark =
+      schema.cloneStructuredMark(format.type, {
+        mark: format,
+        sourceBlockId: CLIPBOARD_BLOCK,
+        targetBlockId: blockId,
+        attachments: parsed,
+        clonedContentIds,
+      }) ?? format;
+    return [{ ...range, format: mark }];
+  });
+  // Only what a surviving mark points at travels with the cell.
+  const kept: Record<string, StructuredDocument> = {};
+  for (const range of marks) {
+    for (const contentId of schema.structuredMarkReferences(range.format.type, {
+      mark: range.format,
+      attachments,
+    })) {
+      if (attachments[contentId]) kept[contentId] = attachments[contentId];
+    }
+  }
   return {
     charRuns: seed.charRuns,
-    marks: seed.marks?.filter(
-      (range) => !state.schema.structuredMark(range.format.type),
-    ),
+    marks,
+    ...(Object.keys(kept).length > 0 ? { attachments: kept } : {}),
   };
 }
+
+/** The parse's stand-in source block id; clone adapters address by target. */
+const CLIPBOARD_BLOCK = "clipboard";
 
 /** The ids of a seed's characters, in order. */
 function seedCharIds(runs: readonly CharRun[]): string[] {
@@ -276,7 +345,7 @@ function pasteInline(
   const cleared = clearRange(context);
   const edits: StructuredEdit[] = cleared ? [...cleared.edits] : [];
   const caret = cleared?.caret ?? context.caret;
-  const seed = seedFor(state, source, rich);
+  const seed = seedFor(state, source, rich, context.block.id);
   const ids = seedCharIds(seed.charRuns);
   if (ids.length === 0) {
     return edits.length > 0
@@ -317,6 +386,23 @@ function pasteInline(
       );
       start = at;
     }
+    // A formula's mark is not something typing lends or sheds, so the pass
+    // above leaves it alone; it goes on exactly the characters it covered.
+    const index = new Map(ids.map((id, at) => [id, at]));
+    for (const range of seed.marks ?? []) {
+      if (!state.schema.structuredMark(range.format.type)) continue;
+      const from = index.get(range.startCharId);
+      const to = index.get(range.endCharId);
+      if (from === undefined || to === undefined || to < from) continue;
+      edits.push({
+        kind: "mark_set",
+        nodeId: caret.cellId,
+        field: CELL_TEXT_FIELD,
+        charIds: ids.slice(from, to + 1),
+        mark: range.format,
+        value: true,
+      });
+    }
   } else {
     const wanted =
       state.ui.activeMarksMode.type === "explicit"
@@ -335,10 +421,13 @@ function pasteInline(
     edits.push(...insertedMarkEdits(state, typed, caret, ids, wanted));
   }
 
-  return commitTableEdits(state, context, edits, {
-    cellId: caret.cellId,
-    offset: caret.offset + ids.length,
-  });
+  return commitTableEdits(
+    state,
+    context,
+    edits,
+    { cellId: caret.cellId, offset: caret.offset + ids.length },
+    seed.attachments,
+  );
 }
 
 /**
@@ -408,6 +497,7 @@ function pasteGrid(
   );
   if (!grown) return undefined;
   const edits = grown.edits;
+  const attachments: Record<string, StructuredDocument> = {};
   const view = readTable(grown.document);
 
   let first: TableCaret | undefined;
@@ -463,7 +553,8 @@ function pasteGrid(
           charIds: getCharIdsInRangeFromRuns(runs, 0, length),
         });
       }
-      const seed = seedFor(state, sources[r][c] ?? "", rich);
+      const seed = seedFor(state, sources[r][c] ?? "", rich, context.block.id);
+      Object.assign(attachments, seed.attachments);
       const ids = seedCharIds(seed.charRuns);
       if (ids.length > 0) {
         // At the head of the field, ahead of the tombstones just made, so no
@@ -495,7 +586,13 @@ function pasteGrid(
     }
   }
 
-  const committed = commitTableEdits(state, context, edits, undefined);
+  const committed = commitTableEdits(
+    state,
+    context,
+    edits,
+    undefined,
+    attachments,
+  );
   const block = committed.state.document.page.blocks.find(
     (candidate) => candidate.id === context.block.id,
   );

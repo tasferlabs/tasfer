@@ -29,6 +29,8 @@ import type {
 import parsePage from "@tasfer/editor/serlization/parser";
 import tokenizePage from "@tasfer/editor/serlization/tokenizer";
 import { charsToRuns, iterateAllChars } from "@tasfer/editor/sync/char-runs";
+import type { DataSchema } from "@tasfer/editor/sync/schema";
+import type { StructuredContentMap } from "@tasfer/editor/sync/structured-content";
 
 /** Token this feature's codec claims. Its content is a {@link GfmTable} JSON. */
 export const TABLE_BLOCK = "table_block";
@@ -198,29 +200,72 @@ export function decodeTableToken(content: string): GfmTable {
 }
 
 /**
+ * One line of inline Markdown parsed into CRDT runs plus mark spans, with the
+ * attachments its structured marks (an inline formula) point at — or
+ * `undefined` when the source parsed as a block construct instead.
+ */
+export type InlineMarkdownParser = (source: string) =>
+  | {
+      readonly charRuns: readonly CharRun[];
+      readonly formats: readonly MarkRange[];
+      readonly structuredContent?: StructuredContentMap;
+    }
+  | undefined;
+
+/**
+ * An inline-Markdown parser over `schema` (core Markdown when omitted): the
+ * engine's parser is a block parser, so a cell is parsed as its own miniature
+ * page and accepted only when it comes back as one block the source gave no
+ * marker for. Structured marks (an inline formula, when `schema` installs it)
+ * arrive with their attachments, in the parse's own id space — a live caller
+ * must re-address them before they reach a document.
+ */
+export function inlineMarkdownParser(
+  schema?: DataSchema,
+): InlineMarkdownParser {
+  return (source) => {
+    const untyped = new Set<string>();
+    const page = parsePage(tokenizePage(source, schema), schema, untyped);
+    const block = page.blocks.length === 1 ? page.blocks[0] : undefined;
+    if (!block || !untyped.has(block.id) || !("charRuns" in block)) {
+      return undefined;
+    }
+    return {
+      charRuns: block.charRuns,
+      formats: block.formats ?? [],
+      ...(block.structuredContent
+        ? { structuredContent: block.structuredContent }
+        : {}),
+    };
+  };
+}
+
+const parseCoreInline = inlineMarkdownParser();
+
+/**
  * Turn one cell's inline Markdown into CRDT runs plus mark spans.
  *
- * The cell is parsed as its own miniature page and accepted only when it comes
- * back as one paragraph; a source that parsed into any other block type was
- * never inline Markdown to begin with, and GFM renders it literally, so that is
- * what we store. Identities are re-addressed onto `identities` because the
- * parser mints its own parse-scoped ones.
+ * `parseInline` decides which inline syntax counts — the page parse's own
+ * (`InputCtx.inlineMarkdown`, which knows every installed mark, inline math
+ * included) or, by default, core Markdown only. A source that parses into a
+ * block construct was never inline Markdown, and GFM renders it literally, so
+ * that is what we store. Character identities are re-addressed onto
+ * `identities` because the parser mints its own parse-scoped ones; the
+ * attachments keep theirs and travel with the seed.
  */
 export function cellSeedFromMarkdown(
   source: string,
   identities: IdentityAllocator,
+  parseInline: InlineMarkdownParser = parseCoreInline,
 ): TableCellSeed {
   if (source === "") return { charRuns: [] };
 
-  const page = parsePage(tokenizePage(source));
-  const block = page.blocks.length === 1 ? page.blocks[0] : undefined;
-  if (!block || block.type !== "paragraph" || !("charRuns" in block)) {
-    return { charRuns: literalRuns(source, identities) };
-  }
+  const parsed = parseInline(source);
+  if (!parsed) return { charRuns: literalRuns(source, identities) };
 
   const mapping = new Map<string, string>();
   const chars: Char[] = [];
-  for (const { id, char, deleted } of iterateAllChars(block.charRuns)) {
+  for (const { id, char, deleted } of iterateAllChars([...parsed.charRuns])) {
     if (deleted) continue;
     const next = identities.nextId();
     mapping.set(id, next);
@@ -228,14 +273,21 @@ export function cellSeedFromMarkdown(
   }
 
   const marks: MarkRange[] = [];
-  for (const span of block.formats ?? []) {
+  for (const span of parsed.formats) {
     const startCharId = mapping.get(span.startCharId);
     const endCharId = mapping.get(span.endCharId);
     if (!startCharId || !endCharId) continue;
     marks.push({ startCharId, endCharId, format: span.format });
   }
 
-  return { charRuns: charsToRuns(chars), marks };
+  const attachments = parsed.structuredContent;
+  return {
+    charRuns: charsToRuns(chars),
+    marks,
+    ...(attachments && Object.keys(attachments).length > 0
+      ? { attachments }
+      : {}),
+  };
 }
 
 /** Runs for text that must survive exactly as written, marks and all. */
@@ -251,11 +303,12 @@ function literalRuns(text: string, identities: IdentityAllocator): CharRun[] {
 export function tableSeedFromToken(
   table: GfmTable,
   identities: IdentityAllocator,
+  parseInline?: InlineMarkdownParser,
 ): TableSeed {
   return {
     aligns: table.aligns,
     rows: table.rows.map((row) =>
-      row.map((cell) => cellSeedFromMarkdown(cell, identities)),
+      row.map((cell) => cellSeedFromMarkdown(cell, identities, parseInline)),
     ),
   };
 }

@@ -10,12 +10,15 @@
  */
 
 import {
+  cellRuns,
   type TableCaret,
   tableCaretFromContentPoint,
   tableCaretToContentSelection,
+  tableCellIds,
 } from "./selection";
-import { getTableDocument } from "./structured";
+import { CELL_TEXT_FIELD, getTableDocument } from "./structured";
 import type { StateResult } from "@tasfer/editor/action-bus";
+import { resolveMarkRunsFromChars } from "@tasfer/editor/mark-runs";
 import { clearSelection, moveCursorToPosition } from "@tasfer/editor/selection";
 import type { Block, Page } from "@tasfer/editor/serlization/loadPage";
 import type {
@@ -24,12 +27,24 @@ import type {
   Operation,
   Position,
 } from "@tasfer/editor/state-types";
-import { updateContentSelection } from "@tasfer/editor/structured-selection";
+import {
+  type ContentSelection,
+  updateContentSelection,
+} from "@tasfer/editor/structured-selection";
+import { iterateAllChars } from "@tasfer/editor/sync/char-runs";
 import { applyOp } from "@tasfer/editor/sync/reducer";
+import type { DataSchema } from "@tasfer/editor/sync/schema";
 import type {
+  StructuredContentMap,
   StructuredDocument,
   StructuredEdit,
 } from "@tasfer/editor/sync/structured-content";
+import {
+  type FieldRange,
+  type FieldRun,
+  runFieldAsParagraph,
+  type TextFieldAddress,
+} from "@tasfer/editor/text-field-paragraph";
 
 /** A claimed handler result: state changed (or deliberately did not), plus ops. */
 export type Claimed = StateResult & { readonly handled: true };
@@ -43,6 +58,13 @@ export interface TableContext {
   readonly caret: TableCaret;
   /** The fixed end; equal to {@link caret} when the selection is collapsed. */
   readonly anchor: TableCaret;
+  /**
+   * The selection inside a cell's formula, when the caret is in one — the
+   * formula's own tree, which the paragraph code edits (see {@link runInCell}).
+   * {@link caret} and {@link anchor} then both sit on the formula's start in
+   * its cell, which is where the grid's own moves start from.
+   */
+  readonly content?: ContentSelection;
 }
 
 /**
@@ -96,7 +118,7 @@ export function activeTableContext(
 ): TableContext | undefined {
   const selection = state.document.contentSelection;
   const focus = selection?.focus;
-  if (!selection || !focus || focus.kind !== "text") return undefined;
+  if (!selection || !focus) return undefined;
   const blockIndex = state.document.page.blocks.findIndex(
     (candidate) => candidate.id === focus.blockId,
   );
@@ -105,7 +127,28 @@ export function activeTableContext(
     return undefined;
   }
   const document = getTableDocument(block);
-  if (!document || document.rootId !== focus.contentId) return undefined;
+  if (!document) return undefined;
+  if (document.rootId !== focus.contentId) {
+    // Not the grid's own document: a caret inside one of its cells' formulas.
+    if (selection.anchor.contentId !== focus.contentId) return undefined;
+    const at = cellHoldingAttachment(
+      state.schema,
+      block,
+      document,
+      focus.contentId,
+    );
+    return at
+      ? {
+          block,
+          blockIndex,
+          document,
+          caret: at,
+          anchor: at,
+          content: selection,
+        }
+      : undefined;
+  }
+  if (focus.kind !== "text") return undefined;
   const caret = tableCaretFromContentPoint(document, focus);
   if (!caret) return undefined;
   const anchor =
@@ -113,6 +156,34 @@ export function activeTableContext(
       ? (tableCaretFromContentPoint(document, selection.anchor) ?? caret)
       : caret;
   return { block, blockIndex, document, caret, anchor };
+}
+
+/**
+ * The cell whose text holds the structured mark (an inline formula) pointing at
+ * attachment `contentId` on the table block, at the mark's start.
+ */
+export function cellHoldingAttachment(
+  schema: DataSchema,
+  block: Block,
+  document: StructuredDocument,
+  contentId: string,
+): TableCaret | undefined {
+  for (const cellId of tableCellIds(document)) {
+    const spans = document.nodes[cellId]?.markFields?.[CELL_TEXT_FIELD];
+    if (!spans?.length) continue;
+    const runs = cellRuns(document, cellId) ?? [];
+    for (const run of resolveMarkRunsFromChars(iterateAllChars(runs), spans)) {
+      if (!schema.structuredMark(run.name)) continue;
+      const references = schema.structuredMarkReferences(run.name, {
+        mark: { type: run.name, attrs: run.attrs },
+        attachments: block.structuredContent,
+      });
+      if (references.includes(contentId)) {
+        return { cellId, offset: run.startIndex };
+      }
+    }
+  }
+  return undefined;
 }
 
 /** One `content_edit` operation carrying `edit` against a table's attachment. */
@@ -140,15 +211,34 @@ export function tableContentEdit(
  * character reach the CRDT by exactly the same route — which is what makes them
  * merge, undo and sync alike. A `caret` of `undefined` leaves the selection
  * where it is (the edits did not move it).
+ *
+ * `attachments` are new documents for the table block to hold beside the
+ * table's own — what a pasted cell formula points at. They are written first,
+ * so no mark ever references an attachment the log has not created yet, and
+ * an undo (which replays in reverse) removes the mark before its attachment.
  */
 export function commitTableEdits(
   state: EditorState,
   context: Pick<TableContext, "block" | "document">,
   edits: readonly StructuredEdit[],
   caret: TableCaret | undefined,
+  attachments?: StructuredContentMap,
 ): Claimed {
   let page = state.document.page;
   const ops: Operation[] = [];
+  for (const contentId of Object.keys(attachments ?? {}).sort()) {
+    const operation: ContentEdit = {
+      op: "content_edit",
+      id: state.CRDTbinding.nextId(),
+      clock: state.CRDTbinding.getClock(),
+      pageId: state.CRDTbinding.pageId,
+      blockId: context.block.id,
+      contentId,
+      edit: { kind: "document_init", document: attachments![contentId] },
+    };
+    page = applyOp(page, operation, state.schema);
+    ops.push(operation);
+  }
   for (const edit of edits) {
     const operation = tableContentEdit(
       state,
@@ -183,6 +273,55 @@ export function commitTableEdits(
     });
   }
   return { state: next, ops, handled: true };
+}
+
+/** A cell's text, addressed the way the paragraph code borrows it. */
+export function cellField(
+  context: Pick<TableContext, "block" | "document">,
+  cellId: string,
+): TextFieldAddress {
+  return {
+    blockId: context.block.id,
+    contentId: context.document.rootId,
+    nodeId: cellId,
+    field: CELL_TEXT_FIELD,
+  };
+}
+
+/**
+ * Run a paragraph action on a cell — by default the one the selection is in,
+ * over the selection's range there. The caller keeps a range across cells for
+ * itself: that is the grid's to handle, not a paragraph's.
+ *
+ * This is how every in-cell text behaviour is implemented: the engine's own
+ * flat-text action, run on the cell (see `@tasfer/editor/text-field-paragraph`).
+ */
+export function runInCell(
+  state: EditorState,
+  context: Pick<
+    TableContext,
+    "block" | "document" | "caret" | "anchor" | "content"
+  >,
+  action: (paragraph: EditorState) => StateResult,
+  range: FieldRange = {
+    anchor: context.anchor.offset,
+    focus: context.caret.offset,
+    ...(context.content ? { content: context.content } : {}),
+  },
+  cellId: string = context.caret.cellId,
+): FieldRun {
+  return runFieldAsParagraph(state, cellField(context, cellId), range, action);
+}
+
+/**
+ * A paragraph run as a claimed result. A refused run — the paragraph code
+ * reached for something a cell cannot hold — stays claimed and changes
+ * nothing, so the key never falls through to flat-text handling either.
+ */
+export function claimRun(state: EditorState, run: FieldRun): Claimed {
+  return run.kind === "applied"
+    ? { state: run.state, ops: run.ops, handled: true }
+    : { state, ops: [], handled: true };
 }
 
 /**

@@ -30,6 +30,7 @@ import {
   TABLE_STRUCTURED_KIND,
   type TableAlign,
   tableContentIdForBlock,
+  type TableSeed,
   type TableView,
 } from "./structured";
 import { createDeterministicIdentityAllocator } from "@shared/identity";
@@ -48,6 +49,10 @@ import type {
   BlockSpecCore,
   StructuredKindSpec,
 } from "@tasfer/editor/sync/schema";
+import type {
+  StructuredContentMap,
+  StructuredDocument,
+} from "@tasfer/editor/sync/structured-content";
 
 // The adapter key a headless host needs to look the kind up on its own schema.
 export { TABLE_STRUCTURED_KIND } from "./structured";
@@ -98,6 +103,15 @@ function alignStyle(align: TableAlign | null): string {
   return align ? ` style="text-align:${align}"` : "";
 }
 
+/** Every attachment the seed's cells carry, for the table block to hold. */
+function seedAttachments(seed: TableSeed): StructuredContentMap {
+  const attachments: Record<string, StructuredDocument> = {};
+  for (const row of seed.rows) {
+    for (const cell of row) Object.assign(attachments, cell.attachments);
+  }
+  return attachments;
+}
+
 /** Markdown/HTML/text round-trip for a table block. Canvas-free. */
 export const tableBlockNodeCodec: NodeCodec = {
   markdown: {
@@ -117,7 +131,14 @@ export const tableBlockNodeCodec: NodeCodec = {
       const identities = createDeterministicIdentityAllocator(
         `table-import/${encodeURIComponent(contentId)}`,
       );
-      const seed = tableSeedFromToken(decodeTableToken(payload), identities);
+      // Cells parse through the page's own inline parser, so every installed
+      // mark is read — an inline formula included — and the attachments a
+      // formula points at share the page parse's id space.
+      const seed = tableSeedFromToken(
+        decodeTableToken(payload),
+        identities,
+        (source) => ctx.inlineMarkdown(source),
+      );
       const document = buildTableDocument(seed, {
         contentId,
         identityAllocator: identities,
@@ -126,7 +147,7 @@ export const tableBlockNodeCodec: NodeCodec = {
       return {
         id,
         type: "table",
-        structuredContent: { [contentId]: document },
+        structuredContent: { ...seedAttachments(seed), [contentId]: document },
       } as unknown as Block;
     },
     output: (block, ctx) => {

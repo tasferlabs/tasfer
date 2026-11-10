@@ -31,6 +31,8 @@
 import {
   activeTableContext,
   type Claimed,
+  claimRun,
+  runInCell,
   selectTableBlock,
   type TableContext,
 } from "./context";
@@ -53,7 +55,12 @@ import {
   tableRangeToContentSelection,
 } from "./selection";
 import { getTableDocument } from "./structured";
-import type { ActionBus } from "@tasfer/editor/action-bus";
+import type {
+  ActionBus,
+  DispatchArgs,
+  StateAction,
+} from "@tasfer/editor/action-bus";
+import { selectWordAtPosition } from "@tasfer/editor/actions/actions";
 import {
   appendTrailingParagraph,
   prependLeadingParagraph,
@@ -124,6 +131,34 @@ function claim(state: EditorState): Claimed {
 }
 
 /**
+ * The paragraph's own caret motion `action`, run on the cell the selection is
+ * in — or `undefined` when it does nothing there (the caret already sits at
+ * the cell's edge, or the range spans cells), so the grid's step takes over.
+ *
+ * "Does nothing" means the caret did not move AND the typing side did not
+ * change: at a mark edge the first press only switches which side the caret
+ * types on, which is a paragraph behaviour too.
+ */
+function paragraphMove(
+  state: EditorState,
+  context: TableContext,
+  action: StateAction<void>,
+): Claimed | undefined {
+  if (context.anchor.cellId !== context.caret.cellId) return undefined;
+  const run = runInCell(state, context, (paragraph) =>
+    paragraph.actionBus.dispatchState(action, paragraph),
+  );
+  // Inside a formula the formula's own code answers every motion, leaving it
+  // included, exactly as in a paragraph: the grid never steps from there.
+  if (context.content) return claimRun(state, run);
+  if (run.kind !== "applied") return undefined;
+  const sideChanged =
+    JSON.stringify(run.state.ui.activeMarksMode) !==
+    JSON.stringify(state.ui.activeMarksMode);
+  return run.moved || sideChanged ? claimRun(state, run) : undefined;
+}
+
+/**
  * Restart the caret's blink after a press that switched its side without
  * moving it, so the press shows the caret instead of landing on a blink's off
  * half.
@@ -158,6 +193,7 @@ function tableLayoutFor(
     fontFamily: currentFontFamily(styles),
     fonts: styles.fonts,
     marks: state.marks,
+    attachments: block.structuredContent,
   });
   return viewedTableLayout(layout, state, block.id);
 }
@@ -293,6 +329,27 @@ function enterAdjacentTable(
 
 /** Register every table caret motion on one editor instance's bus. */
 export function registerTableActions(bus: ActionBus): void {
+  // An action a feature declares for its own content (a formula's command
+  // insert, a matrix resize) reaches the cell's formula the way a key press
+  // does: run in the cell as the paragraph's code. The table never names it.
+  bus.registerForwarder(
+    <P>(state: EditorState, action: StateAction<P>, payload: P) => {
+      const context = activeTableContext(state);
+      if (!context?.content) return undefined;
+      return claimRun(
+        state,
+        runInCell(state, context, (paragraph) =>
+          paragraph.actionBus.dispatchState(
+            action,
+            paragraph,
+            ...([payload] as DispatchArgs<P>),
+          ),
+        ),
+      );
+    },
+    100,
+  );
+
   // Horizontal steps. LEFT and RIGHT are visual keys, so they map onto the
   // logical steps the other way round in a right-to-left cell — for whole words
   // as much as for single characters.
@@ -307,10 +364,18 @@ export function registerTableActions(bus: ActionBus): void {
   };
 
   const step =
-    (key: "left" | "right", unit: "character" | "word") =>
+    (
+      key: "left" | "right",
+      unit: "character" | "word",
+      action: StateAction<void>,
+    ) =>
     (state: EditorState): Claimed | undefined => {
       const context = activeTableContext(state);
       if (!context) return undefined;
+      // Inside the cell the caret moves exactly as a paragraph's does; only at
+      // the cell's edge does the grid take over and step into the next cell.
+      const inCell = paragraphMove(state, context, action);
+      if (inCell) return inCell;
       const direction = horizontal(context, key, unit);
       const forward = direction === "forward";
       // At a mark edge the first character press only switches which side the
@@ -337,10 +402,26 @@ export function registerTableActions(bus: ActionBus): void {
         ? claim(withMarkEdgeSide(placed.state, landed.edge, "after"))
         : placed;
     };
-  bus.registerState(MOVE_CURSOR_LEFT, step("left", "character"), 100);
-  bus.registerState(MOVE_CURSOR_RIGHT, step("right", "character"), 100);
-  bus.registerState(MOVE_TO_PREVIOUS_WORD, step("left", "word"), 100);
-  bus.registerState(MOVE_TO_NEXT_WORD, step("right", "word"), 100);
+  bus.registerState(
+    MOVE_CURSOR_LEFT,
+    step("left", "character", MOVE_CURSOR_LEFT),
+    100,
+  );
+  bus.registerState(
+    MOVE_CURSOR_RIGHT,
+    step("right", "character", MOVE_CURSOR_RIGHT),
+    100,
+  );
+  bus.registerState(
+    MOVE_TO_PREVIOUS_WORD,
+    step("left", "word", MOVE_TO_PREVIOUS_WORD),
+    100,
+  );
+  bus.registerState(
+    MOVE_TO_NEXT_WORD,
+    step("right", "word", MOVE_TO_NEXT_WORD),
+    100,
+  );
 
   // The step a Shift+key takes. While the range is still inside one cell it is
   // the ordinary character or word step its unshifted twin takes; once the range
@@ -395,10 +476,18 @@ export function registerTableActions(bus: ActionBus): void {
   };
 
   const extendStep =
-    (key: "left" | "right", unit: "character" | "word") =>
+    (
+      key: "left" | "right",
+      unit: "character" | "word",
+      action: StateAction<void>,
+    ) =>
     (state: EditorState): Claimed | undefined => {
       const context = activeTableContext(state);
       if (!context) return undefined;
+      // A range inside one cell grows as a paragraph's does; at the cell's
+      // edge it crosses into the next cell by the grid's rule below.
+      const inCell = paragraphMove(state, context, action);
+      if (inCell) return inCell;
       const moved = extendTarget(context, key, unit);
       // At the grid's first and last stop the range simply stops growing; the
       // key stays claimed so the selection never spills into the flat model.
@@ -408,52 +497,85 @@ export function registerTableActions(bus: ActionBus): void {
     };
   bus.registerState(
     EXTEND_SELECTION_LEFT,
-    extendStep("left", "character"),
+    extendStep("left", "character", EXTEND_SELECTION_LEFT),
     100,
   );
   bus.registerState(
     EXTEND_SELECTION_RIGHT,
-    extendStep("right", "character"),
+    extendStep("right", "character", EXTEND_SELECTION_RIGHT),
     100,
   );
   bus.registerState(
     EXTEND_SELECTION_WORD_LEFT,
-    extendStep("left", "word"),
+    extendStep("left", "word", EXTEND_SELECTION_WORD_LEFT),
     100,
   );
   bus.registerState(
     EXTEND_SELECTION_WORD_RIGHT,
-    extendStep("right", "word"),
+    extendStep("right", "word", EXTEND_SELECTION_WORD_RIGHT),
     100,
   );
 
+  // Home / End go to the cell's own edges — the paragraph's Home and End, run
+  // on the cell, whose line edges are its block edges. A range across cells
+  // collapses into the focus's cell instead.
   const edge =
-    (motion: TableCaretStep) =>
+    (motion: TableCaretStep, action: StateAction<void>) =>
     (state: EditorState): Claimed | undefined => {
       const context = activeTableContext(state);
       if (!context) return undefined;
+      if (context.anchor.cellId === context.caret.cellId) {
+        return claimRun(
+          state,
+          runInCell(state, context, (paragraph) =>
+            paragraph.actionBus.dispatchState(action, paragraph),
+          ),
+        );
+      }
       const moved = stepTableCaret(context.document, context.caret, motion);
       return moved ? placeCaret(state, context, moved) : claim(state);
     };
-  bus.registerState(MOVE_TO_LINE_START, edge("cell-start"), 100);
-  bus.registerState(MOVE_TO_LINE_END, edge("cell-end"), 100);
+  bus.registerState(
+    MOVE_TO_LINE_START,
+    edge("cell-start", MOVE_TO_LINE_START),
+    100,
+  );
+  bus.registerState(MOVE_TO_LINE_END, edge("cell-end", MOVE_TO_LINE_END), 100);
 
   // Shift+Home / Shift+End select to the cell's own edges. Their Ctrl variants
   // address the document's start and end, which is a flat position — left to
   // the generic handlers, which is also how a table is escaped that way.
   const extendEdge =
-    (motion: TableCaretStep) =>
+    (motion: TableCaretStep, action: StateAction<{ isCtrl: boolean }>) =>
     (state: EditorState, { isCtrl }: { isCtrl: boolean }) => {
       if (isCtrl) return undefined;
       const context = activeTableContext(state);
       if (!context) return undefined;
+      if (context.anchor.cellId === context.caret.cellId) {
+        return claimRun(
+          state,
+          runInCell(state, context, (paragraph) =>
+            paragraph.actionBus.dispatchState(action, paragraph, {
+              isCtrl: false,
+            }),
+          ),
+        );
+      }
       const moved = stepTableCaret(context.document, context.caret, motion);
       return moved
         ? placeRange(state, context, context.anchor, moved)
         : claim(state);
     };
-  bus.registerState(EXTEND_SELECTION_HOME, extendEdge("cell-start"), 100);
-  bus.registerState(EXTEND_SELECTION_END, extendEdge("cell-end"), 100);
+  bus.registerState(
+    EXTEND_SELECTION_HOME,
+    extendEdge("cell-start", EXTEND_SELECTION_HOME),
+    100,
+  );
+  bus.registerState(
+    EXTEND_SELECTION_END,
+    extendEdge("cell-end", EXTEND_SELECTION_END),
+    100,
+  );
 
   // Tab walks the cells in row-major order. At the last cell it does NOT claim
   // the key, leaving the ordinary Tab behavior in place.
@@ -462,6 +584,17 @@ export function registerTableActions(bus: ActionBus): void {
     (state, { backward }) => {
       const context = activeTableContext(state);
       if (!context) return undefined;
+      // In a formula, Tab walks the formula's slots, as in a paragraph.
+      if (context.content) {
+        return claimRun(
+          state,
+          runInCell(state, context, (paragraph) =>
+            paragraph.actionBus.dispatchState(MOVE_CONTENT_TAB, paragraph, {
+              backward,
+            }),
+          ),
+        );
+      }
       const moved = stepTableCaret(
         context.document,
         context.caret,
@@ -473,12 +606,23 @@ export function registerTableActions(bus: ActionBus): void {
   );
 
   const vertical =
-    (direction: "up" | "down") =>
+    (direction: "up" | "down", action: StateAction<ViewportPayload>) =>
     (
       state: EditorState,
       { viewport }: ViewportPayload,
     ): Claimed | undefined => {
       const context = activeTableContext(state);
+      if (context?.content) {
+        // A formula's stacked rows (a fraction, a matrix) come first. Once it
+        // has no row left that way the press belongs to the line around it —
+        // in a cell, the grid's line above or below, from the formula's spot.
+        const run = runInCell(state, context, (paragraph) =>
+          paragraph.actionBus.dispatchState(action, paragraph, { viewport }),
+        );
+        if (run.kind === "applied" && run.moved && run.range.content) {
+          return claimRun(state, run);
+        }
+      }
       if (context) {
         const layout = tableLayoutFor(state, context.block, viewport);
         const moved = moveTableCaretVertically(
@@ -492,27 +636,44 @@ export function registerTableActions(bus: ActionBus): void {
       }
       return enterAdjacentTable(state, direction, viewport);
     };
-  bus.registerState(MOVE_CURSOR_UP, vertical("up"), 100);
-  bus.registerState(MOVE_CURSOR_DOWN, vertical("down"), 100);
+  bus.registerState(MOVE_CURSOR_UP, vertical("up", MOVE_CURSOR_UP), 100);
+  bus.registerState(MOVE_CURSOR_DOWN, vertical("down", MOVE_CURSOR_DOWN), 100);
 
   // A grid has no page to turn, so PageUp/PageDown take the row move their
   // arrow twins take — and, at the top and bottom rows, leave the table the
   // same way. Without this they would be dead keys inside a cell: core's own
   // page move addresses flat block text a table does not have.
-  bus.registerState(MOVE_CURSOR_PAGE_UP, vertical("up"), 100);
-  bus.registerState(MOVE_CURSOR_PAGE_DOWN, vertical("down"), 100);
+  bus.registerState(
+    MOVE_CURSOR_PAGE_UP,
+    vertical("up", MOVE_CURSOR_PAGE_UP),
+    100,
+  );
+  bus.registerState(
+    MOVE_CURSOR_PAGE_DOWN,
+    vertical("down", MOVE_CURSOR_PAGE_DOWN),
+    100,
+  );
 
   // Shift+Up/Down walks the same lines and columns the unshifted key does, but
   // stops at the grid's top and bottom instead of leaving the table: the range
   // it is growing is a nested one, and there is no half-nested selection.
   const extendVertical =
-    (direction: "up" | "down") =>
+    (direction: "up" | "down", action: StateAction<ViewportPayload>) =>
     (
       state: EditorState,
       { viewport }: ViewportPayload,
     ): Claimed | undefined => {
       const context = activeTableContext(state);
       if (!context) return undefined;
+      // A range inside a formula grows by the formula's own rows.
+      if (context.content) {
+        return claimRun(
+          state,
+          runInCell(state, context, (paragraph) =>
+            paragraph.actionBus.dispatchState(action, paragraph, { viewport }),
+          ),
+        );
+      }
       const layout = tableLayoutFor(state, context.block, viewport);
       // Cell-wise for the same reason the horizontal extension is (see
       // `extendMotion`): a covered cell's wrapped lines are not stops of their
@@ -527,10 +688,26 @@ export function registerTableActions(bus: ActionBus): void {
         ? placeRange(state, context, context.anchor, moved)
         : claim(state);
     };
-  bus.registerState(EXTEND_SELECTION_UP, extendVertical("up"), 100);
-  bus.registerState(EXTEND_SELECTION_DOWN, extendVertical("down"), 100);
-  bus.registerState(EXTEND_SELECTION_PAGE_UP, extendVertical("up"), 100);
-  bus.registerState(EXTEND_SELECTION_PAGE_DOWN, extendVertical("down"), 100);
+  bus.registerState(
+    EXTEND_SELECTION_UP,
+    extendVertical("up", EXTEND_SELECTION_UP),
+    100,
+  );
+  bus.registerState(
+    EXTEND_SELECTION_DOWN,
+    extendVertical("down", EXTEND_SELECTION_DOWN),
+    100,
+  );
+  bus.registerState(
+    EXTEND_SELECTION_PAGE_UP,
+    extendVertical("up", EXTEND_SELECTION_PAGE_UP),
+    100,
+  );
+  bus.registerState(
+    EXTEND_SELECTION_PAGE_DOWN,
+    extendVertical("down", EXTEND_SELECTION_PAGE_DOWN),
+    100,
+  );
 
   // Double- and triple-click (and their touch twins) select the word and the
   // cell around the caret the press before them already placed. They resolve no
@@ -560,8 +737,43 @@ export function registerTableActions(bus: ActionBus): void {
         selected && { ...selected, state: updateMode(selected.state, "select") }
       );
     };
-  bus.registerState(SELECT_WORD_AT_POINT, selectAround(cellWordRange), 100);
-  bus.registerState(TAP_SELECT_WORD, selectAround(cellWordRange), 100);
+  // A double-click (or double-tap) takes the word around the caret the press
+  // just placed — the paragraph's own word selection, run on the cell, so a
+  // word ends at the same characters it does in the prose beside the table.
+  const selectWord = (state: EditorState): Claimed | undefined => {
+    const context = activeTableContext(state);
+    if (!context) return undefined;
+    // A double-click on a formula takes the formula whole, as it does in a
+    // paragraph — the click before it already put the caret inside.
+    if (context.content) {
+      const { cellId, offset } = context.caret;
+      const selected =
+        placeRange(
+          state,
+          context,
+          { cellId, offset },
+          { cellId, offset: offset + 1 },
+        ) ?? claim(state);
+      return { ...selected, state: updateMode(selected.state, "select") };
+    }
+    const run = runInCell(
+      state,
+      context,
+      (paragraph) => ({
+        state: selectWordAtPosition(paragraph, {
+          blockIndex: 0,
+          textIndex: context.caret.offset,
+        }),
+        ops: [],
+      }),
+      { anchor: context.caret.offset, focus: context.caret.offset },
+    );
+    const selected = claimRun(state, run);
+    // The gesture leaves the editor in `select` mode, as `selectAround` does.
+    return { ...selected, state: updateMode(selected.state, "select") };
+  };
+  bus.registerState(SELECT_WORD_AT_POINT, selectWord, 100);
+  bus.registerState(TAP_SELECT_WORD, selectWord, 100);
   bus.registerState(SELECT_LINE_AT_POINT, selectAround(cellTextRange), 100);
   bus.registerState(TAP_SELECT_LINE, selectAround(cellTextRange), 100);
 

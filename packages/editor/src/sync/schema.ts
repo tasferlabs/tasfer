@@ -41,6 +41,7 @@ import {
   type ContentSelectionSlice,
   type FeatureActionHook,
   type FeatureFacetSource,
+  type FeatureInputOptions,
   type FeatureInputPhase,
   type FeatureInputRule,
   type FeatureInputRuleCtx,
@@ -592,11 +593,12 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
     phase: FeatureInputPhase,
     state: EditorState,
     input: string,
+    options?: FeatureInputOptions,
   ): StateResult & { readonly handled: boolean } {
     let current = state;
     const ops: StateResult["ops"] = [];
     for (const rule of this.inputRules(phase)) {
-      const result = rule.apply({ state: current, input });
+      const result = rule.apply({ state: current, input, options });
       if (!result) continue;
       current = result.state;
       ops.push(...result.ops);

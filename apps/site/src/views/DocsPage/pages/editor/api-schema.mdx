@@ -284,6 +284,18 @@ Because a cell holds ordinary editor text, marks work inside it (see
 `markFields` below). Cell content is _inline_ Markdown, matching GFM: `**bold**`
 is bold, while `# not a heading` stays literal.
 
+Editing inside a cell runs the paragraph's own text code (see
+[Editing a field with the paragraph's code](#field-as-paragraph)): typing,
+typing over a selection, every delete key, mark toggles, an IME commit, a URL
+turning into a link when you type a space after it, and the caret moving
+within the cell. So a cell behaves exactly like a paragraph that cannot turn
+into another block. What stays the table's own is what a grid adds:
+a range across cells clears or formats those cells whole, Backspace never
+joins two cells (at the start of the first cell it selects the table), the
+arrow keys cross into the next cell at a cell's edge, and Enter moves down a
+row. Pasting into a cell is also the table's own (see below), so a grid
+pasted from a spreadsheet spreads across cells.
+
 ### Markdown shortcuts in cells
 
 Typing `**bold**` in a cell can auto-format the way it does in a paragraph. It
@@ -299,12 +311,24 @@ Hosts assembling a schema by hand build the rule directly, with
 `tableInputRule` export. Both carry the same rule id, so only one can be
 installed.
 
-The recognizers are the engine's own (`**bold**`, `*italic*`, `~~strike~~` and
-`` `code` ``), and they fire on the keystroke that closes the delimiter — pasted
-text is untouched. Backspace, or the first undo, immediately after one takes the
-wrap back and leaves the syntax literal, which is how you type `*text*` in a
-cell. Only inline syntax applies: block prefixes stay literal in a cell, since a
-GFM cell cannot be a heading or a list.
+With the option on, a cell runs the paragraph's inline shortcuts unchanged
+(`**bold**`, `*italic*`, `~~strike~~` and `` `code` ``, plus `$x$` inline math
+when the math extension is installed). They fire on the
+keystroke that closes the delimiter, and pasted text is untouched. Typing a
+delimiter over a selection wraps the selection in its mark. Backspace, or the
+first undo, right after a shortcut fires takes it back and leaves the syntax
+as typed, which is how you type `*text*` in a cell. With the option off, those
+characters always stay literal, while brackets and quotes typed over a
+selection still wrap it, as they do in a paragraph. Only inline syntax applies:
+block prefixes stay literal in a cell, since a GFM cell cannot be a heading or
+a list.
+
+The switch underneath is `insertText`'s `inlineMarkdown` option (default on).
+An input rule receives the typing path's options as `ctx.options`, in both the
+`before-insert` and `after-insert` phases, and passes them on when it hands the
+keystroke to `insertText`. A rule that adds a shortcut of its own should leave
+the text literal when `ctx.options?.inlineMarkdown === false`, the way math's
+`$x$` rule does.
 
 ### On the canvas
 
@@ -580,6 +604,116 @@ runs unchanged. At a collapsed caret, set `ui.activeMarksMode` to
 formats to the characters your insert path adds next — that is what makes
 "Ctrl+B, then type" come out bold inside a cell. Marks active on a nested
 selection are reported by `editor.state.activeMarks` for free.
+
+<h3 id="field-as-paragraph">Editing a field with the paragraph's code</h3>
+
+You rarely have to write those handlers yourself. `runFieldAsParagraph` runs
+any flat-text action on one text field, as if the field were a lone paragraph
+whose caret is your selection, and commits what the action did to the field:
+
+```ts
+import { runFieldAsParagraph, TOGGLE_MARK } from "@tasfer/editor";
+
+bus.registerState(
+  TOGGLE_MARK,
+  (state, { name }) => {
+    const context = activeContext(state);
+    if (!context) return undefined;
+    const run = runFieldAsParagraph(
+      state,
+      { blockId, contentId, nodeId, field: "text" },
+      { anchor: context.anchorOffset, focus: context.focusOffset },
+      (paragraph) =>
+        paragraph.actionBus.dispatchState(TOGGLE_MARK, paragraph, { name }),
+    );
+    return run.kind === "applied"
+      ? { state: run.state, ops: run.ops, handled: true }
+      : { state, ops: [], handled: true };
+  },
+  100,
+);
+```
+
+The same call covers typing (`insertText` from your input rule), the delete
+keys, the arrow keys, and Backspace taking back a markdown shortcut
+(`REVERT_INPUT_RULE`, armed for the field while `armedFieldRevert(state)`
+returns its address). The field gets exactly the paragraph's behaviour, including
+pending marks and the side of a mark edge, because it is the paragraph's code
+that runs.
+
+That includes a formula in the field. The paragraph's arrow keys walk into a
+formula and around its tree, and typing, pasting and deleting there edit the
+formula itself. While the caret is in a formula the selection is a nested one
+in the formula's attachment, not in your document. Hand it back as the range's
+`content`, and the result's `range.content` says where the caret went. When it
+is set, `anchor` and `focus` are the formula's offset in the field, which is the
+place to start from if the press should leave the formula your way (Down to the
+next row of a grid, say):
+
+```ts
+const inFormula = state.document.contentSelection; // focus.contentId: the formula's
+const run = runFieldAsParagraph(
+  state,
+  address,
+  { anchor: formulaOffset, focus: formulaOffset, content: inFormula },
+  (paragraph) =>
+    paragraph.actionBus.dispatchState(MOVE_CURSOR_UP, paragraph, { viewport }),
+);
+if (run.kind === "applied" && run.moved && run.range.content) {
+  // Still in the formula: it moved between its own rows.
+}
+```
+
+A feature also has actions of its own for that content, which your node cannot
+name without depending on the feature: math's command menu inserts `\frac`
+through `INSERT_MATH_COMMAND`, and its matrix editor resizes through
+`RESIZE_MATH_MATRIX`. Such an action is declared forwardable, and one
+forwarder runs every one of them in your field. It gets the action itself, so
+it can hand the same action and payload to the paragraph:
+
+```ts
+bus.registerForwarder((state, action, payload) => {
+  const context = activeContext(state);
+  if (!context?.inFormula) return undefined; // not ours: the action goes on
+  const run = runFieldAsParagraph(state, address, range, (paragraph) =>
+    paragraph.actionBus.dispatchState(action, paragraph, payload),
+  );
+  return run.kind === "applied"
+    ? { state: run.state, ops: run.ops, handled: true }
+    : { state, ops: [], handled: true };
+}, 100);
+```
+
+A forwarder runs only when the action's own handlers all passed, which is
+always the case for these in your block, since the feature's handlers look for
+a paragraph. Inside the paragraph your forwarder finds no context of its own
+and passes, so the feature's handler answers there.
+
+How it works: the field's characters and marks are handed to the action as the
+only paragraph on a one-block page, the same single-block surface a title
+editor is, with only the `paragraph` type allowed, along with every mark the
+host allows. The action's text ops are then re-addressed to the field as
+`content_edit` operations with the same character ids, so nothing about how the
+field is stored changes. The attachments the field's structured marks point at
+are lent to the paragraph along with it, and an edit the action makes inside
+one (typing in a formula's tree) is written to your block's copy. When the
+action creates a structured mark (a typed `$x$` formula), the new attachment it
+points at is written onto your block, beside the field's document, before the
+mark itself. The
+result is `applied` with `edited` and `moved` flags, which tell you whether the
+action stopped at the field's edge and your node should take over (cross into
+a neighbour, say). Otherwise it is `refused`, and nothing changes:
+
+- `missing` — the field is not there, or `content` names an attachment the
+  field's marks do not point at.
+- `outside` — the action produced something other than an edit of the field,
+  of an attachment it points at, or a new attachment for it, such as a new
+  block.
+- `mismatch` — the field rebuilt from the translated edits did not match what
+  the paragraph code produced, character for character and mark for mark, an
+  attachment it wrote did not come out the same on your block, or it put on a
+  structured mark with no attachment behind it. This check runs on every call.
+- `no-caret` — the action left no caret in the field or in a formula of it.
 
 The spans anchor to character identities, so a mark survives edits inside its
 range and merges per character. Unlike a block's `formats`, they carry no HLC:

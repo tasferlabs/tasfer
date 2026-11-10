@@ -100,12 +100,6 @@ export {
   tableSyntaxRule,
 } from "./markdown";
 export {
-  type CellWrap,
-  type CellWrapRevert,
-  detectCellMarkdown,
-  TABLE_MARKDOWN_RULE,
-} from "./markdown-shortcuts";
-export {
   TABLE_TOOLS_OVERLAY,
   tableToolsOverlay,
   type TableToolsOverlayData,

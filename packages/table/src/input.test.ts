@@ -22,7 +22,7 @@ import {
 import { baseSchema } from "@tasfer/editor/schema";
 import { loadPage } from "@tasfer/editor/serlization/loadPage";
 import { serializeToMarkdown } from "@tasfer/editor/serlization/serializer";
-import type { EditorState } from "@tasfer/editor/state-types";
+import type { EditorState, Operation } from "@tasfer/editor/state-types";
 import { createInitialState } from "@tasfer/editor/state-utils";
 import { updateContentSelection } from "@tasfer/editor/structured-selection";
 import { applyOps } from "@tasfer/editor/sync/reducer";
@@ -32,11 +32,11 @@ const schema = baseSchema.use(tableExtension());
 
 const TABLE = ["| A | B |", "| --- | --- |", "| one | two |"].join("\n");
 
-function stateOf(source: string): EditorState {
+function stateOf(source: string, data = schema.data): EditorState {
   const bus = createActionBus();
   registerTableInputActions(bus);
-  const state = createInitialState(loadPage(source, schema.data), {
-    schema: schema.data,
+  const state = createInitialState(loadPage(source, data), {
+    schema: data,
     nodes: createNodeRegistry(schema.nodes),
   });
   return { ...state, actionBus: bus };
@@ -142,6 +142,48 @@ describe("typing in a cell", () => {
       ["x", ""],
       ["", ""],
     ]);
+  });
+
+  it("replaces a cross-cell selection with a wrapping character instead of wrapping", () => {
+    // `(` over a selection normally wraps it. Across cells the first cell's
+    // whole text stands in for the selection, so wrapping would give "(A)".
+    const state = rangeIn(stateOf(TABLE), 0, 0, 3, 3);
+    const result = insertText(state, "(", { wrapSelection: true });
+
+    expect(grid(result.state)).toEqual([
+      ["(", ""],
+      ["", ""],
+    ]);
+  });
+
+  it("changes nothing when the first cell refuses a cross-cell keystroke", () => {
+    // A rule that answers `§`, inside the paragraph stand-in only, with an op
+    // a cell cannot hold — so the paragraph run on the first cell is refused.
+    const refuse = schema.data.withFeatures({
+      inputRules: [
+        {
+          id: "test.refuse",
+          phase: "before-insert",
+          apply: ({ state, input }) =>
+            input === "§" && state.document.contentSelection === null
+              ? {
+                  state,
+                  ops: [{ op: "block_set" } as unknown as Operation],
+                  handled: true,
+                }
+              : undefined,
+        },
+      ],
+    });
+    const state = rangeIn(stateOf(TABLE, refuse), 0, 0, 3, 3);
+    const result = insertText(state, "§");
+
+    // The other cells keep their text: no half-applied clear.
+    expect(grid(result.state)).toEqual([
+      ["A", "B"],
+      ["one", "two"],
+    ]);
+    expect(result.ops).toEqual([]);
   });
 
   it("never touches the block's own flat storage", () => {
