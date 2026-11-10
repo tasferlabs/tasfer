@@ -87,7 +87,7 @@ export function loadTextDrag(
   const payload = buildClipboardPayload(state);
   if (!payload) return null;
 
-  transfer.setData("text/plain", payload.plainText);
+  transfer.setData("text/plain", payload.text);
   transfer.setData("text/html", payload.html);
   transfer.setData(TASFER_TEXT_DRAG_TYPE, "1");
   // Both are on offer; the browser picks per the OS modifier and reports the
@@ -289,5 +289,5 @@ export function readTextDrop(
   const html = transfer.getData("text/html");
   const plainText = transfer.getData("text/plain");
   if (!html && !plainText) return null;
-  return { plainText, html, markdown: plainText };
+  return { plainText, html, markdown: plainText, text: plainText };
 }

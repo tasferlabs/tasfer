@@ -110,6 +110,7 @@ describe("paste into a code block", () => {
     const result = insertClipboardPayload(codeDoc("", 0), {
       plainText: "## h\n- li",
       markdown: "## h\n- li",
+      text: "## h\n- li",
       html: "<h2>h</h2><ul><li>li</li></ul>",
     });
     const blocks = getVisibleBlocks(result!.state.document.page);

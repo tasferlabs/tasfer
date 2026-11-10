@@ -3265,9 +3265,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     if (!payload || !e.clipboardData) return; // nothing selected → browser default
     e.preventDefault();
     // The clipboard write MUST stay synchronous in the ClipboardEvent.
-    // text/plain is for external/plain paste targets. Rich Tasfer round-trips
-    // use text/html, whose hidden marker carries the canonical markdown.
-    e.clipboardData.setData("text/plain", payload.plainText);
+    // text/plain is the markdown source, for external/plain paste targets
+    // (see `ClipboardPayload.text`). Rich Tasfer round-trips use text/html,
+    // whose hidden marker carries the canonical markdown.
+    e.clipboardData.setData("text/plain", payload.text);
     e.clipboardData.setData("text/html", payload.html);
     // Copy produces no state/ops — fire COPY as a plain signal so hosts can
     // observe/override it (the override doesn't replace the sync write above,
@@ -3290,7 +3291,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     e.preventDefault();
     // The clipboard write MUST stay synchronous in the ClipboardEvent.
     // text/plain is for external/plain paste targets — see copyHandler.
-    e.clipboardData.setData("text/plain", payload.plainText);
+    e.clipboardData.setData("text/plain", payload.text);
     e.clipboardData.setData("text/html", payload.html);
     // Route the deletion through CUT so observers/overrides see it; CUT's
     // default wraps `deleteSelectedText`, so the emitted ops match the old path.

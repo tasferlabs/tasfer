@@ -2655,15 +2655,15 @@ function PageEditor({
       // `setClipboard` is engine-internal wiring (EditorWiring), off the public
       // EditorApi the handle is typed as — reach it through the concrete class.
       const wiring = mounted.editor as unknown as EditorWiring;
-      let lastCopy: { plainText: string; html: string } | null = null;
+      let lastCopy: { text: string; html: string } | null = null;
       wiring.setClipboard({
         async write(payload) {
-          lastCopy = { plainText: payload.plainText, html: payload.html };
-          await native.clipboard.copy(payload.plainText);
+          lastCopy = { text: payload.text, html: payload.html };
+          await native.clipboard.copy(payload.text);
         },
         async read() {
           const text = await native.clipboard.paste();
-          if (text && lastCopy && text === lastCopy.plainText) {
+          if (text && lastCopy && text === lastCopy.text) {
             return { text, html: lastCopy.html };
           }
           return { text };
