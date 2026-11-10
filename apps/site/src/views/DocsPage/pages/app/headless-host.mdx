@@ -219,6 +219,9 @@ direction.
 
 <h2 id="options">Options</h2>
 
+Not every command takes every option. `tasfer <command> --help` lists the ones
+it does, with the defaults on this machine.
+
 <PropsTable cols={["Option", "Default", "Description"]} rows={[
   { name: "--data-dir", type: "OS data dir", desc: "Database and asset blobs. `~/.local/share/tasfer-cli` on Linux, `~/Library/Application Support/tasfer-cli` on macOS. Also `TASFER_DATA_DIR`." },
   { name: "--signal-url", type: "wss://signaling.tasfer.app", desc: "The relay to find peers through. Point it at your own with this or `TASFER_SIGNAL_URL`." },

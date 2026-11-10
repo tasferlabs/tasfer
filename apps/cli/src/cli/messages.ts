@@ -10,7 +10,11 @@
 const EN = {
   // ─── Usage ────────────────────────────────────────────────────────────────
   "usage.summary": "tasfer — run a Tasfer host on your own machine",
+  "usage.usage": "Usage",
   "usage.commands": "Commands",
+  "usage.hostFamily": "More host commands",
+  "usage.commandHelp": "Run `tasfer <command> --help` to see the options a command takes.",
+  "usage.default": "(default: {{value}})",
   "usage.host": "Run the headless host: stay online and sync your spaces",
   "usage.hostLink": "Link this host to your account with a code from the app",
   "usage.hostInvite": "Show a code the app can use to link this host",
@@ -186,6 +190,7 @@ const EN = {
   "error.optionNeedsValue": "{{option}} needs a value",
   "error.badNumber": "{{option}} must be a number, got: {{value}}",
   "error.tryHelp": "Run `tasfer --help` to see what is available.",
+  "error.tryCommandHelp": "Run `tasfer {{command}} --help` to see what it takes.",
 } as const;
 
 export type MessageKey = keyof typeof EN;

@@ -212,6 +212,8 @@ sudo systemctl enable --now tasfer-update.timer
 
 <h2 id="options">الخيارات</h2>
 
+لا يقبل كل أمر كل الخيارات. ويعرض `tasfer <command> --help` الخيارات التي يقبلها الأمر، وقيمها الافتراضية على هذا الجهاز.
+
 <PropsTable cols={["الخيار", "الافتراضي", "الوصف"]} rows={[
   { name: "--data-dir", type: "مجلد بيانات النظام", desc: "قاعدة البيانات وملفات المرفقات. ‎~/.local/share/tasfer-cli‎ على لينكس، و‎~/Library/Application Support/tasfer-cli‎ على ماك. ويقبل كذلك TASFER_DATA_DIR." },
   { name: "--signal-url", type: "wss://signaling.tasfer.app", desc: "المُرحِّل الذي يعثر على الأقران من خلاله. وجّهه إلى مُرحِّلك بهذا الخيار أو بـTASFER_SIGNAL_URL." },
