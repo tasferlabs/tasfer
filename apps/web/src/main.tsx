@@ -26,6 +26,10 @@ import { requestPersistentStorage } from "./lib/persistentStorage";
 import { redactRouteParams } from "./lib/reportIssue";
 import { initPlatform } from "./platform";
 import { serviceWorkerBridge } from "./serviceWorkerBridge";
+// Dev only: forwards another device's console to the vite terminal (see the module).
+import { installRemoteDevConsole } from "./dev/remoteDevConsole";
+
+if (import.meta.env.DEV) installRemoteDevConsole();
 
 // First, so a failed startup is in Settings → Error log too (when it is on).
 installErrorLog({

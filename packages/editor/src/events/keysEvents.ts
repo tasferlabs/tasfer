@@ -68,6 +68,7 @@ import {
   getContentSelectionFromViewport,
   getCursorDocumentCoords,
   getTextPositionFromViewport,
+  paintedCoordsResolver,
   scrollToMakeCursorVisible,
 } from "../selection";
 import { moveCursorToPosition } from "../selection";
@@ -94,14 +95,15 @@ import type { InteractionSession } from "./interaction-session";
 import { routeCapturedCancel } from "./regions";
 
 // After an arrow-key caret move, dispatch CURSOR_MOVED so marks can react to the
-// caret crossing an inline boundary — @tasfer/math's MathMark opens its editor when
-// the caret steps across a chip. Gated on staying within the same block (a move
+// caret crossing an inline boundary (no built-in mark observes it; @tasfer/math
+// enters chips via MOVE_CURSOR_LEFT/RIGHT). Gated on staying within the same block (a move
 // to another block isn't a "cross"); the engine names no mark type.
 function dispatchCursorCrossed(
   prevState: EditorState,
   newState: EditorState,
   viewport: ViewportState,
   direction: "left" | "right",
+  visibility?: VisibleBlockRange,
 ): EditorState {
   const prevCursor = prevState.document.cursor;
   const newCursor = newState.document.cursor;
@@ -119,7 +121,7 @@ function dispatchCursorCrossed(
     newIndex: newCursor.position.textIndex,
     direction,
     viewport,
-    resolveCoords: (pos) => getCursorDocumentCoords(pos, newState, viewport),
+    resolveCoords: paintedCoordsResolver(newState, viewport, visibility),
   }).state;
 }
 
@@ -745,7 +747,13 @@ export function handleKeyDown(
         // off the tracked block.
         newState = selectVisualBlockAfterMove(newState);
 
-        newState = dispatchCursorCrossed(state, newState, viewport, "left");
+        newState = dispatchCursorCrossed(
+          state,
+          newState,
+          viewport,
+          "left",
+          visibility,
+        );
       }
       break;
     case "ArrowRight":
@@ -863,7 +871,13 @@ export function handleKeyDown(
         // off the tracked block.
         newState = selectVisualBlockAfterMove(newState);
 
-        newState = dispatchCursorCrossed(state, newState, viewport, "right");
+        newState = dispatchCursorCrossed(
+          state,
+          newState,
+          viewport,
+          "right",
+          visibility,
+        );
       }
       break;
     case "ArrowUp":

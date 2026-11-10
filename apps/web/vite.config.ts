@@ -7,6 +7,8 @@ import { dirname, join, resolve } from "path";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 import { microfrontends } from "@vercel/microfrontends/experimental/vite";
+// `vite dev` only: another device's console → this terminal and remote-dev-console.log.
+import { remoteDevConsolePlugin } from "./scripts/remote-dev-console-plugin";
 
 // The microfrontends config lives in the default app (apps/site) and there is
 // no root workspace for the plugin to infer it from; point it there explicitly
@@ -135,6 +137,7 @@ const appVersion: string = versionConfig.appVersion;
 
 export default defineConfig({
   plugins: [
+    remoteDevConsolePlugin(),
     microfrontends(isVercelBuild ? { basePath: "/app" } : {}),
     tailwindcss(),
     react({
