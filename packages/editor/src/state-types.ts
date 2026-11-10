@@ -998,6 +998,14 @@ export interface VisibleBlockRange {
    * pre-first-paint placeholder.
    */
   scrollY?: number;
+  /**
+   * Id of the block painted at `start`. An event handled in the same frame as
+   * a structural edit above the fold (a remote insert, a paste) reads this
+   * snapshot against a state whose `visibleBlocks` indices have shifted; the id
+   * finds the painted block again instead of walking from whichever block now
+   * sits at `start`. Undefined on the pre-first-paint placeholder.
+   */
+  startBlockId?: string;
 }
 
 export interface TouchState {

@@ -2170,7 +2170,12 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
             !!cursor && !!this._state.ui.composition?.isComposing;
           const cursorCoords = cursor
             ? isComposing
-              ? getCursorCoordinatesWithComposition(this._state, this.viewport)
+              ? getCursorCoordinatesWithComposition(
+                  this._state,
+                  this.viewport,
+                  undefined,
+                  this.visibility,
+                )
               : this.coordsAtIndexPosition(cursor.position)
             : this.coordsAtContentPoint(contentFocus!);
           if (cursorCoords) {
