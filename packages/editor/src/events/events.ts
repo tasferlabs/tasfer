@@ -623,6 +623,13 @@ export function handleEvents(
     return { state, ops: collectedOps };
   }
 
+  // A pointer gesture in this drain committed the open composition where it
+  // was typed (see below). The keyboard's composition events queued behind it
+  // still belong to that finished session: replayed, an update would reopen a
+  // composition at the new caret, carrying the old session's replaced count
+  // over the text there. They are dropped until the keyboard starts anew.
+  let compositionCommittedByGesture = false;
+
   while (events.length > 0) {
     // Dequeue BEFORE dispatching. If a handler throws, the drain unwinds without
     // committing state — and an event left at the head would be re-drained (and
@@ -630,6 +637,16 @@ export function handleEvents(
     // move and paste behind it forever. Losing the one bad event is the cheap
     // failure; losing the queue is not.
     const event = events.shift()!;
+    if (compositionCommittedByGesture) {
+      if (event.type === "compositionstart") {
+        compositionCommittedByGesture = false;
+      } else if (
+        event.type === "compositionupdate" ||
+        event.type === "compositionend"
+      ) {
+        continue;
+      }
+    }
     // Snapshot the pre-event state and op count: an event whose edit does not
     // survive the schema check below is rolled back to exactly here, so the
     // gesture becomes a no-op rather than a document the schema forbids.
@@ -862,6 +879,7 @@ export function handleEvents(
       if (left) {
         state = left.state;
         collectedOps.push(...left.ops);
+        if (!state.ui.composition) compositionCommittedByGesture = true;
       }
     }
 

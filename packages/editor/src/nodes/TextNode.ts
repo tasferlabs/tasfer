@@ -22,7 +22,11 @@
  * flowing into the text via `inlineText()`.
  */
 
-import { sharedEnds } from "../composition";
+import {
+  captureReopenedWord,
+  planRecomposition,
+  reopenedWordIn,
+} from "../composition";
 import {
   batchChars,
   currentFontFamily,
@@ -309,28 +313,44 @@ export function getContentWithComposition(
   // A recomposition (an IME that reopened the word before the caret) replaces
   // that word: hide it and show the composed text in its place.
   const replaces = Math.min(state.ui.composition.replaces ?? 0, caretIndex);
-  if (replaces > 0) {
-    // Draw what the commit will produce (see COMPOSITION_END): the start and
-    // end the old and new word share stay as they are, with their own
-    // formatting; only the middle is swapped for the preview.
-    const wordStart = caretIndex - replaces;
-    const word = getVisibleTextFromRuns(block.charRuns).slice(
-      wordStart,
-      caretIndex,
-    );
-    const { prefix, suffix } = sharedEnds(word, compositionText);
-    const from = wordStart + prefix;
-    const to = caretIndex - suffix;
-    const middle = compositionText.slice(
-      prefix,
-      compositionText.length - suffix,
-    );
+  const word =
+    state.ui.composition.reopened ??
+    (replaces > 0 ? captureReopenedWord(state, replaces) : undefined);
+  // A word reopened in another block (the caret was moved out of it) neither
+  // draws nor commits here (see `reopenedWordIn`).
+  if (word && !reopenedWordIn(word, block.id)) {
+    return {
+      chars: charRunsToChars(block.charRuns),
+      formats: block.formats,
+      compositionRange: null,
+    };
+  }
+  if (word) {
+    // Draw what the commit will produce (see COMPOSITION_END): the same plan,
+    // by character id, so a peer's edit to the word while it is open shows
+    // the way it will merge. The start and end the old and new word share
+    // stay as they are, with their own formatting; only the middle is
+    // swapped for the preview.
+    const plan = planRecomposition(block.charRuns, word, compositionText);
     const folded = foldComposition(
       charRunsToChars(block.charRuns),
-      from,
-      middle,
-      { from, to },
+      plan.insertAt,
+      plan.inserted,
+      plan.deletes,
     );
+    // The whole word is the composition, as the keyboard sees it: from its
+    // first drawn character to its last.
+    let start = -1;
+    let end = -1;
+    let visible = 0;
+    for (const c of folded.chars) {
+      if (c.deleted) continue;
+      if (plan.keptIds.has(c.id) || c.id.startsWith("composition-")) {
+        if (start < 0) start = visible;
+        end = visible + 1;
+      }
+      visible++;
+    }
     return {
       chars: folded.chars,
       formats: recompositionFormats(
@@ -338,13 +358,10 @@ export function getContentWithComposition(
         block,
         block.formats,
         folded.chars,
-        from < to ? from + 1 : from,
-        middle.length,
+        plan.overwritesFirst ? plan.insertAt + 1 : plan.insertAt,
+        plan.inserted.length,
       ),
-      // The whole word is the composition, as the keyboard sees it.
-      compositionRange: compositionText
-        ? { start: wordStart, end: wordStart + compositionText.length }
-        : null,
+      compositionRange: compositionText && start >= 0 ? { start, end } : null,
     };
   }
   if (!compositionText) {

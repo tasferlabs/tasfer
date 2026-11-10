@@ -1,4 +1,5 @@
 import { nextCodePointEnd, prevCodePointStart } from "./code-points";
+import { undrawnCompositionCaret } from "./composition";
 import { currentFontFamily, measureCharsUpToIndex } from "./fonts";
 import { caretMarkEdgeSide, markEdgeAt, withMarkEdgeSide } from "./mark-edge";
 import {
@@ -87,6 +88,23 @@ function layoutFor(
   });
 }
 
+/**
+ * Index in `visibleBlocks` of the block the paint drew at `visibility.start`,
+ * or -1 when it is gone. Usually `start` itself; differs only when blocks above
+ * the fold were added or removed since that paint (same-frame edit).
+ */
+function paintedStartIndex(
+  visibleBlocks: EditorState["view"]["visibleBlocks"],
+  visibility: VisibleBlockRange,
+): number {
+  const { start, startBlockId } = visibility;
+  const atStart = visibleBlocks[start];
+  if (startBlockId === undefined || atStart?.id === startBlockId) {
+    return atStart ? start : -1;
+  }
+  return visibleBlocks.findIndex((block) => block.id === startBlockId);
+}
+
 /** Top Y of a block in document space (origin at canvas paddingTop). */
 function getBlockTopDocument(
   state: EditorState,
@@ -97,11 +115,14 @@ function getBlockTopDocument(
   visibility?: VisibleBlockRange,
 ): number {
   const visibleBlocks = state.view.visibleBlocks;
+  const paintedStart =
+    viewport && visibility ? paintedStartIndex(visibleBlocks, visibility) : -1;
   const canStartFromPaintedRange =
     !!viewport &&
     !!visibility &&
-    visibleBlocks[visibility.start]?.originalIndex <= blockIndex;
-  let visibleIdx = canStartFromPaintedRange ? visibility.start : 0;
+    paintedStart >= 0 &&
+    visibleBlocks[paintedStart].originalIndex <= blockIndex;
+  let visibleIdx = canStartFromPaintedRange ? paintedStart : 0;
   let y = canStartFromPaintedRange
     ? visibility.startY + viewport.scrollY
     : styles.canvas.paddingTop;
@@ -344,6 +365,23 @@ export function getCursorDocumentCoords(
   );
 }
 
+/**
+ * The caret → document-coords resolver an event hands to its action payloads
+ * (`POINTER_MOVE`, `CURSOR_MOVED`). Anchored on the painted range: the canvas
+ * lays blocks out from the height index, which holds *estimates* for blocks
+ * above the fold, so summing exact heights from block 0 drifts from where the
+ * text is drawn — a link tooltip or popup deep in a long note lands far off.
+ * Build payload resolvers here so no call site can forget `visibility`.
+ */
+export function paintedCoordsResolver(
+  state: EditorState,
+  viewport: ViewportState,
+  visibility: VisibleBlockRange | undefined,
+): (position: Position) => { x: number; y: number; height: number } | null {
+  return (position) =>
+    getCursorDocumentCoords(position, state, viewport, undefined, visibility);
+}
+
 /** Stable structured-point counterpart to {@link getCursorDocumentCoords}. */
 export function getContentPointDocumentCoords(
   point: ContentPoint,
@@ -550,6 +588,7 @@ export function getCursorCoordinatesWithComposition(
   state: EditorState,
   viewport: ViewportState,
   styles: EditorStyles = getEditorStyles(state),
+  visibility?: VisibleBlockRange,
 ): { x: number; y: number; height: number } | null {
   if (!state.document.cursor) return null;
 
@@ -562,11 +601,21 @@ export function getCursorCoordinatesWithComposition(
   if (!node) return null;
 
   const composition = state.ui.composition;
+  // A pinned reopened word counts even when the caret now sits before it: a
+  // peer who deleted the word pulled the caret back over it.
   const replaces = composition?.isComposing
-    ? Math.min(composition.replaces ?? 0, position.textIndex)
+    ? composition.reopened
+      ? composition.reopened.charIds.length
+      : Math.min(composition.replaces ?? 0, position.textIndex)
     : 0;
   if (!composition?.isComposing || (!composition.text && replaces === 0)) {
-    return getCursorDocumentCoords(position, state, viewport, styles);
+    return getCursorDocumentCoords(
+      position,
+      state,
+      viewport,
+      styles,
+      visibility,
+    );
   }
 
   const maxWidth =
@@ -586,13 +635,17 @@ export function getCursorCoordinatesWithComposition(
       position.blockIndex,
       maxWidth,
       styles,
+      viewport,
+      visibility,
     );
-    return node.caretRect(
-      layout,
-      position.textIndex - replaces + composition.text.length,
-      styles.canvas.paddingLeft,
-      blockTop,
-    );
+    // At the keyboard's caret in the drawn word, as paint() places it; the
+    // word is found by its characters, not by counting back from the caret.
+    const range = content.compositionRange;
+    const index = range
+      ? range.start +
+        Math.min(composition.cursorOffset, range.end - range.start)
+      : undrawnCompositionCaret(composition, block, position.textIndex);
+    return node.caretRect(layout, index, styles.canvas.paddingLeft, blockTop);
   }
 
   // Fold the active composition into the layout exactly as paint() does, then
@@ -615,6 +668,8 @@ export function getCursorCoordinatesWithComposition(
     position.blockIndex,
     maxWidth,
     styles,
+    viewport,
+    visibility,
   );
   return node.caretRect(
     layout,
