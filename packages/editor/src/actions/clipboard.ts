@@ -574,11 +574,43 @@ function blocksToMarkdown(blocks: Block[], schema: DataSchema): string {
  */
 const TASFER_CLIPBOARD_MARKER_RE = /<!--tasfer-clipboard:([A-Za-z0-9+/=]+)-->/;
 
-function encodeClipboardMarkdown(markdown: string): string {
-  const utf8 = new TextEncoder().encode(markdown);
+function encodeBase64(text: string): string {
+  const utf8 = new TextEncoder().encode(text);
   let binary = "";
   for (const byte of utf8) binary += String.fromCharCode(byte);
-  return `<!--tasfer-clipboard:${btoa(binary)}-->`;
+  return btoa(binary);
+}
+
+function encodeClipboardMarkdown(markdown: string): string {
+  return `<!--tasfer-clipboard:${encodeBase64(markdown)}-->`;
+}
+
+/**
+ * Second marker on a Tasfer-originated `text/html` payload: the selection's
+ * plain text, markup stripped. `text/plain` carries markdown so plain-text apps
+ * keep `**bold**` and bullets, but a Tasfer paste that inserts text as-is (a
+ * code block, a table cell, a plain-text paste, a drop) wants the words alone.
+ * Written only when it differs from `text/plain`. Older versions ignore it.
+ */
+const TASFER_CLIPBOARD_TEXT_MARKER_RE =
+  /<!--tasfer-clipboard-text:([A-Za-z0-9+/=]+)-->/;
+
+function encodeClipboardPlainText(plainText: string): string {
+  return `<!--tasfer-clipboard-text:${encodeBase64(plainText)}-->`;
+}
+
+/**
+ * The text a paste should insert as-is: the plain text a Tasfer copy recorded
+ * in its html, or the clipboard's `text/plain` for anything else.
+ */
+export function pastedPlainText(text: string, html: string): string {
+  const marker = html ? TASFER_CLIPBOARD_TEXT_MARKER_RE.exec(html) : null;
+  if (!marker) return text;
+  try {
+    return decodeClipboardMarkdown(marker[1]);
+  } catch {
+    return text;
+  }
 }
 
 function decodeClipboardMarkdown(base64: string): string {
@@ -603,9 +635,11 @@ function blocksToHTML(
   blocks: Block[],
   markdown: string,
   schema: DataSchema,
+  plainText?: string,
 ): string {
   return (
     encodeClipboardMarkdown(markdown) +
+    (plainText === undefined ? "" : encodeClipboardPlainText(plainText)) +
     serializeToHTMLFragment(blocks, { preferSource: true, schema })
   );
 }
@@ -800,11 +834,18 @@ export function buildClipboardPayload(
   if (blocks.length === 0) return null;
   const markdown = blocksToMarkdown(blocks, state.schema);
   const plainText = blocksToPlainText(blocks, state.schema);
+  const text = clipboardTextFlavor(selectedContent, markdown, plainText, state);
   return {
     plainText,
-    html: blocksToHTML(blocks, markdown, state.schema),
+    // The plain words ride along only when text/plain differs from them.
+    html: blocksToHTML(
+      blocks,
+      markdown,
+      state.schema,
+      text === plainText ? undefined : plainText,
+    ),
     markdown,
-    text: clipboardTextFlavor(selectedContent, markdown, plainText, state),
+    text,
   };
 }
 
@@ -2437,20 +2478,21 @@ export function pasteFromClipboardEvent(
   }
 
   state = expandSelectionAroundStructuredMarks(state);
+  const plain = pastedPlainText(text, html);
 
   // A nested selection is owned by its feature, not by the flat block parser.
   // Paste the plain flavor through the same input-rule transaction as typing so
   // it can replace a structured range and preserve tree invariants.
   if (
     state.document.contentSelection ||
-    state.schema.ownsInput("before-insert", state, text)
+    state.schema.ownsInput("before-insert", state, plain)
   ) {
-    const owned = pasteIntoContentSelection(state, text, html);
+    const owned = pasteIntoContentSelection(state, plain, html);
     if (owned) return owned;
-    return text ? insertText(state, text) : null;
+    return plain ? insertText(state, plain) : null;
   }
 
-  const verbatim = pasteIntoPreformattedBlock(state, text);
+  const verbatim = pasteIntoPreformattedBlock(state, plain);
   if (verbatim) return verbatim;
 
   // Collects the blocks whose type the source never declared — see the empty-host
@@ -2588,8 +2630,12 @@ export function pasteFromClipboardEventAsPlainText(
         return;
       }
 
-      const text =
-        clipboardData.getData("text/plain") || clipboardData.getData("text");
+      // A Tasfer copy's text/plain is markdown; a plain paste wants the words
+      // alone, which the copy recorded in its html.
+      const text = pastedPlainText(
+        clipboardData.getData("text/plain") || clipboardData.getData("text"),
+        clipboardData.getData("text/html"),
+      );
       if (!text) {
         resolve(null);
         console.error("Failed to paste from clipboard event: no text");
@@ -2685,15 +2731,16 @@ export async function pasteFromSystemClipboard(
       } catch (error) {
         console.error("Failed to read host clipboard:", error);
       }
+      const plain = pastedPlainText(text, html);
       if (
         state.document.contentSelection ||
-        state.schema.ownsInput("before-insert", state, text)
+        state.schema.ownsInput("before-insert", state, plain)
       ) {
-        const owned = pasteIntoContentSelection(state, text, html);
+        const owned = pasteIntoContentSelection(state, plain, html);
         if (owned) return owned;
-        return text ? insertText(state, text) : null;
+        return plain ? insertText(state, plain) : null;
       }
-      const verbatim = pasteIntoPreformattedBlock(state, text);
+      const verbatim = pasteIntoPreformattedBlock(state, plain);
       if (verbatim) return verbatim;
       if (text) {
         const blocks = parseRecognizedPlainTextToBlocks(
@@ -2758,16 +2805,17 @@ export async function pasteFromSystemClipboard(
       text = await navigator.clipboard.readText();
     }
 
+    const plain = pastedPlainText(text, html);
     if (
       state.document.contentSelection ||
-      state.schema.ownsInput("before-insert", state, text)
+      state.schema.ownsInput("before-insert", state, plain)
     ) {
-      const owned = pasteIntoContentSelection(state, text, html);
+      const owned = pasteIntoContentSelection(state, plain, html);
       if (owned) return owned;
-      return text ? insertText(state, text) : null;
+      return plain ? insertText(state, plain) : null;
     }
 
-    const verbatim = pasteIntoPreformattedBlock(state, text);
+    const verbatim = pasteIntoPreformattedBlock(state, plain);
     if (verbatim) return verbatim;
 
     if (text) {

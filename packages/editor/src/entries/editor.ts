@@ -23,6 +23,7 @@ import {
 } from "../actions/actions";
 import {
   buildClipboardPayload,
+  pastedPlainText,
   copySelectionToClipboard,
   cutSelectionToClipboard,
   getSelectionPlainText,
@@ -2394,9 +2395,13 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     }
     // `getData` is readable on dragstart (only `dragover` withholds it), so the
     // ghost reuses the very text that just went on the transfer.
+    // The plain words, not the markdown text/plain carries.
     this.setTextDragImage(
       e.dataTransfer!,
-      e.dataTransfer!.getData("text/plain"),
+      pastedPlainText(
+        e.dataTransfer!.getData("text/plain"),
+        e.dataTransfer!.getData("text/html"),
+      ),
     );
     // The press that started this is now a drag, not a click — the release must
     // not collapse the selection out from under it.
@@ -6216,7 +6221,9 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     options?: { viewportOffsetY?: number },
   ): void => {
     const target = typeof point === "object" && "kind" in point ? point : null;
-    const resolved = target ? null : resolvePoint(this._state, point as DocPoint);
+    const resolved = target
+      ? null
+      : resolvePoint(this._state, point as DocPoint);
     // A point inside content a node owns (a table cell) has no flat offset; it
     // is followed through its content point, anchored to its block.
     const contentPoint =
