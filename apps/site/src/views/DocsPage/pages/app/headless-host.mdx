@@ -99,11 +99,13 @@ back to. Everything is encrypted before it leaves the machine either way.
 ```bash
 tasfer update           # replace this install with the newest release
 tasfer update --check   # just say what is available
+tasfer host restart     # switch the running host to the new build
 ```
 
 ```bash
 sudo tasfer update      # replace this install with the newest release
 tasfer update --check   # just say what is available — no rights needed
+sudo -u tasfer tasfer host restart   # switch the running host to the new build
 ```
 
 </Tabs>
@@ -111,10 +113,63 @@ tasfer update --check   # just say what is available — no rights needed
 It reads the published releases, downloads the build for this platform, checks
 it against the release's `tasfer-checksums.txt`, and swaps it into place — refusing
 rather than installing anything whose checksum does not match. A running host
-keeps running on the old build; restart it to pick the new one up.
+keeps running on the old build until `tasfer host restart`, which restarts it in
+place: same process, same terminal or service, back online in about a second.
 
 Updating writes to the directory the binary lives in, so it needs the rights that
 installed it: <ForTab group="install-scope" index={0}>a directory you already own, so none.</ForTab><ForTab group="install-scope" index={1}>root's, which is what the `sudo` is for.</ForTab>
+
+<h3 id="auto-update">Or let it update itself</h3>
+
+<ForTab group="install-scope" index={0}>
+
+Start the host with `--auto-update`, or put the flag on the `ExecStart=` line of
+[its unit](#service):
+
+```bash
+tasfer host --auto-update
+```
+
+A little after it starts, and then about once a day, the host does what
+`tasfer update` does and restarts onto the new build in place. It only takes a
+release once it has been out for three days, and never a pre-release, so a
+broken build can be pulled before it reaches every host. If a check or a
+download fails, the host stays on the build it has and tries again the next day.
+
+</ForTab>
+
+<ForTab group="install-scope" index={1}>
+
+`--auto-update` cannot work here: the host runs as the service account, and
+only root can write to `/opt/tasfer`. The host says so and turns it off. Let a
+root timer run the update instead, and restart the host only when there was one:
+
+```ini file="/etc/systemd/system/tasfer-update.service"
+[Unit]
+Description=Update the Tasfer host
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'before=$(tasfer --version); tasfer update || exit 1; [ "$(tasfer --version)" = "$before" ] || systemctl restart tasfer'
+```
+
+```ini file="/etc/systemd/system/tasfer-update.timer"
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=2h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+```bash
+sudo systemctl enable --now tasfer-update.timer
+```
+
+Unlike `--auto-update`, this installs a release the day it comes out.
+
+</ForTab>
 
 <h2 id="link">Link it to your account</h2>
 
@@ -146,7 +201,7 @@ You can also start from the host: `tasfer host invite` prints a code to paste
 into the app's **Enter a code from another device**. Same handshake, opposite
 direction.
 
-<Callout kind="note" title="One process at a time.">Every command opens the same database. Stop the running host before linking, so pairing is not rewriting an identity a replica is mid-sync under.</Callout>
+<Callout kind="note" title="One process at a time.">Every command opens the same database. Stop the running host before linking, so pairing is not rewriting an identity a replica is mid-sync under. A second `tasfer host` on the same data directory refuses to start.</Callout>
 
 <Callout kind="note" title="Codes check the clock.">A code expires at a fixed time, stamped by the device that made it and checked by the device that reads it. If the host's clock is off by more than the code's lifetime, every code arrives already expired. `link` and `invite` compare the clock with the relay's and warn when it is a minute or more off. Turn on automatic time sync on that machine.</Callout>
 
@@ -157,11 +212,15 @@ direction.
   { name: "tasfer host link <code>", desc: "Accept a device-link code (or a space invite) from another device." },
   { name: "tasfer host invite", desc: "Mint a device-link code for the app to enter, and wait for it." },
   { name: "tasfer host status", desc: "Identity, linked devices, spaces and page counts. Reads only — safe while nothing else is running." },
+  { name: "tasfer host restart", desc: "Restart the host running on this data directory, in place, and wait until it is back. This is how a running host picks up a build `tasfer update` installed. Run it as the account the host runs as." },
   { name: "tasfer export [file]", desc: "Write every space to a zip — a folder per space, a markdown file per page, images beside them. `--space` narrows it to one." },
   { name: "tasfer update", desc: "Download the newest release carrying a build for this platform, verify its checksum, and replace this install. `--check` reports without installing." },
 ]} />
 
 <h2 id="options">Options</h2>
+
+Not every command takes every option. `tasfer <command> --help` lists the ones
+it does, with the defaults on this machine.
 
 <PropsTable cols={["Option", "Default", "Description"]} rows={[
   { name: "--data-dir", type: "OS data dir", desc: "Database and asset blobs. `~/.local/share/tasfer-cli` on Linux, `~/Library/Application Support/tasfer-cli` on macOS. Also `TASFER_DATA_DIR`." },
@@ -171,6 +230,7 @@ direction.
   { name: "--ttl", type: "10", desc: "Minutes a code from `tasfer host invite` stays valid." },
   { name: "--out", type: "tasfer-export-<date>.zip", desc: "On `tasfer export`, the archive to write. The same thing as the positional argument, and it wins when both are given." },
   { name: "--space", type: "every space", desc: "On `tasfer export`, the one space to export, by name or by id." },
+  { name: "--auto-update", type: "off", desc: "On `tasfer host`, install new releases once they have been out for three days, then restart onto them. See [Or let it update itself](#auto-update)." },
   { name: "--check", type: "off", desc: "On `tasfer update`, say what is available and exit without downloading it." },
 ]} />
 

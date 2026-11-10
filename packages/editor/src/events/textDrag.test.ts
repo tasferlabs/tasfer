@@ -206,7 +206,7 @@ describe("dropping text", () => {
     const result = state.actionBus.dispatchState(DROP_TEXT, state, {
       source: null,
       target: { kind: "text", position: { blockIndex: 0, textIndex: 4 } },
-      payload: { plainText: "ed", html: "", markdown: "ed" },
+      payload: { plainText: "ed", html: "", markdown: "ed", text: "ed" },
     });
 
     expect(texts(result.state)).toEqual(["hosted"]);

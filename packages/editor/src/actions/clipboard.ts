@@ -74,7 +74,10 @@ import type {
   StructuredContentMap,
   StructuredDocument,
 } from "../sync/structured-content";
-import { hasStructuredContent } from "../sync/structured-content";
+import {
+  carryStructuredContent,
+  hasStructuredContent,
+} from "../sync/structured-content";
 import { attachmentMarkReferences } from "../sync/structured-mark-references";
 import TurndownService from "turndown";
 
@@ -575,11 +578,43 @@ function blocksToMarkdown(blocks: Block[], schema: DataSchema): string {
  */
 const TASFER_CLIPBOARD_MARKER_RE = /<!--tasfer-clipboard:([A-Za-z0-9+/=]+)-->/;
 
-function encodeClipboardMarkdown(markdown: string): string {
-  const utf8 = new TextEncoder().encode(markdown);
+function encodeBase64(text: string): string {
+  const utf8 = new TextEncoder().encode(text);
   let binary = "";
   for (const byte of utf8) binary += String.fromCharCode(byte);
-  return `<!--tasfer-clipboard:${btoa(binary)}-->`;
+  return btoa(binary);
+}
+
+function encodeClipboardMarkdown(markdown: string): string {
+  return `<!--tasfer-clipboard:${encodeBase64(markdown)}-->`;
+}
+
+/**
+ * Second marker on a Tasfer-originated `text/html` payload: the selection's
+ * plain text, markup stripped. `text/plain` carries markdown so plain-text apps
+ * keep `**bold**` and bullets, but a Tasfer paste that inserts text as-is (a
+ * code block, a table cell, a plain-text paste, a drop) wants the words alone.
+ * Written only when it differs from `text/plain`. Older versions ignore it.
+ */
+const TASFER_CLIPBOARD_TEXT_MARKER_RE =
+  /<!--tasfer-clipboard-text:([A-Za-z0-9+/=]+)-->/;
+
+function encodeClipboardPlainText(plainText: string): string {
+  return `<!--tasfer-clipboard-text:${encodeBase64(plainText)}-->`;
+}
+
+/**
+ * The text a paste should insert as-is: the plain text a Tasfer copy recorded
+ * in its html, or the clipboard's `text/plain` for anything else.
+ */
+export function pastedPlainText(text: string, html: string): string {
+  const marker = html ? TASFER_CLIPBOARD_TEXT_MARKER_RE.exec(html) : null;
+  if (!marker) return text;
+  try {
+    return decodeClipboardMarkdown(marker[1]);
+  } catch {
+    return text;
+  }
 }
 
 function decodeClipboardMarkdown(base64: string): string {
@@ -604,9 +639,11 @@ function blocksToHTML(
   blocks: Block[],
   markdown: string,
   schema: DataSchema,
+  plainText?: string,
 ): string {
   return (
     encodeClipboardMarkdown(markdown) +
+    (plainText === undefined ? "" : encodeClipboardPlainText(plainText)) +
     serializeToHTMLFragment(blocks, { preferSource: true, schema })
   );
 }
@@ -635,9 +672,27 @@ export interface HostClipboard {
 
 /** The flavors a copy/cut produces. See {@link buildClipboardPayload}. */
 export interface ClipboardPayload {
+  /** The selection's visible text with all markup stripped. */
   plainText: string;
   html: string;
   markdown: string;
+  /**
+   * What goes on the platform clipboard as `text/plain`. A normal copy puts
+   * the plain words there (`plainText`), so a paste into a form field or a
+   * search box carries no markup. A copy as markdown (Cmd/Ctrl+Shift+C) puts
+   * the markdown source instead, keeping `**bold**`, `- ` bullets and `# `
+   * headings. Two cases read as their own source: a range inside one code
+   * block gives the raw code, and a range inside one block gives that block's
+   * inline markdown without its prefix (a word copied out of a bullet is not
+   * "- word").
+   */
+  text: string;
+}
+
+/** How {@link buildClipboardPayload} fills {@link ClipboardPayload.text}. */
+export interface ClipboardPayloadOptions {
+  /** Put the markdown source on `text/plain` instead of the plain words. */
+  asMarkdown?: boolean;
 }
 
 /** The flavors a programmatic paste can consume, mirroring the clipboard MIME
@@ -793,6 +848,7 @@ function pasteIntoPreformattedBlock(
  */
 export function buildClipboardPayload(
   state: EditorState,
+  options: ClipboardPayloadOptions = {},
 ): ClipboardPayload | null {
   const structured = getStructuredSelectionSlice(state);
   if (structured) {
@@ -818,6 +874,9 @@ export function buildClipboardPayload(
       plainText: structured.plainText,
       markdown,
       html: encodeClipboardMarkdown(markdown) + html,
+      // A nested range (cells of a table) keeps the text its feature chose:
+      // tab-separated cells are what a spreadsheet paste expects.
+      text: options.asMarkdown ? markdown : structured.plainText,
     };
   }
 
@@ -827,11 +886,53 @@ export function buildClipboardPayload(
   const { blocks } = selectedContent;
   if (blocks.length === 0) return null;
   const markdown = blocksToMarkdown(blocks, state.schema);
+  const plainText = blocksToPlainText(blocks, state.schema);
+  const text = options.asMarkdown
+    ? markdownTextFlavor(selectedContent, markdown, plainText, state)
+    : plainText;
   return {
-    plainText: blocksToPlainText(blocks, state.schema),
-    html: blocksToHTML(blocks, markdown, state.schema),
+    plainText,
+    // The plain words ride along only when text/plain differs from them.
+    html: blocksToHTML(
+      blocks,
+      markdown,
+      state.schema,
+      text === plainText ? undefined : plainText,
+    ),
     markdown,
+    text,
   };
+}
+
+/** `text/plain` for a copy as markdown. See {@link ClipboardPayload.text}. */
+function markdownTextFlavor(
+  selected: NonNullable<ReturnType<typeof getSelectedContent>>,
+  markdown: string,
+  plainText: string,
+  state: EditorState,
+): string {
+  const { blocks, start, end } = selected;
+  const block = blocks.length === 1 ? blocks[0] : undefined;
+  // A node selection holds the block whole — copy it as a block.
+  const textRange =
+    start.blockIndex === end.blockIndex && start.textIndex !== end.textIndex;
+  if (!block || !textRange || !isTextualBlock(block)) return markdown;
+  if (isPreformattedType(block.type)) return plainText;
+  if (!selected.isPartial) return markdown;
+  // Keep the block's attachments: an inline chip (a math formula) reads its
+  // source from them, and without them it would copy as its placeholder.
+  const inline = carryStructuredContent(
+    {
+      id: block.id,
+      orderKey: block.orderKey,
+      deleted: false,
+      type: "paragraph",
+      charRuns: block.charRuns,
+      formats: block.formats,
+    } as Block,
+    block,
+  );
+  return blocksToMarkdown([inline], state.schema);
 }
 
 /**
@@ -864,12 +965,13 @@ export function getSelectionPlainText(state: EditorState): string {
 export async function copySelectionToClipboard(
   state: EditorState,
   clipboard?: HostClipboard,
+  options?: ClipboardPayloadOptions,
 ): Promise<boolean> {
   try {
-    const payload = buildClipboardPayload(state);
+    const payload = buildClipboardPayload(state, options);
     if (!payload) return false;
 
-    const { plainText, html } = payload;
+    const { text, html } = payload;
 
     // A host-supplied clipboard (native shells) owns the platform write — the
     // `navigator.clipboard` path below is gated by user activation it can't get.
@@ -881,9 +983,10 @@ export async function copySelectionToClipboard(
     if (navigator.clipboard && navigator.clipboard.write) {
       const clipboardItems = [
         new ClipboardItem({
-          // text/plain is for external/plain paste targets. Rich Tasfer
-          // round-trips use text/html, whose hidden marker carries markdown.
-          "text/plain": new Blob([plainText], { type: "text/plain" }),
+          // text/plain is for external/plain paste targets (see
+          // `ClipboardPayload.text`). Rich Tasfer round-trips use text/html,
+          // whose hidden marker carries markdown.
+          "text/plain": new Blob([text], { type: "text/plain" }),
           "text/html": new Blob([html], { type: "text/html" }),
         }),
       ];
@@ -891,7 +994,7 @@ export async function copySelectionToClipboard(
       await navigator.clipboard.write(clipboardItems);
       return true;
     } else if (navigator.clipboard && navigator.clipboard.writeText) {
-      await navigator.clipboard.writeText(plainText);
+      await navigator.clipboard.writeText(text);
       return true;
     }
 
@@ -2432,20 +2535,21 @@ export function pasteFromClipboardEvent(
   }
 
   state = expandSelectionAroundStructuredMarks(state);
+  const plain = pastedPlainText(text, html);
 
   // A nested selection is owned by its feature, not by the flat block parser.
   // Paste the plain flavor through the same input-rule transaction as typing so
   // it can replace a structured range and preserve tree invariants.
   if (
     state.document.contentSelection ||
-    state.schema.ownsInput("before-insert", state, text)
+    state.schema.ownsInput("before-insert", state, plain)
   ) {
-    const owned = pasteIntoContentSelection(state, text, html);
+    const owned = pasteIntoContentSelection(state, plain, html);
     if (owned) return owned;
-    return text ? insertText(state, text) : null;
+    return plain ? insertText(state, plain) : null;
   }
 
-  const verbatim = pasteIntoPreformattedBlock(state, text);
+  const verbatim = pasteIntoPreformattedBlock(state, plain);
   if (verbatim) return verbatim;
 
   // Collects the blocks whose type the source never declared — see the empty-host
@@ -2583,8 +2687,12 @@ export function pasteFromClipboardEventAsPlainText(
         return;
       }
 
-      const text =
-        clipboardData.getData("text/plain") || clipboardData.getData("text");
+      // A Tasfer copy's text/plain is markdown; a plain paste wants the words
+      // alone, which the copy recorded in its html.
+      const text = pastedPlainText(
+        clipboardData.getData("text/plain") || clipboardData.getData("text"),
+        clipboardData.getData("text/html"),
+      );
       if (!text) {
         resolve(null);
         console.error("Failed to paste from clipboard event: no text");
@@ -2680,15 +2788,16 @@ export async function pasteFromSystemClipboard(
       } catch (error) {
         console.error("Failed to read host clipboard:", error);
       }
+      const plain = pastedPlainText(text, html);
       if (
         state.document.contentSelection ||
-        state.schema.ownsInput("before-insert", state, text)
+        state.schema.ownsInput("before-insert", state, plain)
       ) {
-        const owned = pasteIntoContentSelection(state, text, html);
+        const owned = pasteIntoContentSelection(state, plain, html);
         if (owned) return owned;
-        return text ? insertText(state, text) : null;
+        return plain ? insertText(state, plain) : null;
       }
-      const verbatim = pasteIntoPreformattedBlock(state, text);
+      const verbatim = pasteIntoPreformattedBlock(state, plain);
       if (verbatim) return verbatim;
       if (text) {
         const blocks = parseRecognizedPlainTextToBlocks(
@@ -2753,16 +2862,17 @@ export async function pasteFromSystemClipboard(
       text = await navigator.clipboard.readText();
     }
 
+    const plain = pastedPlainText(text, html);
     if (
       state.document.contentSelection ||
-      state.schema.ownsInput("before-insert", state, text)
+      state.schema.ownsInput("before-insert", state, plain)
     ) {
-      const owned = pasteIntoContentSelection(state, text, html);
+      const owned = pasteIntoContentSelection(state, plain, html);
       if (owned) return owned;
-      return text ? insertText(state, text) : null;
+      return plain ? insertText(state, plain) : null;
     }
 
-    const verbatim = pasteIntoPreformattedBlock(state, text);
+    const verbatim = pasteIntoPreformattedBlock(state, plain);
     if (verbatim) return verbatim;
 
     if (text) {

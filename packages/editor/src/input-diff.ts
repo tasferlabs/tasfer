@@ -134,6 +134,35 @@ export function clampMirrorStartToSpans(
 }
 
 /**
+ * Where the text mirrored AFTER the caret must stop: the start of the first
+ * protected span at or after `caret` (an inline math chip's LaTeX the keyboard
+ * must not see), else the end of the text. The counterpart of
+ * {@link clampMirrorStartToSpans} for the right side of the caret.
+ */
+export function clampMirrorEndToSpans(
+  spans: Iterable<ProtectedSpan>,
+  caret: number,
+  textLength: number,
+): number {
+  let ceiling = textLength;
+  for (const { start } of spans) {
+    if (start >= caret) ceiling = Math.min(ceiling, start);
+  }
+  return ceiling;
+}
+
+/**
+ * The surface with the mirrored text after the caret (`tail`) removed — the
+ * "head" every managed-surface reconciliation works on. `null` when the surface
+ * no longer ends with the tail: the keyboard changed text after the caret too,
+ * so the edit is not a head-only one.
+ */
+export function surfaceHeadOf(surface: string, tail: string): string | null {
+  if (tail === "") return surface;
+  return surface.endsWith(tail) ? surface.slice(0, -tail.length) : null;
+}
+
+/**
  * Whether the caret sits in verbatim SOURCE rather than prose — a preformatted
  * block (a math or code block, source end to end) or *strictly inside* a
  * replacement-mark run (an inline math chip's LaTeX). This is exactly the

@@ -1,5 +1,6 @@
 import {
   caretInProtectedSource,
+  clampMirrorEndToSpans,
   clampMirrorStartToSpans,
   computeSurfaceDelta,
   currentWordStart,
@@ -11,6 +12,7 @@ import {
   sentenceStartOffset,
   stripSentinel,
   SURFACE_SENTINEL,
+  surfaceHeadOf,
 } from "./input-diff";
 import { describe, expect, it } from "vitest";
 
@@ -344,5 +346,35 @@ describe("measureCompositionReplace", () => {
     expect(measureCompositionReplace("abc", "xbcd", "d")).toBeNull();
     expect(measureCompositionReplace("abc", "abc", "zz")).toBeNull();
     expect(measureCompositionReplace("ab", "abcdef", "f")).toBeNull();
+  });
+});
+
+describe("clampMirrorEndToSpans", () => {
+  it("runs to the end of the text with no protected span after the caret", () => {
+    expect(clampMirrorEndToSpans([{ start: 0, end: 3 }], 5, 12)).toBe(12);
+  });
+
+  it("stops at the first protected span at or after the caret", () => {
+    const spans = [
+      { start: 9, end: 12 },
+      { start: 6, end: 8 },
+    ];
+    expect(clampMirrorEndToSpans(spans, 4, 20)).toBe(6);
+    expect(clampMirrorEndToSpans(spans, 6, 20)).toBe(6);
+  });
+});
+
+describe("surfaceHeadOf", () => {
+  it("strips an unchanged tail", () => {
+    expect(surfaceHeadOf(" hello world", " world")).toBe(" hello");
+    expect(surfaceHeadOf(" hellox world", " world")).toBe(" hellox");
+  });
+
+  it("returns the surface as is without a tail", () => {
+    expect(surfaceHeadOf(" hello", "")).toBe(" hello");
+  });
+
+  it("is null when the edit reached into the tail", () => {
+    expect(surfaceHeadOf(" hello orld", " world")).toBeNull();
   });
 });

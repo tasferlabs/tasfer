@@ -133,7 +133,12 @@ const SOURCE_RANGE = {
   start: { blockIndex: 0, textIndex: 5 },
   end: { blockIndex: 0, textIndex: 11 },
 };
-const PAYLOAD = { plainText: " world", html: "", markdown: " world" };
+const PAYLOAD = {
+  plainText: " world",
+  html: "",
+  markdown: " world",
+  text: " world",
+};
 
 describe("dropping text into a table cell", () => {
   it("resolves the drop to the cell under the pointer", () => {
@@ -246,7 +251,7 @@ describe("dragging text out of a table cell", () => {
     const result = state.actionBus.dispatchState(DROP_TEXT, state, {
       source,
       target: { kind: "text", position: { blockIndex: 0, textIndex: 5 } },
-      payload: { plainText: "one", html: "", markdown: "one" },
+      payload: { plainText: "one", html: "", markdown: "one", text: "one" },
     });
 
     expect(cells(result.state)).toEqual(["A", "B", "", "two"]);

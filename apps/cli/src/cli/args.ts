@@ -12,9 +12,17 @@ import { t, type MessageKey } from "./messages";
 
 /** A message the user should see, with no stack trace attached. */
 export class CliError extends Error {
+  readonly key: MessageKey;
+
   constructor(key: MessageKey, params?: Record<string, string | number>) {
     super(t(key, params));
     this.name = "CliError";
+    this.key = key;
+  }
+
+  /** The command was typed wrong, so its help is worth pointing at. */
+  get isUsage(): boolean {
+    return this.key.startsWith("error.") || this.key === "link.needCode";
   }
 }
 

@@ -10,11 +10,16 @@
 const EN = {
   // ─── Usage ────────────────────────────────────────────────────────────────
   "usage.summary": "tasfer — run a Tasfer host on your own machine",
+  "usage.usage": "Usage",
   "usage.commands": "Commands",
+  "usage.hostFamily": "More host commands",
+  "usage.commandHelp": "Run `tasfer <command> --help` to see the options a command takes.",
+  "usage.default": "(default: {{value}})",
   "usage.host": "Run the headless host: stay online and sync your spaces",
   "usage.hostLink": "Link this host to your account with a code from the app",
   "usage.hostInvite": "Show a code the app can use to link this host",
   "usage.hostStatus": "Print what this host holds and who it belongs to",
+  "usage.hostRestart": "Restart the running host, picking up a new build",
   "usage.export": "Write your spaces to a zip you can keep or import anywhere",
   "usage.update": "Replace this install with the newest published build",
   "usage.options": "Options",
@@ -26,12 +31,15 @@ const EN = {
   "usage.optTtl": "How long the code stays valid, in minutes",
   "usage.optOut": "Where to write the archive",
   "usage.optSpace": "Export one space instead of all of them",
+  "usage.optAutoUpdate":
+    "Install new releases once they are 3 days old, then restart onto them",
   "usage.optCheck": "Say what is available without installing it",
   "usage.optHelp": "Show this help",
   "usage.optVersion": "Show the version",
   "usage.more": "Docs: https://tasfer.app/docs/app/headless-host",
 
   // ─── Host ─────────────────────────────────────────────────────────────────
+  "host.version": "tasfer {{version}}",
   "host.dataDir": "Data directory: {{path}}",
   "host.relay": "Relay: {{url}}",
   "host.device": "This device: {{key}}",
@@ -51,6 +59,22 @@ const EN = {
   "host.peerDisconnected": "Peer disconnected: {{peer}}",
   "host.stopping": "Stopping — finishing the round in flight…",
   "host.stopped": "Stopped.",
+  "host.restarting": "Restarting — finishing the round in flight…",
+  "host.relaunchFailed": "Could not start again: {{reason}}",
+  "host.alreadyRunning":
+    "A host is already running on this data directory (process {{pid}}). Stop it first, or use `tasfer host restart`.",
+  "host.noControl":
+    "`tasfer host restart` will not reach this host: {{reason}}",
+
+  // ─── Restarting ───────────────────────────────────────────────────────────
+  "restart.notRunning":
+    "No host is running on {{path}}. Start one with `tasfer host`.",
+  "restart.unsupported":
+    "This host cannot restart itself — it runs on a Node older than 22.15. Stop it and start it again.",
+  "restart.asked": "Asked the host ({{version}}) to restart…",
+  "restart.done": "The host is back, running {{version}}.",
+  "restart.timedOut":
+    "The host stopped but has not come back yet. Check its output or its service log.",
 
   // ─── Linking ──────────────────────────────────────────────────────────────
   "link.needCode": "Pass the code from the app: tasfer host link <code>",
@@ -136,7 +160,8 @@ const EN = {
   "update.noReleases":
     "No release carries a tasfer build for this platform yet. Build from the repo for now.",
   "update.downloading": "Downloading {{name}}…",
-  "update.done": "Updated to {{version}}. Restart the host to run it.",
+  "update.done":
+    "Updated to {{version}}. Run `tasfer host restart` to switch a running host over.",
   "update.fromSource":
     "This tasfer runs from a source checkout, so there is nothing to replace. Update it with `git pull` and `npm run build` in apps/cli.",
   "update.notWritable":
@@ -148,12 +173,24 @@ const EN = {
   "update.checksumMismatch":
     "The download did not match its checksum, so it was not installed. Expected {{expected}}, got {{actual}}.",
 
+  // ─── Auto-update ──────────────────────────────────────────────────────────
+  "autoUpdate.on":
+    "Auto-update is on: releases are installed once they are {{days}} days old.",
+  "autoUpdate.off": "Auto-update is off for this install: {{reason}}",
+  "autoUpdate.notWritable":
+    "Auto-update is off: this account cannot write to {{path}}. Update a system-wide install from a timer instead: https://tasfer.app/docs/app/headless-host#auto-update",
+  "autoUpdate.installing": "Installing {{version}} (running {{current}})…",
+  "autoUpdate.installed": "Installed {{version}}. Restarting onto it.",
+  "autoUpdate.failed":
+    "Auto-update failed, staying on this build and trying again tomorrow: {{reason}}",
+
   // ─── Errors ───────────────────────────────────────────────────────────────
   "error.unknownCommand": "Unknown command: {{command}}",
   "error.unknownOption": "Unknown option: {{option}}",
   "error.optionNeedsValue": "{{option}} needs a value",
   "error.badNumber": "{{option}} must be a number, got: {{value}}",
   "error.tryHelp": "Run `tasfer --help` to see what is available.",
+  "error.tryCommandHelp": "Run `tasfer {{command}} --help` to see what it takes.",
 } as const;
 
 export type MessageKey = keyof typeof EN;
