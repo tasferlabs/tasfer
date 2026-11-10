@@ -47,6 +47,7 @@ const HOST_FLAGS = [
   "transport",
   "name",
   "ttl",
+  "auto-update",
 ] as const;
 const EXPORT_FLAGS = [
   ...GLOBAL_FLAGS,
@@ -97,6 +98,7 @@ function printHelp(): void {
   console.log(line("--ttl <minutes>", t("usage.optTtl")));
   console.log(line("--out <file>", t("usage.optOut")));
   console.log(line("--space <name>", t("usage.optSpace")));
+  console.log(line("--auto-update", t("usage.optAutoUpdate")));
   console.log(line("--check", t("usage.optCheck")));
   console.log(line("--help, -h", t("usage.optHelp")));
   console.log(line("--version, -v", t("usage.optVersion")));
@@ -122,10 +124,13 @@ async function main(argv: string[]): Promise<number> {
   switch (command) {
     case "host": {
       rejectUnknown(args, HOST_FLAGS);
+      if ((subcommand ?? "run") !== "run" && args.flags.has("auto-update")) {
+        throw new CliError("error.unknownOption", { option: "--auto-update" });
+      }
       const options = hostOptions(args);
       switch (subcommand ?? "run") {
         case "run":
-          return runHost(options);
+          return runHost(options, { autoUpdate: boolFlag(args, "auto-update") });
         case "link":
           return linkHost(options, rest[0], stringFlag(args, "name"));
         case "invite":

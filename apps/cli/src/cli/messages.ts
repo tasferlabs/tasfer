@@ -27,12 +27,15 @@ const EN = {
   "usage.optTtl": "How long the code stays valid, in minutes",
   "usage.optOut": "Where to write the archive",
   "usage.optSpace": "Export one space instead of all of them",
+  "usage.optAutoUpdate":
+    "Install new releases once they are 3 days old, then restart onto them",
   "usage.optCheck": "Say what is available without installing it",
   "usage.optHelp": "Show this help",
   "usage.optVersion": "Show the version",
   "usage.more": "Docs: https://tasfer.app/docs/app/headless-host",
 
   // ─── Host ─────────────────────────────────────────────────────────────────
+  "host.version": "tasfer {{version}}",
   "host.dataDir": "Data directory: {{path}}",
   "host.relay": "Relay: {{url}}",
   "host.device": "This device: {{key}}",
@@ -165,6 +168,17 @@ const EN = {
     "That release publishes no checksum for this build, so it was not installed.",
   "update.checksumMismatch":
     "The download did not match its checksum, so it was not installed. Expected {{expected}}, got {{actual}}.",
+
+  // ─── Auto-update ──────────────────────────────────────────────────────────
+  "autoUpdate.on":
+    "Auto-update is on: releases are installed once they are {{days}} days old.",
+  "autoUpdate.off": "Auto-update is off for this install: {{reason}}",
+  "autoUpdate.notWritable":
+    "Auto-update is off: this account cannot write to {{path}}. Update a system-wide install from a timer instead: https://tasfer.app/docs/app/headless-host#auto-update",
+  "autoUpdate.installing": "Installing {{version}} (running {{current}})…",
+  "autoUpdate.installed": "Installed {{version}}. Restarting onto it.",
+  "autoUpdate.failed":
+    "Auto-update failed, staying on this build and trying again tomorrow: {{reason}}",
 
   // ─── Errors ───────────────────────────────────────────────────────────────
   "error.unknownCommand": "Unknown command: {{command}}",

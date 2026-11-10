@@ -113,6 +113,58 @@ tasfer-checksums.txt المرفق بالإصدار، ثم يضعه مكان ال
 يكتب التحديث في المجلد الذي يقيم فيه الملف التنفيذي، فيحتاج إلى صلاحيات من ثبّته:
 <ForTab group="install-scope" index={0}>وهو مجلد تملكه أصلًا، فلا يحتاج شيئًا منها.</ForTab><ForTab group="install-scope" index={1}>وهو مجلد الجذر، ولهذا جاء `sudo`.</ForTab>
 
+<h3 id="auto-update">أو دعه يحدّث نفسه</h3>
+
+<ForTab group="install-scope" index={0}>
+
+شغّل المُضيف بالخيار ‎`--auto-update`، أو ضع الخيار في سطر ‎`ExecStart=`‎ من
+[وحدته](#service):
+
+```bash
+tasfer host --auto-update
+```
+
+بعد تشغيله بقليل، ثم مرة في اليوم تقريبًا، يفعل المُضيف ما يفعله `tasfer update`،
+ثم يعيد تشغيل نفسه في مكانه على البناء الجديد. ولا يأخذ إصدارًا إلا بعد مرور
+ثلاثة أيام على صدوره، ولا يأخذ إصدارًا تجريبيًا أبدًا، حتى يتسع الوقت لسحب أي بناء
+معطوب قبل أن يصل إلى كل المُضيفين. وإن تعذّر البحث عن إصدار جديد أو تنزيله، بقي
+المُضيف على البناء الذي عنده وأعاد المحاولة في اليوم التالي.
+
+</ForTab>
+
+<ForTab group="install-scope" index={1}>
+
+لا يجدي ‎`--auto-update` هنا: فالمُضيف يعمل بحساب الخدمة، ولا يكتب في ‎`/opt/tasfer`‎
+إلا الجذر. فيخبرك المُضيف بذلك ويعطّل الخيار. اجعل مؤقّتًا يعمل بصلاحيات الجذر
+يتولّى التحديث بدلًا منه، ولا يعيد تشغيل المُضيف إلا إن ثُبّت تحديث فعلًا:
+
+```ini file="/etc/systemd/system/tasfer-update.service"
+[Unit]
+Description=Update the Tasfer host
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'before=$(tasfer --version); tasfer update || exit 1; [ "$(tasfer --version)" = "$before" ] || systemctl restart tasfer'
+```
+
+```ini file="/etc/systemd/system/tasfer-update.timer"
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=2h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+```bash
+sudo systemctl enable --now tasfer-update.timer
+```
+
+وعلى خلاف ‎`--auto-update`، يثبّت هذا المؤقّت الإصدارَ في يوم صدوره.
+
+</ForTab>
+
 <h2 id="link">اربطه بحسابك</h2>
 
 <Steps>
@@ -168,6 +220,7 @@ tasfer-checksums.txt المرفق بالإصدار، ثم يضعه مكان ال
   { name: "--ttl", type: "10", desc: "عدد الدقائق التي يبقى فيها رمز tasfer host invite صالحًا." },
   { name: "--out", type: "‎tasfer-export-<date>.zip‎", desc: "مع tasfer export: الملف الذي يُكتب فيه الأرشيف. وهو نفسه الوسيط الحر بعد الأمر، ويغلبه هذا الخيار إن جاءا معًا." },
   { name: "--space", type: "كل المساحات", desc: "مع tasfer export: المساحة الوحيدة التي تُصدَّر، بالاسم أو بالمعرّف." },
+  { name: "--auto-update", type: "معطّل", desc: "مع tasfer host: يثبّت الإصدارات الجديدة بعد مرور ثلاثة أيام على صدورها، ثم يعيد تشغيل نفسه ليعمل بها. انظر [أو دعه يحدّث نفسه](#auto-update)." },
   { name: "--check", type: "معطّل", desc: "مع tasfer update: يخبرك بالمتوفر ثم يخرج دون تنزيل." },
 ]} />
 

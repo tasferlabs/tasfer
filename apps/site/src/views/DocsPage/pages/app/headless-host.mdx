@@ -119,6 +119,58 @@ place: same process, same terminal or service, back online in about a second.
 Updating writes to the directory the binary lives in, so it needs the rights that
 installed it: <ForTab group="install-scope" index={0}>a directory you already own, so none.</ForTab><ForTab group="install-scope" index={1}>root's, which is what the `sudo` is for.</ForTab>
 
+<h3 id="auto-update">Or let it update itself</h3>
+
+<ForTab group="install-scope" index={0}>
+
+Start the host with `--auto-update`, or put the flag on the `ExecStart=` line of
+[its unit](#service):
+
+```bash
+tasfer host --auto-update
+```
+
+A little after it starts, and then about once a day, the host does what
+`tasfer update` does and restarts onto the new build in place. It only takes a
+release once it has been out for three days, and never a pre-release, so a
+broken build can be pulled before it reaches every host. If a check or a
+download fails, the host stays on the build it has and tries again the next day.
+
+</ForTab>
+
+<ForTab group="install-scope" index={1}>
+
+`--auto-update` cannot work here: the host runs as the service account, and
+only root can write to `/opt/tasfer`. The host says so and turns it off. Let a
+root timer run the update instead, and restart the host only when there was one:
+
+```ini file="/etc/systemd/system/tasfer-update.service"
+[Unit]
+Description=Update the Tasfer host
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'before=$(tasfer --version); tasfer update || exit 1; [ "$(tasfer --version)" = "$before" ] || systemctl restart tasfer'
+```
+
+```ini file="/etc/systemd/system/tasfer-update.timer"
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=2h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+```bash
+sudo systemctl enable --now tasfer-update.timer
+```
+
+Unlike `--auto-update`, this installs a release the day it comes out.
+
+</ForTab>
+
 <h2 id="link">Link it to your account</h2>
 
 <Steps>
@@ -175,6 +227,7 @@ direction.
   { name: "--ttl", type: "10", desc: "Minutes a code from `tasfer host invite` stays valid." },
   { name: "--out", type: "tasfer-export-<date>.zip", desc: "On `tasfer export`, the archive to write. The same thing as the positional argument, and it wins when both are given." },
   { name: "--space", type: "every space", desc: "On `tasfer export`, the one space to export, by name or by id." },
+  { name: "--auto-update", type: "off", desc: "On `tasfer host`, install new releases once they have been out for three days, then restart onto them. See [Or let it update itself](#auto-update)." },
   { name: "--check", type: "off", desc: "On `tasfer update`, say what is available and exit without downloading it." },
 ]} />
 

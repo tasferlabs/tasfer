@@ -29,6 +29,7 @@ import {
   type ControlServer,
 } from "./control";
 import { VERSION } from "../version";
+import { startAutoUpdate, type AutoUpdater } from "./autoUpdate";
 
 /** Heartbeat that holds the event loop open while the host runs. */
 const STAY_ALIVE_MS = 60_000;
@@ -63,7 +64,15 @@ function parseCode(code: string | undefined): SpaceInvite {
 // host run
 // =============================================================================
 
-export async function runHost(options: HostOptions): Promise<number> {
+export interface RunOptions {
+  /** Install new releases as they settle, then restart onto them. */
+  autoUpdate: boolean;
+}
+
+export async function runHost(
+  options: HostOptions,
+  { autoUpdate }: RunOptions,
+): Promise<number> {
   const shutdown = waitForShutdown();
 
   // Before the database opens: a second host on the same data directory is a
@@ -117,7 +126,12 @@ export async function runHost(options: HostOptions): Promise<number> {
 
     console.log(t("host.online"));
 
+    const updater: AutoUpdater | null = autoUpdate
+      ? await startAutoUpdate(shutdown.restart)
+      : null;
+
     reason = await shutdown.done;
+    updater?.stop();
     unsubscribe();
 
     console.log(t(reason === "restart" ? "host.restarting" : "host.stopping"));
@@ -509,6 +523,7 @@ async function printHeader(
   options: HostOptions,
   deviceKey: string,
 ): Promise<number> {
+  console.log(t("host.version", { version: VERSION }));
   console.log(t("host.dataDir", { path: host.dataDir }));
   console.log(t("host.device", { key: shortKey(deviceKey) }));
   console.log(t("host.relay", { url: options.signalUrl }));
