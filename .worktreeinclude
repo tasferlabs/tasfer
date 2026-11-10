@@ -1,0 +1,7 @@
+# Gitignored local files copied into each new Claude Code worktree.
+apps/web/.env.local
+apps/web/certs/lan-cert.pem
+apps/web/certs/lan-key.pem
+apps/ios/DeveloperSettings.xcconfig
+apps/android/local.properties
+apps/authority/.env

@@ -8,7 +8,7 @@
  * The grid is rebuilt by slicing each cell's source verbatim (so existing
  * content — including nested environments — round-trips) and re-joining with `&`
  * (columns) and `\\` (rows). New cells become `{}`, mirroring the insertion
- * templates in `nodes/math-commands.ts` so each stays a caret stop.
+ * templates in `@tasfer/math`'s `math-commands.ts` so each stays a caret stop.
  */
 import type { ArrayNode, Node } from "../parse/ast";
 import type { Span } from "../parse/ast";

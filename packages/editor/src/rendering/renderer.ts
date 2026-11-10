@@ -7,6 +7,7 @@ import type {
   IndicatorHitArea,
   InteractionSession,
 } from "../events/interaction-session";
+import { undrawnCompositionCaret } from "../composition";
 import { currentFontFamily, getFontStack } from "../fonts";
 import { caretMarkEdgeSide, contentCaretMarkEdge } from "../mark-edge";
 import {
@@ -248,6 +249,7 @@ export function renderPage(
   visibility.start = startIndex;
   visibility.end = startIndex;
   visibility.startY = currentY;
+  visibility.startBlockId = visibleBlocks[startIndex]?.id;
   // Stamp the scroll this snapshot is valid for, so hit-testing against a later
   // (scrolled-but-not-yet-repainted) viewport can re-base `startY`.
   visibility.scrollY = viewport.scrollY;
@@ -275,6 +277,7 @@ export function renderPage(
       if (!foundVisibleBlock) {
         visibility.start = visibleIdx;
         visibility.startY = currentY;
+        visibility.startBlockId = block.id;
         foundVisibleBlock = true;
       }
       visibility.end = visibleIdx;
@@ -1514,8 +1517,9 @@ export function renderCursorLayer(
   } else if (state.ui.composition?.isComposing) {
     // A recomposition whose text is now empty hides the reopened word; the
     // caret sits where it began.
-    targetCursorIndex -= Math.min(
-      state.ui.composition.replaces ?? 0,
+    targetCursorIndex = undrawnCompositionCaret(
+      state.ui.composition,
+      block,
       targetCursorIndex,
     );
   }

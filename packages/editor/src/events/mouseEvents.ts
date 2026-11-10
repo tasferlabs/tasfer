@@ -30,10 +30,10 @@ import {
   getBlockIndexAtPoint,
   getContentPointDocumentCoords,
   getContentSelectionFromViewport,
-  getCursorDocumentCoords,
   getTextPositionFromViewport,
   getWordRangeFromViewport,
   isPointWithinSelectionRects,
+  paintedCoordsResolver,
 } from "../selection";
 import { updateCursor } from "../selection";
 import { updateSelectionFocus } from "../selection";
@@ -865,7 +865,7 @@ export function handleMouseMove(
         textPosition,
         blockUnderPoint,
         viewport,
-        resolveCoords: (pos) => getCursorDocumentCoords(pos, state, viewport),
+        resolveCoords: paintedCoordsResolver(state, viewport, visibility),
         resolveContentCoords: (point) =>
           getContentPointDocumentCoords(
             point,

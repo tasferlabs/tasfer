@@ -24,6 +24,7 @@ import {
   getCharIdAtVisiblePosition,
   getCharIdsInRangeFromRuns,
   getVisibleLengthFromRuns,
+  getVisibleOffsetAfterChar,
   isCharIdInRange,
   iterateVisibleChars,
 } from "./char-runs";
@@ -167,6 +168,46 @@ export function crdtToPosition(
     textIndex: visibleChars.length,
   };
 }
+/**
+ * Carry a position across a page update that came from elsewhere (a peer's
+ * ops, a merged doc): resolve it on `from` to the block id and the character
+ * it sits after, then find those on `to`. A peer's edit earlier in the block,
+ * or a block inserted above, then moves the position along with its text
+ * instead of leaving it at the same offset over different text. When that
+ * character was deleted, the position lands where it was. Null when the block
+ * itself is gone from `to` (the caller falls back to clamping).
+ */
+export function remapPosition(
+  from: Page,
+  to: Page,
+  position: Position,
+): Position | null {
+  const block = from.blocks[position.blockIndex];
+  if (!block || block.deleted) return null;
+  const blockIndex =
+    to.blocks[position.blockIndex]?.id === block.id
+      ? position.blockIndex
+      : to.blocks.findIndex((b) => b.id === block.id);
+  const next = to.blocks[blockIndex];
+  if (blockIndex < 0 || !next || next.deleted) return null;
+  if (!isTextualBlock(block) || !isTextualBlock(next)) {
+    return { blockIndex, textIndex: 0 };
+  }
+  const offset = Math.min(
+    position.textIndex,
+    getVisibleLengthFromRuns(block.charRuns),
+  );
+  const afterCharId =
+    offset > 0 ? getCharIdAtVisiblePosition(block.charRuns, offset) : null;
+  const textIndex = getVisibleOffsetAfterChar(next.charRuns, afterCharId);
+  return {
+    blockIndex,
+    textIndex:
+      textIndex ??
+      Math.min(position.textIndex, getVisibleLengthFromRuns(next.charRuns)),
+  };
+}
+
 /**
  * Convert a selection range (index-based) to CRDT positions (ID-based).
  * Returns null if either position cannot be converted.

@@ -1,0 +1,13 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "cwd": "apps/web",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "[ -d node_modules ] || npm install --no-audit --no-fund; exec npm run dev"],
+      "port": 4001,
+      "autoPort": true
+    }
+  ]
+}

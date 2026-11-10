@@ -36,6 +36,7 @@ export {
   getBlockTextContent,
   getBlockTextLength,
   isAndroid,
+  isIOS,
   isTouchDevice,
   isTouchOnlyDevice,
 } from "./node-shared";

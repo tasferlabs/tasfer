@@ -25,7 +25,17 @@
  */
 
 import { action, stateAction } from "../action-bus";
-import type { EditorState } from "../state-types";
+import {
+  captureReopenedWord,
+  planRecomposition,
+  type ReopenedWord,
+  reopenedWordFor,
+  reopenedWordIn,
+} from "../composition";
+import { moveCursorToPosition } from "../selection";
+import type { CompositionState, EditorState } from "../state-types";
+import { isTextualBlock } from "../sync/block-registry";
+import { getVisiblePositionOfChar } from "../sync/char-runs";
 import type { Operation } from "../sync/sync";
 import {
   deleteSelectedText,
@@ -104,7 +114,7 @@ export const COMPOSITION_START = stateAction<CompositionTextPayload>(
             text: data,
             startPosition,
             cursorOffset: data.length,
-            replaces: clampReplaces(state, replaces),
+            ...reopenedWord(state, clampReplaces(state, replaces)),
           },
         },
       },
@@ -118,6 +128,16 @@ function clampReplaces(state: EditorState, replaces: number | undefined) {
   const cursor = state.document.cursor;
   if (!replaces || replaces < 0 || !cursor) return 0;
   return Math.min(replaces, cursor.position.textIndex);
+}
+
+// The `replaces` count plus the word it covers right now, pinned to its
+// characters' ids (see `CompositionState.reopened`).
+function reopenedWord(
+  state: EditorState,
+  replaces: number,
+): Pick<CompositionState, "replaces" | "reopened"> {
+  const reopened = captureReopenedWord(state, replaces);
+  return { replaces: reopened ? replaces : 0, reopened };
 }
 
 /** Payload for {@link COMPOSITION_UPDATE} — the new composed text. */
@@ -183,10 +203,14 @@ export const COMPOSITION_UPDATE = stateAction<CompositionUpdatePayload>(
             ...state.ui.composition,
             text: newText,
             cursorOffset,
-            replaces:
-              replaces === undefined
-                ? state.ui.composition.replaces
-                : clampReplaces(state, replaces),
+            // The same count keeps the pinned word, compared unclamped: a
+            // peer who deleted the word pulled the caret back over it.
+            ...(replaces === undefined ||
+            replaces === (state.ui.composition.replaces ?? 0) ||
+            clampReplaces(state, replaces) ===
+              (state.ui.composition.replaces ?? 0)
+              ? {}
+              : reopenedWord(state, clampReplaces(state, replaces))),
           },
         },
       },
@@ -208,61 +232,141 @@ export const COMPOSITION_UPDATE = stateAction<CompositionUpdatePayload>(
 export const COMPOSITION_END = stateAction<CompositionTextPayload>(
   "composition-end",
   (state, { data, replaces }) => {
-    const ops: Operation[] = [];
-
-    // Select the reopened word so the commit replaces it (insertText replaces a
-    // selection and keeps its formatting).
-    const replaced = clampReplaces(
+    const word = reopenedWordFor(
       state,
-      replaces ?? state.ui.composition?.replaces,
+      replaces ?? state.ui.composition?.replaces ?? 0,
     );
-    const cursor = state.document.cursor;
-    if (replaced > 0 && cursor) {
-      const focus = cursor.position;
-      const anchor = {
-        blockIndex: focus.blockIndex,
-        textIndex: focus.textIndex - replaced,
-      };
-      state = {
-        ...state,
-        document: {
-          ...state.document,
-          selection: {
-            anchor,
-            focus,
-            isForward: true,
-            isCollapsed: false,
-            lastUpdate: Date.now(),
-          },
-        },
-      };
-      if (!data) {
-        const result = deleteSelectedText(state);
-        state = result.state;
-        ops.push(...result.ops);
-      }
-    }
-
-    // Insert the final composed text
-    if (data && (state.document.cursor || state.document.contentSelection)) {
-      const result = insertText(state, data);
-      state = result.state;
-      ops.push(...result.ops);
-    }
+    const result = word
+      ? commitRecomposition(state, data, word)
+      : data && (state.document.cursor || state.document.contentSelection)
+        ? insertText(state, data)
+        : { state, ops: [] };
 
     // Clear composition state
     return {
       state: {
-        ...state,
+        ...result.state,
         ui: {
-          ...state.ui,
+          ...result.state.ui,
           composition: null,
         },
       },
-      ops,
+      ops: result.ops,
     };
   },
 );
+
+/**
+ * Commit a recomposition: the keyboard reopened `word` before the caret and
+ * now commits `data` in its place.
+ *
+ * Only the part that differs is replaced. The characters the old word and the
+ * new one share at the start and end stay as they are, so they keep their
+ * formatting, their CRDT ids (and with them comments, links and remote
+ * carets), and a word committed unchanged emits no ops at all. The caret ends
+ * after the whole word, as the keyboard expects.
+ *
+ * The edit is planned by character id (see `planRecomposition`), not by
+ * counting back from the caret, so a peer's edit to the word while it was
+ * open is merged, not overwritten: their typed letters stay, letters they
+ * deleted stay deleted, and the result is the same whichever edit lands first.
+ *
+ * When a delete touches a structured mark (an inline math chip, a mention) or
+ * an edit is refused, nothing is edited: keeping the old word is safer than
+ * cutting into the chip or leaving the word half-replaced.
+ *
+ * Nor is anything edited when the caret is no longer in the word's block (a
+ * peer deleted it and the caret was moved out): the word is gone, as a word a
+ * peer deletes inside the block is, and the new letters must not land in
+ * whatever block holds the caret now.
+ */
+function commitRecomposition(
+  state: EditorState,
+  data: string,
+  word: ReopenedWord,
+): { state: EditorState; ops: Operation[] } {
+  const keep = { state, ops: [] as Operation[] };
+  const caret = state.document.cursor?.position;
+  if (!caret) return keep;
+  const blockIndex = caret.blockIndex;
+  const block = state.document.page.blocks[blockIndex];
+  if (!block || !isTextualBlock(block) || !reopenedWordIn(word, block.id)) {
+    return keep;
+  }
+
+  const plan = planRecomposition(block.charRuns, word, data);
+  if (!plan.deletes.length && !plan.inserted) return keep;
+
+  const ops: Operation[] = [];
+  let next = state;
+  // Each step must go through; any refusal keeps the old word whole.
+  const step = (from: number, to: number, text: string): boolean => {
+    const position = (textIndex: number) => ({ blockIndex, textIndex });
+    const target: EditorState =
+      from === to
+        ? moveCursorToPosition(next, blockIndex, from, true)
+        : {
+            ...next,
+            document: {
+              ...next.document,
+              selection: {
+                anchor: position(from),
+                focus: position(to),
+                isForward: true,
+                isCollapsed: false,
+                lastUpdate: Date.now(),
+              },
+            },
+          };
+    if (from !== to && selectionIntersectsStructuredMark(target)) return false;
+    const result = text
+      ? insertText(target, text)
+      : deleteSelectionThroughOwner(target);
+    const selection = result.state.document.selection;
+    if (
+      result.ops.length === 0 ||
+      !result.state.document.cursor ||
+      (selection && !selection.isCollapsed)
+    ) {
+      return false;
+    }
+    next = result.state;
+    ops.push(...result.ops);
+    return true;
+  };
+
+  // Back to front, so earlier offsets stay valid; the new middle last, at
+  // `insertAt`, which no delete precedes.
+  const [first, ...rest] = plan.deletes;
+  for (const range of [...rest].reverse()) {
+    if (!step(range.from, range.to, "")) return keep;
+  }
+  if (first && plan.overwritesFirst) {
+    if (!step(first.from, first.to, plan.inserted)) return keep;
+  } else {
+    if (first && !step(first.from, first.to, "")) return keep;
+    if (plan.inserted && !step(plan.insertAt, plan.insertAt, plan.inserted)) {
+      return keep;
+    }
+  }
+
+  // The caret ends after the whole word: after its kept end, else after the
+  // new middle (where the last step left it).
+  const nextBlock = next.document.page.blocks[blockIndex];
+  const runs =
+    nextBlock && isTextualBlock(nextBlock) ? nextBlock.charRuns : undefined;
+  const lastKept = Math.max(
+    -1,
+    ...plan.suffixIds.map((id) => getVisiblePositionOfChar(runs, id)),
+  );
+  return {
+    state:
+      lastKept >= 0
+        ? moveCursorToPosition(next, blockIndex, lastKept + 1, true)
+        : next,
+    ops,
+  };
+}
 
 // ─── Clipboard (copy / cut / paste) ──────────────────────────────────────────
 

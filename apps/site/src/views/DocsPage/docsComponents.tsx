@@ -12,7 +12,6 @@ import {
   type ReactNode,
   type AnchorHTMLAttributes,
 } from "react";
-import { withAiDash } from "@/components/AiDash";
 import { Link } from "@/components/Link";
 import { useTranslation } from "react-i18next";
 import { Icons } from "./docsIcons";
@@ -793,7 +792,7 @@ export function Callout({
       <div>
         {title ? (
           <p>
-            <strong>{withAiDash(title)}</strong>
+            <strong>{title}</strong>
           </p>
         ) : null}
         <div className="dx-callout-body">{children}</div>
@@ -851,7 +850,7 @@ export function PropsTable({
                   <span className="ty">{r.type}</span>
                 </td>
               ) : null}
-              <td className="desc">{withAiDash(r.desc)}</td>
+              <td className="desc">{r.desc}</td>
             </tr>
           ))}
         </tbody>
@@ -920,7 +919,7 @@ export function Step({
 }) {
   return (
     <li className="dx-step">
-      {title ? <div className="dx-step-title">{withAiDash(title)}</div> : null}
+      {title ? <div className="dx-step-title">{title}</div> : null}
       {children}
     </li>
   );

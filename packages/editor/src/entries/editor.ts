@@ -206,6 +206,7 @@ import {
   insertCharsAtPosition,
   markCharsInRange,
   orderKeyAfter,
+  remapPosition,
   sortBlocksByOrder,
 } from "../sync/crdt-utils";
 import type { IdentityAllocator } from "../sync/id";
@@ -1066,6 +1067,13 @@ export interface EditorWiring {
 // action-bus `Action` type (imported above), which is a different concept.
 type StateAction = (s: EditorState) => ActionResult;
 
+// A keyboard composition the engine already committed (see
+// `Editor.staleComposition`).
+interface AbandonedComposition {
+  baseline: string | null;
+  forwarded: string | null;
+}
+
 /**
  * The canvas editor instance. Attaches the engine to a set of layered canvases
  * and (optionally) an accessible contenteditable input surface, runs the render
@@ -1246,6 +1254,22 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     replaces: number | null;
     events: CompositionEvent[];
   } | null = null;
+  // Between `compositionstart` and `compositionend`: the browser (and the
+  // keyboard behind it) has a composition open on the input surface.
+  private browserComposing = false;
+  // The engine ended the browser's composition itself — a tap moved the caret
+  // and the composed text was committed where it was typed (see
+  // `commitCompositionOnCaretMove`). Until the keyboard notices, its leftover
+  // composition events belong to that finished session: honoring them would
+  // re-insert the word at the new caret. Only what the user types past it is
+  // new, and is passed on as a composition at the caret.
+  //
+  // `baseline` is the session's text when it was abandoned (null: learned from
+  // its first text, see `typedPastAbandoned`). `forwarded` is the new text
+  // passed on so far (null: none).
+  private staleComposition: AbandonedComposition | null = null;
+  // The keyboard's latest composed text, as it sent it.
+  private keyboardComposed = "";
 
   // Guards async work that settles after destroy() from poking a torn-down loop.
   private destroyed = false;
@@ -1737,6 +1761,16 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
     this._state = handleEventsResult.state;
 
+    // The frame ended a composition the browser still has open (the caret was
+    // moved away from it): close it on the keyboard's side too.
+    if (
+      this.browserComposing &&
+      prevState.ui.composition &&
+      !this._state.ui.composition
+    ) {
+      this.abandonBrowserComposition();
+    }
+
     // Contain the caret/selection within this editor's block window (no-op when
     // unwindowed) before recording undo, so a windowed editor's navigation can
     // never leave a caret pointing at a block it doesn't render.
@@ -2136,7 +2170,12 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
             !!cursor && !!this._state.ui.composition?.isComposing;
           const cursorCoords = cursor
             ? isComposing
-              ? getCursorCoordinatesWithComposition(this._state, this.viewport)
+              ? getCursorCoordinatesWithComposition(
+                  this._state,
+                  this.viewport,
+                  undefined,
+                  this.visibility,
+                )
               : this.coordsAtIndexPosition(cursor.position)
             : this.coordsAtContentPoint(contentFocus!);
           if (cursorCoords) {
@@ -2162,7 +2201,8 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         if (
           this.hiddenInput &&
           this._state.view.isFocused &&
-          !this._state.ui.composition?.isComposing
+          !this._state.ui.composition?.isComposing &&
+          !this.browserOwnsSurface()
         ) {
           this.syncMirrorToSelection();
         }
@@ -2637,7 +2677,11 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // sentinel space into the document as a spurious space; syncing here, in
     // the synchronous focus handler, closes it. Skipped mid-composition (the
     // browser owns the surface content then), like the render-loop call.
-    if (focused && !this._state.ui.composition?.isComposing) {
+    if (
+      focused &&
+      !this._state.ui.composition?.isComposing &&
+      !this.browserOwnsSurface()
+    ) {
       this.syncMirrorToSelection();
     }
 
@@ -3505,6 +3549,14 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       return;
     }
     if (this._state.ui.composition?.isComposing) return;
+    // DOM changes of an abandoned composition: its text is already committed.
+    if (
+      this.staleComposition &&
+      (inputEvent.isComposing || it?.includes("Composition"))
+    ) {
+      this.scheduleRender();
+      return;
+    }
 
     const isBackwardDelete =
       it === "deleteContentBackward" ||
@@ -3714,6 +3766,19 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       return;
     }
 
+    // The browser already ended the composition and its `compositionend` is
+    // still queued for the next frame: the engine is only behind, not stranded.
+    // Firefox on Android sends HeliBoard's automatic space as a real keydown in
+    // the same task as `compositionend`. Apply the queue first so the word is
+    // committed before the key; the self-heal below would otherwise drop it.
+    if (
+      this._state.ui.composition?.isComposing &&
+      !this.browserComposing &&
+      this.eventsQueue.some((queued) => queued.type === "compositionend")
+    ) {
+      this.flushPendingInput();
+    }
+
     // Self-heal a stranded composition flag. If we still think we're composing
     // but the browser reports this keydown is NOT part of a composition, a prior
     // `compositionend` was dropped or reordered — common on Android soft
@@ -3727,7 +3792,17 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         ui: { ...this._state.ui, composition: null },
       };
       this.imeSession = null;
+      this.browserComposing = false;
       this.resetSentinel();
+    }
+
+    // The same for an abandoned composition the browser was left holding (see
+    // `browserOwnsSurface`): a key outside a composition means it ended
+    // without a `compositionend`, so the surface is ours to resync again.
+    if (this.browserOwnsSurface() && !e.isComposing) {
+      this.staleComposition = null;
+      this.browserComposing = false;
+      this.syncMirrorToSelection();
     }
 
     // During composition (IME input), let the IME handle keys natively
@@ -4018,6 +4093,17 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
   // Handle composition events (IME input)
   private compositionStartHandler = (e: CompositionEvent) => {
+    // The previous commit is still queued: the keyboard started again (often
+    // reopening the word it just committed) before the frame that applies it.
+    // Apply it now, so the document this session is measured against holds it.
+    const commitPending = this.eventsQueue.some(
+      (queued) => queued.type === "compositionend",
+    );
+    if (commitPending) this.flushPendingInput();
+    // A new session: whatever was left of an abandoned one is over.
+    this.staleComposition = null;
+    this.browserComposing = true;
+    this.keyboardComposed = e.data ?? "";
     // Track the session on the managed surface, where the engine cannot see
     // what the keyboard is composing over (see `composition`).
     const caretPoint = resolvePoint(this._state, "caret");
@@ -4033,6 +4119,20 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
             events: [],
           }
         : null;
+    // That commit came out different from what the keyboard typed (an input
+    // rule rewrote it), and the surface still shows the keyboard's version: a
+    // word reopened there is not the document's text, and counting it back
+    // from the caret would replace other characters. Abandon the session
+    // instead. The next frame rewrites the surface to the document, which
+    // tells the keyboard its composition is over (see `staleComposition`).
+    if (this.imeSession && commitPending && !this.surfaceMatchesDocument()) {
+      this.imeSession = null;
+      // Whether it reopens a word or starts a new one shows in its first
+      // text (see `typedPastAbandoned`).
+      this.staleComposition = { baseline: null, forwarded: null };
+      this.scheduleRender();
+      return;
+    }
     this.trackCompositionEvent(e);
     // Mark composition as starting - this will be handled in events.ts
     this.eventsQueue.push(e);
@@ -4040,6 +4140,25 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   };
 
   private compositionUpdateHandler = (e: CompositionEvent) => {
+    this.keyboardComposed = e.data ?? "";
+    const stale = this.staleComposition;
+    if (stale) {
+      const typed = this.typedPastAbandoned(stale, e.data ?? "");
+      if (typed === null) {
+        // The abandoned session is still talking; the next frame's surface
+        // resync tells the browser again that it is over.
+        this.scheduleRender();
+        return;
+      }
+      // The keyboard kept the session and the user typed on: compose that
+      // new text at the caret.
+      stale.forwarded = typed;
+      this.browserComposing = true;
+      this.setCompositionData(e, typed);
+      this.eventsQueue.push(e);
+      this.scheduleRender();
+      return;
+    }
     if (this.imeSession) this.imeSession.composed = e.data ?? "";
     this.trackCompositionEvent(e);
     // Update composition text - this will be handled in events.ts
@@ -4048,7 +4167,29 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   };
 
   private compositionEndHandler = (e: CompositionEvent) => {
+    this.browserComposing = false;
     if (!this.hiddenInput) return;
+
+    const stale = this.staleComposition;
+    if (stale) {
+      this.staleComposition = null;
+      if (stale.forwarded !== null) {
+        // Commit the new text typed past the abandoned word (see the update
+        // handler); a final word that no longer extends it keeps what was
+        // shown. The frame's resync then repairs the surface.
+        const typed = this.typedPastAbandoned(stale, e.data ?? "");
+        this.setCompositionData(e, typed ?? stale.forwarded);
+        this.eventsQueue.push(e);
+        this.scheduleRender();
+        return;
+      }
+      // The end of a session the engine already committed: its text is in the
+      // document at the old spot. Drop it, and put the surface back to the
+      // caret in case the browser wrote the commit into it.
+      // Fired from inside our own surface rewrite: that rewrite is the repair.
+      if (!this.isMirrorUpdating) this.syncMirrorToSelection();
+      return;
+    }
 
     const session = this.imeSession;
     if (session) {
@@ -4075,6 +4216,117 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     }
     // Restore the sentinel after composition ends.
     this.resetSentinel();
+  };
+
+  // The engine ended a composition the browser still has open (see
+  // `staleComposition`). Rewrite the surface for the new caret: the composed
+  // text disappearing from under the browser is what tells it — and through it
+  // the keyboard — that the composition is over, the same signal a native field
+  // gives when its caret moves. Cleared first so the rewrite always changes the
+  // DOM, even where the new caret's surface text happens to match.
+  //
+  // Unfocused (Android blurs the editor around a touch), only the clear runs:
+  // the focus handler writes the caret's text when focus returns.
+  //
+  // The faithful surface (iOS) must not be rewritten. WebKit does not end a
+  // composition whose text is rewritten under it: the keyboard goes on
+  // composing into text that is gone, and no later key reaches the page (seen
+  // on a device with the Chinese keyboard). So the surface is left alone until
+  // the browser's own `compositionend`, which the stale session then drops
+  // (see `browserOwnsSurface`). Only the DOM caret moves, off the composed
+  // text, the way a native tap moves it; on a device that did not end the
+  // composition at once — the keyboard ended it later by itself.
+  private abandonBrowserComposition = () => {
+    this.staleComposition = {
+      baseline: this.keyboardComposed,
+      forwarded: null,
+    };
+    this.imeSession = null;
+    if (this.hiddenInput && this.inputStrategy === "faithful") {
+      this.moveSurfaceCaretOffComposition();
+      return;
+    }
+    this.browserComposing = false;
+    if (!this.hiddenInput) return;
+    this.setMirror("", false);
+    this.lastSurfaceValue = "";
+    if (this._state.view.isFocused) this.syncMirrorToSelection();
+  };
+
+  // The browser still holds a composition the engine already committed (the
+  // faithful surface, see `abandonBrowserComposition`): its text is still on
+  // the surface, and rewriting the surface now would strand the keyboard.
+  private browserOwnsSurface = (): boolean =>
+    this.staleComposition !== null && this.browserComposing;
+
+  // Collapse the surface's DOM caret off the open composition, without
+  // touching its text. The composed text ends at the caret, so its start is a
+  // different spot; with nothing composed, either end of the text is.
+  private moveSurfaceCaretOffComposition = () => {
+    const node = this.hiddenInput?.firstChild;
+    const caret = this.readSurfaceCaret();
+    const selection = window.getSelection();
+    if (!node || caret === null || !selection) return;
+    const start = Math.max(0, caret - this.keyboardComposed.length);
+    const target =
+      start !== caret ? start : caret > 0 ? 0 : (node.textContent ?? "").length;
+    if (target === caret) return;
+    try {
+      selection.collapse(node, target);
+    } catch {
+      // Defensive: a stray DOM state shouldn't break input handling.
+    }
+  };
+
+  // What the user typed past an abandoned session's text: `data` with the
+  // abandoned text in front removed. Null when there is nothing new — the
+  // keyboard is only repeating the old word, or changed it (an autocorrect),
+  // which cannot be told apart from the word already committed. Once text was
+  // passed on, shrinking back to the old word passes on "" (a Backspace).
+  //
+  // Without a baseline yet, the first text decides it. A session that reopens
+  // a word only relabels text already before the caret, so that text is the
+  // surface's tail, and it is the baseline. A new word's first text is not on
+  // the surface yet (`compositionupdate` fires before the DOM changes): it
+  // is all typed past nothing.
+  private typedPastAbandoned = (
+    stale: AbandonedComposition,
+    data: string,
+  ): string | null => {
+    if (stale.baseline === null) {
+      if (!data) return null;
+      // Contenteditable may hold an NBSP where the keyboard has a space.
+      const plain = (text: string) => text.replace(/\u00a0/g, " ");
+      const surface = plain(this.hiddenInput?.textContent ?? "");
+      stale.baseline = surface.endsWith(plain(data)) ? data : "";
+    }
+    if (!data.startsWith(stale.baseline)) return null;
+    const typed = data.slice(stale.baseline.length);
+    return typed || stale.forwarded !== null ? typed : null;
+  };
+
+  // Hand the engine a composition event with different text.
+  private setCompositionData = (e: CompositionEvent, data: string) => {
+    Object.defineProperty(e, "data", { value: data, configurable: true });
+  };
+
+  // Whether the managed surface's text is the document's text before the
+  // caret. Unknown (no sentinel, no textual caret block) counts as a match.
+  private surfaceMatchesDocument = (): boolean => {
+    const surface = this.hiddenInput?.textContent ?? "";
+    if (!hasSentinel(surface, this.SENTINEL)) return true;
+    const caret = resolvePoint(this._state, "caret");
+    const block = caret
+      ? this._state.document.page.blocks[caret.blockIndex]
+      : undefined;
+    if (!caret || !block || block.deleted || !isTextualBlock(block)) {
+      return true;
+    }
+    // Contenteditable may hold an NBSP where the document has a space.
+    const plain = (text: string) => text.replace(/\u00a0/g, " ");
+    return plain(getBlockTextContent(block).slice(0, caret.offset)).endsWith(
+      plain(stripSentinel(surface, this.SENTINEL)),
+    );
   };
 
   // Register a composition event with the managed session, attaching the
@@ -4110,9 +4362,19 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
   // Settle the session's replaced-character count (first measurement wins) and
   // hand it to every composition event of the session still waiting in the queue.
+  // Not while nothing is composed and the surface is untouched: that reads as
+  // "replaces 0" whether the keyboard starts a new word or is about to report
+  // the word it reopened (its first update can come a task after the start),
+  // and a wrong 0 would stick for the whole session.
   private settleComposition = () => {
     const session = this.imeSession;
     if (!session || session.replaces !== null) return;
+    if (
+      session.composed === "" &&
+      (this.hiddenInput?.textContent ?? "") === session.before
+    ) {
+      return;
+    }
     const measured = this.measureComposition(session.composed);
     if (measured === null) return;
     session.replaces = measured;
@@ -5999,8 +6261,33 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     const visibleBlocks = getVisibleBlocks(page, this._state.view.window);
     this._state.view.visibleBlocks = visibleBlocks;
 
-    // Validate and adjust cursor position if needed
+    // Carry the caret and selection along with the text they sit in: a
+    // peer's edit earlier in the block, or a block inserted above, would
+    // otherwise leave them at the same offset over different text (an open
+    // IME composition then draws and commits in the wrong place). Positions
+    // whose block is gone fall through to the clamping below.
+    const prevPage = this._state.document.page;
+    const carry = (p: Position) => remapPosition(prevPage, page, p) ?? p;
     let cursor = this._state.document.cursor;
+    if (cursor) {
+      cursor = { ...cursor, position: carry(cursor.position) };
+    }
+    const prevSelection = this._state.document.selection;
+    let selection = prevSelection;
+    if (prevSelection) {
+      const anchor = carry(prevSelection.anchor);
+      const focus = carry(prevSelection.focus);
+      selection = {
+        ...prevSelection,
+        anchor,
+        focus,
+        isCollapsed:
+          anchor.blockIndex === focus.blockIndex &&
+          anchor.textIndex === focus.textIndex,
+      };
+    }
+
+    // Validate and adjust cursor position if needed
     if (cursor && visibleBlocks.length > 0) {
       const { blockIndex: blockIndex, textIndex } = cursor.position;
       // Find the last visible block's index in the full array
@@ -6052,7 +6339,6 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     }
 
     // Validate selection as well
-    let selection = this._state.document.selection;
     if (selection && visibleBlocks.length > 0) {
       // Find the last visible block's index in the full array
       const lastVisibleBlockForSelection =
