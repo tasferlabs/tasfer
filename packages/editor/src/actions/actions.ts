@@ -2142,6 +2142,37 @@ export function insertText(
   return { state: newState, ops };
 }
 
+/**
+ * Change one field of the caret's block (a list item's `indent`, or its `type`
+ * to leave the list) as a `block_set` op. Going through the op — never a local
+ * splice — is what makes the change undoable, broadcast to peers, and still
+ * there after a reload. The caret stays where it was.
+ */
+function setBlockFieldAtCaret(
+  state: EditorState,
+  blockIndex: number,
+  field: string,
+  value: unknown,
+): ActionResult {
+  const block = state.document.page.blocks[blockIndex];
+  if (!block) return { state, ops: [] };
+  const op: BlockSet = {
+    op: "block_set",
+    id: state.CRDTbinding.nextId(),
+    clock: state.CRDTbinding.getClock(),
+    pageId: state.CRDTbinding.pageId,
+    blockId: block.id,
+    field,
+    value,
+  };
+  const page = applyOps(state.document.page, [op], state.schema);
+  invalidateBlockCache(page.blocks[blockIndex]);
+  return {
+    state: { ...state, document: { ...state.document, page } },
+    ops: [op],
+  };
+}
+
 export function deleteText(state: EditorState): ActionResult {
   if (!state.document.cursor) {
     return { state, ops: [] };
@@ -2321,47 +2352,10 @@ export function deleteText(state: EditorState): ActionResult {
           return { state: newState, ops };
         }
 
-        if (currentIndent > 0) {
-          // Outdent the list item
-          const outdentedBlock: Block = {
-            ...oldBlock,
-            indent: currentIndent - 1,
-          };
-          invalidateBlockCache(outdentedBlock);
-          const newBlocks = [...state.document.page.blocks];
-          newBlocks[blockIndex] = outdentedBlock;
-          const newPage = { ...state.document.page, blocks: newBlocks };
-          return {
-            state: {
-              ...state,
-              document: { ...state.document, page: newPage },
-            },
-            ops,
-          };
-        } else {
-          // At indent 0: convert to paragraph
-          const paragraphBlock: Block = carryStructuredContent(
-            {
-              id: oldBlock.id,
-              orderKey: oldBlock.orderKey,
-              type: "paragraph",
-              charRuns: oldBlock.charRuns,
-              formats: oldBlock.formats,
-            },
-            oldBlock,
-          );
-          invalidateBlockCache(paragraphBlock);
-          const newBlocks = [...state.document.page.blocks];
-          newBlocks[blockIndex] = paragraphBlock;
-          const newPage = { ...state.document.page, blocks: newBlocks };
-          return {
-            state: {
-              ...state,
-              document: { ...state.document, page: newPage },
-            },
-            ops,
-          };
-        }
+        // Outdent the list item; at indent 0, convert it to a paragraph.
+        return currentIndent > 0
+          ? setBlockFieldAtCaret(state, blockIndex, "indent", currentIndent - 1)
+          : setBlockFieldAtCaret(state, blockIndex, "type", "paragraph");
       }
 
       const prevBlock = state.document.page.blocks[prevBlockIndex];
@@ -2478,33 +2472,14 @@ export function deleteText(state: EditorState): ActionResult {
       );
       return { state: newState, ops };
     } else {
-      // No previous visible block — this is the first visible block
-      // If it's an empty list item, convert to paragraph
+      // No previous visible block — this is the first visible block. A list
+      // item still leaves the list the same way it does further down: outdent
+      // first, then become a paragraph.
       if (isListBlock(oldBlock)) {
-        const currentText = getBlockTextContent(oldBlock);
-        if (currentText.length === 0) {
-          const paragraphBlock: Block = carryStructuredContent(
-            {
-              id: oldBlock.id,
-              orderKey: oldBlock.orderKey,
-              type: "paragraph",
-              charRuns: oldBlock.charRuns,
-              formats: oldBlock.formats,
-            },
-            oldBlock,
-          );
-          invalidateBlockCache(paragraphBlock);
-          const newBlocks = [...state.document.page.blocks];
-          newBlocks[blockIndex] = paragraphBlock;
-          const newPage = { ...state.document.page, blocks: newBlocks };
-          return {
-            state: {
-              ...state,
-              document: { ...state.document, page: newPage },
-            },
-            ops,
-          };
-        }
+        const currentIndent = oldBlock.indent || 0;
+        return currentIndent > 0
+          ? setBlockFieldAtCaret(state, blockIndex, "indent", currentIndent - 1)
+          : setBlockFieldAtCaret(state, blockIndex, "type", "paragraph");
       }
     }
   }
