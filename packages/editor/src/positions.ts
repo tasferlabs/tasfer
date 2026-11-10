@@ -14,6 +14,7 @@ import { contentMarkRuns } from "./content-marks";
 import { joinTouchingMarkRuns, resolveMarkRuns } from "./mark-runs";
 import { getBlockTextContent, getBlockTextLength } from "./node-shared";
 import {
+  clearSelection,
   moveCursorToPosition,
   updateCursor,
   updateSelection,
@@ -274,7 +275,7 @@ export function selectTarget(s: EditorState, target: DocRange): EditorState {
     const b = resolvePoint(s, target.to);
     if (!a || !b) return s;
     const collapsed = a.blockIndex === b.blockIndex && a.offset === b.offset;
-    if (collapsed) return moveCursorToPosition(s, a.blockIndex, a.offset);
+    if (collapsed) return placeCaret(s, a.blockIndex, a.offset);
     // `updateSelection` derives isForward/isCollapsed from anchor/focus.
     const focus = { blockIndex: b.blockIndex, textIndex: b.offset };
     return updateSelection(updateCursor(s, focus), {
@@ -285,7 +286,19 @@ export function selectTarget(s: EditorState, target: DocRange): EditorState {
   }
   if (target === "selection") return s;
   const p = resolvePoint(s, target);
-  return p ? moveCursorToPosition(s, p.blockIndex, p.offset) : s;
+  return p ? placeCaret(s, p.blockIndex, p.offset) : s;
+}
+
+// A caret replaces whatever selection was there: moving the cursor alone would
+// leave a stale range behind (still painted, and still what the next edit acts
+// on).
+function placeCaret(
+  s: EditorState,
+  blockIndex: number,
+  offset: number,
+): EditorState {
+  const moved = moveCursorToPosition(s, blockIndex, offset);
+  return moved.document.selection ? clearSelection(moved) : moved;
 }
 
 // Plain-data projection of a block — the read API never hands out the internal

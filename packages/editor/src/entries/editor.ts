@@ -65,6 +65,7 @@ import { touchStartsOwnedGesture } from "../events/touchEvents";
 import { onFontsReady } from "../fonts";
 import {
   caretInProtectedSource,
+  clampMirrorEndToSpans,
   clampMirrorStartToSpans,
   computeSurfaceDelta,
   currentWordStart,
@@ -76,6 +77,7 @@ import {
   sentenceStartOffset,
   stripSentinel,
   SURFACE_SENTINEL,
+  surfaceHeadOf,
 } from "../input-diff";
 import { resolveMarkRuns } from "../mark-runs";
 import { getBlockTextContent, isAndroid, isIOS } from "../node-shared";
@@ -1250,6 +1252,30 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   // surface against this to classify the edit (append / backspace / autocorrect
   // replacement).
   private lastSurfaceValue: string = this.SENTINEL;
+  // Android mirrors the whole block on the managed surface: the text before the
+  // caret (`lastSurfaceValue`) AND the text after it (`surfaceTail`), so Gboard
+  // can slide the caret over real text in both directions (space-bar cursor
+  // control) and select whole words backwards (backspace glide delete). Every
+  // reconciliation below works on the part before the caret, the "head", read
+  // with `surfaceHead`; the tail only has to survive unchanged. Desktop and iOS
+  // keep a head-only surface (empty tail).
+  private readonly mirrorWholeBlock = isAndroid();
+  private surfaceTail = "";
+  // Where the managed surface's text sits in the document: the block, and the
+  // offset its first character after the sentinel maps to. `null` when the
+  // surface holds no document text (bare sentinel, a mirrored selection, the
+  // faithful strategy). Lets a keyboard-moved DOM selection map back to the
+  // document (see `adoptKeyboardSelection`).
+  private surfaceAnchor: { blockId: string; start: number } | null = null;
+  // The DOM selection the editor itself last put in (or accepted on) the
+  // managed surface, as text offsets. A different selection over unchanged text
+  // was put there by the keyboard.
+  private surfaceSelection: { anchor: number; focus: number } | null = null;
+  // The editor selection that came from the keyboard selecting text on the
+  // surface (Gboard's backspace glide), as a `selectionSignature`. While the
+  // editor selection still matches it, the surface keeps that DOM range instead
+  // of collapsing it — collapsing would cancel the glide mid-gesture.
+  private keyboardSelectionSig: string | null = null;
   // The IME composition in progress on the MANAGED surface (null otherwise, and
   // always under the faithful strategy). `before` is the surface when it began;
   // `replaces` is how many characters before the caret it replaces, once
@@ -1278,6 +1304,14 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   private staleComposition: AbandonedComposition | null = null;
   // The keyboard's latest composed text, as it sent it.
   private keyboardComposed = "";
+  // A composition the keyboard opened over a word that touches the caret on its
+  // right — HeliBoard reopens the word under the caret after every cursor move,
+  // so mid-word the composed word straddles the caret. The engine's
+  // composition model only replaces text BEFORE the caret, so such a session
+  // bypasses it: each change the keyboard makes is applied to the document as a
+  // whole-surface diff, as it happens (see `applyWholeSurfaceEdit`). Android
+  // whole-block surface only.
+  private diffComposition = false;
 
   // Guards async work that settles after destroy() from poking a torn-down loop.
   private destroyed = false;
@@ -1511,6 +1545,13 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       this.hiddenInput.addEventListener("copy", this.copyHandler);
       this.hiddenInput.addEventListener("cut", this.cutHandler);
       this.hiddenInput.addEventListener("paste", this.pasteHandler);
+      // Keyboard-made selection moves on the surface (Gboard cursor control and
+      // glide delete). `selectionchange` only fires on the document for a
+      // contenteditable; the handler ignores every other selection.
+      document.addEventListener(
+        "selectionchange",
+        this.surfaceSelectionChangeHandler,
+      );
 
       // Ensure input is focusable (already set in mount.ts, but ensure it's correct)
       this.hiddenInput.setAttribute("tabindex", "0");
@@ -2928,11 +2969,19 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
   // Write `text` into the contenteditable surface and, when it's the focused
   // element, set the DOM selection: spanning the whole text (so a screen reader
-  // announces it and the browser has real content to copy) or collapsed after
-  // it (the sentinel caret). Wrapped in `isMirrorUpdating` so the resulting DOM
-  // events are ignored by our own handlers.
-  private setMirror = (text: string, selectText: boolean) => {
+  // announces it and the browser has real content to copy) or collapsed at
+  // `caretAt` (default: after the text — the sentinel caret; Android puts it
+  // before the mirrored tail). Wrapped in `isMirrorUpdating` so the resulting
+  // DOM events are ignored by our own handlers.
+  private setMirror = (
+    text: string,
+    selectText: boolean,
+    caretAt: number = text.length,
+  ) => {
     if (!this.hiddenInput) return;
+    this.surfaceSelection = selectText
+      ? { anchor: 0, focus: text.length }
+      : { anchor: caretAt, focus: caretAt };
     this.isMirrorUpdating = true;
     try {
       if (this.hiddenInput.textContent !== text) {
@@ -2947,7 +2996,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
             range.setStart(node, 0);
             range.setEnd(node, text.length);
           } else {
-            range.setStart(node, text.length);
+            range.setStart(node, Math.max(0, Math.min(caretAt, text.length)));
             range.collapse(true);
           }
           sel.removeAllRanges();
@@ -2967,7 +3016,23 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   private resetSentinel = () => {
     this.setMirror(this.SENTINEL, false);
     this.lastSurfaceValue = this.SENTINEL;
+    this.forgetSurfaceText();
   };
+
+  // The surface no longer mirrors a stretch of the document (bare sentinel, a
+  // mirrored selection, the faithful field): nothing after the caret, nothing
+  // for a keyboard-moved selection to map back to.
+  private forgetSurfaceText = () => {
+    this.surfaceTail = "";
+    this.surfaceAnchor = null;
+    this.keyboardSelectionSig = null;
+  };
+
+  // The managed surface text before the caret — the part every reconciliation
+  // compares (see `surfaceTail`). `null` when the keyboard also changed the
+  // mirrored text after the caret.
+  private surfaceHead = (): string | null =>
+    surfaceHeadOf(this.hiddenInput?.textContent ?? "", this.surfaceTail);
 
   // ── Faithful input surface (per-block, browser-authoritative) ───────────────
   // The faithful strategy makes the contenteditable a real field that holds the
@@ -3057,10 +3122,29 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   // current word. `sentenceStartOffset` is stable while typing within a sentence,
   // so the surface the keyboard already built isn't rewritten between keystrokes
   // (which would tear down its predictive-text/autocorrect session).
+  //
+  // Android mirrors from the block start (see `mirrorWholeBlock`): Gboard's
+  // backspace glide can only select what the surface holds, and a sentence-
+  // scoped surface stopped it at the previous full stop. The keyboard still
+  // reads the real left-context, so capitalization is unchanged.
   private mirrorStartOffset = (text: string, caret: number): number =>
-    this.mirrorSentenceContext
-      ? sentenceStartOffset(text, caret)
-      : currentWordStart(text, caret);
+    this.mirrorWholeBlock
+      ? 0
+      : this.mirrorSentenceContext
+        ? sentenceStartOffset(text, caret)
+        : currentWordStart(text, caret);
+
+  // Where the text mirrored after the caret ends (Android, see `surfaceTail`):
+  // the block end, or the start of the next replacement-mark run (an inline
+  // math chip's LaTeX, which the keyboard must not see).
+  private mirrorTailEnd = (block: Block, text: string, caret: number): number =>
+    clampMirrorEndToSpans(
+      resolveMarkRuns(block)
+        .filter((r) => this._state.marks.get(r.name)?.replacement)
+        .map((r) => ({ start: r.startIndex, end: r.endIndex })),
+      caret,
+      text.length,
+    );
 
   // Where the mirrored word may start, clamped so it never reaches into content
   // that is verbatim SOURCE rather than prose — exposing source to the OS
@@ -3176,9 +3260,29 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   private syncMirrorToSelection = (forceRangedSelection = false) => {
     if (!this.hiddenInput) return;
 
+    // The keyboard owns the surface during a diff composition; leave it alone
+    // while it still mirrors the editor. Anything else (a tap moved the caret, a
+    // remote edit) ends the session: the rewrite below tells the keyboard, and
+    // its leftover composition events are dropped as stale.
+    if (this.diffComposition) {
+      if (this.surfaceMatchesEditor()) return;
+      this.diffComposition = false;
+      this.browserComposing = false;
+      this.staleComposition = {
+        baseline: this.keyboardComposed,
+        forwarded: null,
+      };
+    }
+
     // Toggle native predictive text off while the caret is in verbatim source,
     // independent of which surface branch below runs.
     this.applyAutosuggestForCaret();
+
+    // The keyboard may have moved the surface's DOM selection since the last
+    // frame (its `selectionchange` is async and can land after this frame).
+    // Take that selection into the editor first, so the resync below keeps it
+    // rather than snapping the caret back.
+    this.adoptKeyboardSelection();
 
     const selection = this._state.document.selection;
     const contentSelection = this._state.document.contentSelection;
@@ -3202,12 +3306,27 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     const sigUnchanged = sig === this.lastSelectionSig;
     this.lastSelectionSig = sig;
 
+    // A range the keyboard selected on the surface (Gboard's backspace glide)
+    // stays as the keyboard left it while it is still the editor selection and
+    // the surface text is untouched: collapsing it below would cancel the glide.
+    if (this.keyboardSelectionSig !== null) {
+      if (
+        this.keyboardSelectionSig === sig &&
+        this.hiddenInput.textContent ===
+          this.lastSurfaceValue + this.surfaceTail
+      ) {
+        return;
+      }
+      this.keyboardSelectionSig = null;
+    }
+
     if (mirrorRangedSelection) {
       if (sigUnchanged) return;
       const text = getSelectionPlainText(this._state);
       if (text) {
         this.setMirror(text, true);
         this.lastSurfaceValue = text;
+        this.forgetSurfaceText();
         return;
       }
       // No plain text (e.g. an image-only selection) — fall through to caret.
@@ -3254,6 +3373,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         this.setFaithfulMirror(fullText, caret.offset);
       }
       this.lastSurfaceValue = fullText;
+      this.forgetSurfaceText();
       return;
     }
 
@@ -3262,8 +3382,11 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // typing position). Mid-word — a non-boundary char follows the caret — falls
     // back to the bare sentinel, so the surface never has to represent a caret
     // inside its text. A selection's start counts as a word end: what follows it
-    // is about to be replaced.
+    // is about to be replaced. Android mirrors the text after the caret too (see
+    // `surfaceTail`), so its surface represents a mid-word caret truthfully —
+    // Gboard types there with plain `insertText`, as in a native field.
     const atWordEnd =
+      this.mirrorWholeBlock ||
       selectionStart !== null ||
       caret.offset >= text.length ||
       isWordBoundaryChar(text[caret.offset]);
@@ -3276,12 +3399,18 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       this.resetSentinel();
       return;
     }
-    const target = this.SENTINEL + text.slice(mirrorStart, caret.offset);
+    const head = this.SENTINEL + text.slice(mirrorStart, caret.offset);
+    const tail = this.mirrorWholeBlock
+      ? text.slice(caret.offset, this.mirrorTailEnd(block, text, caret.offset))
+      : "";
+    const target = head + tail;
+    this.surfaceTail = tail;
+    this.surfaceAnchor = { blockId: block.id, start: mirrorStart };
 
     const current = this.hiddenInput.textContent ?? "";
-    // Consistent means text AND caret: the managed surface's caret always
-    // belongs at the end (a mid-word caret falls back to the bare sentinel
-    // above). Matching text with a misplaced caret — e.g. parked at offset 0,
+    // Consistent means text AND caret: the managed surface's caret belongs at
+    // the end of the head (the end of the text, unless Android mirrors a tail
+    // after it). Matching text with a misplaced caret — e.g. parked at offset 0,
     // before the sentinel, by a browser granting focus without a selection —
     // must NOT short-circuit: typing there would leak the sentinel space into
     // the document. setMirror leaves matching text untouched, so the repair is
@@ -3289,15 +3418,208 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     const consistent =
       current === target &&
       document.activeElement === this.hiddenInput &&
-      this.readSurfaceCaret() === target.length;
+      this.readSurfaceCaret() === head.length;
     if (consistent) {
       // Already consistent and the keyboard owns it — don't touch the DOM (that
       // would cancel an in-flight suggestion); just keep the classifier in sync.
-      this.lastSurfaceValue = target;
+      this.lastSurfaceValue = head;
+      this.surfaceSelection = { anchor: head.length, focus: head.length };
       return;
     }
-    this.setMirror(target, false);
-    this.lastSurfaceValue = target;
+    this.setMirror(target, false, head.length);
+    this.lastSurfaceValue = head;
+  };
+
+  // Gboard's space-bar cursor control and backspace glide delete don't send
+  // keys: they move the surface's DOM selection directly (InputConnection
+  // `setSelection`), one character or word per step, and the glide delete then
+  // deletes the selected range. Take such a selection into the editor — the
+  // caret moves, or the range is selected (and painted) — so the next resync
+  // keeps it instead of snapping it back. Returns whether it adopted one.
+  //
+  // Only on the Android managed surface, whose text maps back to the document
+  // (`surfaceAnchor`), and only for a selection move over unchanged text: a text
+  // change is the input handler's to reconcile. Skipped mid-composition (the
+  // browser owns the surface then) and for a caret before the sentinel (where a
+  // browser parks it when granting focus — repaired by the resync, not a move).
+  private adoptKeyboardSelection = (): boolean => {
+    const el = this.hiddenInput;
+    const anchor = this.surfaceAnchor;
+    const expected = this.surfaceSelection;
+    if (!this.mirrorWholeBlock || !el || !anchor || !expected) return false;
+    if (
+      this.isMirrorUpdating ||
+      this.browserComposing ||
+      this._state.ui.composition?.isComposing ||
+      document.activeElement !== el
+    ) {
+      return false;
+    }
+    const node = el.firstChild;
+    const sel = window.getSelection();
+    if (!node || !sel || sel.rangeCount === 0) return false;
+    if (sel.anchorNode !== node || sel.focusNode !== node) return false;
+    const a = sel.anchorOffset;
+    const f = sel.focusOffset;
+    if (a === expected.anchor && f === expected.focus) return false;
+    const surface = this.lastSurfaceValue + this.surfaceTail;
+    if (el.textContent !== surface) return false;
+    const sentinelLength =
+      surface.length - stripSentinel(surface, this.SENTINEL).length;
+    // A caret before the sentinel is where a browser parks it on focus, not a
+    // move. A RANGE reaching over the sentinel is the keyboard selecting to the
+    // start of the field ("select everything before the caret"): it covers the
+    // block text from the surface's start.
+    if (a === f && a < sentinelLength) return false;
+
+    // The surface must still mirror the document where it says it does (a
+    // remote edit can land before the resync rewrites the surface).
+    const block = findBlock(this._state.document.page, anchor.blockId);
+    if (!block || block.deleted || !isTextualBlock(block)) return false;
+    const region = surface.slice(sentinelLength);
+    const text = getBlockTextContent(block);
+    if (text.slice(anchor.start, anchor.start + region.length) !== region) {
+      return false;
+    }
+
+    this.surfaceSelection = { anchor: a, focus: f };
+    const at = (offset: number) => ({
+      block: anchor.blockId,
+      offset: anchor.start + Math.max(0, offset - sentinelLength),
+    });
+    this.change((c) => c.select({ from: at(a), to: at(f) }));
+    if (a === f) {
+      // A caret move: the head now ends at the new caret.
+      this.keyboardSelectionSig = null;
+      this.lastSurfaceValue = surface.slice(0, a);
+      this.surfaceTail = surface.slice(a);
+    } else {
+      this.keyboardSelectionSig = this.selectionSignature(this._state);
+    }
+    return true;
+  };
+
+  // Whether a composition starting now would straddle the caret: on the
+  // Android whole-block surface, with the DOM caret touching a word on its
+  // right (mid-word, or at a word's start). A keyboard that reopens the word
+  // under the caret then composes over text on both sides of it.
+  private compositionStraddlesCaret = (): boolean => {
+    if (!this.mirrorWholeBlock || !this.surfaceAnchor || !this.hiddenInput) {
+      return false;
+    }
+    const surface = this.hiddenInput.textContent ?? "";
+    if (surface !== this.lastSurfaceValue + this.surfaceTail) return false;
+    const caret = this.readSurfaceCaret();
+    if (caret === null) return false;
+    const next = surface[caret];
+    return next !== undefined && !isWordBoundaryChar(next);
+  };
+
+  // Whether the managed surface still mirrors the editor exactly: unchanged
+  // text and a collapsed DOM caret that maps onto the editor's caret.
+  private surfaceMatchesEditor = (): boolean => {
+    const anchor = this.surfaceAnchor;
+    if (!anchor || !this.hiddenInput) return false;
+    const surface = this.lastSurfaceValue + this.surfaceTail;
+    if (this.hiddenInput.textContent !== surface) return false;
+    if (!hasSentinel(surface, this.SENTINEL)) return false;
+    const sentinelLength =
+      surface.length - stripSentinel(surface, this.SENTINEL).length;
+    const dom = this.readSurfaceCaret();
+    const selection = this._state.document.selection;
+    if (dom === null || (selection && !selection.isCollapsed)) return false;
+    const caret = resolvePoint(this._state, "caret");
+    const block = caret
+      ? this._state.document.page.blocks[caret.blockIndex]
+      : undefined;
+    return (
+      !!caret &&
+      block?.id === anchor.blockId &&
+      caret.offset === anchor.start + dom - sentinelLength
+    );
+  };
+
+  // Whether the keyboard's last delete removed more than the bare sentinel: a
+  // range that reached from the start of the field into the mirrored text.
+  private deletedPastSentinel = (): boolean => {
+    if (!this.surfaceAnchor || !this.hiddenInput) return false;
+    const prev = this.lastSurfaceValue + this.surfaceTail;
+    const prevRegion = stripSentinel(prev, this.SENTINEL);
+    if (prevRegion.length === 0) return false;
+    const delta = computeSurfaceDelta(prev, this.hiddenInput.textContent ?? "");
+    return delta.deleteEnd > prev.length - prevRegion.length;
+  };
+
+  // A keyboard-made selection change on the surface (see adoptKeyboardSelection).
+  private surfaceSelectionChangeHandler = () => {
+    if (this.adoptKeyboardSelection()) this.scheduleRender();
+  };
+
+  // Reconcile an Android surface edit that is not a head-only one — the
+  // keyboard replaced or deleted a range it selected (backspace glide), or
+  // changed text after the caret — as one document edit: diff the whole
+  // mirrored region, apply it at the surface's document offsets, and put the
+  // caret where the DOM caret is. Returns false when the surface no longer maps
+  // onto the document (the caller falls back to a resync).
+  private applyWholeSurfaceEdit = (): boolean => {
+    const el = this.hiddenInput;
+    const anchor = this.surfaceAnchor;
+    if (!el || !anchor) return false;
+    this.flushPendingInput();
+
+    const prev = this.lastSurfaceValue + this.surfaceTail;
+    const next = el.textContent ?? "";
+    if (!hasSentinel(prev, this.SENTINEL)) return false;
+    const prevRegion = stripSentinel(prev, this.SENTINEL);
+    const prevSentinel = prev.length - prevRegion.length;
+
+    const block = findBlock(this._state.document.page, anchor.blockId);
+    if (!block || block.deleted || !isTextualBlock(block)) return false;
+    const text = getBlockTextContent(block);
+    if (
+      text.slice(anchor.start, anchor.start + prevRegion.length) !== prevRegion
+    ) {
+      return false;
+    }
+
+    // Diff the whole surface, sentinel included: a range the keyboard selected
+    // to the start of the field takes the sentinel with it when deleted. Surface
+    // offsets map to the document past the sentinel, clamped to the region.
+    const delta = computeSurfaceDelta(prev, next);
+    const toRegion = (offset: number) => Math.max(0, offset - prevSentinel);
+    const from = toRegion(delta.deleteStart);
+    const to = toRegion(delta.deleteEnd);
+    const nextSentinel = hasSentinel(next, this.SENTINEL)
+      ? next.length - stripSentinel(next, this.SENTINEL).length
+      : 0;
+    const domCaret = this.readSurfaceCaret();
+    const caret =
+      domCaret !== null
+        ? Math.max(0, domCaret - nextSentinel)
+        : from + delta.insert.length;
+    const blockId = anchor.blockId;
+    this.change((c) => {
+      if (from !== to || delta.insert.length > 0) {
+        c.insertText(delta.insert, {
+          from: { block: blockId, offset: anchor.start + from },
+          to: { block: blockId, offset: anchor.start + to },
+        });
+      }
+      c.select({ block: blockId, offset: anchor.start + caret });
+    });
+
+    if (nextSentinel === 0 && this.SENTINEL !== "") {
+      // The sentinel went with the edit: the resync rebuilds the surface.
+      this.lastSurfaceValue = next;
+      this.forgetSurfaceText();
+      return true;
+    }
+    const split = nextSentinel + caret;
+    this.lastSurfaceValue = next.slice(0, split);
+    this.surfaceTail = next.slice(split);
+    this.surfaceSelection = { anchor: split, focus: split };
+    this.keyboardSelectionSig = null;
+    return true;
   };
 
   // Pull html/text/image out of a ClipboardEvent synchronously (clipboardData
@@ -3555,6 +3877,25 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     const inputEvent = e as InputEvent;
     const it = inputEvent.inputType;
 
+    // A composition straddling the caret (see `diffComposition`): every change
+    // the keyboard makes lands as a whole-surface diff.
+    if (
+      this.diffComposition &&
+      it !== "insertParagraph" &&
+      it !== "insertLineBreak"
+    ) {
+      if (!this.applyWholeSurfaceEdit()) {
+        this.diffComposition = false;
+        this.staleComposition = {
+          baseline: this.keyboardComposed,
+          forwarded: null,
+        };
+        this.resetSentinel();
+      }
+      this.scheduleRender();
+      return;
+    }
+
     // Skip processing during IME composition - composition events handle it.
     // The surface now shows the composition, so it can be measured.
     if (it === "insertCompositionText") {
@@ -3581,6 +3922,19 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // Contenteditable favors `insertParagraph` for Enter (vs. `insertLineBreak`
     // on <input>), so accept both.
     const isEnter = it === "insertParagraph" || it === "insertLineBreak";
+
+    // The keyboard is deleting or replacing a range it selected on the surface
+    // itself (Gboard's backspace glide releases with a `deleteContentBackward`
+    // over that range): the surface holds the real text around it, so reconcile
+    // the whole surface rather than replay keys.
+    if (
+      this.keyboardSelectionSig !== null &&
+      this.keyboardSelectionSig === this.selectionSignature(this._state)
+    ) {
+      if (!this.applyWholeSurfaceEdit()) this.resetSentinel();
+      this.scheduleRender();
+      return;
+    }
 
     // Typing over a non-collapsed selection: the surface holds the selection
     // text, so drive the edit from the event (the document insert/delete is
@@ -3636,7 +3990,15 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       return;
     }
 
-    let newSurface = this.hiddenInput.textContent ?? "";
+    // Android mirrors the text after the caret too; an edit that changed it is
+    // not a head-only one (see `applyWholeSurfaceEdit`).
+    const head = this.surfaceHead();
+    if (head === null) {
+      if (!this.applyWholeSurfaceEdit()) this.resetSentinel();
+      this.scheduleRender();
+      return;
+    }
+    let newSurface = head;
 
     // A keystroke that landed BEFORE the sentinel (a stale DOM caret at offset
     // 0 — e.g. focus granted without an explicit selection) turns ` ` into
@@ -3656,6 +4018,15 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // (`hasSentinel`), so its body is read below and the substitute never leaks
     // into the document; this fires only when the sentinel is genuinely gone.
     if (!hasSentinel(newSurface, this.SENTINEL)) {
+      // A range the keyboard selected to the start of the field (a glide
+      // delete) went with the sentinel: reconcile the whole surface. HeliBoard
+      // collapses its selection just before deleting, so this can't rely on the
+      // range having been adopted as the editor selection.
+      if (isBackwardDelete && this.deletedPastSentinel()) {
+        if (!this.applyWholeSurfaceEdit()) this.resetSentinel();
+        this.scheduleRender();
+        return;
+      }
       if (isBackwardDelete) {
         // The delete consumed the whole mirrored region (it was just the bare
         // sentinel — caret at a sentence start with no context): let the
@@ -3808,6 +4179,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       this.browserComposing = false;
       this.resetSentinel();
     }
+
+    // A diff composition (see `diffComposition`): the keyboard edits the
+    // surface itself and the input handler applies the result.
+    if (this.diffComposition && e.isComposing) return;
 
     // The same for an abandoned composition the browser was left holding (see
     // `browserOwnsSurface`): a key outside a composition means it ended
@@ -4125,8 +4500,16 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     if (commitPending) this.flushPendingInput();
     // A new session: whatever was left of an abandoned one is over.
     this.staleComposition = null;
+    // The keyboard may have moved the caret right before reopening the word
+    // under it, with its `selectionchange` still queued: take the move first.
+    this.adoptKeyboardSelection();
     this.browserComposing = true;
     this.keyboardComposed = e.data ?? "";
+    if (this.compositionStraddlesCaret()) {
+      this.diffComposition = true;
+      this.imeSession = null;
+      return;
+    }
     // Track the session on the managed surface, where the engine cannot see
     // what the keyboard is composing over (see `composition`).
     const caretPoint = resolvePoint(this._state, "caret");
@@ -4136,7 +4519,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     this.imeSession =
       this.hiddenInput && !this.faithfulEligible(caretBlock)
         ? {
-            before: this.hiddenInput.textContent ?? "",
+            before: this.surfaceHead() ?? this.hiddenInput.textContent ?? "",
             composed: e.data ?? "",
             replaces: null,
             events: [],
@@ -4164,6 +4547,8 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
   private compositionUpdateHandler = (e: CompositionEvent) => {
     this.keyboardComposed = e.data ?? "";
+    // Applied from the surface by the input handler, not the engine.
+    if (this.diffComposition) return;
     const stale = this.staleComposition;
     if (stale) {
       const typed = this.typedPastAbandoned(stale, e.data ?? "");
@@ -4192,6 +4577,20 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   private compositionEndHandler = (e: CompositionEvent) => {
     this.browserComposing = false;
     if (!this.hiddenInput) return;
+
+    if (this.diffComposition) {
+      this.diffComposition = false;
+      // A commit that changed the text without an input event of its own.
+      if (
+        this.hiddenInput.textContent !==
+          this.lastSurfaceValue + this.surfaceTail &&
+        !this.applyWholeSurfaceEdit()
+      ) {
+        this.resetSentinel();
+      }
+      this.scheduleRender();
+      return;
+    }
 
     const stale = this.staleComposition;
     if (stale) {
@@ -4234,7 +4633,14 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       // Wiping it here, as before, looked to the keyboard like an outside edit
       // that moved the caret: AOSP-LatinIME keyboards (HeliBoard) then dropped
       // their automatic space and reopened the previous word.
-      this.lastSurfaceValue = this.hiddenInput.textContent ?? this.SENTINEL;
+      const head = this.surfaceHead();
+      if (head === null) {
+        // The commit reached past the caret: the resync rewrites the surface.
+        this.lastSurfaceValue = this.hiddenInput.textContent ?? this.SENTINEL;
+        this.forgetSurfaceText();
+      } else {
+        this.lastSurfaceValue = head;
+      }
       return;
     }
     // Restore the sentinel after composition ends.
@@ -4273,6 +4679,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     if (!this.hiddenInput) return;
     this.setMirror("", false);
     this.lastSurfaceValue = "";
+    this.forgetSurfaceText();
     if (this._state.view.isFocused) this.syncMirrorToSelection();
   };
 
@@ -4320,7 +4727,11 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       if (!data) return null;
       // Contenteditable may hold an NBSP where the keyboard has a space.
       const plain = (text: string) => text.replace(/\u00a0/g, " ");
-      const surface = plain(this.hiddenInput?.textContent ?? "");
+      // Only the text before the caret: the surface may also hold the text
+      // after it (see `surfaceTail`).
+      const surface = plain(
+        this.surfaceHead() ?? this.hiddenInput?.textContent ?? "",
+      );
       stale.baseline = surface.endsWith(plain(data)) ? data : "";
     }
     if (!data.startsWith(stale.baseline)) return null;
@@ -4336,7 +4747,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   // Whether the managed surface's text is the document's text before the
   // caret. Unknown (no sentinel, no textual caret block) counts as a match.
   private surfaceMatchesDocument = (): boolean => {
-    const surface = this.hiddenInput?.textContent ?? "";
+    // The text before the caret only (see `surfaceTail`). The keyboard
+    // changed the text after it too: no match.
+    const surface = this.surfaceHead();
+    if (surface === null) return false;
     if (!hasSentinel(surface, this.SENTINEL)) return true;
     const caret = resolvePoint(this._state, "caret");
     const block = caret
@@ -4369,7 +4783,8 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   private measureComposition = (composed: string): number | null => {
     const session = this.imeSession;
     if (!session || !this.hiddenInput) return null;
-    const current = this.hiddenInput.textContent ?? "";
+    const current = this.surfaceHead();
+    if (current === null) return null;
     if (
       !hasSentinel(session.before, this.SENTINEL) ||
       !hasSentinel(current, this.SENTINEL)
@@ -4514,6 +4929,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       this.hiddenInput.removeEventListener("copy", this.copyHandler);
       this.hiddenInput.removeEventListener("cut", this.cutHandler);
       this.hiddenInput.removeEventListener("paste", this.pasteHandler);
+      document.removeEventListener(
+        "selectionchange",
+        this.surfaceSelectionChangeHandler,
+      );
     }
 
     this.a11yMirror?.destroy();
