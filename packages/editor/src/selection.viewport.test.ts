@@ -6,6 +6,7 @@ import type {
 } from "./rendering/nodes/Node";
 import { NodeRegistry } from "./rendering/nodes/Node";
 import {
+  getCursorCoordinatesWithComposition,
   getCursorDocumentCoords,
   getTextPositionFromViewport,
   paintedCoordsResolver,
@@ -267,5 +268,42 @@ describe("painted overlay anchors", () => {
     )({ blockIndex: 901, textIndex: 0 });
 
     expect(after).toEqual(before);
+  });
+
+  it("anchors the IME composition caret on the painted range", () => {
+    const base = paragraphs(ids);
+    const at = { blockIndex: 900, textIndex: 0 };
+    const state: EditorState = {
+      ...base,
+      document: {
+        ...base.document,
+        cursor: { position: at, lastUpdate: 0 },
+      },
+      ui: {
+        ...base.ui,
+        composition: {
+          isComposing: true,
+          text: "ab",
+          startPosition: at,
+          cursorOffset: 2,
+        },
+      },
+    };
+    const visibility = {
+      start: 900,
+      end: 920,
+      startY: 100,
+      startBlockId: "p900",
+    };
+
+    const coords = getCursorCoordinatesWithComposition(
+      state,
+      viewport,
+      undefined,
+      visibility,
+    );
+    expect(coords).not.toBeNull();
+    expect(coords!.y - (viewport.scrollY + 100)).toBeGreaterThanOrEqual(0);
+    expect(coords!.y - (viewport.scrollY + 100)).toBeLessThan(40);
   });
 });

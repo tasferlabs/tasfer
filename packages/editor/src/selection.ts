@@ -588,6 +588,7 @@ export function getCursorCoordinatesWithComposition(
   state: EditorState,
   viewport: ViewportState,
   styles: EditorStyles = getEditorStyles(state),
+  visibility?: VisibleBlockRange,
 ): { x: number; y: number; height: number } | null {
   if (!state.document.cursor) return null;
 
@@ -608,7 +609,13 @@ export function getCursorCoordinatesWithComposition(
       : Math.min(composition.replaces ?? 0, position.textIndex)
     : 0;
   if (!composition?.isComposing || (!composition.text && replaces === 0)) {
-    return getCursorDocumentCoords(position, state, viewport, styles);
+    return getCursorDocumentCoords(
+      position,
+      state,
+      viewport,
+      styles,
+      visibility,
+    );
   }
 
   const maxWidth =
@@ -659,6 +666,8 @@ export function getCursorCoordinatesWithComposition(
     position.blockIndex,
     maxWidth,
     styles,
+    viewport,
+    visibility,
   );
   return node.caretRect(
     layout,
