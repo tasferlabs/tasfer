@@ -489,11 +489,57 @@ function invertBlockSet(
     field: op.field,
     value: previousValue,
   };
-  // The type is restored first, so the mark ops below land on a block that can
-  // hold them again.
+  // The type is restored first, so the field and mark ops below land on a block
+  // that can hold them again.
   return op.field === "type"
-    ? [restoreType, ...restoreMorphedAwayMarks(op, block, binding, schema)]
+    ? [
+        restoreType,
+        ...restoreMorphedAwayFields(op, block, binding, schema),
+        ...restoreMorphedAwayMarks(op, block, binding, schema),
+      ]
     : [restoreType];
+}
+
+/**
+ * `block_set type` rebuilds the block from its new type's defaults, so the old
+ * type's own fields (a todo's `checked`, a list item's `indent`) are gone, and
+ * restoring the type alone brings them back at their defaults: undo after
+ * turning a checked todo into a paragraph would give an unchecked todo.
+ *
+ * One `block_set` per field whose value differs from that default, read
+ * through the type's own field descriptors so a custom type needs no code here.
+ */
+function restoreMorphedAwayFields(
+  op: BlockSet,
+  block: Block,
+  binding: CRDTbinding,
+  schema?: DataSchema,
+): BlockSet[] {
+  if (op.value === block.type) return [];
+  const descriptor =
+    schema?.getDescriptor(block.type) ?? getBlockDescriptor(block.type);
+  if (!descriptor) return [];
+  const fresh = descriptor.defaults(block.id, block.orderKey ?? "");
+  const fieldNames =
+    schema?.getFieldNames(block.type) ?? getBlockFieldNames(block.type);
+  const restores: BlockSet[] = [];
+  for (const field of fieldNames) {
+    if (field === "type") continue;
+    const fieldDesc = descriptor.fields[field];
+    const value = fieldDesc.extractForInverse(block);
+    if (value === undefined) continue;
+    if (Object.is(value, fieldDesc.extractForInverse(fresh))) continue;
+    restores.push({
+      op: "block_set",
+      id: binding.nextId(),
+      clock: binding.getClock(),
+      pageId: op.pageId,
+      blockId: op.blockId,
+      field,
+      value,
+    });
+  }
+  return restores;
 }
 
 /**

@@ -89,4 +89,21 @@ describe("Backspace at the start of a list item", () => {
       });
     },
   );
+
+  it("undo brings back a todo's check mark", () => {
+    const start = load("- [x] done");
+    expect(
+      (start.document.page.blocks[0] as { checked?: boolean }).checked,
+    ).toBe(true);
+    const { after } = backspaceAt(start, 0);
+    expect(summary(after)).toEqual(["paragraph:done"]);
+
+    const undone = undoState(after).state;
+    const restored = undone.document.page.blocks[0] as {
+      type: string;
+      checked?: boolean;
+    };
+    expect(restored.type).toBe("todo_list");
+    expect(restored.checked).toBe(true);
+  });
 });
