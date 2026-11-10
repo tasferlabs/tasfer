@@ -6,11 +6,13 @@ import type {
 } from "./rendering/nodes/Node";
 import { NodeRegistry } from "./rendering/nodes/Node";
 import {
+  getCursorDocumentCoords,
   getTextPositionFromViewport,
+  paintedCoordsResolver,
   scrollToMakeCursorVisible,
 } from "./selection";
 import type { Block, Page } from "./serlization/loadPage";
-import type { BlockBounds } from "./state-types";
+import type { BlockBounds, EditorState } from "./state-types";
 import { createInitialState } from "./state-utils";
 import { describe, expect, it } from "vitest";
 
@@ -196,5 +198,50 @@ describe("viewport pointer lookup", () => {
     expect(
       scrollToMakeCursorVisible(position, state, viewport),
     ).toBeGreaterThan(25_000);
+  });
+});
+
+// Overlay anchors (link tooltip, IME candidate window) must land where the text
+// is painted. Deep in a long note the paint lays blocks out from the height
+// index's estimates, so a sum of exact heights from block 0 drifts — the link
+// popover opened hundreds of px above its link.
+describe("painted overlay anchors", () => {
+  const viewport = {
+    width: 600,
+    height: 800,
+    scrollY: 10_000,
+    documentHeight: 40_000,
+  };
+
+  function paragraphs(ids: string[]): EditorState {
+    const blocks = ids.map((id) => ({
+      id,
+      type: "paragraph",
+      charRuns: [],
+      formats: [],
+    })) as unknown as Block[];
+    return createInitialState({ id: "page", title: "", blocks });
+  }
+  const ids = Array.from({ length: 1000 }, (_, index) => `p${index}`);
+
+  it("resolves payload coords from the painted range, not block 0", () => {
+    const state = paragraphs(ids);
+    // Block 900 painted at viewport-y 100.
+    const visibility = {
+      start: 900,
+      end: 920,
+      startY: 100,
+    };
+    const at = { blockIndex: 900, textIndex: 0 };
+
+    const painted = paintedCoordsResolver(state, viewport, visibility)(at);
+    expect(painted).not.toBeNull();
+    // Document y = painted top + scroll (plus the caret's in-block offset).
+    expect(painted!.y - (viewport.scrollY + 100)).toBeGreaterThanOrEqual(0);
+    expect(painted!.y - (viewport.scrollY + 100)).toBeLessThan(40);
+
+    // The from-block-0 sum the anchor used to take lands ~18k px away.
+    const fromTop = getCursorDocumentCoords(at, state, viewport);
+    expect(Math.abs(fromTop!.y - painted!.y)).toBeGreaterThan(10_000);
   });
 });

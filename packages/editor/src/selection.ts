@@ -345,6 +345,23 @@ export function getCursorDocumentCoords(
   );
 }
 
+/**
+ * The caret → document-coords resolver an event hands to its action payloads
+ * (`POINTER_MOVE`, `CURSOR_MOVED`). Anchored on the painted range: the canvas
+ * lays blocks out from the height index, which holds *estimates* for blocks
+ * above the fold, so summing exact heights from block 0 drifts from where the
+ * text is drawn — a link tooltip or popup deep in a long note lands far off.
+ * Build payload resolvers here so no call site can forget `visibility`.
+ */
+export function paintedCoordsResolver(
+  state: EditorState,
+  viewport: ViewportState,
+  visibility: VisibleBlockRange | undefined,
+): (position: Position) => { x: number; y: number; height: number } | null {
+  return (position) =>
+    getCursorDocumentCoords(position, state, viewport, undefined, visibility);
+}
+
 /** Stable structured-point counterpart to {@link getCursorDocumentCoords}. */
 export function getContentPointDocumentCoords(
   point: ContentPoint,
