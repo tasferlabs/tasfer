@@ -19,6 +19,7 @@ import { getTableDocument, readTable } from "@tasfer/table/structured";
 import { cloneStructuredBlockContent } from "@tasfer/editor/actions/structured-marks";
 import { loadPage, type Block } from "@tasfer/editor/serlization/loadPage";
 import { serializeToMarkdown } from "@tasfer/editor/serlization/serializer";
+import { serializeToText } from "@tasfer/editor/serlization/textSerializer";
 import { rebuildState } from "@tasfer/editor/sync/reducer";
 import { blocksToOps } from "@tasfer/editor/sync/snapshot-diff";
 import {
@@ -27,7 +28,7 @@ import {
   type Operation,
 } from "@tasfer/editor/sync/sync";
 import type { Page } from "@tasfer/editor/serlization/loadPage";
-import { TABLE_INSERT_ROW } from "@tasfer/table/commands";
+import { TABLE_DELETE_ROW, TABLE_INSERT_ROW } from "@tasfer/table/commands";
 import { appSchema } from "../editorSchema";
 import { CELL_TEXT_FIELD } from "@tasfer/table/structured";
 import { createNodeRegistry } from "@tasfer/editor";
@@ -44,6 +45,8 @@ import {
 import {
   DELETE_BACKWARD,
   DELETE_FORWARD,
+  EXIT_BLOCK,
+  SPLIT_BLOCK,
 } from "@tasfer/editor/actions/edit-actions";
 import {
   MOVE_CONTENT_TAB,
@@ -52,7 +55,11 @@ import {
   MOVE_TO_LINE_START,
 } from "@tasfer/editor/actions/keyboard-actions";
 import { runFieldAsParagraph } from "@tasfer/editor/text-field-paragraph";
-import { cellField } from "@tasfer/table/context";
+import {
+  activeTableContext,
+  cellField,
+  selectTableBlock,
+} from "@tasfer/table/context";
 import { resolveMarkRunsFromChars } from "@tasfer/editor/mark-runs";
 import {
   createMarkRegistry,
@@ -569,6 +576,20 @@ describe("copying and pasting a formula into a cell", () => {
     expectOwnedFormulas(pasted.state);
   });
 
+  it("puts a pasted formula's mark on once", () => {
+    const state = editorOver(GRID);
+    const copied = selectCells(state, [2, 0], [2, 3]);
+    const pasted = copyThenPaste(copied, selectCells(state, [4, 3]));
+    const formulaMarks = pasted.ops.filter(
+      (op) =>
+        op.op === "content_edit" &&
+        op.edit.kind === "mark_set" &&
+        op.edit.value &&
+        op.edit.mark.type === "math",
+    );
+    expect(formulaMarks).toHaveLength(1);
+  });
+
   it("pastes a copied grid with its formulas, each re-addressed", () => {
     const state = editorOver(GRID);
     const copied = selectCells(state, [2, 0], [3, 1]);
@@ -934,6 +955,49 @@ describe("editing inside a cell's formula, as a paragraph does", () => {
     );
   });
 
+  it("moves down a row on Enter inside the formula, as Enter anywhere in the cell does", () => {
+    // A paragraph's Enter in a formula leaves it and splits the block; a cell
+    // cannot split, so Enter leaves the formula and moves down a row.
+    const enter = (state: EditorState) => {
+      const result = state.actionBus.dispatchState(SPLIT_BLOCK, state);
+      const focus = result.state.document.contentSelection?.focus;
+      return {
+        markdown: serializeToMarkdown(
+          result.state.document.page.blocks,
+          undefined,
+          {
+            schema: appDataSchema,
+          },
+        ),
+        inside: insideFormula(result.state),
+        cell: focus?.kind === "text" ? focus.nodeId : undefined,
+      };
+    };
+    const inside = run(afterCellFormula(), keys.slice(0, 1)).state;
+    expect(insideFormula(inside)).toBe(true);
+    const fromFormula = enter(inside);
+    expect(fromFormula).toEqual(enter(afterCellFormula()));
+    expect(fromFormula.inside).toBe(false);
+    expect(fromFormula.cell).not.toBe(bodyCell(inside).cell.id);
+    expect(fromFormula.markdown).toContain("| a $x$ b |");
+  });
+
+  it("leaves the table on Shift+Enter inside the formula, as it does from the cell", () => {
+    const inside = run(afterCellFormula(), keys.slice(0, 1)).state;
+    const exit = (state: EditorState) => {
+      const result = state.actionBus.dispatchState(EXIT_BLOCK, state).state;
+      return {
+        markdown: serializeToMarkdown(result.document.page.blocks, undefined, {
+          schema: appDataSchema,
+        }),
+        nested: result.document.contentSelection !== null,
+        cursor: result.document.cursor?.position,
+      };
+    };
+    expect(exit(inside)).toEqual(exit(afterCellFormula()));
+    expect(exit(inside).nested).toBe(false);
+  });
+
   it("does not hold the whole table on Backspace at a formula in the first cell", () => {
     const source = ["| $x$ a |", "| --- |", "| b |"].join("\n");
     const state = editorOver(source);
@@ -1044,5 +1108,170 @@ describe("two peers editing inside a cell's formula", () => {
     );
     expect(cellsView(merged)[2]).toBe("Za [xw]");
     expectOwnedFormulas(merged);
+  });
+});
+
+// ─── Nothing is lost ────────────────────────────────────────────────────────
+
+type Step = { state: EditorState; ops: Operation[] };
+
+/** Undo `step` (taken from `before`) the way history does: inverse ops. */
+function undoStep(before: EditorState, step: Step): Step {
+  const ops = invertOperations(
+    step.ops,
+    before.document.page,
+    (page, op) => applyOp(page, op, appSchema.data),
+    before.CRDTbinding,
+    appSchema.data,
+  );
+  let page = step.state.document.page;
+  for (const op of ops) page = applyOp(page, op, appSchema.data);
+  return {
+    state: { ...step.state, document: { ...step.state.document, page } },
+    ops,
+  };
+}
+
+function markdownOf(state: EditorState): string {
+  return serializeToMarkdown(state.document.page.blocks, undefined, {
+    schema: appDataSchema,
+  });
+}
+
+/** Rebuild the page from `ops` alone, on top of `start`. */
+function replayed(start: EditorState, ...steps: Step[]): string {
+  let page = start.document.page;
+  for (const step of steps)
+    for (const op of step.ops) page = applyOp(page, op, appSchema.data);
+  return markdownOf({ ...start, document: { ...start.document, page } });
+}
+
+describe("formulas in cells survive undo, deletes, export and reload", () => {
+  it("undo of clearing a range across formula cells brings every formula back", () => {
+    const start = editorOver(GRID);
+    const range = selectCells(start, [2, 0], [3, 1]);
+    const cleared = range.actionBus.dispatchState(DELETE_BACKWARD, range);
+    expect(cellsView(cleared.state).slice(2, 4)).toEqual(["", ""]);
+    const undone = undoStep(range, cleared);
+    expect(markdownOf(undone.state)).toBe(markdownOf(start));
+    expect(replayed(start, cleared, undone)).toBe(markdownOf(start));
+  });
+
+  it("undo of typing over a range across formula cells brings every formula back", () => {
+    const start = editorOver(GRID);
+    const range = selectCells(start, [2, 0], [3, 1]);
+    const typedOver = insertText(range, "Q");
+    expect(cellsView(typedOver.state).slice(2, 4)).toEqual(["Q", ""]);
+    const undone = undoStep(range, typedOver);
+    expect(markdownOf(undone.state)).toBe(markdownOf(start));
+    expect(replayed(start, typedOver, undone)).toBe(markdownOf(start));
+  });
+
+  it("undo of typing over a range inside one cell that covers its formula", () => {
+    const start = editorOver(GRID);
+    const range = selectCells(start, [2, 0], [2, 3]);
+    const typedOver = insertText(range, "Q");
+    expect(cellsView(typedOver.state)[2]).toBe("Q");
+    const undone = undoStep(range, typedOver);
+    expect(markdownOf(undone.state)).toBe(markdownOf(start));
+    expect(replayed(start, typedOver, undone)).toBe(markdownOf(start));
+  });
+
+  it("undo of deleting a row with formulas brings them back", () => {
+    const start = editorOver(GRID);
+    const at = selectCells(start, [2, 1]);
+    const deleted = at.actionBus.dispatchState(TABLE_DELETE_ROW, at, {});
+    expect(markdownOf(deleted.state)).not.toContain("$x$");
+    const undone = undoStep(at, deleted);
+    expect(markdownOf(undone.state)).toBe(markdownOf(start));
+    expect(replayed(start, deleted, undone)).toBe(markdownOf(start));
+  });
+
+  it("undo of deleting the whole table brings its formulas back", () => {
+    const start = editorOver(GRID);
+    const at = selectCells(start, [0, 0]);
+    const held = selectTableBlock(at, activeTableContext(at)!).state;
+    const deleted = held.actionBus.dispatchState(DELETE_BACKWARD, held);
+    expect(markdownOf(deleted.state)).not.toContain("$x$");
+    const undone = undoStep(held, deleted);
+    expect(markdownOf(undone.state)).toBe(markdownOf(start));
+  });
+
+  it("exports formulas as LaTeX in Markdown, plain text and HTML", () => {
+    const start = editorOver(GRID);
+    expect(markdownOf(start)).toContain("| a $x$ | $y$ |");
+    const text = serializeToText(start.document.page.blocks, {
+      schema: appDataSchema,
+    });
+    expect(text).toContain("x");
+    expect(text).toContain("y");
+    const held = selectTableBlock(
+      selectCells(start, [0, 0]),
+      activeTableContext(selectCells(start, [0, 0]))!,
+    ).state;
+    const payload = buildClipboardPayload(held)!;
+    expect(payload.plainText).toContain("$x$");
+    expect(payload.html).toMatch(/x/);
+    expect(payload.html).not.toMatch(/￼/);
+    // A copied table pastes back with its formulas.
+    const target = moveCursorToPosition(editorOver("after"), 0, 5);
+    const pasted = pasteFromClipboardEvent(target, {} as ClipboardEvent, {
+      text: payload.plainText,
+      html: payload.html,
+      imageFile: null,
+    })!;
+    expect(markdownOf(pasted.state)).toContain("$x$");
+    expect(markdownOf(pasted.state)).toContain("$y$");
+  });
+
+  it("reloads a page edited every way from its operations alone", () => {
+    const start = editorOver(GRID);
+    const steps: Step[] = [];
+    let s = start;
+    const step = (r: Step) => {
+      steps.push(r);
+      s = r.state;
+    };
+    step(typeIn(selectCells(s, [4, 3]), "$z$"));
+    step(insertText(selectCells(s, [2, 0]), "k"));
+    step(copyThenPaste(selectCells(s, [3, 0], [3, 1]), selectCells(s, [5, 3])));
+    const live = markdownOf(s);
+    expect(live).toContain("$z$");
+    expect(replayed(start, ...steps)).toBe(live);
+    // And back through Markdown.
+    expect(markdownOf(editorOver(live))).toBe(live);
+  });
+
+  it("two peers: one deletes a formula's cell row while the other edits inside the formula", () => {
+    const merged = concurrently(
+      GRID,
+      (s) => {
+        const at = selectCells(s, [2, 1]);
+        return at.actionBus.dispatchState(TABLE_DELETE_ROW, at, {});
+      },
+      (s) => {
+        const inside = press(MOVE_CURSOR_LEFT)(selectCells(s, [2, 3])).state;
+        return insertText(inside, "w");
+      },
+    );
+    // The row is gone on both sides alike (convergence asserted by `concurrently`).
+    expect(markdownOf(merged)).not.toContain("$x");
+  });
+
+  it("two peers: one clears a formula cell while the other types inside the formula", () => {
+    const merged = concurrently(
+      GRID,
+      (s) => {
+        const range = selectCells(s, [2, 0], [2, 3]);
+        return range.actionBus.dispatchState(DELETE_BACKWARD, range);
+      },
+      (s) => {
+        const inside = press(MOVE_CURSOR_LEFT)(selectCells(s, [2, 3])).state;
+        return insertText(inside, "w");
+      },
+    );
+    expectOwnedFormulas(merged);
+    // Whatever survives must still render: no mark without its formula.
+    expect(cellsView(merged).join("|")).not.toContain("missing");
   });
 });
