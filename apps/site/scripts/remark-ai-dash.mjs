@@ -4,16 +4,18 @@
  * dash that opens an "AI was used here" bubble.
  *
  * Only markdown `text` nodes are touched, so code fences, inline code, and JSX
- * attribute strings keep their dashes as written; the components that render
- * those attributes (Callout titles, PropsTable descriptions) wrap them
- * themselves. Text inside a link is skipped too: the bubble carries its own
- * link, and links cannot nest.
+ * attribute strings keep their dashes as written. Text inside a link is skipped
+ * too: the bubble carries its own link, and links cannot nest.
+ *
+ * Docs articles (src/views/DocsPage/pages) are left alone: there the bubble
+ * got in the way of reading.
  *
  * Lives in its own module (not inline in next.config.ts) because Turbopack
  * requires MDX loader options to be serializable.
  */
 const DASH = "—";
 const SKIP = new Set(["link", "linkReference"]);
+const DOCS_DIR = /[\\/]views[\\/]DocsPage[\\/]/;
 
 function split(value) {
   const out = [];
@@ -27,7 +29,8 @@ function split(value) {
 }
 
 export default function remarkAiDash() {
-  return (tree) => {
+  return (tree, file) => {
+    if (file?.path && DOCS_DIR.test(file.path)) return;
     const visit = (node) => {
       if (!node?.children || SKIP.has(node.type)) return;
       node.children = node.children.flatMap((child) => {
