@@ -1173,6 +1173,8 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     viewportOffsetY: number;
     remainingCorrections: number;
   } | null = null;
+  // Set by a paste; the next frame scrolls the caret into view (see renderFrame).
+  private revealCaretAfterPaste = false;
 
   private lastCursorBlinkState = false; // Track cursor blink state changes
 
@@ -1809,6 +1811,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     );
 
     this._state = handleEventsResult.state;
+    if (handleEventsResult.pasted) this.revealCaretAfterPaste = true;
 
     // The frame ended a composition the browser still has open (the caret was
     // moved away from it): close it on the keyboard's side too.
@@ -2038,6 +2041,15 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         ) {
           this.dirtyLayers.content = true;
         }
+      }
+
+      // A paste just landed: bring the caret (the end of the pasted content)
+      // into view. Done here, after the height index has taken in the new
+      // blocks, so the scroll uses the same block heights the painter draws
+      // with; the pending anchor then corrects it as those heights turn exact.
+      if (this.revealCaretAfterPaste) {
+        this.revealCaretAfterPaste = false;
+        this.scrollToPosition("caret");
       }
 
       // Check if cursor blink state changed (for cursor animation)
@@ -6294,6 +6306,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     );
     if (result) {
       this.executeAction(result);
+      this.revealCaretAfterPaste = true;
       // Mirror the synchronous Cmd/Ctrl+V path (see the IMAGE_PASTE dispatch in
       // handleEvents): if a raw image was pasted, let the host upload it and
       // rewrite the temporary blob url. The block is addressed by stable id.
