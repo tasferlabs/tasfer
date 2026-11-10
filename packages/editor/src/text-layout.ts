@@ -1196,8 +1196,9 @@ export function textRangeRects(
 /**
  * Characters with live IME preview text folded in at visible offset `at`, for
  * layout and paint only: the preview's ids are placeholders and are never
- * stored. `replace` hides a visible range the commit will overwrite (a
- * selection typed over), so the preview reads the way the result will.
+ * stored. `replace` hides the visible range(s) the commit will overwrite (a
+ * selection typed over, a reopened word's changed letters), so the preview
+ * reads the way the result will.
  *
  * Tombstones stay in document order — mark ranges anchor to their endpoint
  * ids, and a range whose endpoint char went missing would drop its mark for the
@@ -1208,9 +1209,12 @@ export function foldComposition(
   chars: readonly Char[],
   at: number,
   text: string,
-  replace?: { readonly from: number; readonly to: number },
+  replace?:
+    | { readonly from: number; readonly to: number }
+    | readonly { readonly from: number; readonly to: number }[],
 ): { chars: Char[]; compositionRange: { start: number; end: number } | null } {
-  if (text.length === 0 && !replace) {
+  const ranges = !replace ? [] : "from" in replace ? [replace] : replace;
+  if (text.length === 0 && ranges.length === 0) {
     return { chars: [...chars], compositionRange: null };
   }
   const preview: Char[] = Array.from({ length: text.length }, (_, i) => ({
@@ -1229,7 +1233,7 @@ export function foldComposition(
       out.push(...preview);
       inserted = true;
     }
-    const hidden = replace && visible >= replace.from && visible < replace.to;
+    const hidden = ranges.some((r) => visible >= r.from && visible < r.to);
     out.push(hidden ? { ...char, deleted: true } : char);
     visible++;
   }

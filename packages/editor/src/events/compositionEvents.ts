@@ -5,7 +5,11 @@ import {
 } from "../actions/input-actions";
 import { endComposition } from "../composition";
 import { scrollToMakeCursorVisible } from "../selection";
-import type { EditorState, ViewportState } from "../state-types";
+import type { EditorState, Position, ViewportState } from "../state-types";
+import { contentPointsEqual } from "../structured-selection";
+import { isTextualBlock } from "../sync/block-registry";
+import { getVisiblePositionOfChar } from "../sync/char-runs";
+import { crdtToPosition, positionToCRDT } from "../sync/crdt-utils";
 import type { Operation } from "../sync/sync";
 
 /**
@@ -92,30 +96,14 @@ export function handleCompositionEnd(
   if (!state.ui.composition) {
     return { state, ops: [] };
   }
-  const canInsert =
-    state.view.isFocused &&
-    state.ui.mode !== "readonly" &&
-    state.ui.mode !== "suspended";
-  if (!canInsert) {
-    return { state: endComposition(state), ops: [] };
-  }
 
   const composedText = event.data || "";
-  let result: { state: EditorState; ops: Operation[] };
-  try {
-    result = state.actionBus.dispatchState(COMPOSITION_END, state, {
-      data: composedText,
-      replaces: (event as MeasuredCompositionEvent).replaces,
-    });
-  } catch (error) {
-    // The commit itself failed — a schema insert rule, a node's typed-input
-    // transform, or a host-registered override threw. The clear inside
-    // COMPOSITION_END never ran, so ending the session is on us: dropping the
-    // composed text costs the user one word, whereas a stranded `isComposing`
-    // costs them the editor (see the unconditional-clear note above).
-    console.error("Failed to commit IME composition:", error);
-    return { state: endComposition(state), ops: [] };
-  }
+  const result = commitComposition(
+    state,
+    composedText,
+    (event as MeasuredCompositionEvent).replaces,
+  );
+  if (!result) return { state: endComposition(state), ops: [] };
 
   // Scroll to make cursor visible after inserting the composed text. Only when
   // text was actually composed and inserted, mirroring the original handler.
@@ -131,4 +119,228 @@ export function handleCompositionEnd(
   }
 
   return result;
+}
+
+/**
+ * Commit the composition through COMPOSITION_END. Returns null when it was not
+ * committed — the editor cannot take text (unfocused, readonly, suspended), or
+ * the commit threw — and the caller must end the composition without
+ * inserting: losing the word is cheaper than a stranded `isComposing`, which
+ * blocks every later keystroke (see handleCompositionEnd).
+ *
+ * `requireFocus: false` is for a pointer gesture on this editor: Android
+ * WebViews blur and refocus around a touch, so the focus flag can be briefly
+ * off while the tap is handled, and the word must still land.
+ */
+function commitComposition(
+  state: EditorState,
+  data: string,
+  replaces?: number,
+  { requireFocus = true }: { requireFocus?: boolean } = {},
+): { state: EditorState; ops: Operation[] } | null {
+  const canInsert =
+    (state.view.isFocused || !requireFocus) && canTakeText(state);
+  if (!canInsert) return null;
+  try {
+    return state.actionBus.dispatchState(COMPOSITION_END, state, {
+      data,
+      replaces,
+    });
+  } catch (error) {
+    // A schema insert rule, a node's typed-input transform, or a
+    // host-registered override threw; the clear inside COMPOSITION_END never ran.
+    console.error("Failed to commit IME composition:", error);
+    return null;
+  }
+}
+
+/**
+ * Commit an open composition when a non-IME event moved the caret away from it
+ * (a tap or click on another line, a drag-select, a long-press). Returns null
+ * when nothing needs to change.
+ *
+ * The composition is drawn at the caret and committed at the caret, so leaving
+ * it open would carry the word to wherever the caret went. A native text field
+ * instead commits the composing text where it was typed when the caret leaves
+ * it; this does the same — the text lands at the composition's own spot, and
+ * the caret/selection stays where the gesture put it (re-anchored to the same
+ * characters, so text inserted before it does not shift it).
+ *
+ * `before` is the state right before the event, `after` the state it produced.
+ * The host still has to tell the keyboard its composition is over (see the
+ * editor entry's `staleComposition`).
+ */
+export function commitCompositionOnCaretMove(
+  before: EditorState,
+  after: EditorState,
+): { state: EditorState; ops: Operation[] } | null {
+  const composition = after.ui.composition;
+  if (!before.ui.composition?.isComposing || !composition?.isComposing) {
+    return null;
+  }
+  if (!caretMoved(before, after)) return null;
+  // Read-only or suspended: nothing can be inserted now. Leave the composition
+  // open; the keyboard's own compositionend ends it (see handleCompositionEnd).
+  // Ending it here instead would drop the word AND mark the keyboard's commit
+  // stale, so it could never land.
+  if (!canTakeText(after)) return null;
+
+  if (!composition.text) {
+    // Nothing to insert. An empty recomposition — a reopened word the keyboard
+    // emptied — is the one case that would edit; keeping the word is the safe
+    // side.
+    return { state: endComposition(after), ops: [] };
+  }
+
+  // A reopened word the keyboard has not changed: nothing to commit. Common on
+  // HeliBoard, which reopens the word the caret rests after, so a tap elsewhere
+  // usually ends an untouched recomposition.
+  // Compared with the word as it was reopened, not the text before the caret
+  // now: a peer may have typed inside it since.
+  const caret = before.document.cursor?.position;
+  const replaces = composition.replaces ?? 0;
+  if (
+    replaces > 0 &&
+    !before.document.contentSelection &&
+    composition.reopened?.text === composition.text
+  ) {
+    return { state: endComposition(after), ops: [] };
+  }
+
+  // Re-anchor the gesture's flat caret/selection to characters, so it survives
+  // the commit's insert. A content selection (a table cell) already is.
+  const page = after.document.page;
+  const anchorOf = (p: Position) => positionToCRDT(page, p);
+  const afterCursor = after.document.cursor;
+  const afterSelection = after.document.selection;
+  const cursorAnchor = afterCursor ? anchorOf(afterCursor.position) : null;
+  const selectionAnchors = afterSelection
+    ? {
+        anchor: anchorOf(afterSelection.anchor),
+        focus: anchorOf(afterSelection.focus),
+      }
+    : null;
+
+  // Commit from where the composition was typed: the pre-event caret.
+  const base: EditorState = {
+    ...after,
+    document: {
+      ...after.document,
+      cursor: before.document.cursor,
+      selection: before.document.selection,
+      contentSelection: before.document.contentSelection,
+    },
+  };
+  const committed = commitComposition(base, composition.text, undefined, {
+    requireFocus: false,
+  });
+  // Only a commit that threw gets here: end the composition rather than
+  // strand `isComposing` (see commitComposition).
+  if (!committed) return { state: endComposition(after), ops: [] };
+
+  const nextPage = committed.state.document.page;
+  // A recomposition replaces only the characters that changed (see
+  // COMPOSITION_END), so a tap inside the word usually stays on a kept
+  // character. When the commit replaced the very character the caret was
+  // anchored to, keep the same offset into the word instead: the CRDT fallback
+  // for a deleted character lands elsewhere in the block. The word is found by
+  // its characters' ids — not by counting back from the caret, which a peer's
+  // edit earlier in the block would throw off.
+  const span = caret && replaces > 0 ? reopenedSpan(before, composition) : null;
+  const wordStart = span?.start ?? 0;
+  const insideWord = (p: Position) =>
+    !!span &&
+    p.blockIndex === caret!.blockIndex &&
+    p.textIndex > span.start &&
+    p.textIndex < span.end;
+  const restore = (p: Position, anchor: ReturnType<typeof anchorOf>) => {
+    const moved = anchor && crdtToPosition(nextPage, anchor);
+    if (!moved) return p;
+    const kept =
+      !anchor.afterCharId ||
+      positionToCRDT(nextPage, moved)?.afterCharId === anchor.afterCharId;
+    if (kept || !insideWord(p)) return moved;
+    return {
+      blockIndex: p.blockIndex,
+      textIndex:
+        wordStart + Math.min(p.textIndex - wordStart, composition.text.length),
+    };
+  };
+  return {
+    state: {
+      ...committed.state,
+      document: {
+        ...committed.state.document,
+        cursor: afterCursor
+          ? {
+              ...afterCursor,
+              position: restore(afterCursor.position, cursorAnchor),
+            }
+          : null,
+        selection:
+          afterSelection && selectionAnchors
+            ? {
+                ...afterSelection,
+                anchor: restore(afterSelection.anchor, selectionAnchors.anchor),
+                focus: restore(afterSelection.focus, selectionAnchors.focus),
+              }
+            : afterSelection,
+        contentSelection: after.document.contentSelection,
+      },
+    },
+    ops: committed.ops,
+  };
+}
+
+// Where the reopened word sits in the state's text right now: from its first
+// still-visible character to just after its last.
+function reopenedSpan(
+  state: EditorState,
+  composition: NonNullable<EditorState["ui"]["composition"]>,
+): { start: number; end: number } | null {
+  const caret = state.document.cursor?.position;
+  const word = composition.reopened;
+  const block = caret ? state.document.page.blocks[caret.blockIndex] : null;
+  if (!word || !block || !isTextualBlock(block)) return null;
+  const positions = word.charIds
+    .map((id) => getVisiblePositionOfChar(block.charRuns, id))
+    .filter((p) => p >= 0);
+  if (!positions.length) return null;
+  return { start: Math.min(...positions), end: Math.max(...positions) + 1 };
+}
+
+// Whether the editor accepts text at all (focus aside).
+function canTakeText(state: EditorState): boolean {
+  return state.ui.mode !== "readonly" && state.ui.mode !== "suspended";
+}
+
+// Whether the event moved the caret or changed the selection.
+function caretMoved(before: EditorState, after: EditorState): boolean {
+  const a = before.document;
+  const b = after.document;
+  const samePosition = (p?: Position | null, q?: Position | null) =>
+    p === q ||
+    (!!p &&
+      !!q &&
+      p.blockIndex === q.blockIndex &&
+      p.textIndex === q.textIndex);
+  if (!samePosition(a.cursor?.position, b.cursor?.position)) return true;
+  // A collapsed selection is only a caret, already compared above.
+  const rangeA = a.selection?.isCollapsed ? null : a.selection;
+  const rangeB = b.selection?.isCollapsed ? null : b.selection;
+  if (!!rangeA !== !!rangeB) return true;
+  if (
+    rangeA &&
+    rangeB &&
+    (!samePosition(rangeA.anchor, rangeB.anchor) ||
+      !samePosition(rangeA.focus, rangeB.focus))
+  ) {
+    return true;
+  }
+  if (a.contentSelection === b.contentSelection) return false;
+  if (!a.contentSelection || !b.contentSelection) return true;
+  return (
+    !contentPointsEqual(a.contentSelection.anchor, b.contentSelection.anchor) ||
+    !contentPointsEqual(a.contentSelection.focus, b.contentSelection.focus)
+  );
 }

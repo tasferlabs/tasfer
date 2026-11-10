@@ -425,8 +425,8 @@ export abstract class Mark {
    * {@link import("../nodes/Node").Node.registerActions}). This is how a mark
    * contributes pointer/cursor behavior — LinkMark claims Ctrl/Cmd+click
    * (`TEXT_CLICK`) to open the URL and observes `POINTER_MOVE` to drive its hover
-   * tooltip; @tasfer/math's MathMark observes `CURSOR_MOVED` to open its editor when
-   * the caret crosses a chip. The registry is per-editor-instance, so handlers
+   * tooltip; a mark can observe `CURSOR_MOVED` to react when an arrow key steps
+   * the caret across its span. The registry is per-editor-instance, so handlers
    * never leak across editors on the same page.
    */
   registerActions?(bus: ActionBus): void;

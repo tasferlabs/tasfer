@@ -25,7 +25,6 @@ import { useDocumentIgnores } from "./documentIgnores";
 import { SPELL_PREF_KEYS } from "./personalDictionary";
 import { useSpellService, useSpellSetting } from "./SpellProvider";
 import { spellShortcutFor } from "./spellShortcut";
-import { SuggestionBar, useSuggestionBarSlot } from "./SuggestionBar";
 import { SuggestionPopover } from "./SuggestionPopover";
 
 /**
@@ -61,8 +60,6 @@ export interface SpellcheckLayerProps {
 /** CSS variable the squiggle colour comes from; the fallback is the theme red. */
 const UNDERLINE_VAR = "--editor-spell-underline";
 const UNDERLINE_FALLBACK = "#e5484d";
-/** A selection change this soon after a content change was typing, not a move. */
-const TYPING_WINDOW_MS = 60;
 
 /**
  * Window event the word-count footer fires to run fix-or-next on the page's
@@ -111,10 +108,6 @@ function sameFlag(a: FlagRef, b: FlagRef): boolean {
   );
 }
 
-function flagKey(f: FlagRef): string {
-  return `${f.blockId}:${f.field?.nodeId ?? ""}:${f.from}:${f.word}`;
-}
-
 interface PopoverState {
   flag: FlagRef;
   x: number;
@@ -122,16 +115,15 @@ interface PopoverState {
   suggestions: string[] | null;
 }
 
-interface BarState {
-  flag: FlagRef;
-  suggestions: string[] | null;
-}
-
 /**
  * Spellcheck for one mounted, editable editor: builds the `SpellChecker`
- * (squiggles), owns the desktop chords, the suggestion popover, the touch
- * suggestion bar and the screen-reader live region, and reports the flag
- * count to the service for the footer. Renders nothing visible on its own.
+ * (squiggles), owns the desktop chords, the suggestion popover and the
+ * screen-reader live region, and reports the flag count to the service for
+ * the footer. Renders nothing visible on its own.
+ *
+ * Touch has no suggestion UI of its own here: corrections come from the
+ * context menu's spelling group (see `spellContextMenuItems`) and from the
+ * keyboard's own suggestions.
  */
 export const SpellcheckLayer = forwardRef<
   SpellcheckLayerHandle,
@@ -142,7 +134,6 @@ export const SpellcheckLayer = forwardRef<
 ) {
   const { t } = useTranslation();
   const service = useSpellService();
-  const slot = useSuggestionBarSlot();
   const enabled = useSpellSetting<boolean>(SPELL_PREF_KEYS.enabled, true).value;
   const lenientArabic = useSpellSetting<boolean>(
     SPELL_PREF_KEYS.lenientArabic,
@@ -162,15 +153,12 @@ export const SpellcheckLayer = forwardRef<
 
   const checkerRef = useRef<SpellChecker | null>(null);
   const [popover, setPopover] = useState<PopoverState | null>(null);
-  const [bar, setBar] = useState<BarState | null>(null);
   const [announcement, setAnnouncement] = useState<{
     text: string;
     lang?: string;
     seq: number;
   } | null>(null);
   const seqRef = useRef(0);
-  const lastChangeAtRef = useRef(0);
-  const barDismissedRef = useRef<string | null>(null);
   const touch = isTouchDevice();
 
   const announce = useCallback((text: string, lang?: string) => {
@@ -223,7 +211,6 @@ export const SpellcheckLayer = forwardRef<
     else {
       checker.stop();
       setPopover(null);
-      setBar(null);
     }
   }, [active, service, editor, pageId]);
 
@@ -422,32 +409,20 @@ export const SpellcheckLayer = forwardRef<
     [anchorFor, suggest, announceFlag],
   );
 
-  const showBar = useCallback(
-    (flag: FlagRef) => {
-      setBar({ flag, suggestions: null });
-      void suggest(flag).then((s) => {
-        setBar((b) => (b && b.flag === flag ? { ...b, suggestions: s } : b));
-        announceFlag(flag, s);
-      });
-    },
-    [suggest, announceFlag],
-  );
-
   const closeAll = useCallback(() => {
     setPopover(null);
-    setBar(null);
   }, []);
 
   /** Select the word, bring it on screen and offer suggestions. */
   const goTo = useCallback(
     (flag: FlagRef) => {
       selectWord(flag);
-      if (touch) showBar(flag);
-      else openPopover(flag);
+      // Touch stops at the selection: the context menu offers the fixes.
+      if (!touch) openPopover(flag);
     },
     // selectWord only reads refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [editor, touch, showBar, openPopover],
+    [editor, touch, openPopover],
   );
 
   const apply = useCallback(
@@ -526,7 +501,7 @@ export const SpellcheckLayer = forwardRef<
 
   const fixOrNext = useCallback(() => {
     if (!active) return;
-    const open = (f: FlagRef) => (touch ? showBar(f) : openPopover(f));
+    const open = (f: FlagRef) => (touch ? selectWord(f) : openPopover(f));
     const here = flagNearCaret();
     if (here) {
       open(here);
@@ -559,7 +534,6 @@ export const SpellcheckLayer = forwardRef<
     nearestOnScreen,
     goTo,
     touch,
-    showBar,
     openPopover,
     stepTo,
   ]);
@@ -599,38 +573,20 @@ export const SpellcheckLayer = forwardRef<
   );
 
   // ── follow the document ──────────────────────────────────────────────────
-  // Typing closes the popover/bar; a caret move re-anchors the popover, closes
-  // it when the caret leaves the word, and (on touch) docks the bar when the
-  // caret lands in a misspelled word by a tap rather than by typing.
+  // Typing closes the popover; a caret move re-anchors it and closes it when
+  // the caret leaves the word.
   const popoverRef = useRef(popover);
   popoverRef.current = popover;
-  const barRef = useRef(bar);
-  barRef.current = bar;
   useEffect(() => {
     if (!active) return;
     const offChange = editor.on("change", () => {
-      lastChangeAtRef.current = performance.now();
       if (popoverRef.current) setPopover(null);
-      if (barRef.current) setBar(null);
     });
     const offSelection = editor.on("selectionchange", () => {
-      const typing =
-        performance.now() - lastChangeAtRef.current < TYPING_WINDOW_MS;
-      const here = flagAtCaret();
       const open = popoverRef.current;
-      if (open && (!here || !sameFlag(here, open.flag))) {
-        setPopover(null);
-      }
-      if (!touch) return;
-      const docked = barRef.current;
-      if (docked && (!here || !sameFlag(here, docked.flag))) {
-        setBar(null);
-        barDismissedRef.current = null;
-      }
-      if (here && !typing && !docked) {
-        const key = flagKey(here);
-        if (barDismissedRef.current !== key) showBar(here);
-      }
+      if (!open) return;
+      const here = flagAtCaret();
+      if (!here || !sameFlag(here, open.flag)) setPopover(null);
     });
     // Scroll and layout move the word; keep the popover pinned to it, and
     // drop it the moment the word is gone.
@@ -652,7 +608,7 @@ export const SpellcheckLayer = forwardRef<
       offSelection();
       offSnapshot();
     };
-  }, [active, editor, touch, flagAtCaret, showBar, anchorFor]);
+  }, [active, editor, flagAtCaret, anchorFor]);
 
   // ── desktop chords ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -697,32 +653,6 @@ export const SpellcheckLayer = forwardRef<
     window.addEventListener(SPELL_FIX_OR_NEXT_EVENT, onRequest);
     return () => window.removeEventListener(SPELL_FIX_OR_NEXT_EVENT, onRequest);
   }, [active, pageId, editor, fixOrNext]);
-
-  // ── touch bar into the keyboard toolbar slot ─────────────────────────────
-  useEffect(() => {
-    if (!slot) return;
-    if (!bar || !active) {
-      slot.setContent(null);
-      return;
-    }
-    const flag = bar.flag;
-    slot.setContent(
-      <SuggestionBar
-        flag={flag}
-        suggestions={bar.suggestions}
-        onApply={(s) => apply(flag, s)}
-        onAdd={() => addToDictionary(flag)}
-        onIgnore={() => ignoreOnce(flag)}
-        onDismiss={() => {
-          barDismissedRef.current = flagKey(flag);
-          setBar(null);
-        }}
-      />,
-    );
-    return () => slot.setContent(null);
-    // `slot` is a stable per-host context; its identity changes with `content`.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bar, active, apply, addToDictionary, ignoreOnce]);
 
   return (
     <>

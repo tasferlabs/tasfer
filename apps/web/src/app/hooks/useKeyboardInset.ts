@@ -18,6 +18,34 @@ import { useEffect, useState } from "react";
  * behind the keyboard — they pad/offset by this inset to sit above it. Reading the
  * keyboard is a host/platform concern; the editor engine knows nothing about it.
  */
+/**
+ * How much of the layout viewport the soft keyboard takes, from visualViewport.
+ *
+ *   • `shrink`: how much shorter the visible area is than the layout viewport.
+ *     This is the "is a keyboard up" signal; it does not change when the
+ *     browser slides the page.
+ *   • `inset`: how far a `position: fixed; bottom: 0` element must lift to sit
+ *     on the keyboard. Smaller than `shrink` once the browser has slid the page
+ *     up to reveal the caret (`offsetTop > 0`).
+ *
+ * iOS browsers slide the page up when the caret would land behind the keyboard,
+ * and while slid `window.innerHeight` drops by the slide distance (measured on
+ * iOS 26 Safari: 714 -> 477 for a 237px slide, `clientHeight` still 714). The
+ * layout viewport did not change, so take the larger of the two heights.
+ */
+export function readWebKeyboardOverlap(vv: VisualViewport): {
+  layoutHeight: number;
+  shrink: number;
+  inset: number;
+} {
+  const layoutHeight = Math.max(
+    window.innerHeight,
+    document.documentElement.clientHeight,
+  );
+  const shrink = layoutHeight - vv.height;
+  return { layoutHeight, shrink, inset: Math.max(0, shrink - vv.offsetTop) };
+}
+
 export default function useKeyboardInset(): number {
   const [inset, setInset] = useState(0);
 
@@ -41,8 +69,8 @@ export default function useKeyboardInset(): number {
 
     const syncFromViewport = () => {
       if (nativeReported || !vv) return;
-      const next = window.innerHeight - vv.height - vv.offsetTop;
-      if (next <= 0) {
+      const { shrink, inset: next } = readWebKeyboardOverlap(vv);
+      if (shrink <= 0) {
         closedSafeAreaBottom =
           parseFloat(getComputedStyle(probe).paddingBottom) || 0;
         setInset(0);
@@ -76,10 +104,15 @@ export default function useKeyboardInset(): number {
     syncFromViewport();
     vv?.addEventListener("resize", syncFromViewport);
     vv?.addEventListener("scroll", syncFromViewport);
+    // Chrome on iOS first shrinks visualViewport, then resizes the window to
+    // match without another visualViewport event; without this the inset keeps
+    // the in-between value.
+    window.addEventListener("resize", syncFromViewport);
     window.addEventListener("message", onNativeKeyboard);
     return () => {
       vv?.removeEventListener("resize", syncFromViewport);
       vv?.removeEventListener("scroll", syncFromViewport);
+      window.removeEventListener("resize", syncFromViewport);
       window.removeEventListener("message", onNativeKeyboard);
       probe.remove();
     };

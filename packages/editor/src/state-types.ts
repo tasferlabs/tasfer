@@ -289,6 +289,24 @@ export interface CompositionState {
    * replaces that word rather than adding to it. Absent means 0.
    */
   readonly replaces?: number;
+  /**
+   * The reopened word as it was when the keyboard reopened it: its text and the
+   * CRDT ids of its characters. Set whenever `replaces` > 0. The commit edits
+   * these characters by id, not by counting back from the caret, so a peer's
+   * edit inside the word while it is open is never overwritten.
+   */
+  readonly reopened?: {
+    /**
+     * The block the word is in. The recomposition only applies while the caret
+     * is in this block: elsewhere (a peer deleted the block and the caret was
+     * moved out) it neither draws nor commits.
+     */
+    readonly blockId: string;
+    readonly text: string;
+    readonly charIds: readonly string[];
+    /** The character before the word (null at the block start). */
+    readonly beforeId: string | null;
+  };
 }
 
 // Active formats mode for typing
@@ -987,6 +1005,14 @@ export interface VisibleBlockRange {
    * pre-first-paint placeholder.
    */
   scrollY?: number;
+  /**
+   * Id of the block painted at `start`. An event handled in the same frame as
+   * a structural edit above the fold (a remote insert, a paste) reads this
+   * snapshot against a state whose `visibleBlocks` indices have shifted; the id
+   * finds the painted block again instead of walking from whichever block now
+   * sits at `start`. Undefined on the pre-first-paint placeholder.
+   */
+  startBlockId?: string;
 }
 
 export interface TouchState {

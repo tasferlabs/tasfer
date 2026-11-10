@@ -72,6 +72,7 @@ export {
   getBlockTextContent,
   getBlockTextLength,
   isAndroid,
+  isIOS,
   isTouchDevice,
   isTouchOnlyDevice,
 } from "./state-utils";
