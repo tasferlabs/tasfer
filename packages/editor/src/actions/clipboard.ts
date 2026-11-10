@@ -71,7 +71,10 @@ import { createIdGenerator, generateBlockId } from "../sync/id";
 import { applyOps, findNextVisibleBlockIndex } from "../sync/reducer";
 import type { DataSchema } from "../sync/schema";
 import type { StructuredContentMap } from "../sync/structured-content";
-import { hasStructuredContent } from "../sync/structured-content";
+import {
+  carryStructuredContent,
+  hasStructuredContent,
+} from "../sync/structured-content";
 import TurndownService from "turndown";
 
 function globalGenerateBlockId(binding: CRDTbinding): string {
@@ -820,14 +823,19 @@ function clipboardTextFlavor(
   if (!block || !textRange || !isTextualBlock(block)) return markdown;
   if (isPreformattedType(block.type)) return plainText;
   if (!selected.isPartial) return markdown;
-  const inline: Block = {
-    id: block.id,
-    orderKey: block.orderKey,
-    deleted: false,
-    type: "paragraph",
-    charRuns: block.charRuns,
-    formats: block.formats,
-  } as Block;
+  // Keep the block's attachments: an inline chip (a math formula) reads its
+  // source from them, and without them it would copy as its placeholder.
+  const inline = carryStructuredContent(
+    {
+      id: block.id,
+      orderKey: block.orderKey,
+      deleted: false,
+      type: "paragraph",
+      charRuns: block.charRuns,
+      formats: block.formats,
+    } as Block,
+    block,
+  );
   return blocksToMarkdown([inline], state.schema);
 }
 
