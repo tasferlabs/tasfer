@@ -38,6 +38,14 @@ import { VERSION } from "../version";
 const run = promisify(execFile);
 
 const REPO = "tasferlabs/tasfer";
+/**
+ * The release list to read. Overridable so a test, or a box behind a mirror,
+ * can point it elsewhere; the checksum list comes from the same place, so
+ * whoever sets this is trusted as much as whoever starts the process.
+ */
+const RELEASES_API =
+  process.env.TASFER_RELEASES_API ??
+  `https://api.github.com/repos/${REPO}/releases`;
 const TAG_PREFIX = "v";
 /** Enough to reach past a run of app-only releases without paging. */
 const RELEASE_PAGE_SIZE = 30;
@@ -53,18 +61,22 @@ interface ReleaseAsset {
 
 interface Release {
   tag_name: string;
+  /** ISO time. GitHub omits it on drafts. */
+  published_at?: string | null;
+  prerelease?: boolean;
+  draft?: boolean;
   assets: ReleaseAsset[];
 }
 
 /** A release that actually carries a build for this platform. */
-interface Candidate {
+export interface Candidate {
   release: Release;
   version: string;
   asset: ReleaseAsset;
 }
 
 /** `0.2.0` sorts above `0.10.0`'s predecessor and below `0.10.0`. */
-function compareVersions(a: string, b: string): number {
+export function compareVersions(a: string, b: string): number {
   const left = a.split(".").map(Number);
   const right = b.split(".").map(Number);
   for (let i = 0; i < 3; i++) {
@@ -99,14 +111,22 @@ async function fetchJson<T>(url: string): Promise<T> {
  * does. Releases without one are skipped rather than reported as an update
  * with a missing asset — from here they are simply not CLI releases.
  */
-async function latestRelease(): Promise<Candidate | null> {
+export async function latestRelease(
+  /** Only releases at least this old, and no pre-releases. */
+  settled?: { minAgeMs: number },
+): Promise<Candidate | null> {
   const releases = await fetchJson<Release[]>(
-    `https://api.github.com/repos/${REPO}/releases?per_page=${RELEASE_PAGE_SIZE}`,
+    `${RELEASES_API}?per_page=${RELEASE_PAGE_SIZE}`,
   );
 
   let best: Candidate | null = null;
   for (const release of releases) {
     if (!release.tag_name.startsWith(TAG_PREFIX)) continue;
+    if (settled) {
+      if (release.draft || release.prerelease || !release.published_at) continue;
+      const age = Date.now() - Date.parse(release.published_at);
+      if (!(age >= settled.minAgeMs)) continue;
+    }
     const version = release.tag_name.slice(TAG_PREFIX.length);
     if (!/^\d+\.\d+\.\d+$/.test(version)) continue;
     const asset = release.assets.find((a) => a.name === assetName(version));
@@ -231,6 +251,48 @@ async function extract(archive: Buffer, name: string, installDir: string): Promi
   return entries.length === 1 ? join(staging, entries[0]) : staging;
 }
 
+/**
+ * Where a released build lives, once it is known to be one this process may
+ * replace. Throws when it is a source run or the directory is not ours to
+ * write; nothing has been downloaded by then.
+ */
+export async function installDir(): Promise<string> {
+  if (!isPackaged()) throw new CliError("update.fromSource");
+  const dir = dirname(process.execPath);
+  try {
+    await access(dir, constants.W_OK);
+  } catch {
+    throw new CliError("update.notWritable", { path: dir });
+  }
+  return dir;
+}
+
+/**
+ * Download, verify and swap in one release. Safe while this same build is
+ * running: the files it has open stay alive under their old names until it
+ * exits or restarts.
+ */
+export async function installRelease(
+  { release, asset }: Candidate,
+  dir: string,
+): Promise<void> {
+  // Before staging, not after: staging directories now live in the install dir
+  // too, and sweep() cannot tell this run's from an abandoned one.
+  sweep(dir);
+
+  console.log(t("update.downloading", { name: asset.name }));
+  const archive = await download(asset.browser_download_url);
+  await verify(release, archive, asset.name);
+
+  const staged = await extract(archive, asset.name, dir);
+  try {
+    swapIn(dir, staged);
+    chmodSync(join(dir, basename(process.execPath)), 0o755);
+  } finally {
+    rmSync(dirname(staged), { recursive: true, force: true });
+  }
+}
+
 export interface UpdateOptions {
   /** Report what is available and exit without touching anything. */
   checkOnly: boolean;
@@ -245,13 +307,12 @@ export async function updateCli({ checkOnly }: UpdateOptions): Promise<number> {
     return 0;
   }
 
-  const { release, version, asset } = newest;
-  if (compareVersions(version, VERSION) <= 0) {
+  if (compareVersions(newest.version, VERSION) <= 0) {
     console.log(t("update.current", { version: VERSION }));
     return 0;
   }
 
-  console.log(t("update.available", { version, current: VERSION }));
+  console.log(t("update.available", { version: newest.version, current: VERSION }));
   if (checkOnly) return 0;
 
   if (!isPackaged()) {
@@ -259,29 +320,8 @@ export async function updateCli({ checkOnly }: UpdateOptions): Promise<number> {
     return 0;
   }
 
-  const installDir = dirname(process.execPath);
-  try {
-    await access(installDir, constants.W_OK);
-  } catch {
-    throw new CliError("update.notWritable", { path: installDir });
-  }
+  await installRelease(newest, await installDir());
 
-  // Before staging, not after: staging directories now live in installDir too,
-  // and sweep() cannot tell this run's from an abandoned one.
-  sweep(installDir);
-
-  console.log(t("update.downloading", { name: asset.name }));
-  const archive = await download(asset.browser_download_url);
-  await verify(release, archive, asset.name);
-
-  const staged = await extract(archive, asset.name, installDir);
-  try {
-    swapIn(installDir, staged);
-    chmodSync(join(installDir, basename(process.execPath)), 0o755);
-  } finally {
-    rmSync(dirname(staged), { recursive: true, force: true });
-  }
-
-  console.log(t("update.done", { version }));
+  console.log(t("update.done", { version: newest.version }));
   return 0;
 }

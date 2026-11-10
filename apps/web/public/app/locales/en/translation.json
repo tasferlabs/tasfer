@@ -129,6 +129,7 @@
   "contextMenu.bold": "Bold",
   "contextMenu.code": "Code",
   "contextMenu.copy": "Copy",
+  "contextMenu.copyAsMarkdown": "Copy as Markdown",
   "contextMenu.copyImage": "Copy image",
   "contextMenu.cut": "Cut",
   "contextMenu.downloadImage": "Download image",

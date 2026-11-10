@@ -102,6 +102,7 @@ import {
   Copy,
   Download,
   Grid3x3,
+  Hash,
   Image as ImageIcon,
   Italic,
   Link,
@@ -2697,15 +2698,15 @@ function PageEditor({
       // `setClipboard` is engine-internal wiring (EditorWiring), off the public
       // EditorApi the handle is typed as — reach it through the concrete class.
       const wiring = mounted.editor as unknown as EditorWiring;
-      let lastCopy: { plainText: string; html: string } | null = null;
+      let lastCopy: { text: string; html: string } | null = null;
       wiring.setClipboard({
         async write(payload) {
-          lastCopy = { plainText: payload.plainText, html: payload.html };
-          await native.clipboard.copy(payload.plainText);
+          lastCopy = { text: payload.text, html: payload.html };
+          await native.clipboard.copy(payload.text);
         },
         async read() {
           const text = await native.clipboard.paste();
-          if (text && lastCopy && text === lastCopy.plainText) {
+          if (text && lastCopy && text === lastCopy.text) {
             return { text, html: lastCopy.html };
           }
           return { text };
@@ -3695,6 +3696,9 @@ function PageEditor({
       case "copy":
         await editor.copy();
         break;
+      case "copyMarkdown":
+        await editor.copy(undefined, false, { asMarkdown: true });
+        break;
       case "cut":
         await editor.cut();
         break;
@@ -3764,6 +3768,19 @@ function PageEditor({
             disabled: !hasSelection,
           },
     ];
+
+    // Copy as Markdown (also Cmd/Ctrl+Shift+C): the plain Copy above gives the
+    // words alone, this one the `**bold**` / `- ` source. Text only, so it
+    // stays off an image block, where Copy copies the image.
+    if (!canCopyImage) {
+      items.push({
+        id: "copyMarkdown",
+        label: t("contextMenu.copyAsMarkdown", "Copy as Markdown"),
+        icon: <Hash size={16} />,
+        action: () => handleContextMenuAction("copyMarkdown"),
+        disabled: !hasSelection,
+      });
+    }
 
     // Hide edit-related items in readonly mode
     if (!readonly) {

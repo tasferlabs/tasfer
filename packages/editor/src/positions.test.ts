@@ -417,6 +417,19 @@ describe("selectTarget", () => {
     });
   });
 
+  it("a collapsed target replaces a live selection with a caret", () => {
+    const s = selectTarget(stateWith(para("a", "hello")), {
+      from: { block: "a", offset: 1 },
+      to: { block: "a", offset: 4 },
+    });
+    const next = selectTarget(s, { block: "a", offset: 2 });
+    expect(next.document.selection).toBeNull();
+    expect(next.document.cursor?.position).toEqual({
+      blockIndex: 0,
+      textIndex: 2,
+    });
+  });
+
   it("a span sets an (anchor, focus) selection", () => {
     const s = stateWith(para("a", "hello"));
     const next = selectTarget(s, {
