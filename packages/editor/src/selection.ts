@@ -1,4 +1,5 @@
 import { nextCodePointEnd, prevCodePointStart } from "./code-points";
+import { undrawnCompositionCaret } from "./composition";
 import { currentFontFamily, measureCharsUpToIndex } from "./fonts";
 import { caretMarkEdgeSide, markEdgeAt, withMarkEdgeSide } from "./mark-edge";
 import {
@@ -561,12 +562,45 @@ export function getCursorCoordinatesWithComposition(
   const node = textNodeFor(state, block);
   if (!node) return null;
 
-  if (!state.ui.composition?.isComposing || !state.ui.composition.text) {
+  const composition = state.ui.composition;
+  // A pinned reopened word counts even when the caret now sits before it: a
+  // peer who deleted the word pulled the caret back over it.
+  const replaces = composition?.isComposing
+    ? composition.reopened
+      ? composition.reopened.charIds.length
+      : Math.min(composition.replaces ?? 0, position.textIndex)
+    : 0;
+  if (!composition?.isComposing || (!composition.text && replaces === 0)) {
     return getCursorDocumentCoords(position, state, viewport, styles);
   }
 
   const maxWidth =
     viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+
+  // A recomposition shows its text in place of the reopened word (see
+  // getContentWithComposition); the caret sits at the end of that text.
+  if (replaces > 0) {
+    const content = getContentWithComposition(
+      block,
+      state,
+      position.blockIndex,
+    );
+    const layout = node.computeLayout(block, maxWidth, styles, content);
+    const blockTop = getBlockTopDocument(
+      state,
+      position.blockIndex,
+      maxWidth,
+      styles,
+    );
+    // At the keyboard's caret in the drawn word, as paint() places it; the
+    // word is found by its characters, not by counting back from the caret.
+    const range = content.compositionRange;
+    const index = range
+      ? range.start +
+        Math.min(composition.cursorOffset, range.end - range.start)
+      : undrawnCompositionCaret(composition, block, position.textIndex);
+    return node.caretRect(layout, index, styles.canvas.paddingLeft, blockTop);
+  }
 
   // Fold the active composition into the layout exactly as paint() does, then
   // place the caret at the END of the injected preview. The preview goes through
@@ -577,9 +611,9 @@ export function getCursorCoordinatesWithComposition(
     state,
     block,
     position.textIndex,
-    state.ui.composition.text,
+    composition.text,
   );
-  const previewText = transform?.input ?? state.ui.composition.text;
+  const previewText = transform?.input ?? composition.text;
   const insertAt = transform?.insertAt ?? position.textIndex;
   const content = getContentWithComposition(block, state, position.blockIndex);
   const layout = node.computeLayout(block, maxWidth, styles, content);

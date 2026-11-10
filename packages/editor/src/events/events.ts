@@ -38,6 +38,7 @@ import {
 import { applyEdgeScroll } from "./autoScroll";
 import { dragContentHandleToPoint } from "./chromeRegions";
 import {
+  commitCompositionOnCaretMove,
   handleCompositionEnd,
   handleCompositionStart,
   handleCompositionUpdate,
@@ -622,6 +623,13 @@ export function handleEvents(
     return { state, ops: collectedOps };
   }
 
+  // A pointer gesture in this drain committed the open composition where it
+  // was typed (see below). The keyboard's composition events queued behind it
+  // still belong to that finished session: replayed, an update would reopen a
+  // composition at the new caret, carrying the old session's replaced count
+  // over the text there. They are dropped until the keyboard starts anew.
+  let compositionCommittedByGesture = false;
+
   while (events.length > 0) {
     // Dequeue BEFORE dispatching. If a handler throws, the drain unwinds without
     // committing state — and an event left at the head would be re-drained (and
@@ -629,6 +637,16 @@ export function handleEvents(
     // move and paste behind it forever. Losing the one bad event is the cheap
     // failure; losing the queue is not.
     const event = events.shift()!;
+    if (compositionCommittedByGesture) {
+      if (event.type === "compositionstart") {
+        compositionCommittedByGesture = false;
+      } else if (
+        event.type === "compositionupdate" ||
+        event.type === "compositionend"
+      ) {
+        continue;
+      }
+    }
     // Snapshot the pre-event state and op count: an event whose edit does not
     // survive the schema check below is rolled back to exactly here, so the
     // gesture becomes a no-op rather than a document the schema forbids.
@@ -846,6 +864,23 @@ export function handleEvents(
         state = compResult.state;
         collectedOps.push(...compResult.ops);
         break;
+    }
+
+    // A tap, click or drag that moved the caret mid-composition commits the
+    // composed text where it was typed, instead of the composition following
+    // the caret to its new spot. Pointer gestures only (keys inside a
+    // composition belong to the IME), and only ones that edited nothing, so the
+    // pre-event caret still addresses the same text.
+    if (
+      /^(mouse|touch|pointer|click|dblclick|contextmenu)/.test(event.type) &&
+      collectedOps.length === opsBeforeEvent
+    ) {
+      const left = commitCompositionOnCaretMove(beforeEvent, state);
+      if (left) {
+        state = left.state;
+        collectedOps.push(...left.ops);
+        if (!state.ui.composition) compositionCommittedByGesture = true;
+      }
     }
 
     // The authoring backstop. Undo/redo is exempt — it restores a state this
