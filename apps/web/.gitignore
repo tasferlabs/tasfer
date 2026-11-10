@@ -24,6 +24,9 @@ dev-dist
 *.sln
 *.sw?
 
+# Remote dev console log, written by `vite dev` (see scripts/remote-dev-console-plugin.ts)
+remote-dev-console.log
+
 # mkcert LAN dev certs (see vite.config.ts)
 certs/
 .vercel
