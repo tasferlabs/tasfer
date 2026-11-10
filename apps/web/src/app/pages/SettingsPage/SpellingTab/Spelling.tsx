@@ -55,7 +55,7 @@ export function Spelling() {
   useSpellServiceTick(service);
   const enabled = useSpellSetting<boolean>(SPELL_PREF_KEYS.enabled, true);
   // Right-click and the chord are both mouse-and-keyboard affordances; a
-  // touch-only device gets the suggestion bar above the keyboard instead.
+  // touch-only device uses the long-press context menu instead.
   const isFine = useResponsive("(pointer: fine)");
   const [dictionaryOpen, setDictionaryOpen] = useState(false);
   const [addLanguageOpen, setAddLanguageOpen] = useState(false);
@@ -109,7 +109,7 @@ export function Spelling() {
           ) : (
             t(
               "settings.spelling.descriptionTouch",
-              "Misspelled words get a red underline as you type. Tap an underlined word to see suggestions in the toolbar above the keyboard.",
+              "Misspelled words get a red underline as you type. Touch and hold an underlined word to see suggestions.",
             )
           )
         }
