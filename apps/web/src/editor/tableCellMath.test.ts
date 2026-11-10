@@ -985,6 +985,35 @@ describe("editing inside a cell's formula, as a paragraph does", () => {
     });
   });
 
+  it("hides the page's formula hover from the cell's paragraph code and keeps it after", () => {
+    // Hover names page blocks by index; on the stand-in, index 0 is the cell.
+    const hover = { blockIndex: 0, startIndex: CHIP, endIndex: CHIP + 1 };
+    const base = afterCellFormula();
+    const state = {
+      ...base,
+      ui: { ...base.ui, inlineMathHover: hover, hoveredMathBlockIndex: 0 },
+    };
+    const { block, document, cell } = bodyCell(state);
+    let seen: unknown = "not run";
+    const result = runFieldAsParagraph(
+      state,
+      cellField({ block, document }, cell.id),
+      { anchor: CHIP + 1, focus: CHIP + 1 },
+      (paragraph) => {
+        seen = [
+          paragraph.ui.inlineMathHover,
+          paragraph.ui.hoveredMathBlockIndex,
+        ];
+        return { state: paragraph, ops: [] };
+      },
+    );
+    expect(seen).toEqual([null, null]);
+    expect(result.kind).toBe("applied");
+    if (result.kind !== "applied") return;
+    expect(result.state.ui.inlineMathHover).toEqual(hover);
+    expect(result.state.ui.hoveredMathBlockIndex).toBe(0);
+  });
+
   it("refuses a caret inside an attachment the cell does not point at", () => {
     const state = editorOver(GRID);
     const block = tableIn(state.document.page.blocks);

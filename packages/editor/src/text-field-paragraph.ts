@@ -407,6 +407,11 @@ function standInState(
       suppressedInputRule: suppressed?.blockId === block.id ? suppressed : null,
       caretScratch: null,
       selectionExpansion: null,
+      // Hover names real page blocks by index; on the one-block stand-in,
+      // index 0 is the field, so a hover over the page's first block would
+      // read as a hover over the field. The real hover is kept (see carryUi).
+      inlineMathHover: null,
+      hoveredMathBlockIndex: null,
     },
     view: {
       ...state.view,
