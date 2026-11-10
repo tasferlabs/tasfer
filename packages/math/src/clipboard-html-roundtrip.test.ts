@@ -164,7 +164,7 @@ describe("clipboard text/html round-trip", () => {
     expect(payload!.plainText).toBe("see ${a}^{2}$ end");
   });
 
-  it("keeps an inline formula when copying part of a bullet", () => {
+  it("keeps an inline formula when copying part of a bullet as markdown", () => {
     // Part of one block copies as that block's inline markdown. The formula
     // lives in the block's attachments, so the copy has to keep them.
     const page = loadPage("- see ${a}^{2}$ end", mathTestSchema.data);
@@ -179,7 +179,9 @@ describe("clipboard text/html round-trip", () => {
         },
       },
     };
-    expect(buildClipboardPayload(partial)!.text).toBe("${a}^{2}$ end");
+    expect(buildClipboardPayload(partial, { asMarkdown: true })!.text).toBe(
+      "${a}^{2}$ end",
+    );
   });
 
   it("round-trips image sizing, block math, and list indent losslessly", () => {

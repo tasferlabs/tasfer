@@ -1,8 +1,10 @@
 /**
- * What a copy puts on the clipboard as `text/plain`: the markdown source, so a
- * paste into a plain-text app keeps `**bold**`, bullets and headings. A range
- * inside one code block is raw code, and a range inside one block drops that
- * block's prefix — a word copied out of a bullet is not "- word".
+ * What a copy puts on the clipboard as `text/plain`. A normal copy gives the
+ * plain words, so a paste into a form field carries no markup. A copy as
+ * markdown (Cmd/Ctrl+Shift+C) gives the markdown source, so a paste into a
+ * plain-text app keeps `**bold**`, bullets and headings. There, a range inside
+ * one code block is raw code, and a range inside one block drops that block's
+ * prefix — a word copied out of a bullet is not "- word".
  */
 
 import { type DragTransfer, readTextDrop } from "../events/dragEvents";
@@ -49,14 +51,37 @@ function at(blockIndex: number, textIndex: number): Position {
   };
 }
 
-describe("the text/plain flavor of a copy", () => {
-  it("is markdown across blocks", () => {
+const asMarkdown = { asMarkdown: true };
+
+describe("the text/plain flavor of a normal copy", () => {
+  it("is the plain words", () => {
     const state = select(
       "# Title\n\n- one **bold**\n- two",
       at(0, 0),
       at(2, 3),
     );
     const payload = buildClipboardPayload(state)!;
+    expect(payload.text).toBe(payload.plainText);
+    expect(payload.text).not.toContain("**");
+    expect(payload.text).not.toContain("#");
+  });
+
+  it("adds no plain-words marker to the html", () => {
+    const state = select("- one **bold**", at(0, 0), at(0, 8));
+    expect(buildClipboardPayload(state)!.html).not.toContain(
+      "tasfer-clipboard-text",
+    );
+  });
+});
+
+describe("the text/plain flavor of a copy as markdown", () => {
+  it("is markdown across blocks", () => {
+    const state = select(
+      "# Title\n\n- one **bold**\n- two",
+      at(0, 0),
+      at(2, 3),
+    );
+    const payload = buildClipboardPayload(state, asMarkdown)!;
     expect(payload.text).toBe("# Title\n- one **bold**\n- two");
     expect(payload.text).toBe(payload.markdown);
     // The stripped text is still there for callers that want it.
@@ -65,27 +90,33 @@ describe("the text/plain flavor of a copy", () => {
 
   it("keeps a whole block's prefix", () => {
     const state = select("- one **bold**", at(0, 0), at(0, 8));
-    expect(buildClipboardPayload(state)!.text).toBe("- one **bold**");
+    expect(buildClipboardPayload(state, asMarkdown)!.text).toBe(
+      "- one **bold**",
+    );
   });
 
   it("drops the block prefix for part of one block", () => {
     const state = select("- one **bold** end", at(0, 4), at(0, 8));
-    expect(buildClipboardPayload(state)!.text).toBe("**bold**");
+    expect(buildClipboardPayload(state, asMarkdown)!.text).toBe("**bold**");
   });
 
   it("is the raw source inside a code block", () => {
     const state = select("```js\nconst a = 1;\n```", at(0, 0), at(0, 5));
-    expect(buildClipboardPayload(state)!.text).toBe("const");
+    expect(buildClipboardPayload(state, asMarkdown)!.text).toBe("const");
   });
 });
 
 /**
- * Inside Tasfer, a paste that inserts text as-is still gets the plain words: the
- * copy records them in its html next to the markdown.
+ * Inside Tasfer, a paste that inserts text as-is still gets the plain words
+ * after a copy as markdown: the copy records them in its html next to the
+ * markdown.
  */
-describe("pasting a Tasfer copy as-is", () => {
+describe("pasting a Tasfer copy as markdown as-is", () => {
   const copied = () =>
-    buildClipboardPayload(select("- one **bold**", at(0, 0), at(0, 8)))!;
+    buildClipboardPayload(
+      select("- one **bold**", at(0, 0), at(0, 8)),
+      asMarkdown,
+    )!;
 
   function texts(state: EditorState) {
     return getVisibleBlocks(state.document.page).map((b) =>
@@ -162,7 +193,10 @@ describe("pasting a Tasfer copy as-is", () => {
   });
 
   it("adds no extra marker when the text is already plain", () => {
-    const payload = buildClipboardPayload(select("plain", at(0, 0), at(0, 5)))!;
+    const payload = buildClipboardPayload(
+      select("plain", at(0, 0), at(0, 5)),
+      asMarkdown,
+    )!;
     expect(payload.html).not.toContain("tasfer-clipboard-text");
   });
 });

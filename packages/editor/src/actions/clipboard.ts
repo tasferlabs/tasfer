@@ -673,14 +673,22 @@ export interface ClipboardPayload {
   html: string;
   markdown: string;
   /**
-   * What goes on the platform clipboard as `text/plain`: the selection as
-   * markdown source, so a paste into a plain-text app (an editor, a terminal,
-   * a chat box) keeps `**bold**`, `- ` bullets and `# ` headings. Two cases
-   * read as their own source instead: a range inside one code block gives the
-   * raw code, and a range inside one block gives that block's inline markdown
-   * without the block's prefix (a word copied out of a bullet is not "- word").
+   * What goes on the platform clipboard as `text/plain`. A normal copy puts
+   * the plain words there (`plainText`), so a paste into a form field or a
+   * search box carries no markup. A copy as markdown (Cmd/Ctrl+Shift+C) puts
+   * the markdown source instead, keeping `**bold**`, `- ` bullets and `# `
+   * headings. Two cases read as their own source: a range inside one code
+   * block gives the raw code, and a range inside one block gives that block's
+   * inline markdown without its prefix (a word copied out of a bullet is not
+   * "- word").
    */
   text: string;
+}
+
+/** How {@link buildClipboardPayload} fills {@link ClipboardPayload.text}. */
+export interface ClipboardPayloadOptions {
+  /** Put the markdown source on `text/plain` instead of the plain words. */
+  asMarkdown?: boolean;
 }
 
 /** The flavors a programmatic paste can consume, mirroring the clipboard MIME
@@ -796,6 +804,7 @@ function pasteIntoPreformattedBlock(
  */
 export function buildClipboardPayload(
   state: EditorState,
+  options: ClipboardPayloadOptions = {},
 ): ClipboardPayload | null {
   const structured = getStructuredSelectionSlice(state);
   if (structured) {
@@ -823,7 +832,7 @@ export function buildClipboardPayload(
       html: encodeClipboardMarkdown(markdown) + html,
       // A nested range (cells of a table) keeps the text its feature chose:
       // tab-separated cells are what a spreadsheet paste expects.
-      text: structured.plainText,
+      text: options.asMarkdown ? markdown : structured.plainText,
     };
   }
 
@@ -834,7 +843,9 @@ export function buildClipboardPayload(
   if (blocks.length === 0) return null;
   const markdown = blocksToMarkdown(blocks, state.schema);
   const plainText = blocksToPlainText(blocks, state.schema);
-  const text = clipboardTextFlavor(selectedContent, markdown, plainText, state);
+  const text = options.asMarkdown
+    ? markdownTextFlavor(selectedContent, markdown, plainText, state)
+    : plainText;
   return {
     plainText,
     // The plain words ride along only when text/plain differs from them.
@@ -849,8 +860,8 @@ export function buildClipboardPayload(
   };
 }
 
-/** See {@link ClipboardPayload.text}. */
-function clipboardTextFlavor(
+/** `text/plain` for a copy as markdown. See {@link ClipboardPayload.text}. */
+function markdownTextFlavor(
   selected: NonNullable<ReturnType<typeof getSelectedContent>>,
   markdown: string,
   plainText: string,
@@ -910,9 +921,10 @@ export function getSelectionPlainText(state: EditorState): string {
 export async function copySelectionToClipboard(
   state: EditorState,
   clipboard?: HostClipboard,
+  options?: ClipboardPayloadOptions,
 ): Promise<boolean> {
   try {
-    const payload = buildClipboardPayload(state);
+    const payload = buildClipboardPayload(state, options);
     if (!payload) return false;
 
     const { text, html } = payload;
@@ -927,8 +939,9 @@ export async function copySelectionToClipboard(
     if (navigator.clipboard && navigator.clipboard.write) {
       const clipboardItems = [
         new ClipboardItem({
-          // text/plain is for external/plain paste targets. Rich Tasfer
-          // round-trips use text/html, whose hidden marker carries markdown.
+          // text/plain is for external/plain paste targets (see
+          // `ClipboardPayload.text`). Rich Tasfer round-trips use text/html,
+          // whose hidden marker carries markdown.
           "text/plain": new Blob([text], { type: "text/plain" }),
           "text/html": new Blob([html], { type: "text/html" }),
         }),
