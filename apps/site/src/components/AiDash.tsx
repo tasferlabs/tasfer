@@ -24,9 +24,8 @@ const CLOSE_DELAY_MS = 150;
  * saying the site's writing uses AI, with a link to the note on our stance.
  *
  * The bubble is only mounted while open, so the dash reads as a plain "—" to
- * crawlers, screen readers, and anything that takes `textContent` (the docs
- * table of contents). The dash is not a tab stop: there are hundreds of them
- * per page.
+ * crawlers, screen readers, and anything that takes `textContent`. The dash
+ * is not a tab stop: a page can hold many of them. Only the home page uses it.
  */
 export function AiDash() {
   const { t } = useTranslation();
