@@ -15,6 +15,7 @@ const EN = {
   "usage.hostLink": "Link this host to your account with a code from the app",
   "usage.hostInvite": "Show a code the app can use to link this host",
   "usage.hostStatus": "Print what this host holds and who it belongs to",
+  "usage.hostRestart": "Restart the running host, picking up a new build",
   "usage.export": "Write your spaces to a zip you can keep or import anywhere",
   "usage.update": "Replace this install with the newest published build",
   "usage.options": "Options",
@@ -51,6 +52,22 @@ const EN = {
   "host.peerDisconnected": "Peer disconnected: {{peer}}",
   "host.stopping": "Stopping — finishing the round in flight…",
   "host.stopped": "Stopped.",
+  "host.restarting": "Restarting — finishing the round in flight…",
+  "host.relaunchFailed": "Could not start again: {{reason}}",
+  "host.alreadyRunning":
+    "A host is already running on this data directory (process {{pid}}). Stop it first, or use `tasfer host restart`.",
+  "host.noControl":
+    "`tasfer host restart` will not reach this host: {{reason}}",
+
+  // ─── Restarting ───────────────────────────────────────────────────────────
+  "restart.notRunning":
+    "No host is running on {{path}}. Start one with `tasfer host`.",
+  "restart.unsupported":
+    "This host cannot restart itself — it runs on a Node older than 22.15. Stop it and start it again.",
+  "restart.asked": "Asked the host ({{version}}) to restart…",
+  "restart.done": "The host is back, running {{version}}.",
+  "restart.timedOut":
+    "The host stopped but has not come back yet. Check its output or its service log.",
 
   // ─── Linking ──────────────────────────────────────────────────────────────
   "link.needCode": "Pass the code from the app: tasfer host link <code>",
@@ -136,7 +153,8 @@ const EN = {
   "update.noReleases":
     "No release carries a tasfer build for this platform yet. Build from the repo for now.",
   "update.downloading": "Downloading {{name}}…",
-  "update.done": "Updated to {{version}}. Restart the host to run it.",
+  "update.done":
+    "Updated to {{version}}. Run `tasfer host restart` to switch a running host over.",
   "update.fromSource":
     "This tasfer runs from a source checkout, so there is nothing to replace. Update it with `git pull` and `npm run build` in apps/cli.",
   "update.notWritable":

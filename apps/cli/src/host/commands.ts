@@ -8,6 +8,8 @@
  */
 
 import os from "node:os";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
 import {
   decodeInvite,
   encodeInvite,
@@ -19,6 +21,14 @@ import { t, type MessageKey } from "../cli/messages";
 import { CliError } from "../cli/args";
 import { openHost, type Host, type HostOptions } from "./runtime";
 import { warnIfClockSkewed } from "./clock";
+import {
+  controlSocketPath,
+  listenControl,
+  relaunch,
+  request,
+  type ControlServer,
+} from "./control";
+import { VERSION } from "../version";
 
 /** Heartbeat that holds the event loop open while the host runs. */
 const STAY_ALIVE_MS = 60_000;
@@ -54,67 +64,167 @@ function parseCode(code: string | undefined): SpaceInvite {
 // =============================================================================
 
 export async function runHost(options: HostOptions): Promise<number> {
-  const host = await openHost(options);
-  const identity = await host.engine.identity.get();
-  const spaces = await printHeader(host, options, identity.publicKey);
+  const shutdown = waitForShutdown();
 
-  const devices = await host.engine.devices.list();
-  // One device and nothing to hold: this replica was never linked, so it will
-  // sit on the relay talking to nobody. Say so rather than look healthy.
-  if (devices.length <= 1 && spaces === 0) console.warn(t("host.notLinked"));
-
-  await host.replicator.start();
-  // An invite this host accepted but never finished (killed mid-handshake)
-  // resumes here, the same way the app resumes one after a restart.
-  await host.engine.resumePendingInvites();
-
-  const known = new Set<string>();
-  const unsubscribe = host.engine.sync.onConnectedPeersChange((peers) => {
-    for (const peer of peers) {
-      if (!known.has(peer)) {
-        known.add(peer);
-        console.log(t("host.peerConnected", { peer: shortKey(peer) }));
-      }
-    }
-    for (const peer of [...known]) {
-      if (!peers.includes(peer)) {
-        known.delete(peer);
-        console.log(t("host.peerDisconnected", { peer: shortKey(peer) }));
-      }
-    }
+  // Before the database opens: a second host on the same data directory is a
+  // second device with the same key, and the two would evict each other.
+  const control = await listenControl(options.dataDir, {
+    version: VERSION,
+    instance: randomUUID(),
+    onRestart: shutdown.restart,
   });
+  if (control.kind === "taken") {
+    shutdown.cancel();
+    throw new CliError("host.alreadyRunning", { pid: control.pid });
+  }
+  if (control.kind === "unavailable") {
+    console.warn(t("host.noControl", { reason: control.reason }));
+  }
+  const server: ControlServer | null =
+    control.kind === "listening" ? control.server : null;
 
-  console.log(t("host.online"));
+  let reason: ShutdownReason;
+  try {
+    const host = await openHost(options);
+    const identity = await host.engine.identity.get();
+    const spaces = await printHeader(host, options, identity.publicKey);
 
-  await waitForShutdown();
-  unsubscribe();
+    const devices = await host.engine.devices.list();
+    // One device and nothing to hold: this replica was never linked, so it will
+    // sit on the relay talking to nobody. Say so rather than look healthy.
+    if (devices.length <= 1 && spaces === 0) console.warn(t("host.notLinked"));
 
-  console.log(t("host.stopping"));
-  await host.close();
+    await host.replicator.start();
+    // An invite this host accepted but never finished (killed mid-handshake)
+    // resumes here, the same way the app resumes one after a restart.
+    await host.engine.resumePendingInvites();
+
+    const known = new Set<string>();
+    const unsubscribe = host.engine.sync.onConnectedPeersChange((peers) => {
+      for (const peer of peers) {
+        if (!known.has(peer)) {
+          known.add(peer);
+          console.log(t("host.peerConnected", { peer: shortKey(peer) }));
+        }
+      }
+      for (const peer of [...known]) {
+        if (!peers.includes(peer)) {
+          known.delete(peer);
+          console.log(t("host.peerDisconnected", { peer: shortKey(peer) }));
+        }
+      }
+    });
+
+    console.log(t("host.online"));
+
+    reason = await shutdown.done;
+    unsubscribe();
+
+    console.log(t(reason === "restart" ? "host.restarting" : "host.stopping"));
+    await host.close();
+  } catch (e) {
+    shutdown.cancel();
+    throw e;
+  } finally {
+    await server?.close();
+  }
+
+  if (reason === "restart") {
+    await drainStdout();
+    // Does not return when it works. When it does not, the old build has
+    // already stopped, so fail and let a supervisor bring it back up.
+    try {
+      relaunch();
+    } catch (e) {
+      console.error(t("host.relaunchFailed", { reason: String(e) }));
+      return 1;
+    }
+  }
+
   console.log(t("host.stopped"));
   return 0;
 }
 
+type ShutdownReason = "stop" | "restart";
+
 /**
- * Resolve on the first SIGINT/SIGTERM, so shutdown can be orderly.
+ * Resolve on the first SIGINT/SIGTERM, or when a restart is asked for, so
+ * shutdown can be orderly either way.
  *
  * The timer is what keeps the process alive. Signal handlers do not hold the
  * event loop open, and a host with nothing to talk to yet — freshly linked, or
  * every peer offline — has no socket or timer of its own either, so without
  * this it would print that it is online and immediately exit.
  */
-function waitForShutdown(): Promise<void> {
-  return new Promise((resolve) => {
-    const alive = setInterval(() => {}, STAY_ALIVE_MS);
-    const stop = () => {
-      clearInterval(alive);
-      process.off("SIGINT", stop);
-      process.off("SIGTERM", stop);
-      resolve();
+function waitForShutdown(): {
+  done: Promise<ShutdownReason>;
+  restart(): void;
+  /** Drop the handlers and the timer without resolving: startup failed. */
+  cancel(): void;
+} {
+  let finish: (reason: ShutdownReason) => void = () => {};
+  const alive = setInterval(() => {}, STAY_ALIVE_MS);
+  const stop = () => finish("stop");
+  const cancel = () => {
+    clearInterval(alive);
+    process.off("SIGINT", stop);
+    process.off("SIGTERM", stop);
+  };
+  const done = new Promise<ShutdownReason>((resolve) => {
+    finish = (reason) => {
+      cancel();
+      resolve(reason);
     };
-    process.on("SIGINT", stop);
-    process.on("SIGTERM", stop);
   });
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
+  return { done, restart: () => finish("restart"), cancel };
+}
+
+/** `execve` drops whatever is still queued for a pipe, as `process.exit` does. */
+function drainStdout(): Promise<void> {
+  return new Promise((resolve) => {
+    process.stdout.on("error", () => resolve());
+    process.stdout.write("", () => resolve());
+  });
+}
+
+// =============================================================================
+// host restart
+// =============================================================================
+
+/** How long a restart may take before this command stops waiting for it. */
+const RESTART_TIMEOUT_MS = 30_000;
+const RESTART_POLL_MS = 250;
+
+/**
+ * Ask the host running on this data directory to restart, and wait until it is
+ * back. The host does the restarting itself, in its own terminal or service,
+ * so this command never ends up holding a host of its own.
+ */
+export async function restartHost(options: HostOptions): Promise<number> {
+  const socketPath = controlSocketPath(options.dataDir);
+  const before = await request(socketPath, { cmd: "restart" });
+  if (!before) {
+    throw new CliError("restart.notRunning", {
+      path: path.resolve(options.dataDir),
+    });
+  }
+  if (!before.ok) throw new CliError("restart.unsupported");
+
+  console.log(t("restart.asked", { version: before.version }));
+
+  const deadline = Date.now() + RESTART_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, RESTART_POLL_MS));
+    const after = await request(socketPath, { cmd: "ping" });
+    if (after && after.instance !== before.instance) {
+      console.log(t("restart.done", { version: after.version }));
+      return 0;
+    }
+  }
+  console.error(t("restart.timedOut"));
+  return 1;
 }
 
 // =============================================================================

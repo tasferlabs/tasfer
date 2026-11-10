@@ -99,11 +99,13 @@ back to. Everything is encrypted before it leaves the machine either way.
 ```bash
 tasfer update           # replace this install with the newest release
 tasfer update --check   # just say what is available
+tasfer host restart     # switch the running host to the new build
 ```
 
 ```bash
 sudo tasfer update      # replace this install with the newest release
 tasfer update --check   # just say what is available — no rights needed
+sudo -u tasfer tasfer host restart   # switch the running host to the new build
 ```
 
 </Tabs>
@@ -111,7 +113,8 @@ tasfer update --check   # just say what is available — no rights needed
 It reads the published releases, downloads the build for this platform, checks
 it against the release's `tasfer-checksums.txt`, and swaps it into place — refusing
 rather than installing anything whose checksum does not match. A running host
-keeps running on the old build; restart it to pick the new one up.
+keeps running on the old build until `tasfer host restart`, which restarts it in
+place: same process, same terminal or service, back online in about a second.
 
 Updating writes to the directory the binary lives in, so it needs the rights that
 installed it: <ForTab group="install-scope" index={0}>a directory you already own, so none.</ForTab><ForTab group="install-scope" index={1}>root's, which is what the `sudo` is for.</ForTab>
@@ -146,7 +149,7 @@ You can also start from the host: `tasfer host invite` prints a code to paste
 into the app's **Enter a code from another device**. Same handshake, opposite
 direction.
 
-<Callout kind="note" title="One process at a time.">Every command opens the same database. Stop the running host before linking, so pairing is not rewriting an identity a replica is mid-sync under.</Callout>
+<Callout kind="note" title="One process at a time.">Every command opens the same database. Stop the running host before linking, so pairing is not rewriting an identity a replica is mid-sync under. A second `tasfer host` on the same data directory refuses to start.</Callout>
 
 <Callout kind="note" title="Codes check the clock.">A code expires at a fixed time, stamped by the device that made it and checked by the device that reads it. If the host's clock is off by more than the code's lifetime, every code arrives already expired. `link` and `invite` compare the clock with the relay's and warn when it is a minute or more off. Turn on automatic time sync on that machine.</Callout>
 
@@ -157,6 +160,7 @@ direction.
   { name: "tasfer host link <code>", desc: "Accept a device-link code (or a space invite) from another device." },
   { name: "tasfer host invite", desc: "Mint a device-link code for the app to enter, and wait for it." },
   { name: "tasfer host status", desc: "Identity, linked devices, spaces and page counts. Reads only — safe while nothing else is running." },
+  { name: "tasfer host restart", desc: "Restart the host running on this data directory, in place, and wait until it is back. This is how a running host picks up a build `tasfer update` installed. Run it as the account the host runs as." },
   { name: "tasfer export [file]", desc: "Write every space to a zip — a folder per space, a markdown file per page, images beside them. `--space` narrows it to one." },
   { name: "tasfer update", desc: "Download the newest release carrying a build for this platform, verify its checksum, and replace this install. `--check` reports without installing." },
 ]} />

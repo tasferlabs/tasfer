@@ -2,6 +2,7 @@
  * `tasfer` — the self-hosting CLI.
  *
  *   tasfer host      a headless replica that holds their spaces and stays online
+ *   tasfer host restart   restart that replica in place, onto a new build
  *   tasfer export    write those spaces to a zip, readable and importable
  *   tasfer update    replace this install with the newest published build
  *
@@ -25,6 +26,7 @@ import {
   DEFAULT_INVITE_TTL_MINUTES,
   inviteHost,
   linkHost,
+  restartHost,
   runHost,
   statusHost,
 } from "./host/commands";
@@ -83,6 +85,7 @@ function printHelp(): void {
   console.log(line("host link <code>", t("usage.hostLink")));
   console.log(line("host invite", t("usage.hostInvite")));
   console.log(line("host status", t("usage.hostStatus")));
+  console.log(line("host restart", t("usage.hostRestart")));
   console.log(line("export [file]", t("usage.export")));
   console.log(line("update", t("usage.update")));
   console.log("");
@@ -132,6 +135,8 @@ async function main(argv: string[]): Promise<number> {
           );
         case "status":
           return statusHost(options);
+        case "restart":
+          return restartHost(options);
         default:
           throw new CliError("error.unknownCommand", {
             command: `host ${subcommand}`,
