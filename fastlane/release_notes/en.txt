@@ -1,3 +1,5 @@
-- Import a folder of notes, and export a page with its subpages as a ZIP.
-- Wide tables and code blocks scroll sideways.
+- Copy as Markdown from the menu or with ⌘⇧C.
+- Type formulas inside table cells.
+- Steadier typing and keyboard suggestions in long notes.
+- Update Tasfer on all your devices to keep them syncing.
 - Bug fixes and improvements.

@@ -1,3 +1,16 @@
+# 2026-11-10
+
+- Copy as Markdown with ⌘⇧C (Ctrl+Shift+C on Windows and Linux) or from the right-click menu; a normal copy pastes as plain words outside Tasfer
+- Table cells take inline formulas: type $x$ in a cell, and formulas survive copy, paste, import and export
+- Undo brings back a bullet removed with Backspace, and a todo's check mark after changing its block type
+- Typing on phones is steadier: tapping away keeps the word you were typing, and keyboard suggestions, the IME candidate window and the link popover stay in place in long notes
+- The mobile toolbar stays above the keyboard in iPhone Chrome and Safari
+- On touch screens, touch and hold an underlined word to see spelling suggestions; the bar above the keyboard is gone
+- On Android, Gboard's space-bar cursor glide and backspace glide delete now work
+- `tasfer host restart` restarts a running host, and a running host can install new releases on its own
+- Devices only sync with each other once they are all on this version, so update each one
+- Bug fixes and other UI changes
+
 # 2026-11-03
 
 - Import a folder of notes, with subfolders as nested pages, and export a page with its subpages as a ZIP
