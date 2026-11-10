@@ -88,6 +88,23 @@ function layoutFor(
   });
 }
 
+/**
+ * Index in `visibleBlocks` of the block the paint drew at `visibility.start`,
+ * or -1 when it is gone. Usually `start` itself; differs only when blocks above
+ * the fold were added or removed since that paint (same-frame edit).
+ */
+function paintedStartIndex(
+  visibleBlocks: EditorState["view"]["visibleBlocks"],
+  visibility: VisibleBlockRange,
+): number {
+  const { start, startBlockId } = visibility;
+  const atStart = visibleBlocks[start];
+  if (startBlockId === undefined || atStart?.id === startBlockId) {
+    return atStart ? start : -1;
+  }
+  return visibleBlocks.findIndex((block) => block.id === startBlockId);
+}
+
 /** Top Y of a block in document space (origin at canvas paddingTop). */
 function getBlockTopDocument(
   state: EditorState,
@@ -98,11 +115,14 @@ function getBlockTopDocument(
   visibility?: VisibleBlockRange,
 ): number {
   const visibleBlocks = state.view.visibleBlocks;
+  const paintedStart =
+    viewport && visibility ? paintedStartIndex(visibleBlocks, visibility) : -1;
   const canStartFromPaintedRange =
     !!viewport &&
     !!visibility &&
-    visibleBlocks[visibility.start]?.originalIndex <= blockIndex;
-  let visibleIdx = canStartFromPaintedRange ? visibility.start : 0;
+    paintedStart >= 0 &&
+    visibleBlocks[paintedStart].originalIndex <= blockIndex;
+  let visibleIdx = canStartFromPaintedRange ? paintedStart : 0;
   let y = canStartFromPaintedRange
     ? visibility.startY + viewport.scrollY
     : styles.canvas.paddingTop;

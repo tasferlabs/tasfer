@@ -249,6 +249,7 @@ export function renderPage(
   visibility.start = startIndex;
   visibility.end = startIndex;
   visibility.startY = currentY;
+  visibility.startBlockId = visibleBlocks[startIndex]?.id;
   // Stamp the scroll this snapshot is valid for, so hit-testing against a later
   // (scrolled-but-not-yet-repainted) viewport can re-base `startY`.
   visibility.scrollY = viewport.scrollY;
@@ -276,6 +277,7 @@ export function renderPage(
       if (!foundVisibleBlock) {
         visibility.start = visibleIdx;
         visibility.startY = currentY;
+        visibility.startBlockId = block.id;
         foundVisibleBlock = true;
       }
       visibility.end = visibleIdx;

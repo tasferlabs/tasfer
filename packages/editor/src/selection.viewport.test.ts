@@ -231,6 +231,7 @@ describe("painted overlay anchors", () => {
       start: 900,
       end: 920,
       startY: 100,
+      startBlockId: "p900",
     };
     const at = { blockIndex: 900, textIndex: 0 };
 
@@ -243,5 +244,28 @@ describe("painted overlay anchors", () => {
     // The from-block-0 sum the anchor used to take lands ~18k px away.
     const fromTop = getCursorDocumentCoords(at, state, viewport);
     expect(Math.abs(fromTop!.y - painted!.y)).toBeGreaterThan(10_000);
+  });
+
+  it("finds the painted block again after an edit above the fold", () => {
+    // Painted with p900 at visible index 900; a block then lands at the top in
+    // the same frame, so p900 now sits at index 901.
+    const visibility = {
+      start: 900,
+      end: 920,
+      startY: 100,
+      startBlockId: "p900",
+    };
+    const before = paintedCoordsResolver(
+      paragraphs(ids),
+      viewport,
+      visibility,
+    )({ blockIndex: 900, textIndex: 0 });
+    const after = paintedCoordsResolver(
+      paragraphs(["new", ...ids]),
+      viewport,
+      visibility,
+    )({ blockIndex: 901, textIndex: 0 });
+
+    expect(after).toEqual(before);
   });
 });
