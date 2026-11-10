@@ -116,6 +116,7 @@
   "contextMenu.bold": "غامق",
   "contextMenu.code": "شيفرة",
   "contextMenu.copy": "نسخ",
+  "contextMenu.copyAsMarkdown": "نسخ بصيغة Markdown",
   "contextMenu.copyImage": "نسخ الصورة",
   "contextMenu.cut": "قص",
   "contextMenu.downloadImage": "تنزيل الصورة",

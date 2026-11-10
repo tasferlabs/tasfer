@@ -23,6 +23,7 @@ import {
 } from "../actions/actions";
 import {
   buildClipboardPayload,
+  pastedPlainText,
   copySelectionToClipboard,
   cutSelectionToClipboard,
   getSelectionPlainText,
@@ -975,9 +976,16 @@ export interface EditorApi<S extends SchemaDefinition = BaseSchemaDefinition> {
    * menu. With no `docRange` (or `null`) it copies the current selection.
    * `selectRange` (default `false`) also moves the editor's selection to
    * `docRange` after copying; otherwise the current selection is left untouched
-   * (copy is non-destructive). Resolves to whether the copy succeeded.
+   * (copy is non-destructive). The clipboard's plain text is the words alone;
+   * `options.asMarkdown` puts the markdown source there instead (`**bold**`,
+   * `- ` bullets), as Cmd/Ctrl+Shift+C does. Resolves to whether the copy
+   * succeeded.
    */
-  copy: (docRange?: DocRange | null, selectRange?: boolean) => Promise<boolean>;
+  copy: (
+    docRange?: DocRange | null,
+    selectRange?: boolean,
+    options?: { asMarkdown?: boolean },
+  ) => Promise<boolean>;
   /**
    * Cut a {@link DocRange} to the system clipboard (one undoable step) and close
    * any open context menu. With no `docRange` (or `null`) it cuts the current
@@ -2452,9 +2460,13 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     }
     // `getData` is readable on dragstart (only `dragover` withholds it), so the
     // ghost reuses the very text that just went on the transfer.
+    // The plain words, not the markdown text/plain carries.
     this.setTextDragImage(
       e.dataTransfer!,
-      e.dataTransfer!.getData("text/plain"),
+      pastedPlainText(
+        e.dataTransfer!.getData("text/plain"),
+        e.dataTransfer!.getData("text/html"),
+      ),
     );
     // The press that started this is now a drag, not a click — the release must
     // not collapse the selection out from under it.
@@ -3327,9 +3339,10 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     if (!payload || !e.clipboardData) return; // nothing selected → browser default
     e.preventDefault();
     // The clipboard write MUST stay synchronous in the ClipboardEvent.
-    // text/plain is for external/plain paste targets. Rich Tasfer round-trips
-    // use text/html, whose hidden marker carries the canonical markdown.
-    e.clipboardData.setData("text/plain", payload.plainText);
+    // text/plain is the plain words, for external/plain paste targets (see
+    // `ClipboardPayload.text`). Rich Tasfer round-trips use text/html, whose
+    // hidden marker carries the canonical markdown.
+    e.clipboardData.setData("text/plain", payload.text);
     e.clipboardData.setData("text/html", payload.html);
     // Copy produces no state/ops — fire COPY as a plain signal so hosts can
     // observe/override it (the override doesn't replace the sync write above,
@@ -3352,7 +3365,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     e.preventDefault();
     // The clipboard write MUST stay synchronous in the ClipboardEvent.
     // text/plain is for external/plain paste targets — see copyHandler.
-    e.clipboardData.setData("text/plain", payload.plainText);
+    e.clipboardData.setData("text/plain", payload.text);
     e.clipboardData.setData("text/html", payload.html);
     // Route the deletion through CUT so observers/overrides see it; CUT's
     // default wraps `deleteSelectedText`, so the emitted ops match the old path.
@@ -4052,6 +4065,16 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       // copy/cut path runs as designed.
       // `KeyX` only without Shift — ⌘⇧X is strikethrough, not cut, and must
       // reach the keymap rather than being consumed here.
+      // Cmd/Ctrl+Shift+C copies as markdown. No native `copy` event carries
+      // it, so it writes through the async clipboard, which this keydown's
+      // user activation allows. It also keeps the chord from the browser
+      // (Chrome's inspect-element on the same keys).
+      if (e.code === "KeyC" && e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        void this.copy(undefined, false, { asMarkdown: true });
+        return;
+      }
       if (e.code === "KeyC" || (e.code === "KeyX" && !e.shiftKey)) {
         this.lastSelectionSig = null;
         // Force the ranged DOM selection even on touch devices (where the
@@ -5790,6 +5813,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   copy = async (
     docRange?: DocRange | null,
     selectRange?: boolean,
+    options?: { asMarkdown?: boolean },
   ): Promise<boolean> => {
     // `docRange` resolves to a working state whose selection is the requested
     // range; without it, copy the live selection. Copy is non-destructive, so
@@ -5799,6 +5823,7 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     const success = await copySelectionToClipboard(
       working,
       this.clipboard ?? undefined,
+      options,
     );
     const moveSelection = success && docRange != null && !!selectRange;
     this._state = closeActiveMenu(

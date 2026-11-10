@@ -25,7 +25,7 @@
 
 import { getSelectionRange } from "../actions/actions";
 import type { ClipboardPayload } from "../actions/clipboard";
-import { buildClipboardPayload } from "../actions/clipboard";
+import { buildClipboardPayload, pastedPlainText } from "../actions/clipboard";
 import {
   positionWithinRange,
   type TextDragSource,
@@ -87,7 +87,7 @@ export function loadTextDrag(
   const payload = buildClipboardPayload(state);
   if (!payload) return null;
 
-  transfer.setData("text/plain", payload.plainText);
+  transfer.setData("text/plain", payload.text);
   transfer.setData("text/html", payload.html);
   transfer.setData(TASFER_TEXT_DRAG_TYPE, "1");
   // Both are on offer; the browser picks per the OS modifier and reports the
@@ -287,7 +287,14 @@ export function readTextDrop(
 ): ClipboardPayload | null {
   if (!transfer) return null;
   const html = transfer.getData("text/html");
-  const plainText = transfer.getData("text/plain");
-  if (!html && !plainText) return null;
-  return { plainText, html, markdown: plainText };
+  const text = transfer.getData("text/plain");
+  if (!html && !text) return null;
+  // A Tasfer drag's text/plain is markdown; a drop that inserts text as-is (a
+  // code block, a table cell) wants the plain words its html recorded.
+  return {
+    plainText: pastedPlainText(text, html),
+    html,
+    markdown: text,
+    text,
+  };
 }

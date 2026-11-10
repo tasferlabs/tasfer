@@ -164,6 +164,26 @@ describe("clipboard text/html round-trip", () => {
     expect(payload!.plainText).toBe("see ${a}^{2}$ end");
   });
 
+  it("keeps an inline formula when copying part of a bullet as markdown", () => {
+    // Part of one block copies as that block's inline markdown. The formula
+    // lives in the block's attachments, so the copy has to keep them.
+    const page = loadPage("- see ${a}^{2}$ end", mathTestSchema.data);
+    const state = selectAll(page);
+    const partial = {
+      ...state,
+      document: {
+        ...state.document,
+        selection: {
+          ...state.document.selection!,
+          anchor: { blockIndex: 0, textIndex: 4 },
+        },
+      },
+    };
+    expect(buildClipboardPayload(partial, { asMarkdown: true })!.text).toBe(
+      "${a}^{2}$ end",
+    );
+  });
+
   it("round-trips image sizing, block math, and list indent losslessly", () => {
     const payload = buildClipboardPayload(selectAll(source));
     const binding = createCRDTbinding("page-2", "peer-b");
