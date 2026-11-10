@@ -137,8 +137,13 @@ import {
  *
  * Bump on any protocol-level change; a higher remote value means "the peer may
  * speak things we don't yet understand".
+ *
+ * v5: a table cell can hold an inline formula, whose attachment sits on the
+ * table block beside the table's own document. A v4 peer copies or duplicates
+ * such a table without re-pointing the cells at the copy's attachments, so the
+ * copy's formulas would break and sync out to everyone.
  */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 // =============================================================================
 // ReplicatorHost — what the Replicator needs from the Engine

@@ -127,10 +127,10 @@ async function setup() {
 
 describe("Replicator protocol negotiation", () => {
   it("uses a new semantic epoch while retaining the existing wire codec", () => {
-    // v4 adds the `own-state` message, which carries a person's archive
-    // decisions between their own devices. The wire codec is untouched — no op
-    // encoding changed, only the message set grew (v3 added `device_add`).
-    expect(PROTOCOL_VERSION).toBe(4);
+    // v5 lets a table cell hold an inline formula; a v4 peer would break the
+    // formulas of any table it copies. v4 added the `own-state` message, v3
+    // `device_add`. The wire codec is untouched — no op encoding changed.
+    expect(PROTOCOL_VERSION).toBe(5);
     expect(WIRE_VERSION).toBe(1);
 
     const operation = {
