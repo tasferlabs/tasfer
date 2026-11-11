@@ -64,19 +64,12 @@ describe("the toolbar's table menu", () => {
     expect(findItem(inProse, "table")).toBeUndefined();
   });
 
-  it("drops inline math from a cell's drawer, and keeps the other marks", () => {
+  it("offers the same marks in a cell's drawer as in prose, inline math included", () => {
+    const ids = (more: readonly MobileToolbarItem[]) =>
+      more.map((item) => item.id);
     const inCell = build(square).layout.more;
-    expect(findItem(inCell, "inline-math")).toBeUndefined();
-    // The marks a cell CAN carry are still there — this is one omission, not a
-    // formatting-free row.
-    expect(findItem(inCell, "strikethrough")?.kind).toBe("button");
-    expect(findItem(inCell, "code")?.kind).toBe("button");
-    expect(findItem(inCell, "edit-link")?.kind).toBe("button");
-
-    // Out of a cell it is offered as before.
-    expect(findItem(build(null).layout.more, "inline-math")?.kind).toBe(
-      "button",
-    );
+    expect(findItem(inCell, "inline-math")?.kind).toBe("button");
+    expect(ids(inCell)).toEqual(ids(build(null).layout.more));
   });
 
   it("offers the caret's row and column commands", () => {

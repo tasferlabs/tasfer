@@ -63,6 +63,7 @@ import {
 import { resolveMarkRunsFromChars } from "@tasfer/editor/mark-runs";
 import {
   createMarkRegistry,
+  TOGGLE_MARK,
   TOGGLE_STRONG,
 } from "@tasfer/editor/rendering/marks";
 import type { EditorState } from "@tasfer/editor/state-types";
@@ -479,6 +480,78 @@ describe("typing a formula in a cell", () => {
     const typed = typeIn(select(editorOver(EDIT_SOURCE), 5), " $y$");
     expect(cellView(typed.state)).toBe("a [x] b [y]");
     expectOwnedFormulas(typed.state);
+  });
+});
+
+// ─── The Math button in a cell ───────────────────────────────────────────────
+
+function toggleMath(state: EditorState) {
+  return state.actionBus.dispatchState(TOGGLE_MARK, state, { name: "math" });
+}
+
+describe("turning on math in a cell, as the Math button does", () => {
+  it("turns the selected text into a formula", () => {
+    const toggled = toggleMath(select(editorOver(TYPE_SOURCE), 0, 1));
+    expect(cellView(toggled.state)).toBe("[q]");
+    expectOwnedFormulas(toggled.state);
+    expect(
+      serializeToMarkdown(toggled.state.document.page.blocks, undefined, {
+        schema: appDataSchema,
+      }),
+    ).toBe(["| A |", "| --- |", "| $q$ |"].join("\n"));
+  });
+
+  it("turns part of a cell into a formula and keeps the rest as text", () => {
+    const source = ["| A |", "| --- |", "| a+b = c |"].join("\n");
+    const toggled = toggleMath(select(editorOver(source), 0, 3));
+    expect(cellView(toggled.state)).toBe("[a+b] = c");
+    expectOwnedFormulas(toggled.state);
+  });
+
+  it("rebuilds the new formula from the operations alone", () => {
+    const start = select(editorOver(TYPE_SOURCE), 0, 1);
+    const toggled = toggleMath(start);
+    let page = start.document.page;
+    for (const op of toggled.ops) page = applyOp(page, op, appSchema.data);
+    const replica = {
+      ...toggled.state,
+      document: { ...toggled.state.document, page },
+    };
+    expect(cellView(replica)).toBe("[q]");
+    expectOwnedFormulas(replica);
+  });
+
+  it("undo gives the plain text back", () => {
+    const start = select(editorOver(TYPE_SOURCE), 0, 1);
+    const toggled = toggleMath(start);
+    const inverses = invertOperations(
+      toggled.ops,
+      start.document.page,
+      (page, op) => applyOp(page, op, appSchema.data),
+      start.CRDTbinding,
+      appSchema.data,
+    );
+    let page = toggled.state.document.page;
+    for (const op of inverses) page = applyOp(page, op, appSchema.data);
+    expect(
+      cellView({ ...toggled.state, document: { ...toggled.state.document, page } }),
+    ).toBe("q");
+  });
+
+  it("at a bare caret, makes what is typed next a formula", () => {
+    const armed = toggleMath(select(editorOver(TYPE_SOURCE), 1));
+    expect(armed.ops).toEqual([]);
+    const typed = typeIn(armed.state, "x");
+    expect(cellView(typed.state)).toBe("q[x]");
+    expectOwnedFormulas(typed.state);
+  });
+
+  it("does nothing over a range across cells", () => {
+    const state = selectCells(editorOver(GRID), [2, 0], [3, 3]);
+    const toggled = toggleMath(state);
+    expect(toggled.ops).toEqual([]);
+    expect(cellsView(toggled.state)).toEqual(cellsView(state));
+    expect(toggled.state.ui.activeMarksMode).toEqual(state.ui.activeMarksMode);
   });
 });
 

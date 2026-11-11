@@ -226,16 +226,17 @@ describe("a mark toggled at a collapsed caret", () => {
   });
 });
 
-describe("marks a cell cannot carry", () => {
-  it("refuses a structured mark, whose content is not in the characters", () => {
+describe("a structured mark in a cell", () => {
+  it("writes nothing when the mark has no formula to create", () => {
+    // `chip` declares no `create` facet, so the paragraph's toggle, run on the
+    // cell, has no attachment to make. Nothing is written: a bare `mark_set`
+    // would leave a mark with no attachment behind it, which serializes to
+    // syntax that reloads as literal text.
     const state = select(stateOf(TABLE, structuredSchema), 2, 0, 2, 3);
     const result = state.actionBus.dispatchState(TOGGLE_MARK, state, {
       name: "chip",
     });
 
-    // Nothing written, and nothing pending either: a bare `mark_set` would
-    // leave a mark with no attachment behind it, which serializes to syntax
-    // that reloads as literal text.
     expect(result.ops).toEqual([]);
     expect(
       getTableDocument(result.state.document.page.blocks[0])!.nodes[
@@ -244,21 +245,37 @@ describe("marks a cell cannot carry", () => {
     ).toBeNull();
   });
 
-  it("refuses it at a collapsed caret too, rather than arming it as pending", () => {
+  it("arms it at a collapsed caret, as a paragraph does", () => {
     const state = select(stateOf(TABLE, structuredSchema), 2, 3, 2, 3);
     const result = state.actionBus.dispatchState(TOGGLE_MARK, state, {
       name: "chip",
     });
 
+    expect(result.ops).toEqual([]);
+    expect(result.state.ui.activeMarksMode).toEqual({
+      type: "explicit",
+      formats: [{ type: "chip" }],
+    });
+  });
+
+  it("refuses it across cells, and arms nothing either", () => {
+    // A range over several cells has no one piece of text to become the
+    // formula's content, so the toggle is claimed and does nothing.
+    const state = select(stateOf(TABLE, structuredSchema), 2, 0, 3, 3);
+    const result = state.actionBus.dispatchState(TOGGLE_MARK, state, {
+      name: "chip",
+    });
+
+    expect(result.ops).toEqual([]);
     expect(result.state.ui.activeMarksMode).toEqual(state.ui.activeMarksMode);
   });
 
-  it("still applies a plain mark in the same schema", () => {
+  it("still applies a plain mark across the same cells", () => {
     // The control: the refusal above is the structured check, not a harness
     // that cannot toggle anything at all.
-    const state = select(stateOf(TABLE, structuredSchema), 2, 0, 2, 3);
+    const state = select(stateOf(TABLE, structuredSchema), 2, 0, 3, 3);
     const result = state.actionBus.dispatchState(TOGGLE_STRONG, state);
 
-    expect(result.ops).toHaveLength(1);
+    expect(result.ops.length).toBeGreaterThan(0);
   });
 });

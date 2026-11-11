@@ -436,7 +436,7 @@ a structured document (in its `markFields`), pointing at another attachment on
 the same block — that is how a table cell holds an inline formula.
 `runFieldAsParagraph` lends those attachments to the paragraph code, so a field
 gets the paragraph's whole formula editing: it writes a new attachment when the
-paragraph code creates the mark (a typed `$x$`), and carries a caret inside one
+paragraph code creates the mark (a typed `$x$`, or `setMark("math")` over a selection), and carries a caret inside one
 in and out (see [Editing a field with the paragraph's code](api-schema#field-as-paragraph)). The engine
 re-addresses those references whenever it copies a block (paste, snapshot
 restore) and carries the referenced attachments onto clipboard slices, so a
