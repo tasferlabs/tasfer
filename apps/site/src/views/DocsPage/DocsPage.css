@@ -1153,6 +1153,56 @@ body:has(.dx-page) .site-banner-inner {
   border-radius: 4px;
   padding: 1px 5px;
 }
+/* Keyboard chords (<Keys>): one keycap per key, each chord kept whole when
+   the line wraps. Chords are always left-to-right, even on RTL pages. */
+.dx-page .dx-keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 7px;
+}
+.dx-page .dx-keys + .dx-keys {
+  margin-top: 6px;
+}
+.dx-page .dx-prop .name.keys {
+  display: flex;
+  flex-direction: column;
+  font-weight: 400;
+}
+.dx-page .dx-keys-label {
+  min-width: 5.5em;
+  font-size: 12px;
+  color: var(--cy-muted-fg);
+}
+.dx-page .dx-chord {
+  display: inline-flex;
+  gap: 3px;
+  white-space: nowrap;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+/* Alternatives read as alternatives, not one long chord. The slash trails
+   its chord so a wrapped line never starts with one. */
+.dx-page .dx-chord:not(:last-child)::after {
+  content: "/";
+  align-self: center;
+  margin-inline-start: 4px;
+  color: var(--cy-muted-fg);
+  opacity: 0.6;
+}
+.dx-page .dx-chord kbd {
+  min-width: 1.9em;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--bg);
+  font-family: var(--font-terminal);
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: center;
+  color: var(--fg);
+}
 /* GFM tables authored directly in MDX render as bare elements, unlike the
    component-based tables above. Keep their presentation consistent. */
 .dx-page .dx-article > table {

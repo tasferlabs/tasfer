@@ -381,7 +381,7 @@ function convertJsx(node, ctx) {
       const withType = cols.length > 2;
       const header = cols.map((c) => [text(String(c))]);
       const body = rows.map((row) => {
-        const nameCell = [inlineCode(String(row.name))];
+        const nameCell = row.keys ? keysCell(row.keys) : [inlineCode(String(row.name))];
         if (row.required) nameCell.push(text(" (required)"));
         const cells = [nameCell];
         if (withType) cells.push([inlineCode(String(row.type ?? ""))]);
@@ -412,6 +412,17 @@ function convertJsx(node, ctx) {
         `generate-llms: no markdown mapping for <${name}> (in ${ctx.route}).`,
       );
   }
+}
+
+/** A keyboard row's chords — one list, or one per platform label. */
+function keysCell(keys) {
+  const chords = (list) =>
+    list.flatMap((c, i) => (i ? [text(" / "), inlineCode(c)] : [inlineCode(c)]));
+  if (Array.isArray(keys)) return chords(keys);
+  return Object.entries(keys).flatMap(([label, list], i) => [
+    text(`${i ? "; " : ""}${label}: `),
+    ...chords(list),
+  ]);
 }
 
 function table(rows) {

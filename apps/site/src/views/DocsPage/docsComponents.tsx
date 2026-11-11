@@ -801,9 +801,40 @@ export function Callout({
   );
 }
 
+/* ── keyboard chords ── */
+// One key, or a chord split on "+" ("Cmd+Shift+Z"). Symbol chords with no
+// "+" ("⌃⇧⌘→") split per character, so each modifier gets its own keycap.
+function chordKeys(chord: string): string[] {
+  return chord.includes("+") ? chord.split("+") : Array.from(chord);
+}
+
+// A line of alternative chords, each kept whole on wrap. `label` names the
+// platform ("Apple", "Elsewhere") when a row differs between them.
+function Keys({ chords, label }: { chords: string[]; label?: string }) {
+  return (
+    <span className="dx-keys">
+      {label ? <span className="dx-keys-label">{label}</span> : null}
+      {chords.map((chord) => (
+        <span key={chord} className="dx-chord">
+          {chordKeys(chord).map((k, i) => (
+            <kbd key={i}>{k}</kbd>
+          ))}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 /* ── props / params list ── */
+// Chords for a keyboard row: one list, or one list per platform label
+// ({ Apple: [...], Elsewhere: [...] }). Plain data, not JSX, so the markdown
+// mirror (scripts/generate-llms.mjs) can read it too.
+export type KeyChords = string[] | Record<string, string[]>;
+
 export interface PropRow {
-  name: string;
+  // Rendered as code. A keyboard row passes `keys` instead.
+  name?: string;
+  keys?: KeyChords;
   type?: ReactNode;
   desc: ReactNode;
   required?: boolean;
@@ -851,7 +882,19 @@ export function PropsTable({
         {rows.map((r, i) => (
           <div className="dx-prop" key={i}>
             <dt>
-              <code className="name">{r.name}</code>
+              {r.keys ? (
+                <span className="name keys">
+                  {Array.isArray(r.keys) ? (
+                    <Keys chords={r.keys} />
+                  ) : (
+                    Object.entries(r.keys).map(([label, chords]) => (
+                      <Keys key={label} label={label} chords={chords} />
+                    ))
+                  )}
+                </span>
+              ) : (
+                <code className="name">{r.name}</code>
+              )}
               {r.required ? (
                 <span className="req">
                   {t("docs.table.required", "Required")}
