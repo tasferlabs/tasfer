@@ -31,6 +31,7 @@ import {
   extendActiveInlineMathTreeSelectionToLineEdge,
   extendActiveInlineMathTreeSelectionVertically,
   hasActiveInlineMathTreeCaret,
+  inlineMathCaretEdgeFlag,
   insertActiveInlineMathTreeCommand,
   moveActiveInlineMathTreeCaret,
   moveActiveInlineMathTreeCaretByUnit,
@@ -655,4 +656,10 @@ export class MathMark extends Mark {
         end: span.endIndex,
       })),
   };
+
+  // The chip's edge has two stops at one spot — inside the formula and out in
+  // the prose — so the caret carries the same side flag a bold edge does.
+  caretEdgeFlag(state: EditorState): "left" | "right" | null {
+    return inlineMathCaretEdgeFlag(state);
+  }
 }

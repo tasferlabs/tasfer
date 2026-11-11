@@ -393,6 +393,8 @@ class HighlightMark extends Mark {
 }
 ```
 
+Where a mark starts or ends, one screen spot is two places to type: with the text before it or with the text after it. The caret shows which with a small flag at its top, pointing to the side typing goes to, and the arrow keys step between the two before moving on. Ordinary marks get this for free. A mark that keeps its own caret stops — like an inline formula, which you enter and leave through its own navigation — answers `caretEdgeFlag(state)` instead: return `"left"` or `"right"` when the caret is on one of its edges, or `null` when it is not. It runs every time the caret is drawn, so keep it cheap.
+
 <h2 id="register">Register them</h2>
 
 `extend` returns a _new_ immutable schema — the base is never mutated, so two editors on one page can run different schemas.

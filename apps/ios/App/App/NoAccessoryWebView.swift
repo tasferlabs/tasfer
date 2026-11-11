@@ -188,8 +188,12 @@ final class KeyboardAccessoryView: UIView {
     private weak var webView: WKWebView?
     private let barHeight: CGFloat = 48
 
-    private let scrollView = UIScrollView()
+    private let scrollView = LayoutReportingScrollView()
     private let row = UIStackView()
+    /// Fades over the scroll run's edges, each shown while controls are hidden
+    /// past it, so a bar that looks full still reads as scrollable.
+    private let leftFade = EdgeFadeView(fadesTowardRight: false)
+    private let rightFade = EdgeFadeView(fadesTowardRight: true)
     private let fixedRow = UIStackView()
 
     /// Home-indicator inset currently reserved below the controls. Non-zero only
@@ -320,7 +324,12 @@ final class KeyboardAccessoryView: UIView {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.addSubview(row)
         addSubview(scrollView)
+        addSubview(leftFade)
+        addSubview(rightFade)
         addSubview(fixedRow)
+        // A scroll view lays out on every scroll and every content change, so
+        // this one hook keeps the fades current for both.
+        scrollView.onLayout = { [weak self] in self?.updateEdgeFades() }
 
         // Pin the content rows to the view's own bottom, offset up by the
         // docked home-indicator inset. `safeAreaLayoutGuide.bottomAnchor` can't
@@ -351,11 +360,32 @@ final class KeyboardAccessoryView: UIView {
             row.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
             row.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
 
+            // Below the top border, so the fade never dims it.
+            leftFade.topAnchor.constraint(equalTo: topBorder.bottomAnchor),
+            leftFade.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+            leftFade.leftAnchor.constraint(equalTo: scrollView.leftAnchor),
+            leftFade.widthAnchor.constraint(equalToConstant: EdgeFadeView.width),
+
+            // Below the top border, so the fade never dims it.
+            rightFade.topAnchor.constraint(equalTo: topBorder.bottomAnchor),
+            rightFade.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+            rightFade.rightAnchor.constraint(equalTo: scrollView.rightAnchor),
+            rightFade.widthAnchor.constraint(equalToConstant: EdgeFadeView.width),
+
             fixedRow.topAnchor.constraint(equalTo: topAnchor),
             fixedBottom,
             fixedRow.trailingAnchor.constraint(
                 equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -4),
         ])
+    }
+
+    /// Show each edge's fade only while controls are hidden past that edge.
+    private func updateEdgeFades() {
+        let offset = scrollView.contentOffset.x
+        let visible = scrollView.bounds.width
+        let content = scrollView.contentSize.width
+        leftFade.isHidden = offset <= 1
+        rightFade.isHidden = offset + visible >= content - 1
     }
 
     private func configureRow(_ stack: UIStackView) {
@@ -598,6 +628,60 @@ final class KeyboardAccessoryView: UIView {
         webView?.evaluateJavaScript(
             "window.__tasferKeyboardAction && window.__tasferKeyboardAction(\(json))",
             completionHandler: nil)
+    }
+}
+
+// MARK: - Scroll edge fade
+
+/// A scroll view that reports each layout pass — it lays out on every scroll
+/// and whenever its content changes.
+final class LayoutReportingScrollView: UIScrollView {
+    var onLayout: (() -> Void)?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        onLayout?()
+    }
+}
+
+/// A strip that fades from the bar's background to clear, laid over a scroll
+/// run's edge to hint that more controls sit past it. Taps pass through.
+final class EdgeFadeView: UIView {
+    /// Wide enough to reach the icon: a button's glyph sits in the middle of
+    /// a 40pt slot, so a narrow fade would only dim the empty padding.
+    static let width: CGFloat = 96
+
+    private let fadesTowardRight: Bool
+    private let color = UIColor(named: "Background") ?? .systemBackground
+
+    override class var layerClass: AnyClass { CAGradientLayer.self }
+    private var gradient: CAGradientLayer { layer as! CAGradientLayer }
+
+    /// `fadesTowardRight` puts the solid side on the right (the right edge's
+    /// fade); otherwise the solid side is on the left.
+    init(fadesTowardRight: Bool) {
+        self.fadesTowardRight = fadesTowardRight
+        super.init(frame: .zero)
+        isUserInteractionEnabled = false
+        isHidden = true
+        translatesAutoresizingMaskIntoConstraints = false
+        gradient.startPoint = CGPoint(x: fadesTowardRight ? 0 : 1, y: 0.5)
+        gradient.endPoint = CGPoint(x: fadesTowardRight ? 1 : 0, y: 0.5)
+        applyColors()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func traitCollectionDidChange(_ previous: UITraitCollection?) {
+        super.traitCollectionDidChange(previous)
+        // Layer colors don't follow light/dark on their own.
+        applyColors()
+    }
+
+    private func applyColors() {
+        let solid = color.resolvedColor(with: traitCollection)
+        gradient.colors = [solid.withAlphaComponent(0).cgColor, solid.cgColor]
     }
 }
 
