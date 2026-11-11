@@ -2047,8 +2047,7 @@ function PageEditor({
           break;
         case "toggle-math":
           // With a selection the chosen text becomes the chip's LaTeX; with an
-          // empty caret this arms a pending math format so the next typed text
-          // forms the chip.
+          // empty caret this puts an empty formula box there, caret inside.
           editor.change((change) => change.setMark("math"));
           editor.focus();
           break;

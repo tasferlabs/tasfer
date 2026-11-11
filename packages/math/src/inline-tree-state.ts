@@ -558,6 +558,81 @@ export function rejoinAdjacentInlineMathChips(
   return { state: next, ops };
 }
 
+/**
+ * Put an EMPTY formula at a bare caret and the caret inside it — what the Math
+ * button does with nothing selected. The formula shows as the faint slot box an
+ * empty `\sqrt{}` or `\frac{}{}` shows, so the author sees where the next
+ * keystrokes go. Backspace in it removes it again, as for any emptied formula.
+ *
+ * Refused (undefined) where a formula cannot go or would be ambiguous: no
+ * collapsed flat caret, a block that takes no marks, or a caret already on a
+ * formula's edge (typing there continues that formula).
+ */
+export function insertEmptyInlineMathAtCaret(
+  state: EditorState,
+): InlineMathTreeStateResult | undefined {
+  if (!state.schema.isMarkAllowed("math")) return undefined;
+  const position = collapsedFlatCursorPosition(state);
+  if (!position) return undefined;
+  const block = state.document.page.blocks[position.blockIndex];
+  if (!block || block.deleted || !isTextualBlock(block)) return undefined;
+  if (state.schema.getDescriptor(block.type)?.capabilities.hasFormats !== true) {
+    return undefined;
+  }
+  const { textIndex } = position;
+  if (
+    resolveStructuredInlineMathRuns(block).some(
+      (run) => textIndex >= run.startIndex && textIndex <= run.endIndex,
+    )
+  ) {
+    return undefined;
+  }
+
+  // The same footing as a typed `$x$`: the attachment first, so the mark
+  // never points at a document the log has not created yet, then the anchor
+  // char, then the mark on it.
+  let page = state.document.page;
+  const ops: Operation[] = [];
+  const created = createStructuredMathMarkAttachment("", state.CRDTbinding);
+  const init = contentEdit(state, block.id, created.contentId, created.init);
+  page = applyOp(page, init, state.schema);
+  ops.push(init);
+  const inserted = insertCharsAtPosition(
+    page,
+    block.id,
+    textIndex,
+    STRUCTURED_MARK_ANCHOR_CHAR,
+    state.CRDTbinding,
+  );
+  page = inserted.newPage;
+  ops.push(inserted.op);
+  const marked = markCharsInRange(
+    page,
+    block.id,
+    textIndex,
+    textIndex + 1,
+    created.format,
+    true,
+    state.CRDTbinding,
+  );
+  page = marked.newPage;
+  ops.push(marked.op);
+
+  const blockIndex = findBlockIndex(page, block.id);
+  if (blockIndex < 0) return undefined;
+  invalidateBlockCache(page.blocks[blockIndex]);
+  const placed = moveCursorToPosition(
+    { ...state, document: { ...state.document, page } },
+    blockIndex,
+    textIndex,
+  );
+  const entered = enterInlineMathTreeAtPosition(placed, blockIndex, textIndex, {
+    allowBoundary: true,
+  });
+  if (!entered) return undefined;
+  return { ...entered, ops: [...ops, ...entered.ops] };
+}
+
 /** Enter the inline tree from a flat position on one of the run's edges. */
 export function enterInlineMathTreeAtPosition(
   state: EditorState,
@@ -609,7 +684,7 @@ export function deleteActiveInlineMathTree(
     flatDeleteInlineMathContext(state, direction);
   if (!context) return undefined;
   // Deleting the formula's last content keeps an EMPTY chip — a live nested
-  // caret the author can keep typing into (serialized as `$$`). Deleting once
+  // caret the author can keep typing into (exported as nothing). Deleting once
   // more removes the chip itself — attachment, mark chars, and all — and hands
   // the caret back to the host text where the chip stood. Without this, the
   // empty chip is an invisible, undeletable anchor char.

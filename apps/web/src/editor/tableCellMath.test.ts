@@ -538,12 +538,33 @@ describe("turning on math in a cell, as the Math button does", () => {
     ).toBe("q");
   });
 
-  it("at a bare caret, makes what is typed next a formula", () => {
-    const armed = toggleMath(select(editorOver(TYPE_SOURCE), 1));
-    expect(armed.ops).toEqual([]);
-    const typed = typeIn(armed.state, "x");
+  it("at a bare caret, puts an empty formula box with the caret inside", () => {
+    const boxed = toggleMath(select(editorOver(TYPE_SOURCE), 1));
+    expect(cellView(boxed.state)).toBe("q[]");
+    expectOwnedFormulas(boxed.state);
+    const typed = typeIn(boxed.state, "x");
     expect(cellView(typed.state)).toBe("q[x]");
     expectOwnedFormulas(typed.state);
+  });
+
+  it("removes the empty box again on Backspace", () => {
+    const boxed = toggleMath(select(editorOver(TYPE_SOURCE), 1));
+    const removed = boxed.state.actionBus.dispatchState(
+      DELETE_BACKWARD,
+      boxed.state,
+    );
+    expect(cellView(removed.state)).toBe("q");
+    expect(formulaIds(removed.state)).toEqual([]);
+  });
+
+  it("rebuilds the empty box from the operations alone", () => {
+    const start = select(editorOver(TYPE_SOURCE), 1);
+    const boxed = toggleMath(start);
+    let page = start.document.page;
+    for (const op of boxed.ops) page = applyOp(page, op, appSchema.data);
+    expect(
+      cellView({ ...boxed.state, document: { ...boxed.state.document, page } }),
+    ).toBe("q[]");
   });
 
   it("does nothing over a range across cells", () => {
