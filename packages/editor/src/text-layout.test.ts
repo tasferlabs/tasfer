@@ -195,3 +195,23 @@ describe("composition preview", () => {
     expect(rect.x + rect.width).toBeCloseTo(textCaretRect(layout, 3).x, 6);
   });
 });
+
+describe("a space that ends a full line", () => {
+  // The box is exactly as wide as the words, so the trailing space is what
+  // overflows and becomes the line break.
+  for (const rtl of [false, true]) {
+    const words = rtl ? "مرحبا بالعالم" : "Hello world";
+    it(`drops the caret after it onto a new line (${rtl ? "RTL" : "LTR"})`, () => {
+      const width = box(words, { rtl }).lines[0].width;
+      const layout = box(`${words} `, { width, rtl });
+      const end = words.length + 1;
+
+      expect(layout.lines).toHaveLength(2);
+      const caret = textCaretRect(layout, end);
+      expect(caret.y).toBeGreaterThan(textCaretRect(layout, 0).y);
+      expect(caret.x).toBeCloseTo(rtl ? layout.width : 0, 6);
+      // A tap on the new line lands the caret there too.
+      expect(textOffsetAtPoint(layout, 0, layout.lines[1].y + 5)).toBe(end);
+    });
+  }
+});
