@@ -38,6 +38,7 @@ import {
   getContentPointDocumentCoords,
   getContentSelectionFromViewport,
   getCursorDocumentCoords,
+  getInlineRunBox,
   getTextPositionFromViewport,
   scrollToMakeCursorVisible,
   scrollToMakeSpanVisible,
@@ -334,13 +335,24 @@ function enterSelectedRunAtPoint(
   );
   if (!anchorEdge || !focusEdge) return null;
   const inward = Math.sign(focusEdge.x - anchorEdge.x) || 1;
+  // Aim at the middle of the formula's own box: the flat caret starts at the
+  // text's ascent, so on a line a tall formula makes taller its middle sits
+  // low and can miss the formula's rows.
+  const box = getInlineRunBox(
+    state,
+    { blockIndex: sel.anchor.blockIndex, startIndex: start, endIndex: end },
+    viewport,
+    undefined,
+    visibility,
+  );
   const edgePoint = (
     edge: { x: number; y: number; height: number },
     dir: number,
   ) =>
     getContentSelectionFromViewport(
       edge.x + dir,
-      edge.y - viewport.scrollY + edge.height / 2,
+      (box ? (box.top + box.bottom) / 2 : edge.y + edge.height / 2) -
+        viewport.scrollY,
       state,
       viewport,
       "touch",
@@ -350,17 +362,28 @@ function enterSelectedRunAtPoint(
     )?.focus;
   const anchor = edgePoint(anchorEdge, inward);
   const farEnd = edgePoint(focusEdge, -inward);
-  if (!focus || !anchor || !farEnd || !insideRun(anchor)) return null;
+  // Both edges must land in this formula: without the far one there is no
+  // telling whether the finger has dropped anything yet.
+  if (!focus || !insideRun(anchor) || !insideRun(farEnd)) return null;
+  if (!anchor || !farEnd) return null;
   if (anchor.contentId !== focus.contentId) return null;
+  if (farEnd.contentId !== focus.contentId) return null;
 
-  const next = updateContentSelection(state, {
+  const raw = updateContentSelection(state, {
     anchor,
     focus,
     lastUpdate: Date.now(),
   });
-  const content = next.document.contentSelection;
-  if (!content || contentPointsEqual(content.anchor, content.focus))
+  const rawContent = raw.document.contentSelection;
+  if (!rawContent || contentPointsEqual(rawContent.anchor, rawContent.focus))
     return null;
+  // A piece the range takes whole (a √ at the formula's edge) counts only
+  // once the finger is past its middle, as on every later move — see
+  // crossWidenedPiece. Without it, entering over such a piece kept the
+  // whole formula until the finger had left the piece entirely.
+  const next = crossWidenedPiece(raw, x, viewport, visibility);
+  const content = next.document.contentSelection;
+  if (!content) return null;
   // Still the whole formula: stay a flat selection until the finger has
   // actually dropped part of it.
   const whole = updateContentSelection(state, {
@@ -368,7 +391,7 @@ function enterSelectedRunAtPoint(
     focus: farEnd,
     lastUpdate: Date.now(),
   }).document.contentSelection;
-  if (whole && contentPointsEqual(content.focus, whole.focus)) return null;
+  if (!whole || contentPointsEqual(content.focus, whole.focus)) return null;
   // Remember the flat edge the range is fixed at, so leaving the formula on
   // either side keeps that end fixed (see extendSelectionOutOfStructuredMark).
   const drag = next.ui.selectionHandleDrag;

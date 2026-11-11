@@ -541,3 +541,45 @@ describe("a handle on a formula that makes its line taller", () => {
     expect(insideRange(state)).toEqual({ from: 6, to: 18 });
   });
 });
+
+describe("dragging a handle into a whole formula over a root at its edge", () => {
+  const crossingOf = (state: EditorState) =>
+    state.ui.selectionHandleDrag?.crossing ?? null;
+
+  /** Drag in step by step until the formula opens up into a part. */
+  function dragUntilInside(
+    drag: (dx: number) => EditorState,
+    step: number,
+  ): EditorState {
+    let state = drag(0);
+    for (let dx = step; Math.abs(dx) < 120; dx += step) {
+      state = drag(dx);
+      if (state.document.contentSelection) return state;
+    }
+    throw new Error("expected the formula to open up");
+  }
+
+  it("drops the root at the end before the finger is past its middle", () => {
+    // `a+` is source 0..2; the root `\sqrt{b}` is 2..10.
+    const drag = grab(
+      doubleTapFormula(load("hi $a+\\sqrt{b}$ yo"), 60),
+      "focus",
+    );
+
+    const state = dragUntilInside(drag, -1);
+    expect(crossingOf(state)).toMatchObject({ counted: false });
+    expect(insideRange(state)).toEqual({ from: 0, to: 2 });
+  });
+
+  it("drops the root at the start before the finger is past its middle", () => {
+    // The root `\sqrt{b}` is source 0..8; `+a` is 8..10.
+    const drag = grab(
+      doubleTapFormula(load("hi $\\sqrt{b}+a$ yo"), 60),
+      "anchor",
+    );
+
+    const state = dragUntilInside(drag, 1);
+    expect(crossingOf(state)).toMatchObject({ counted: false });
+    expect(insideRange(state)).toEqual({ from: 8, to: 10 });
+  });
+});
