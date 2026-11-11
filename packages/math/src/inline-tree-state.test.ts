@@ -7,6 +7,7 @@ import {
 import {
   deleteActiveInlineMathTree,
   enterInlineMathTreeAtPosition,
+  inlineMathCaretEdgeFlag,
 } from "./inline-tree-state";
 import { mathExtension } from "./math-extension";
 import { MathMark } from "./MathMark";
@@ -818,6 +819,51 @@ describe("interactive structured MathMark", () => {
     expect(back.state.document.contentSelection?.focus).toEqual(
       nestedPointAtSourceOffset(back.state, 2),
     );
+  });
+
+  it("flags which side of a formula edge the caret is on", () => {
+    // "a•b": each chip edge is two stops at one spot, told apart by the flag
+    // the way a bold edge is — into the formula inside, out to prose outside.
+    const start = chipState("inline-flag", "a$xy$b");
+    const insideEnd = enterMathOffset(start, 2);
+    expect(inlineMathCaretEdgeFlag(insideEnd)).toBe("left");
+    const outsideEnd = insideEnd.actionBus.dispatchState(
+      MOVE_CURSOR_RIGHT,
+      insideEnd,
+    ).state;
+    expect(inlineMathCaretEdgeFlag(outsideEnd)).toBe("right");
+
+    const insideStart = enterMathOffset(start, 0);
+    expect(inlineMathCaretEdgeFlag(insideStart)).toBe("right");
+    const outsideStart = insideStart.actionBus.dispatchState(
+      MOVE_CURSOR_LEFT,
+      insideStart,
+    ).state;
+    expect(inlineMathCaretEdgeFlag(outsideStart)).toBe("left");
+
+    // Mid-formula and away from the chip there is no edge.
+    expect(inlineMathCaretEdgeFlag(enterMathOffset(start, 1))).toBeNull();
+    expect(inlineMathCaretEdgeFlag(moveCursorToPosition(start, 0, 0))).toBe(
+      null,
+    );
+    // A clicked flat caret on the trailing edge types into the formula.
+    expect(inlineMathCaretEdgeFlag(moveCursorToPosition(start, 0, 2))).toBe(
+      "left",
+    );
+  });
+
+  it("mirrors the outside formula-edge flag in an RTL block", () => {
+    // In RTL the prose logically before the chip sits on its visual right.
+    const start = chipState("inline-flag-rtl", "\u0645$xy$\u0628");
+    const insideEnd = enterMathOffset(start, 2);
+    // The formula renders LTR, so the inside flag keeps its direction.
+    expect(inlineMathCaretEdgeFlag(insideEnd)).toBe("left");
+    const outside = insideEnd.actionBus.dispatchState(
+      MOVE_CURSOR_RIGHT,
+      insideEnd,
+    ).state;
+    expect(outside.document.cursor?.position.textIndex).toBe(1);
+    expect(inlineMathCaretEdgeFlag(outside)).toBe("right");
   });
 
   it("rests beside a chip that ends or starts its line", () => {
