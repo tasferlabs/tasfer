@@ -801,10 +801,10 @@ export function Callout({
   );
 }
 
-/* ── props / params table ── */
+/* ── props / params list ── */
 export interface PropRow {
   name: string;
-  type: ReactNode;
+  type?: ReactNode;
   desc: ReactNode;
   required?: boolean;
 }
@@ -821,40 +821,50 @@ export function PropsTable({
     t("docs.table.type", "Type"),
     t("docs.table.description", "Description"),
   ];
-  // A two-heading table drops the type column so the body stays in step with
-  // the header.
+  // A two-heading list drops the type so the body stays in step with the
+  // header.
   const showType = headings.length > 2;
+  // Stacked rather than columns: name and type share the first line, the
+  // description gets the full width below. Long signatures and long prose
+  // both fit at any width, where three columns squeezed or clipped one.
+  // The header mirrors that shape: name · type on top, description under.
+  const [nameHead, ...restHeads] = headings;
+  const typeHead = showType ? restHeads[0] : undefined;
+  const descHead = restHeads[restHeads.length - 1];
   return (
-    <div className="dx-table-wrap">
-      <table className="dx-table">
-        <thead>
-          <tr>
-            {headings.map((c) => (
-              <th key={c}>{c}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={i}>
-              <td className="name">
-                <code>{r.name}</code>
-                {r.required ? (
-                  <span className="req">
-                    {t("docs.table.required", "Required")}
-                  </span>
-                ) : null}
-              </td>
-              {showType ? (
-                <td>
-                  <span className="ty">{r.type}</span>
-                </td>
+    <div className="dx-props">
+      <div className="dx-props-head">
+        <span>
+          {nameHead}
+          {typeHead ? (
+            <>
+              <span className="sep" aria-hidden="true">
+                ·
+              </span>
+              <span className="ty-head">{typeHead}</span>
+            </>
+          ) : null}
+        </span>
+        <span className="desc-head">{descHead}</span>
+      </div>
+      <dl className="dx-props-list">
+        {rows.map((r, i) => (
+          <div className="dx-prop" key={i}>
+            <dt>
+              <code className="name">{r.name}</code>
+              {r.required ? (
+                <span className="req">
+                  {t("docs.table.required", "Required")}
+                </span>
               ) : null}
-              <td className="desc">{r.desc}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+              {showType && r.type ? (
+                <span className="ty">{r.type}</span>
+              ) : null}
+            </dt>
+            <dd className="desc">{r.desc}</dd>
+          </div>
+        ))}
+      </dl>
     </div>
   );
 }

@@ -1068,55 +1068,82 @@ body:has(.dx-page) .site-banner-inner {
 .dx-page .dx-callout.tip .dx-callout-icon {
   color: var(--primary);
 }
-.dx-page .dx-table-wrap {
+/* Props / params list (PropsTable). Stacked rows, not columns: the name and
+   its type share the first line and the description takes the full width
+   below, so a long signature never squeezes the prose (or clips it). */
+.dx-page .dx-props {
   margin: 0 0 24px;
   border: 1px solid var(--border);
   border-radius: var(--cy-radius-lg);
   overflow: hidden;
 }
-.dx-page .dx-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
-}
-.dx-page .dx-table th {
-  text-align: left;
-  font-family: var(--font-terminal);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--cy-muted-fg);
-  font-weight: 500;
+.dx-page .dx-props-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 16px;
   padding: 11px 16px;
   background: var(--cy-muted);
   border-bottom: 1px solid var(--border);
+  font-family: var(--font-terminal);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cy-muted-fg);
 }
-.dx-page .dx-table td {
-  padding: 13px 16px;
+.dx-page .dx-props-head .sep {
+  margin: 0 8px;
+  opacity: 0.6;
+}
+.dx-page .dx-props-head .ty-head {
+  color: var(--primary);
+}
+.dx-page .dx-props-head .desc-head {
+  opacity: 0.75;
+}
+.dx-page .dx-props-list {
+  margin: 0;
+}
+.dx-page .dx-prop {
+  padding: 14px 16px;
   border-bottom: 1px solid var(--border);
-  vertical-align: top;
 }
-.dx-page .dx-table tr:last-child td {
+.dx-page .dx-prop:last-child {
   border-bottom: 0;
 }
-.dx-page .dx-table td.name {
-  white-space: nowrap;
+.dx-page .dx-prop dt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin: 0 0 6px;
+  font-size: 14px;
+  min-width: 0;
 }
-.dx-page .dx-table code {
+.dx-page .dx-prop code {
   font-family: var(--font-terminal);
   font-size: 12.5px;
   color: var(--fg);
 }
-.dx-page .dx-table .ty {
+.dx-page .dx-prop .name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.dx-page .dx-prop .ty {
   color: var(--primary);
   font-family: var(--font-terminal);
   font-size: 12.5px;
+  overflow-wrap: anywhere;
 }
-.dx-page .dx-table .desc {
+.dx-page .dx-prop dd {
+  margin: 0;
+  font-size: 14px;
   color: var(--cy-muted-fg);
-  line-height: 1.55;
+  line-height: 1.6;
+  max-width: 78ch;
 }
-.dx-page .dx-table .req {
+.dx-page .dx-prop .req {
   font-family: var(--font-terminal);
   font-size: 10px;
   letter-spacing: 0.06em;
@@ -1125,7 +1152,6 @@ body:has(.dx-page) .site-banner-inner {
   border: 1px solid oklch(0.62 0.16 30 / 0.4);
   border-radius: 4px;
   padding: 1px 5px;
-  margin-left: 6px;
 }
 /* GFM tables authored directly in MDX render as bare elements, unlike the
    component-based tables above. Keep their presentation consistent. */
@@ -1148,7 +1174,7 @@ body:has(.dx-page) .site-banner-inner {
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.08em;
-  text-align: left;
+  text-align: start;
   text-transform: uppercase;
 }
 .dx-page .dx-article > table td {
@@ -1533,7 +1559,7 @@ body:has(.dx-page) .site-banner-inner {
 [dir="rtl"] .dx-page .dx-license-badge,
 [dir="rtl"] .dx-page .dx-meta-chip,
 [dir="rtl"] .dx-page .dx-code-tab,
-[dir="rtl"] .dx-page .dx-table th,
+[dir="rtl"] .dx-page .dx-props-head,
 [dir="rtl"] .dx-page .dx-article > table th {
   font-family: var(--font-ui);
   letter-spacing: normal;
