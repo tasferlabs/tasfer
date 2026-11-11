@@ -2615,6 +2615,7 @@ function PageEditor({
   // without running React cleanups, so we also persist on pagehide and on
   // visibilitychange→hidden (the pair sync-lifecycle uses — mobile WebViews can
   // kill a hidden page without ever firing pagehide).
+  const persistCursorRef = useRef<(() => void) | null>(null);
   useLayoutEffect(() => {
     if (readonly) return;
     const persistCursor = () => {
@@ -2650,15 +2651,40 @@ function PageEditor({
     const onVisibilityChange = () => {
       if (document.visibilityState === "hidden") persistCursor();
     };
+    persistCursorRef.current = persistCursor;
     window.addEventListener("pagehide", persistCursor);
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       window.removeEventListener("pagehide", persistCursor);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       persistCursor();
+      persistCursorRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Also save once scrolling or a caret move settles, not only on the way out.
+  // iOS can kill a backgrounded app before the write made on leaving reaches
+  // disk, so the page reopened at an older spot (Simulator: killed 0.5s after
+  // going home lost it; 5s later kept it). Saving while the app is in use
+  // leaves that write long finished by the time the person switches away.
+  useEffect(() => {
+    if (!editor || readonly) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const scheduleSave = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => persistCursorRef.current?.(), 400);
+    };
+    const offScroll = editor.registerAction(SCROLL, ({ source }) => {
+      if (source === "user") scheduleSave();
+    });
+    const offSelection = editor.on("selectionchange", scheduleSave);
+    return () => {
+      clearTimeout(timer);
+      offScroll();
+      offSelection();
+    };
+  }, [editor, readonly]);
 
   // Wire up editor subscriptions, sync, and native bridges once the editor is
   // ready. Gated on `editor`; reads stable per-mount values (pageId, readonly,
