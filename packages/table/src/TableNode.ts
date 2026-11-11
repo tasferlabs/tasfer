@@ -442,11 +442,28 @@ export class TableNode extends Node<TableBlock> {
 
     this.paintActiveCell(layout, c, x, y);
     this.paintDecorations(layout, c, x, y);
-    this.paintSelection(layout, c, x, y);
-    this.paintBlockSelection(layout, c, x, y);
     ctx.restore();
 
     this.paintCells(layout, c, x, y);
+
+    // The local selection goes OVER the cells' text, as a paragraph paints
+    // it: a formula under the pointer or being edited is drawn on a solid
+    // box, which would otherwise cover the selection beneath it.
+    if (selectionTouchesTable(c)) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(
+        x + layout.gridX,
+        gridTop,
+        layout.gridWidth,
+        gridHeight,
+        style.borderRadius,
+      );
+      ctx.clip();
+      this.paintSelection(layout, c, x, y);
+      this.paintBlockSelection(layout, c, x, y);
+      ctx.restore();
+    }
     this.paintGrid(
       layout,
       ctx,
@@ -1798,6 +1815,22 @@ function formulaCaretRect(
 
 function columnEdgeTarget(blockId: string, index: number): string {
   return `${blockId}${COLUMN_EDGE_TARGET}${index}`;
+}
+
+/**
+ * Whether the local selection has anything to paint on this table: a range
+ * inside it, or a flat range over its block.
+ */
+function selectionTouchesTable(c: NodePaintCtx): boolean {
+  const { contentSelection, selection } = c.state.document;
+  if (contentSelection?.focus.blockId === c.block.id) return true;
+  if (!selection || selection.isCollapsed) return false;
+  const start = Math.min(
+    selection.anchor.blockIndex,
+    selection.focus.blockIndex,
+  );
+  const end = Math.max(selection.anchor.blockIndex, selection.focus.blockIndex);
+  return c.blockIndex >= start && c.blockIndex <= end;
 }
 
 /** The interior edge of THIS table the pointer is on, if any. */
