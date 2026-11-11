@@ -54,6 +54,7 @@ import {
   getSelectionHandleAtPoint,
   getTouchSelectionHandlePositions,
 } from "./eventUtils";
+import { crossWidenedPiece } from "./handleCrossing";
 import {
   type InteractionSession,
   startAutoScroll,
@@ -196,7 +197,8 @@ function endHandleLoupe(state: EditorState, session: InteractionSession): void {
 /**
  * Move the held handle of a range inside a node's content (text selected in a
  * table cell) to the finger: the focus follows through the node's own
- * hit-test, within the same attachment, the anchor stays. Ticks
+ * hit-test, within the same attachment, the anchor stays; a piece the range
+ * takes whole is crossed with the finger (see crossWidenedPiece). Ticks
  * {@link CURSOR_DRAG_BOUNDARY} when the focus moves. Unchanged state when the
  * finger is over nothing the range can extend to.
  */
@@ -209,7 +211,7 @@ export function dragContentHandleToPoint(
   { signalBoundary = true }: { signalBoundary?: boolean } = {},
 ): EditorState {
   const previous = state.document.contentSelection?.focus;
-  const next = extendDragSelectionToPoint(
+  const extended = extendDragSelectionToPoint(
     state,
     x,
     y,
@@ -217,7 +219,11 @@ export function dragContentHandleToPoint(
     visibility,
     "touch",
   );
-  if (!next) return state;
+  if (!extended) return state;
+  // Over a piece the range takes whole (a √), follow the finger across it
+  // and count the piece only past its middle — see crossWidenedPiece. The
+  // tick below then fires at the middle, when the range really changes.
+  const next = crossWidenedPiece(extended, x, viewport, visibility);
   const focus = next.document.contentSelection?.focus;
   if (
     signalBoundary &&

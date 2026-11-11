@@ -98,7 +98,10 @@ import type {
   TextStyle,
 } from "../state-types";
 import { isCaretScratchActive, transformTypedInput } from "../state-utils";
-import type { ContentSelection } from "../structured-selection";
+import {
+  type ContentSelection,
+  shownContentSelection,
+} from "../structured-selection";
 import { isTextualBlock } from "../sync/block-registry";
 import { charRunsToChars, getVisibleTextFromRuns } from "../sync/char-runs";
 import type { StructuredContentMap } from "../sync/structured-content";
@@ -1828,7 +1831,7 @@ export class TextNode<
     // local-selection ribbon above never fires — paint the highlight through
     // the run's own geometry instead, mirroring the display equation
     // (MathNode's contentSelection path).
-    const nestedSel = state.document.contentSelection;
+    const nestedSel = shownContentSelection(state);
     if (nestedSel) {
       this.fillRects(
         ctx,

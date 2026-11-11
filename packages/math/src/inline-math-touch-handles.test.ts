@@ -21,6 +21,7 @@ import {
   mathContentSelectionFromSourceOffset,
   mathSourceRangeFromContentSelection,
 } from "./tree-selection";
+import { CURSOR_DRAG_BOUNDARY } from "@tasfer/editor/action-bus";
 import { hitTestAllRegions } from "@tasfer/editor/events/blockRegions";
 import { createChromeRegionRegistry } from "@tasfer/editor/events/chromeRegions";
 import { getTouchSelectionHandlePositions } from "@tasfer/editor/events/eventUtils";
@@ -288,5 +289,87 @@ describe("a handle that drifts off the formula's line", () => {
       focus: { blockIndex: 2 },
     });
     expect(moved.document.selection!.focus.textIndex).toBeGreaterThan(4);
+  });
+});
+
+describe("a handle crossing a root inside a formula", () => {
+  // `r(y)=` is source 0..5; the root `\sqrt{a^2-y^2}` is 5..27.
+  const md = "$r(y)=\\sqrt{a^2-y^2}i+yj$";
+  const crossingOf = (state: EditorState) =>
+    state.ui.selectionHandleDrag?.crossing ?? null;
+
+  /** The root's two edges, read off the crossing while the finger is on it. */
+  function rootEdges() {
+    const drag = grab(selectInside(load(md), 0, 1), "focus");
+    let state = load(md);
+    for (let dx = 0; dx < 200 && !crossingOf(state); dx += 4) state = drag(dx);
+    const crossing = crossingOf(state);
+    if (!crossing) throw new Error("expected the handle to cross the root");
+    const ball = ballOf(selectInside(load(md), 0, 1), "focus");
+    // The far edge: where the range lands once the root counts.
+    const far = getTouchSelectionHandlePositions(
+      selectInside(load(md), 0, 27),
+      viewport,
+    )!.focus!.x;
+    return { near: crossing.nearX, far, ball: ball.x };
+  }
+
+  it("follows the finger into the root and leaves the root out before its middle", () => {
+    const { near, far, ball } = rootEdges();
+    const drag = grab(selectInside(load(md), 0, 1), "focus");
+
+    const state = drag(near + (far - near) / 4 - ball);
+    expect(crossingOf(state)).toMatchObject({ counted: false });
+    expect(crossingOf(state)!.x).toBeCloseTo(near + (far - near) / 4, 0);
+    expect(insideRange(state)).toEqual({ from: 0, to: 5 });
+  });
+
+  it("takes the whole root past its middle, with one tick", () => {
+    const { near, far, ball } = rootEdges();
+    const start = selectInside(load(md), 0, 1);
+    const drag = grab(start, "focus");
+    drag(near + (far - near) / 4 - ball);
+    let ticks = 0;
+    start.actionBus.register(CURSOR_DRAG_BOUNDARY, () => {
+      ticks += 1;
+    });
+
+    const state = drag(near + ((far - near) * 3) / 4 - ball);
+    expect(crossingOf(state)).toMatchObject({ counted: true });
+    expect(insideRange(state)).toEqual({ from: 0, to: 27 });
+    expect(ticks).toBe(1);
+  });
+
+  it("lets go of the root again when the finger goes back past its middle", () => {
+    const { near, far } = rootEdges();
+    const start = selectInside(load(md), 0, 31);
+    const ball = ballOf(start, "focus").x;
+    const drag = grab(start, "focus");
+
+    drag(near + ((far - near) * 3) / 4 - ball);
+    expect(insideRange(drag(near + ((far - near) * 3) / 4 - ball))?.to).toBe(
+      27,
+    );
+    const state = drag(near + (far - near) / 4 - ball);
+    expect(crossingOf(state)).toMatchObject({ counted: false });
+    expect(insideRange(state)?.to).toBe(5);
+  });
+
+  it("stops tracking once the finger is past the root", () => {
+    const { near, far, ball } = rootEdges();
+    const drag = grab(selectInside(load(md), 0, 1), "focus");
+
+    drag(near + (far - near) / 2 - ball);
+    const state = drag(far + 12 - ball);
+    expect(crossingOf(state)).toBeNull();
+    expect(insideRange(state)!.to).toBeGreaterThan(27);
+  });
+
+  it("drops the crossing when the finger lifts", () => {
+    const { near, far, ball } = rootEdges();
+    const drag = grab(selectInside(load(md), 0, 1), "focus");
+
+    drag(near + (far - near) / 4 - ball);
+    expect(drag.release().ui.selectionHandleDrag).toBeNull();
   });
 });
