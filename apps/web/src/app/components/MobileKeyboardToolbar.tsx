@@ -1,3 +1,4 @@
+import { useScrollEdgeFade } from "@/app/hooks/useScrollEdgeFade";
 import { cn } from "@/lib/utils";
 import { renderToSVG } from "@tasfer/math";
 import {
@@ -125,8 +126,10 @@ interface MobileKeyboardToolbarProps {
 
 type MenuItem = Extract<MobileToolbarItem, { kind: "menu" }>;
 
-// The bar is three zones: pinned non-scrolling ends and a single scrollable
-// contextual middle. The model's `layout` already partitions the items; this
+// The bar is one scroll run — the left cluster followed by the contextual
+// middle — and a pinned, non-scrolling right end (overflow and dismiss), the
+// same split the native iOS bar makes. The model's `layout` already partitions
+// the items; this
 // component only renders them and owns the transient panels (block-type / code
 // language menus, and the overflow "more" drawer) that open above the bar.
 export function MobileKeyboardToolbar({
@@ -168,7 +171,7 @@ export function MobileKeyboardToolbar({
 
   const middle = layout.middle;
   const middleItems = middle.kind === "items" ? middle.items : [];
-  // Whether the scrollable middle has content to fence off from the pinned left
+  // Whether the contextual middle has content to fence off from the left
   // cluster with a divider. Mirrors the native accessory's `zone-divider` rule
   // (see `flattenLayoutForNative`), so both shells fence identical zones — e.g.
   // undo/redo and an image block's settings button. The math row only carries
@@ -312,17 +315,14 @@ export function MobileKeyboardToolbar({
           isShort ? "h-10" : "h-12",
         )}
       >
-        <div className="flex shrink-0 flex-row items-center">
+        {/* One scroll run: the left cluster and the contextual middle scroll
+            together, as on the native iOS bar, so a narrow phone scrolls to
+            whatever does not fit instead of squeezing the middle to nothing. */}
+        <ScrollRow className="flex min-w-0 flex-1 flex-row items-center [&>*]:shrink-0">
           {layout.left.map(renderItem)}
-          {/* Zone divider between the pinned left cluster and the scrollable
-              middle — the in-webview counterpart to the native `zone-divider`.
-              Kept inside this `items-center` cluster so it centers vertically
-              like every other divider (the outer row is `items-stretch`). */}
+          {/* Zone divider between the left cluster and the contextual middle —
+              the in-webview counterpart to the native `zone-divider`. */}
           {hasMiddle && <Divider />}
-        </div>
-
-        {/* Scrollable contextual middle. */}
-        <div className="flex min-w-0 flex-1 flex-row items-center">
           {middle.kind === "math" ? (
             <MathRow
               query={middle.query}
@@ -333,11 +333,9 @@ export function MobileKeyboardToolbar({
               }
             />
           ) : (
-            <div className="flex min-w-0 flex-1 flex-row items-center touch-pan-x overflow-x-auto overscroll-x-contain no-scrollbar">
-              {middleItems.map(renderItem)}
-            </div>
+            middleItems.map(renderItem)
           )}
-        </div>
+        </ScrollRow>
 
         <div className="flex shrink-0 flex-row items-center">
           {layout.more.length > 0 && (
@@ -381,8 +379,7 @@ function MathRow({ query, trigger, chips, onInsert }: MathRowProps) {
   return (
     <>
       {chips.length > 0 ? (
-        <div className="flex min-w-0 flex-1 flex-row items-center touch-pan-x overflow-x-auto overscroll-x-contain no-scrollbar">
-          {chips.map((chip, index) => (
+        chips.map((chip, index) => (
             <button
               key={chip.id}
               onMouseDown={(e) => {
@@ -408,10 +405,9 @@ function MathRow({ query, trigger, chips, onInsert }: MathRowProps) {
               )}
               dangerouslySetInnerHTML={{ __html: chip.svg }}
             />
-          ))}
-        </div>
+          ))
       ) : (
-        <span className="min-w-0 flex-1 truncate px-3 text-sm text-muted-foreground">
+        <span className="shrink-0 whitespace-nowrap px-3 text-sm text-muted-foreground">
           {/* Name what was searched: element names after `/`, LaTeX after `\`. */}
           {trigger === "\\"
             ? t("editor.math.noLatexCommands", "No matching LaTeX commands")
@@ -422,10 +418,38 @@ function MathRow({ query, trigger, chips, onInsert }: MathRowProps) {
   );
 }
 
+/**
+ * A horizontally scrolling run of controls. The edge with more controls past
+ * it fades out, so a row that looks full still reads as scrollable.
+ */
+function ScrollRow({
+  className,
+  children,
+}: {
+  className: string;
+  children: React.ReactNode;
+}) {
+  const fade = useScrollEdgeFade<HTMLDivElement>();
+  return (
+    <div
+      ref={fade.ref}
+      style={fade.style}
+      className={cn(
+        "touch-pan-x overflow-x-auto overscroll-x-contain no-scrollbar",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
 function PanelRow({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex w-full min-w-0 flex-row touch-pan-x overflow-x-auto overscroll-x-contain border-t border-border bg-background px-2 py-1.5 gap-1 no-scrollbar">
-      {children}
+    <div className="w-full border-t border-border bg-background">
+      <ScrollRow className="flex w-full min-w-0 flex-row px-2 py-1.5 gap-1">
+        {children}
+      </ScrollRow>
     </div>
   );
 }
@@ -495,10 +519,12 @@ function ToolbarButton({
         // actions preserve the editor focus, while dismiss explicitly blurs the
         // hidden input without causing the viewport to jump to this button.
         e.preventDefault();
-        if (!disabled) onPress();
       }}
-      onClick={(e) => {
-        if (e.detail === 0 && !disabled) onPress();
+      // Act on the tap, not the touch-down: the buttons sit in a scroll run,
+      // and a swipe that starts on one must scroll the bar, not press it. A
+      // swipe cancels the pointer, so no click follows.
+      onClick={() => {
+        if (!disabled) onPress();
       }}
       disabled={disabled}
       className={cn(

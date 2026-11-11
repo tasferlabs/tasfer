@@ -261,8 +261,8 @@ export type MobileToolbarContextKind =
 
 /**
  * The three-tier layout the in-webview React bar (Android/web touch) renders:
- * pinned ends that never scroll, a scrollable contextual middle, and an overflow
- * drawer for the long tail. The middle swaps by cursor context — math chips
+ * the left cluster and the contextual middle as one scroll run, a pinned right
+ * end that never scrolls, and an overflow drawer for the long tail. The middle swaps by cursor context — math chips
  * inside an equation, structural controls inside a list/code block, otherwise
  * the formatting controls. The native iOS accessory ignores this and renders the
  * flat {@link MobileToolbarModel.items} instead.
