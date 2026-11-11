@@ -684,7 +684,11 @@ export function extendDragSelectionToPoint(
         flatPosition.textIndex < run.startIndex ||
         flatPosition.textIndex > run.endIndex);
     if (pointerLeftMark) {
-      return extendSelectionOutOfStructuredMark(state, flatPosition);
+      return extendSelectionOutOfStructuredMark(
+        state,
+        flatPosition,
+        state.ui.selectionHandleDrag?.fixedEdge,
+      );
     }
     const hit = getContentSelectionFromViewport(
       canvasX,

@@ -22,6 +22,7 @@ import {
   mathSourceRangeFromContentSelection,
 } from "./tree-selection";
 import { CURSOR_DRAG_BOUNDARY } from "@tasfer/editor/action-bus";
+import { TAP_SELECT_WORD } from "@tasfer/editor/actions/touch-actions";
 import { hitTestAllRegions } from "@tasfer/editor/events/blockRegions";
 import { createChromeRegionRegistry } from "@tasfer/editor/events/chromeRegions";
 import { getTouchSelectionHandlePositions } from "@tasfer/editor/events/eventUtils";
@@ -38,6 +39,8 @@ import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
 import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import {
+  getTextPositionFromViewport,
+  getWordRangeFromViewport,
   isPointWithinSelectionRects,
   moveCursorToPosition,
 } from "@tasfer/editor/selection";
@@ -112,6 +115,24 @@ function insideRange(state: EditorState) {
   const content = state.document.contentSelection;
   if (!content) return null;
   return mathSourceRangeFromContentSelection(chip(state).document, content);
+}
+
+/** Double-tap the formula, the way a phone selects it. */
+function doubleTapFormula(state: EditorState, x: number): EditorState {
+  const y = 12;
+  const position = getTextPositionFromViewport(x, y, state, viewport);
+  if (!position) throw new Error("expected a position under the tap");
+  const range = getWordRangeFromViewport(
+    x,
+    y,
+    state,
+    viewport,
+    getEditorStyles(state),
+  );
+  return state.actionBus.dispatchState(TAP_SELECT_WORD, state, {
+    position,
+    range: range ?? undefined,
+  }).state;
 }
 
 /** The centre of a handle's ball, in viewport space. */
@@ -289,6 +310,130 @@ describe("a handle that drifts off the formula's line", () => {
       focus: { blockIndex: 2 },
     });
     expect(moved.document.selection!.focus.textIndex).toBeGreaterThan(4);
+  });
+});
+
+describe("dragging a handle into a wholly selected formula", () => {
+  const md = "hi $a+b+c+d$ yo";
+
+  it("starts from the whole formula as one flat selection", () => {
+    const state = doubleTapFormula(load(md), 60);
+
+    expect(state.document.contentSelection).toBeNull();
+    expect(state.document.selection).toMatchObject({
+      anchor: { textIndex: 3 },
+      focus: { textIndex: 4 },
+    });
+  });
+
+  it("keeps the whole formula until the handle actually drops part of it", () => {
+    const drag = grab(doubleTapFormula(load(md), 60), "focus");
+
+    const state = drag(-2);
+    expect(state.document.contentSelection).toBeNull();
+    expect(state.document.selection).toMatchObject({
+      anchor: { textIndex: 3 },
+      focus: { textIndex: 4 },
+    });
+  });
+
+  it("drops the end of the formula when the end handle moves in", () => {
+    const drag = grab(doubleTapFormula(load(md), 60), "focus");
+
+    const state = drag(-32);
+    expect(state.document.selection).toBeNull();
+    expect(insideRange(state)).toEqual({ from: 0, to: 5 });
+  });
+
+  it("drops the start of the formula when the start handle moves in", () => {
+    const drag = grab(doubleTapFormula(load(md), 60), "anchor");
+
+    const state = drag(16);
+    expect(state.document.selection).toBeNull();
+    expect(insideRange(state)).toEqual({ from: 1, to: 7 });
+  });
+
+  it("goes back to a flat selection when the handle leaves the formula", () => {
+    const drag = grab(doubleTapFormula(load(md), 60), "focus");
+
+    drag(-32);
+    const state = drag(20);
+    expect(state.document.contentSelection).toBeNull();
+    expect(state.document.selection).toMatchObject({
+      anchor: { textIndex: 3 },
+      focus: { textIndex: 5 },
+    });
+  });
+
+  it("keeps the end fixed when the start handle crosses it and leaves the formula", () => {
+    const drag = grab(doubleTapFormula(load(md), 60), "anchor");
+
+    drag(16);
+    drag(80);
+    const state = drag(160);
+    expect(state.document.contentSelection).toBeNull();
+    // The end of the formula (4) stays the fixed end; the held handle is past
+    // it, so the formula itself is no longer selected.
+    expect(state.document.selection!.anchor.textIndex).toBe(4);
+    expect(state.document.selection!.focus.textIndex).toBeGreaterThan(4);
+  });
+
+  it("keeps the end fixed when the start handle crosses it and goes down a line", () => {
+    const drag = grab(
+      doubleTapFormula(load(`${md}\n\nnext line`), 60),
+      "anchor",
+    );
+
+    drag(16);
+    drag(40);
+    const state = drag(40, 40);
+    expect(state.document.contentSelection).toBeNull();
+    expect(state.document.selection!.anchor).toMatchObject({
+      blockIndex: 0,
+      textIndex: 4,
+    });
+    expect(state.document.selection!.focus.blockIndex).toBe(1);
+  });
+
+  it("keeps the start fixed when the end handle crosses it and leaves the formula", () => {
+    const drag = grab(doubleTapFormula(load(md), 60), "focus");
+
+    drag(-16);
+    drag(-40);
+    const state = drag(-200);
+    expect(state.document.contentSelection).toBeNull();
+    expect(state.document.selection!.anchor.textIndex).toBe(3);
+    expect(state.document.selection!.focus.textIndex).toBeLessThan(3);
+  });
+
+  it("keeps the formula atomic for a selection that starts outside it", () => {
+    let state = doubleTapFormula(load(md), 60);
+    state = {
+      ...state,
+      document: {
+        ...state.document,
+        selection: {
+          ...state.document.selection!,
+          anchor: { blockIndex: 0, textIndex: 0 },
+        },
+      },
+    };
+    const drag = grab(state, "focus");
+
+    const moved = drag(-32);
+    expect(moved.document.contentSelection).toBeNull();
+    expect(moved.document.selection).not.toBeNull();
+  });
+
+  it("does not move the selection when a handle is only touched", () => {
+    for (const which of ["anchor", "focus"] as const) {
+      const drag = grab(doubleTapFormula(load(md), 60), which);
+      const state = drag(1, 1);
+      // Grabbing the start handle swaps the ends; the span stays the same.
+      const { anchor, focus } = state.document.selection!;
+      expect(state.document.contentSelection).toBeNull();
+      expect([anchor.textIndex, focus.textIndex].sort()).toEqual([3, 4]);
+    }
   });
 });
 

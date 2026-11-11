@@ -328,6 +328,15 @@ export interface SelectionHandleDragState {
    * at all (a root inside a formula). See {@link HandleCrossing}.
    */
   readonly crossing?: HandleCrossing | null;
+  /**
+   * The flat edge of an inline mark run (a formula) that stayed fixed when
+   * the held handle moved from a selection of the whole run to a range inside
+   * it. The range inside only knows a point just inside that edge, so when
+   * the handle leaves the run again, the flat selection picks its fixed end
+   * up from here. Without it the fixed end was guessed from the way the
+   * finger left, and a handle that crossed the fixed end swapped the two.
+   */
+  readonly fixedEdge?: Position | null;
 }
 
 /**
