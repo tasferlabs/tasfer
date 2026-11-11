@@ -17,6 +17,7 @@ import {
   mathMarkContentId,
   structuredToMathDocument,
 } from "./data";
+import { commonRowId, fitToRowBand, inlineRowBand } from "./inline-row-band";
 import {
   deleteActiveInlineMathTree,
   enterAdjacentInlineMathTreeByUnit,
@@ -199,18 +200,20 @@ const inlineMathReplacement: MarkReplacement = {
     if (!sourceRangeOwnsOffset(range, stop.sourceOffset, source.length)) {
       return null;
     }
+    // One height for every caret on a row, whatever glyph it stands beside.
+    const band = inlineRowBand(layout, position.rowId);
     if (isWholeSourceRange(range, source.length)) {
-      return {
-        x: stop.x,
-        top: stop.caretTop ?? stop.top,
-        bottom: stop.bottom,
-      };
+      return fitToRowBand(
+        { x: stop.x, top: stop.caretTop ?? stop.top, bottom: stop.bottom },
+        band,
+      );
     }
-    return getInlineMathCaretRect(
+    const caret = getInlineMathCaretRect(
       text,
       fontSize * INLINE_MATH_SCALE,
       stop.sourceOffset - range.start,
     );
+    return caret ? fitToRowBand(caret, band) : null;
   },
   contentSelectionRects(text, fontSize, selection, context) {
     const document = getInlineMathStructuredDocument(
@@ -235,12 +238,22 @@ const inlineMathReplacement: MarkReplacement = {
     const from = Math.max(range.from, fragment.start);
     const to = Math.min(range.to, fragment.end);
     if (to <= from) return null;
-    return getInlineMathSelectionRects(
+    const rects = getInlineMathSelectionRects(
       text,
       fontSize * INLINE_MATH_SCALE,
       from - fragment.start,
       to - fragment.start,
     );
+    // The highlight takes the height of the row the range covers, so one
+    // letter and a whole root read as the same band.
+    const anchor = contentPointToMathDocumentPosition(
+      document,
+      selection.anchor,
+    );
+    const focus = contentPointToMathDocumentPosition(document, selection.focus);
+    const rowId = anchor && focus ? commonRowId(layout, anchor, focus) : null;
+    const band = rowId ? inlineRowBand(layout, rowId) : null;
+    return rects.map((rect) => fitToRowBand(rect, band));
   },
   contentSelectionFromPoint(text, fontSize, localX, localY, context) {
     const contentId = mathMarkContentId(context.mark);

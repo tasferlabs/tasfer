@@ -176,6 +176,8 @@ const nestedHighlight = textContentSelectionRects(text, selection, blockId);
 const run = replacementRunForContent(text, point.contentId); // { start, end, … }
 ```
 
+On the formula's own row the caret and the highlight fill the text line, like prose. On a row inside it (a numerator, an exponent) they take that row's height, the same for every piece on the row.
+
 For text still being composed through an IME, `foldComposition(chars, offset, preview)` returns the characters with the preview folded in and its `compositionRange`; lay those out (passing the range to `layoutText`) and underline `compositionRects(text)`. Nothing it returns is stored.
 
 <h3 id="document-edge">Leaving a node at the document's edge</h3>
