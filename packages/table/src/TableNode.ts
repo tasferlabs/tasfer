@@ -123,9 +123,10 @@ import type {
   TableBlockStyle,
   TextStyle,
 } from "@tasfer/editor/state-types";
-import type {
-  ContentPoint,
-  ContentSelection,
+import {
+  type ContentPoint,
+  type ContentSelection,
+  shownContentSelection,
 } from "@tasfer/editor/structured-selection";
 import { recordUndoOps } from "@tasfer/editor/sync/crdt-undo";
 import {
@@ -667,7 +668,9 @@ export class TableNode extends Node<TableBlock> {
     x: number,
     y: number,
   ): void {
-    const selection = c.state.document.contentSelection;
+    // While a phone handle crosses a piece of a cell's formula (a √), the
+    // range is shown only up to the piece; the crossing fill draws the rest.
+    const selection = shownContentSelection(c.state);
     if (!selection) return;
     // A composition's preview already stands in for the range it will replace,
     // as it does in a paragraph, where the selection is removed as it starts.
