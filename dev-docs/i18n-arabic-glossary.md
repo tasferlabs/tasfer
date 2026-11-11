@@ -152,7 +152,7 @@ One term, one rendering. Deviations are bugs.
 > "Move column left/right" is the one place a physical side IS the label, for
 > the same reason: the grid never mirrors, so `يسارًا`/`يمينًا` names the edge
 > the column actually goes to in either language. `تحريك` (a nudge), not `نقل`
-> (relocating a page), matching `editor.math.moveCaretLeft/Right`.
+> (relocating a page), matching `editor.moveCaretLeft/Right`.
 >
 > `إضافة`/`إزالة` matches the matrix editor next door, which is the surface a
 > user compares this one against.

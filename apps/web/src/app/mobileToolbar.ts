@@ -175,10 +175,10 @@ export interface MobileToolbarMathRow {
 /** Caret-in-math context the host feeds in; null when the caret is not in math
  *  (neither a block equation nor inside an inline chip). `query` is the
  *  in-progress command text and `trigger` the character that opened it, or both
- *  null while browsing. `canCaretLeft`/`canCaretRight` are false when the caret
- *  sits on the formula's left/right edge — the step in that direction would
- *  leave the math, so the toolbar's caret control is disabled rather than
- *  silently exiting the equation. */
+ *  null while browsing. `canCaretLeft`/`canCaretRight` are false when the step
+ *  in that direction has nowhere to go: on a block equation's left/right edge,
+ *  where it would leave the equation. An inline formula's edge steps out to the
+ *  prose beside it, the outside stop of that edge. */
 export interface MobileToolbarMathContext {
   query: string | null;
   trigger: MathMenuTrigger | null;
@@ -372,6 +372,13 @@ interface MobileToolbarState {
   canRepositionImage: boolean;
   /** Whether the selected image is already in reposition mode. */
   repositioningImage: boolean;
+  /**
+   * Whether a collapsed caret sits inside or on the edge of marked text (bold,
+   * a link, a formula, …). A mark's edge is two caret stops at one spot, and a
+   * phone keyboard has no arrow keys to step between them, so the text toolbar
+   * shows the left/right caret steps while this holds.
+   */
+  caretTouchesMark: boolean;
   math: MobileToolbarMathContext | null;
 }
 
@@ -975,29 +982,10 @@ function buildLayout(
     // show ONLY while browsing (`query === null`): once a command is being
     // typed, the suggestion chips fill the middle, and the two clusters would
     // compete for the same scarce width — so the arrows step aside for them.
-    const caretLeft: MobileToolbarItem = {
-      kind: "button",
-      id: "caret-left",
-      icon: "caret_left",
-      label: t("editor.math.moveCaretLeft", "Move left"),
-      action: { type: "caret-left" },
-      // Disabled on the formula's left edge: the step would exit the math, so
-      // grey it out rather than silently leaving the equation.
-      enabled: state.math.canCaretLeft,
-      active: false,
-    };
-    const caretRight: MobileToolbarItem = {
-      kind: "button",
-      id: "caret-right",
-      icon: "caret_right",
-      label: t("editor.math.moveCaretRight", "Move right"),
-      action: { type: "caret-right" },
-      // Disabled on the formula's right edge (mirror of caret-left).
-      enabled: state.math.canCaretRight,
-      active: false,
-    };
     const caretControls: MobileToolbarItem[] =
-      mathRow.query === null ? [caretLeft, caretRight] : [];
+      mathRow.query === null
+        ? caretStepButtons(t, state.math.canCaretLeft, state.math.canCaretRight)
+        : [];
     // The matrix editor trigger lives in the overflow drawer ("extra"), behind the
     // "more" control — not as a standalone bar button. It's a rarely-reached
     // structural edit, so it sits in the long tail like the drawer marks/link
@@ -1082,6 +1070,7 @@ function buildLayout(
       active: false,
     };
     const middleItems: MobileToolbarItem[] = [blockMenu, outdent, indent];
+    if (state.caretTouchesMark) middleItems.push(...caretStepButtons(t));
     if (state.blockType === "todo_list") {
       middleItems.push({
         kind: "button",
@@ -1128,7 +1117,13 @@ function buildLayout(
       bold,
       italic,
     ],
-    middle: { kind: "items", items: [] },
+    // In or beside marked text, the caret steps that cross a mark's edge (a
+    // phone keyboard has no arrow keys). They sit after the format marks, in
+    // the middle, so a narrow screen scrolls to them.
+    middle: {
+      kind: "items",
+      items: state.caretTouchesMark ? caretStepButtons(t) : [],
+    },
     // The link control lives in the overflow drawer ("extra") alongside the
     // rarer marks: it edits an existing link or creates one from the selection.
     //
@@ -1141,6 +1136,38 @@ function buildLayout(
       : [strikethrough, inlineCode, inlineMath, link],
     right,
   };
+}
+
+/**
+ * The left/right caret steps (the engine's arrow-key moves): how a phone, with
+ * no arrow keys, crosses a mark's edge or walks through a formula. A step that
+ * has nowhere to go is shown greyed out.
+ */
+function caretStepButtons(
+  t: Translate,
+  canLeft = true,
+  canRight = true,
+): MobileToolbarItem[] {
+  return [
+    {
+      kind: "button",
+      id: "caret-left",
+      icon: "caret_left",
+      label: t("editor.moveCaretLeft", "Move left"),
+      action: { type: "caret-left" },
+      enabled: canLeft,
+      active: false,
+    },
+    {
+      kind: "button",
+      id: "caret-right",
+      icon: "caret_right",
+      label: t("editor.moveCaretRight", "Move right"),
+      action: { type: "caret-right" },
+      enabled: canRight,
+      active: false,
+    },
+  ];
 }
 
 function controlsDivider(): MobileToolbarItem {

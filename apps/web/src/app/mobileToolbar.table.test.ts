@@ -27,6 +27,7 @@ const baseState = {
   canCreateLink: false,
   canRepositionImage: false,
   repositioningImage: false,
+  caretTouchesMark: false,
   math: null,
 };
 
