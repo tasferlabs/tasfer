@@ -61,8 +61,10 @@ import type {
 import {
   type BlockRuntimeState,
   Node,
+  type NodeContentCaretCtx,
   type NodeContentHitCtx,
   type NodeContentHitOptions,
+  type NodeContentSelectionGeometry,
   type NodeLayout,
   type NodeLayoutCtx,
   type NodePaintCtx,
@@ -1405,6 +1407,65 @@ export class TextNode<
       c.block.id,
       options,
     );
+  }
+
+  /**
+   * Where the touch selection handles hang for a range INSIDE a replacement run
+   * (part of an inline formula). Built from the same band `paint` fills, so the
+   * handles sit on the highlight the user sees. Without this a phone shows a
+   * part-selected formula with no handles to grab, and the range can't be
+   * adjusted.
+   *
+   * Reading order is top row first, then left to right: a replacement run lays
+   * its own content out left to right even inside a right-to-left paragraph.
+   */
+  contentSelectionGeometry(
+    layoutValue: NodeLayout,
+    selection: ContentSelection,
+    c: NodeContentCaretCtx<B>,
+  ): NodeContentSelectionGeometry | null {
+    if (selection.focus.blockId !== c.block.id) return null;
+    const layout = layoutValue as TextNodeLayout;
+    const baseX = this.baseX(layout, c.origin.x);
+    const top = c.origin.y + layout.insetY;
+    const rects = textContentSelectionRects(layout, selection, c.block.id).map(
+      (rect) => ({
+        x: baseX + rect.x,
+        y: top + rect.y,
+        width: rect.width,
+        height: rect.height,
+      }),
+    );
+    if (rects.length === 0) return null;
+    const sorted = [...rects].sort((a, b) => a.y - b.y || a.x - b.x);
+    const first = sorted[0];
+    const last = sorted[sorted.length - 1];
+
+    // Which end is the anchor: compare the two carets in the same reading
+    // order (line first, then x). A caret the run can't place falls back to
+    // forward, which only decides which handle is called the anchor.
+    const anchor = textContentCaretRect(layout, selection.anchor, c.block.id);
+    const focus = textContentCaretRect(layout, selection.focus, c.block.id);
+    const lineOf = (caret: { y: number; height: number }) => {
+      const mid = caret.y + caret.height / 2;
+      const index = layout.lines.findIndex(
+        (line) => mid >= line.y && mid < line.y + line.height,
+      );
+      return index === -1 ? 0 : index;
+    };
+    const isForward =
+      !anchor ||
+      !focus ||
+      (lineOf(anchor) === lineOf(focus)
+        ? anchor.x <= focus.x
+        : lineOf(anchor) < lineOf(focus));
+
+    return {
+      rects,
+      start: { x: first.x, y: first.y, height: first.height },
+      end: { x: last.x + last.width, y: last.y, height: last.height },
+      isForward,
+    };
   }
 
   /**

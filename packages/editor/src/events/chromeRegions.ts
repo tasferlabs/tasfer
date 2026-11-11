@@ -49,7 +49,11 @@ import {
   updateContentSelection,
 } from "../structured-selection";
 import { getEditorStyles } from "../styles";
-import { getAtomicBlockAtPoint, getSelectionHandleAtPoint } from "./eventUtils";
+import {
+  getAtomicBlockAtPoint,
+  getSelectionHandleAtPoint,
+  getTouchSelectionHandlePositions,
+} from "./eventUtils";
 import {
   type InteractionSession,
   startAutoScroll,
@@ -224,6 +228,28 @@ export function dragContentHandleToPoint(
   return next;
 }
 
+/**
+ * The finger's offset from the held (focus) handle's text row — see
+ * {@link InteractionSession.handleDragGrabOffset}. `p` is in viewport space.
+ */
+function handleGrabOffset(
+  state: EditorState,
+  p: { x: number; y: number },
+  viewport: ViewportState,
+  visibility?: VisibleBlockRange,
+): { dx: number; dy: number } | null {
+  const focus = getTouchSelectionHandlePositions(
+    state,
+    viewport,
+    visibility,
+  )?.focus;
+  if (!focus) return null;
+  return {
+    dx: p.x - focus.x,
+    dy: p.y - (focus.y - viewport.scrollY + focus.height / 2),
+  };
+}
+
 /** Touch selection handles (anchor/focus) — drag to adjust the selection. */
 const selectionHandleRegion: Region = {
   id: "selection-handle",
@@ -274,7 +300,8 @@ const selectionHandleRegion: Region = {
           lastUpdate: Date.now(),
         });
         if (swapped.document.contentSelection) state = swapped;
-      } else if (grabbedAnchorHandle && sel) {
+      }
+      if (grabbedAnchorHandle && sel) {
         state = {
           ...state,
           document: {
@@ -290,6 +317,12 @@ const selectionHandleRegion: Region = {
           },
         };
       }
+      ctx.session.handleDragGrabOffset = handleGrabOffset(
+        state,
+        p,
+        ctx.viewport,
+        ctx.visibility,
+      );
 
       return {
         state: withScrollbarInteraction(
@@ -325,6 +358,14 @@ const selectionHandleRegion: Region = {
         stopAutoScroll(session);
       }
 
+      // The point on the held handle's text row: the finger minus where it
+      // grabbed the ball, so every hit-test reads the handle's line, not the
+      // point under the ball — which sits above or below the line, where a
+      // flat hit lands on the paragraph's start or the next block, and a
+      // nested one (rows only) misses.
+      const rowX = p.x - (session.handleDragGrabOffset?.dx ?? 0);
+      const rowY = p.y - (session.handleDragGrabOffset?.dy ?? 0);
+
       // Finger-drag resolution, exactly like the single-caret magnifier drag:
       // over a formula the focus follows the finger to its nearest caret stop
       // through stacked constructs, instead of the tap path's leap out to a
@@ -344,20 +385,26 @@ const selectionHandleRegion: Region = {
       // hysteresis exactly where it's needed.
       const newPosition = state.document.contentSelection
         ? null
-        : getTextPositionFromViewport(
-            p.x,
-            p.y,
-            state,
-            viewport,
-            undefined,
-            ctx.visibility,
-            { drag: true, prev: session.handleDragPrevHit },
-          );
+          : getTextPositionFromViewport(
+              rowX,
+              rowY,
+              state,
+              viewport,
+              undefined,
+              ctx.visibility,
+              { drag: true, prev: session.handleDragPrevHit },
+            );
       if (newPosition) session.handleDragPrevHit = newPosition;
 
       let next =
         state.ui.selectionHandleDrag && state.document.contentSelection
-          ? dragContentHandleToPoint(state, p.x, p.y, viewport, ctx.visibility)
+          ? dragContentHandleToPoint(
+              state,
+              rowX,
+              rowY,
+              viewport,
+              ctx.visibility,
+            )
           : state;
       if (
         newPosition &&
