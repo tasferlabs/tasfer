@@ -276,6 +276,31 @@ describe("Enter divides a chip across a block boundary", () => {
     });
   });
 
+  // A left half longer than one source char: each chip is ONE flat char, so the
+  // break must land on the seam, not `left.length` chars in (which used to put
+  // both halves on block one and break after them — or past the line end).
+  it.each([
+    ["x+y", "x+".length, "x+", "y"],
+    ["\\frac{a}{b}+c", "\\frac{a}{b}".length, "\\frac{a}{b}", "+c"],
+    ["\\frac{a}{b}+c", "\\frac{a}{b}+".length, "\\frac{a}{b}+", "c"],
+  ])(
+    "puts the right half of $%s on the new line",
+    (source, offset, left, right) => {
+      let state = treeState(`hello $${source}$ world`);
+      state = caretAtSourceOffset(state, offset);
+      state = enter(state);
+
+      expect(blockText(state, 0)).toBe(`hello ${A}`);
+      expect(blockText(state, 1)).toBe(`${A} world`);
+      expect(inlineRuns(state, 0).map((entry) => entry.latex)).toEqual([left]);
+      expect(inlineRuns(state, 1).map((entry) => entry.latex)).toEqual([right]);
+      expect(state.document.cursor?.position).toEqual({
+        blockIndex: 1,
+        textIndex: 0,
+      });
+    },
+  );
+
   it("Backspace at the boundary rejoins the halves into one formula", () => {
     let state = treeState("hello $xy$ world");
     state = caretAtSourceOffset(state, 1);

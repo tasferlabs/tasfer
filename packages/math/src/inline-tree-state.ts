@@ -1466,7 +1466,10 @@ function divideInlineMathChipForBlockSplit(
     state: moveCursorToPosition(
       withPage,
       blockIndex >= 0 ? blockIndex : context.blockIndex,
-      context.run.startIndex + left.length,
+      // Flat layout after the rebuild: [left anchor][right anchor]. Each chip
+      // is ONE flat char, so the seam is one past the start — not the length
+      // of the left LaTeX, which overshot past the right chip (or the line).
+      context.run.startIndex + 1,
     ),
     ops: rebuilt.ops,
   };
