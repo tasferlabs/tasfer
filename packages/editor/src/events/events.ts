@@ -102,10 +102,17 @@ export function handleEvents(
     position: Position,
     contentPoint?: ContentPoint,
   ) => void,
-): { state: EditorState; ops: Operation[]; pastedImageBlockIndex?: number } {
+): {
+  state: EditorState;
+  ops: Operation[];
+  pastedImageBlockIndex?: number;
+  /** A paste changed the document; the editor scrolls the caret into view. */
+  pasted?: boolean;
+} {
   // Collect operations from actions
   let collectedOps: Operation[] = [];
   let pastedImageBlockIndex: number | undefined;
+  let pasted = false;
 
   // The visibility snapshot is produced by the last paint. If the scroll has
   // advanced since then without an intervening repaint — e.g. a programmatic
@@ -771,10 +778,9 @@ export function handleEvents(
         const pasteResult = handlePaste(
           state,
           event as ClipboardEvent,
-          viewport,
-          updateViewportCallback,
           clipboardData,
         );
+        if (pasteResult.state !== state) pasted = true;
         state = pasteResult.state;
         collectedOps.push(...pasteResult.ops);
         if (pasteResult.pastedImageBlockIndex !== undefined) {
@@ -914,5 +920,5 @@ export function handleEvents(
     },
   };
 
-  return { state, ops: collectedOps, pastedImageBlockIndex };
+  return { state, ops: collectedOps, pastedImageBlockIndex, pasted };
 }
