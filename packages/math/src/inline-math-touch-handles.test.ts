@@ -518,3 +518,26 @@ describe("a handle crossing a root inside a formula", () => {
     expect(drag.release().ui.selectionHandleDrag).toBeNull();
   });
 });
+
+describe("a handle on a formula that makes its line taller", () => {
+  // The nested fraction pushes the line's baseline down, so the top row (`ab`)
+  // sits above where the flat caret beside the formula starts.
+  const md = "$\\frac{\\frac{ab}{c}}{d}$";
+
+  it("reaches the top row from the row below it", () => {
+    // Source: `\\frac{\\frac{` 0..12, `a` 12, `b` 13, `}{` 14..16, `c` 16,
+    // `}` 17; the inner fraction is 6..18.
+    const start = selectInside(load(md), 16, 17);
+    const top = getTouchSelectionHandlePositions(
+      selectInside(load(md), 12, 13),
+      viewport,
+    )!.focus!;
+    const from = getTouchSelectionHandlePositions(start, viewport)!.focus!;
+    const drag = grab(start, "focus");
+
+    // The finger goes up from `c` to `b`'s row: the range now spans both
+    // rows of the inner fraction, so it takes that fraction whole.
+    const state = drag(top.x - from.x, top.y - from.y);
+    expect(insideRange(state)).toEqual({ from: 6, to: 18 });
+  });
+});

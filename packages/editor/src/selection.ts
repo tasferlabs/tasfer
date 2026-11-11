@@ -366,6 +366,59 @@ export function getCursorDocumentCoords(
 }
 
 /**
+ * The box an inline mark run (a formula) fills on its text line, top and
+ * bottom in DOCUMENT space — the whole chip, as a tap on it is tested. Unlike
+ * the flat caret at its edges, which starts at the text's ascent, this reaches
+ * the top of a formula that makes its line taller (a nested fraction). Null
+ * when the run wraps over more than one line or the block is not text.
+ */
+export function getInlineRunBox(
+  state: EditorState,
+  run: { blockIndex: number; startIndex: number; endIndex: number },
+  viewport: ViewportState,
+  styles: EditorStyles = getEditorStyles(state),
+  visibility?: VisibleBlockRange,
+): { top: number; bottom: number } | null {
+  const block = state.document.page.blocks[run.blockIndex];
+  if (!block) return null;
+  const node = textNodeFor(state, block);
+  if (!node) return null;
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  const layout = layoutFor(
+    node,
+    block,
+    run.blockIndex,
+    maxWidth,
+    styles,
+    state.marks,
+  );
+  const blockTop = getBlockTopDocument(
+    state,
+    run.blockIndex,
+    maxWidth,
+    styles,
+    viewport,
+    visibility,
+  );
+  const rects = node.selectionRects(
+    layout,
+    {
+      anchor: { blockIndex: run.blockIndex, textIndex: run.startIndex },
+      focus: { blockIndex: run.blockIndex, textIndex: run.endIndex },
+      isForward: true,
+    },
+    run.blockIndex,
+    styles.canvas.paddingLeft,
+    blockTop,
+    false,
+    true,
+  );
+  if (rects.length !== 1) return null;
+  return { top: rects[0].y, bottom: rects[0].y + rects[0].height };
+}
+
+/**
  * The caret → document-coords resolver an event hands to its action payloads
  * (`POINTER_MOVE`, `CURSOR_MOVED`). Anchored on the painted range: the canvas
  * lays blocks out from the height index, which holds *estimates* for blocks

@@ -30,7 +30,7 @@ import {
   getBlockIndexAtPoint,
   getContentPointDocumentCoords,
   getContentSelectionFromViewport,
-  getCursorDocumentCoords,
+  getInlineRunBox,
   getTextPositionFromViewport,
   getWordRangeFromViewport,
   isPointWithinSelectionRects,
@@ -589,10 +589,14 @@ export function handleMouseDown(
 }
 
 /**
- * The top and bottom of the text line an inline mark run (a formula) sits
- * on, in viewport space, read off the flat carets at the run's two edges.
- * Null when those carets sit on different lines (the run wraps), so the
- * caller keeps the raw pointer.
+ * The top and bottom of the box an inline mark run (a formula) fills on its
+ * text line, in viewport space. Null when the run wraps over more than one
+ * line, so the caller keeps the raw pointer.
+ *
+ * Read off the run's own box, not the flat carets at its edges: those start
+ * at the text's ascent, so on a line a tall formula makes taller (a nested
+ * fraction) they begin below the formula's top row, and clamping to them made
+ * that row unreachable.
  */
 function structuredMarkLineBand(
   state: EditorState,
@@ -600,21 +604,12 @@ function structuredMarkLineBand(
   viewport: ViewportState,
   visibility?: VisibleBlockRange,
 ): { top: number; bottom: number } | null {
-  // A live nested selection would place the caret inside the run instead.
-  const flat = updateContentSelection(state, null);
-  const edge = (textIndex: number) =>
-    getCursorDocumentCoords(
-      { blockIndex: run.blockIndex, textIndex },
-      flat,
-      viewport,
-      undefined,
-      visibility,
-    );
-  const start = edge(run.startIndex);
-  const end = edge(run.endIndex);
-  if (!start || !end || Math.abs(start.y - end.y) > 0.5) return null;
-  const top = start.y - viewport.scrollY;
-  return { top, bottom: top + start.height };
+  const box = getInlineRunBox(state, run, viewport, undefined, visibility);
+  if (!box) return null;
+  return {
+    top: box.top - viewport.scrollY,
+    bottom: box.bottom - viewport.scrollY,
+  };
 }
 
 /**
