@@ -226,6 +226,7 @@ import {
 import { getVisibleBlocks } from "../sync/sync";
 import { blockTextFields, type TextFieldInfo } from "../text-fields";
 import { openLinkUrl } from "../url-safety";
+import { InputLog, SURFACE_LOG_EVENTS } from "./input-log";
 import type { CanvasLayers } from "./layers";
 
 // ── Per-block style: write-API expansion ─────────────────────────────────────
@@ -1194,6 +1195,84 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
       : null;
 
   private readonly eventsQueue: Event[] = [];
+
+  // TEMPORARY: iPhone dead-Backspace hunt (see `input-log.ts`). Remove with it.
+  private readonly inputLog = new InputLog();
+
+  private inputSnapshot = (state: EditorState = this._state) => {
+    const doc = state.document;
+    const cs = doc.contentSelection;
+    const input = this.hiddenInput;
+    const active = document.activeElement;
+    const blockIndex =
+      doc.cursor?.position.blockIndex ??
+      (cs ? doc.page.blocks.findIndex((b) => b.id === cs.focus.blockId) : -1);
+    const text = input?.textContent ?? "";
+    return {
+      strategy: this.inputStrategy,
+      focused: state.view.isFocused,
+      active:
+        active === input ? "surface" : (active?.tagName.toLowerCase() ?? null),
+      surface: text.slice(-30),
+      surfaceLength: text.length,
+      domCaret: this.readSurfaceCaret(),
+      browserComposing: this.browserComposing,
+      stale: this.staleComposition !== null,
+      ime: !!state.ui.composition?.isComposing,
+      block: doc.page.blocks[blockIndex]?.type ?? null,
+      cursor: doc.cursor
+        ? `${doc.cursor.position.blockIndex}:${doc.cursor.position.textIndex}`
+        : null,
+      nested: cs
+        ? `${cs.focus.kind}${isContentSelectionCollapsed(cs) ? "" : " range"}`
+        : null,
+      selection: doc.selection
+        ? doc.selection.isCollapsed
+          ? "collapsed"
+          : "range"
+        : null,
+      queue: this.eventsQueue.length,
+      mode: state.ui.mode,
+    };
+  };
+
+  private logSurfaceEvent = (e: Event) => {
+    // Duck-typed: test doubles and older WebKit lack some event constructors.
+    const fields = e as Partial<KeyboardEvent & InputEvent & CompositionEvent>;
+    const detail: Record<string, unknown> = { prevented: e.defaultPrevented };
+    for (const key of [
+      "key",
+      "code",
+      "keyCode",
+      "repeat",
+      "inputType",
+      "data",
+      "isComposing",
+    ] as const) {
+      if (fields[key] !== undefined) detail[key] = fields[key];
+    }
+    this.inputLog.push(e.type, detail, this.inputSnapshot());
+  };
+
+  // A key that lands on some other element than the surface (focus moved away
+  // while the keyboard stayed up).
+  private logStrayKey = (e: KeyboardEvent) => {
+    if (e.target === this.hiddenInput) return;
+    const target = e.target as Element | null;
+    this.inputLog.push(
+      "keydown(elsewhere)",
+      { key: e.key, target: target?.tagName?.toLowerCase() ?? null },
+      this.inputSnapshot(),
+    );
+  };
+
+  private logSurfaceSelection = () => {
+    const anchor = window.getSelection()?.anchorNode ?? null;
+    if (!anchor || !this.hiddenInput?.contains(anchor)) return;
+    this.inputLog.push("selectionchange", {}, this.inputSnapshot());
+  };
+
+  private dumpInputLog = () => this.inputLog.dump();
   // Printable physical keys commit through the contenteditable's input event,
   // which is later replayed as a synthetic key. Preserve the original source
   // across that handoff so host typeaheads can distinguish it from an IME key.
@@ -1555,6 +1634,15 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         this.surfaceSelectionChangeHandler,
       );
 
+      // TEMPORARY input log (see `input-log.ts`). Added after the real handlers
+      // so each entry shows what they did.
+      for (const type of SURFACE_LOG_EVENTS) {
+        this.hiddenInput.addEventListener(type, this.logSurfaceEvent);
+      }
+      document.addEventListener("keydown", this.logStrayKey, true);
+      document.addEventListener("selectionchange", this.logSurfaceSelection);
+      Object.assign(this.hiddenInput, { tasferInputLog: this.dumpInputLog });
+
       // Ensure input is focusable (already set in mount.ts, but ensure it's correct)
       this.hiddenInput.setAttribute("tabindex", "0");
 
@@ -1796,6 +1884,17 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
     // point where the surface is settled.
     this.settleComposition();
     const prevState = this._state;
+    const loggedEvents = this.eventsQueue
+      .filter(
+        (e) => e.type.startsWith("key") || e.type.startsWith("composition"),
+      )
+      .map((e) => {
+        const key = (e as Partial<KeyboardEvent>).key;
+        return key === undefined ? e.type : `${e.type}:${key}`;
+      });
+    const selectionBefore = loggedEvents.length
+      ? this.inputSnapshot(prevState)
+      : null;
 
     const handleEventsResult = handleEvents(
       this._state,
@@ -1866,6 +1965,24 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
 
     // Clear clipboard data after it's been used
     this.pendingClipboardData = null;
+
+    if (selectionBefore) {
+      this.inputLog.push(
+        "frame",
+        {
+          events: loggedEvents,
+          ops: handleEventsResult.ops.length,
+          docChanged: prevState.document !== this._state.document,
+          before: {
+            block: selectionBefore.block,
+            cursor: selectionBefore.cursor,
+            nested: selectionBefore.nested,
+            selection: selectionBefore.selection,
+          },
+        },
+        this.inputSnapshot(),
+      );
+    }
 
     return prevState;
   };
@@ -4945,6 +5062,12 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
         "selectionchange",
         this.surfaceSelectionChangeHandler,
       );
+      for (const type of SURFACE_LOG_EVENTS) {
+        this.hiddenInput.removeEventListener(type, this.logSurfaceEvent);
+      }
+      document.removeEventListener("keydown", this.logStrayKey, true);
+      document.removeEventListener("selectionchange", this.logSurfaceSelection);
+      Reflect.deleteProperty(this.hiddenInput, "tasferInputLog");
     }
 
     this.a11yMirror?.destroy();
