@@ -211,7 +211,7 @@ A custom node paints range decorations itself: iterate `decorationsForBlock(stat
 
 `on(event, cb)` subscribes and returns an unsubscribe function. For state-driven UI outside React there is also `subscribe(listener)` — it delivers a fresh `EditorStateSnapshot` after every render-loop diff, rather than per named event, and likewise returns its own unsubscribe. (`useEditorState` is this wrapped for React.) The `change` listener receives a `ChangeTransaction` (`{ isRemote, ops }`); the others receive an `EditorStateSnapshot` — the same immutable value as `editor.state`.
 
-<PropsTable cols={["Event", "Fires when", "Payload"]} rows={[
+<PropsTable cols={["Event", "Payload", "Fires when"]} rows={[
   { name: "change", type: "ChangeTransaction", desc: "The document changed — typing, paste, undo, or a remote sync. { isRemote, ops }." },
   { name: "selectionchange", type: "EditorStateSnapshot", desc: "The caret or selection moved, with no document edit." },
   { name: "focus / blur", type: "EditorStateSnapshot", desc: "The canvas gained or lost focus." },

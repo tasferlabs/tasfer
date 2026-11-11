@@ -57,16 +57,16 @@ import { Card, CardGrid, Lede, PropsTable } from "../../docsComponents";
 Marks are inline formatting carried on runs of text. The CRDT names are `strong`/`emphasis`/`strike` (not bold/italic/strikethrough). The togglable ones flip across the selection with `change((c) => c.setMark(name))`; `link` carries data, so it is applied with an explicit range and attrs — `setMark(name, { attrs, range })` — instead.
 
 <PropsTable
-  cols={["Mark", "Markdown", "Togglable", "Notes"]}
+  cols={["Mark", "Markdown", "Notes"]}
   rows={[
-    { name: "strong", type: "**…**", desc: "Yes · bold." },
-    { name: "emphasis", type: "*…*", desc: "Yes · italic." },
-    { name: "strike", type: "~~…~~", desc: "Yes · strikethrough." },
-    { name: "code", type: "`…`", desc: "Yes · inline code span." },
+    { name: "strong", type: "**…**", desc: "Togglable · bold." },
+    { name: "emphasis", type: "*…*", desc: "Togglable · italic." },
+    { name: "strike", type: "~~…~~", desc: "Togglable · strikethrough." },
+    { name: "code", type: "`…`", desc: "Togglable · inline code span." },
     {
       name: "link",
       type: "[text](url)",
-      desc: "No — carries a url on attrs; applied via setMark(name, { attrs, range }).",
+      desc: "Not togglable — carries a url on attrs; applied via setMark(name, { attrs, range }).",
     },
   ]}
 />
