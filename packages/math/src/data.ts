@@ -132,14 +132,17 @@ export const mathBlockCodec: BlockCodec = {
 /** Serialization facet shared by the headless mark spec and MathMark. */
 export const mathMarkCodec: MarkCodec = {
   type: "math",
-  toMarkdown: (text) => `$${text}$`,
-  toText: (text) => `$${text}$`,
+  // An empty formula (a box left without content) writes nothing: `$$` would
+  // reload as two literal dollar signs, not as the box.
+  toMarkdown: (text) => (text ? `$${text}$` : ""),
+  toText: (text) => (text ? `$${text}$` : ""),
   tokens: { start: INLINE_MATH_START, end: INLINE_MATH_END },
   html: {
     priority: 0,
     replace: true,
     render: (_inner, _mark, ctx) => {
       const latex = ctx.text;
+      if (!latex) return "";
       if (ctx.preferSource) return `$${ctx.escapeHtml(latex)}$`;
       try {
         if (!ctx.renderReplacement) throw new Error("no math renderer");

@@ -21,6 +21,23 @@ export function tableContextForCaret(editor: AppEditor): TableShape | null {
   return (document ? tableShapeAt(document, point) : undefined) ?? null;
 }
 
+/** Whether the selection runs from one table cell into another. */
+export function selectionSpansTableCells(editor: AppEditor): boolean {
+  const selection = editor.state.contentSelection;
+  if (!selection) return false;
+  const { anchor, focus } = selection;
+  if (anchor.blockId !== focus.blockId) return false;
+  if (anchor.contentId !== focus.contentId) return false;
+  const block = editor.query.block({ block: focus.blockId });
+  if (block?.type !== "table") return false;
+  const document = editor.query.content(block.id, focus.contentId);
+  if (!document) return false;
+  const from = tableShapeAt(document, anchor);
+  const to = tableShapeAt(document, focus);
+  if (!from || !to) return false;
+  return from.rowIndex !== to.rowIndex || from.columnIndex !== to.columnIndex;
+}
+
 /**
  * Whether the table's menu is open, shared between the editor host and the
  * overlay the engine positions on the canvas.

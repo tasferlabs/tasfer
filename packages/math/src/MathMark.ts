@@ -22,6 +22,7 @@ import {
   enterAdjacentInlineMathTreeByUnit,
   enterAdjacentInlineMathTreeHorizontally,
   enterInlineMathTreeAtPosition,
+  insertEmptyInlineMathAtCaret,
   exitActiveInlineMathTreeHorizontally,
   exitActiveInlineMathTreeSelectionHorizontally,
   exitActiveInlineMathTreeToLineEdge,
@@ -93,6 +94,7 @@ import {
   type ViewportPayload,
 } from "@tasfer/editor/actions/keyboard-actions";
 import { TEXT_CLICK } from "@tasfer/editor/actions/pointer-actions";
+import { TOGGLE_MARK } from "@tasfer/editor/rendering/marks";
 import {
   Mark,
   type MarkReplacement,
@@ -420,8 +422,8 @@ export class MathMark extends Mark {
   readonly type = "math";
   // Togglable over a selection: a chip's visible chars ARE its LaTeX, so
   // wrapping the selection just marks it as math (no extra input, unlike a
-  // link's url). With no selection it arms a pending math format — the next
-  // typed text forms the chip — since a zero-width chip can't exist.
+  // link's url). With no selection the toggle puts an empty formula box at the
+  // caret, caret inside (see the TOGGLE_MARK handler in `registerActions`).
   readonly togglable = true;
   readonly replacement = inlineMathReplacement;
   readonly codec = mathMarkCodec;
@@ -464,6 +466,17 @@ export class MathMark extends Mark {
         );
       },
       90,
+    );
+    // The Math button with nothing selected: put an empty formula at the caret
+    // and the caret inside it, shown as the faint slot box — rather than arming
+    // an invisible pending mark that only appears once something is typed.
+    // Above a table's own toggle (100), which leaves a nested caret alone here
+    // (no flat caret) and runs this again on the cell's paragraph.
+    bus.registerState(
+      TOGGLE_MARK,
+      (state, { name }) =>
+        name === "math" ? insertEmptyInlineMathAtCaret(state) : undefined,
+      110,
     );
     const remove =
       (direction: "backward" | "forward") => (state: EditorState) => {

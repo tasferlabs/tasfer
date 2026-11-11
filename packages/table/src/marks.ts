@@ -17,8 +17,8 @@
  * `runInCell`). Only a range across cells is decided here: every covered cell
  * is marked whole, the way deleting such a range clears them whole.
  *
- * Plain marks only. Toggling on a mark whose content lives in an attachment
- * (inline math) is refused — see {@link toggleTableMark}.
+ * A mark whose content lives in an attachment (inline math) can be toggled
+ * inside one cell, not across cells — see {@link toggleTableMark}.
  */
 
 import {
@@ -142,13 +142,15 @@ function markEdits(
  * other range marks every covered cell whole — unless all of it already
  * carries the mark, which clears it.
  *
- * A *structured* mark (inline math) is refused outright. Its content does not
- * live in the characters it covers: it belongs to a separate attachment, and
- * the covered text collapses to one anchor character holding the mark's place.
- * A cell CAN hold one — Markdown import and paste write the attachment beside
- * the table's document on the block — but toggling one on here would emit a
- * bare `mark_set` with no formula behind it. Refusing here closes every route
- * at once — the context menu, the mobile drawer, a keybinding, the public
+ * A *structured* mark (inline math) works inside one cell only. Its content
+ * does not live in the characters it covers: it belongs to a separate
+ * attachment, and the covered text collapses to one anchor character holding
+ * the mark's place. The paragraph's toggle, run on the cell, creates that
+ * attachment beside the table's document on the block — the same as typing
+ * `$x$` in a cell does. Across cells it is refused: a range over several cells
+ * has no one piece of text to become the formula, and a bare `mark_set` would
+ * leave marks with no formula behind them. Refusing here closes every route at
+ * once — the context menu, the mobile drawer, a keybinding, the public
  * `setMark` — rather than each caller separately.
  */
 export function toggleTableMark(
@@ -157,13 +159,18 @@ export function toggleTableMark(
   name: string,
 ): Claimed | undefined {
   if (!state.schema.isMarkAllowed(name)) return undefined;
-  if (state.schema.structuredMark(name)) return undefined;
   const definition = state.marks.get(name);
   if (definition?.togglable !== true) return undefined;
 
+  const inOneCell = context.anchor.cellId === context.caret.cellId;
+  if (state.schema.structuredMark(name) && !inOneCell) {
+    return { state, ops: [], handled: true };
+  }
+
   // Inside one cell the toggle is the paragraph's own, run on the cell — the
-  // pending mark at a bare caret, the side of a mark edge, partial ranges.
-  if (context.anchor.cellId === context.caret.cellId) {
+  // pending mark at a bare caret, the side of a mark edge, partial ranges, and
+  // a new formula's attachment.
+  if (inOneCell) {
     return claimRun(
       state,
       runInCell(state, context, (paragraph) =>

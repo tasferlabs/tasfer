@@ -1332,7 +1332,7 @@ describe("interactive structured MathMark", () => {
       serializeToMarkdown(forward.state.document.page.blocks, undefined, {
         schema: forward.state.schema,
       }),
-    ).toBe("$$");
+    ).toBe("");
   });
 
   it("keeps the nested caret in place after backspacing the final character", () => {
