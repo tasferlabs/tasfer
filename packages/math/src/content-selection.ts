@@ -12,20 +12,28 @@
  * add {@link mathContentSelectionKind} to their `structuredKinds`.
  */
 
-import { MATH_STRUCTURED_KIND, structuredToMathDocument } from "./structured";
+import {
+  MATH_STRUCTURED_KIND,
+  parseMathDocumentInit,
+  structuredToMathDocument,
+} from "./structured";
 import { getMathTreeRangeText } from "./tree-edit";
 import {
   contentPointToMathTreeCaret,
+  mathContentSelectionFromSourceOffset,
   mathSourceOffsetFromContentPoint,
   mathSourceRangeFromContentSelection,
   snapMathContentSelection,
 } from "./tree-selection";
 import type {
+  ContentEdgeRange,
+  ContentEdgeRangeCtx,
   ContentSelectionCtx,
   ContentSelectionSlice,
 } from "@tasfer/editor/feature-facets";
 import type { ContentSelection } from "@tasfer/editor/structured-selection";
 import type { StructuredKindSpec } from "@tasfer/editor/sync/schema";
+import type { StructuredDocument } from "@tasfer/editor/sync/structured-content";
 import { printMathDocument } from "@tasfer/tex/data";
 
 /** Losslessly encode the editable subset of a math range for the clipboard. */
@@ -98,9 +106,62 @@ export function resolveMathContentSelection({
   };
 }
 
+/**
+ * A detached formula holding only the selected range of `document` — what a
+ * copy of a text selection that takes part of an inline formula carries in
+ * the formula's place.
+ */
+export function sliceMathContentSelection(
+  ctx: ContentSelectionCtx,
+): StructuredDocument | undefined {
+  const source = serializeMathContentSelection(ctx)?.plainText;
+  if (!source) return undefined;
+  return parseMathDocumentInit(source, {
+    contentId: ctx.document.rootId,
+    authority: ctx.document.authority === "block" ? "block" : "supplemental",
+  }).document;
+}
+
+/**
+ * The part of a formula between a stop inside it and its start or end — what
+ * a text selection that runs out of the formula takes of it. A root, fraction
+ * or other construct the stop sits in is taken whole, like any range inside a
+ * formula, so the part can come out as the whole formula or as nothing of it.
+ */
+export function mathContentEdgeRange({
+  document,
+  blockId,
+  contentId,
+  point,
+  edge,
+}: ContentEdgeRangeCtx): ContentEdgeRange | undefined {
+  const math = structuredToMathDocument(document);
+  if (!math) return undefined;
+  const length = printMathDocument(math).length;
+  const edgePoint = mathContentSelectionFromSourceOffset(
+    blockId,
+    contentId,
+    document,
+    edge === "start" ? 0 : length,
+  )?.focus;
+  if (!edgePoint) return undefined;
+  const raw: ContentSelection = { anchor: point, focus: edgePoint };
+  const selection = snapMathContentSelection(document, raw) ?? raw;
+  const from = mathSourceOffsetFromContentPoint(document, selection.anchor);
+  const to = mathSourceOffsetFromContentPoint(document, selection.focus);
+  if (from === null || to === null) return undefined;
+  const size = Math.abs(to - from);
+  return {
+    selection,
+    covers: size === 0 ? "none" : size >= length ? "all" : "part",
+  };
+}
+
 /** The math kind's selection adapters, for hand-assembled interactive schemas. */
 export const mathContentSelectionKind = {
   kind: MATH_STRUCTURED_KIND,
   contentSelection: serializeMathContentSelection,
   resolveSelection: resolveMathContentSelection,
+  edgeRange: mathContentEdgeRange,
+  sliceSelection: sliceMathContentSelection,
 } as const satisfies StructuredKindSpec;

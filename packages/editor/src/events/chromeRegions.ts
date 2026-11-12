@@ -45,6 +45,7 @@ import {
   selectedBlockIds,
   snapSelectionToConstructs,
 } from "../selection";
+import { flatEndForInside } from "../selection-inside";
 import type {
   EditorState,
   ViewportState,
@@ -69,7 +70,10 @@ import {
   withScrollbarInteraction,
   withStoppedMomentum,
 } from "./interaction-session";
-import { extendDragSelectionToPoint } from "./mouseEvents";
+import {
+  dragFocusIntoRunAtPoint,
+  extendDragSelectionToPoint,
+} from "./mouseEvents";
 import type { RegionCtx, RegionPoint } from "./regions";
 import { type Region, RegionRegistry } from "./regions";
 import { revealCaretSideways } from "./sidewaysScroll";
@@ -230,10 +234,7 @@ export function dragContentHandleToPoint(
   // Over a piece the range takes whole (a √), follow the finger across it
   // and count the piece only past its middle — see crossWidenedPiece. The
   // tick below then fires at the middle, when the range really changes.
-  const next = rememberFixedInside(
-    state,
-    crossWidenedPiece(extended, x, viewport, visibility),
-  );
+  const next = crossWidenedPiece(extended, x, viewport, visibility);
   const focus = next.document.contentSelection?.focus;
   if (
     signalBoundary &&
@@ -245,35 +246,17 @@ export function dragContentHandleToPoint(
 }
 
 /**
- * When a move took the held handle out of an inline formula (`next` is flat,
- * `previous` had a range inside), keep that range's fixed end on the drag —
- * see `fixedInside` on the handle drag state.
- */
-function rememberFixedInside(
-  previous: EditorState,
-  next: EditorState,
-): EditorState {
-  const fixed = previous.document.contentSelection?.anchor;
-  const drag = next.ui.selectionHandleDrag;
-  if (!fixed || !drag || next.document.contentSelection) return next;
-  return {
-    ...next,
-    ui: { ...next.ui, selectionHandleDrag: { ...drag, fixedInside: fixed } },
-  };
-}
-
-/**
  * Bring back the range inside an inline formula when the held handle returns
- * over it after leaving: the fixed end is the one the range had when the
- * handle left (`fixedInside` on the handle drag state), the moving end
- * follows the finger. Without it the way back in started from the formula's
- * edge, so a trip outside moved the end the finger was not holding.
+ * over it after leaving. Outside, the selection is flat and keeps the stop
+ * inside the formula its fixed end rests on (`SelectionState.inside`); the
+ * range inside picks its fixed end up from there, and the moving end follows
+ * the finger.
  *
  * The finger counts as back by the same test it left by: an ordinary move of
  * a range inside the formula, from the fixed end, that stays inside.
  *
  * `x`/`y` are the point on the handle's text row, in viewport space. Null when
- * no such end is kept or the point is not over that formula.
+ * the fixed end is not inside a formula or the point is not over that formula.
  */
 function returnToLeftRunAtPoint(
   state: EditorState,
@@ -282,7 +265,7 @@ function returnToLeftRunAtPoint(
   viewport: ViewportState,
   visibility?: VisibleBlockRange,
 ): EditorState | null {
-  const fixed = state.ui.selectionHandleDrag?.fixedInside;
+  const fixed = state.document.selection?.inside?.anchor;
   if (!fixed || state.document.contentSelection) return null;
   const caret = updateContentSelection(state, {
     anchor: fixed,
@@ -534,6 +517,17 @@ const selectionHandleRegion: Region = {
               isForward: !sel.isForward,
               isCollapsed: sel.isCollapsed,
               lastUpdate: Date.now(),
+              // The stops inside formulas swap ends with the flat ones.
+              ...(sel.inside
+                ? {
+                    inside: {
+                      ...(sel.inside.focus ? { anchor: sel.inside.focus } : {}),
+                      ...(sel.inside.anchor
+                        ? { focus: sel.inside.anchor }
+                        : {}),
+                    },
+                  }
+                : {}),
             },
             cursor: { position: sel.anchor, lastUpdate: Date.now() },
           },
@@ -657,15 +651,42 @@ const selectionHandleRegion: Region = {
               ctx.visibility,
             )
           : state;
-      if (
+      // The held handle dragged in over a formula the fixed end is not in
+      // stops inside it, taking the part on the fixed end's side.
+      const into =
+        newPosition && state.document.selection && state.ui.selectionHandleDrag
+          ? dragFocusIntoRunAtPoint(
+              state,
+              rowX,
+              rowY,
+              viewport,
+              ctx.visibility,
+              "touch",
+            )
+          : null;
+      if (into) {
+        const before = state.document.selection?.inside?.focus;
+        const after = into.document.selection?.inside?.focus;
+        if (!before || !after || !contentPointsEqual(before, after)) {
+          state.actionBus.dispatch(CURSOR_DRAG_BOUNDARY);
+        }
+        session.handleDragPrevRawFocus = null;
+        next = into;
+      } else if (
         newPosition &&
         state.document.selection &&
         state.ui.selectionHandleDrag
       ) {
         // The dragged handle is always the focus (set up in onStart); the anchor
         // is the opposite, fixed endpoint.
-        const { anchor: rawAnchor, focus: prevFocus } =
-          state.document.selection;
+        const { focus: prevFocus } = state.document.selection;
+        // A fixed end that stops inside a formula keeps that stop, and its
+        // flat end follows the side the finger is on (see flatEndForInside).
+        const fixedInside = state.document.selection.inside?.anchor;
+        const insideAnchor = fixedInside
+          ? flatEndForInside(state, fixedInside, newPosition)
+          : null;
+        const rawAnchor = insideAnchor ?? state.document.selection.anchor;
 
         // Snap the raw hit-test focus so the drag never leaves a math construct
         // half-covered: descending out through a construct escalates level by
@@ -688,12 +709,14 @@ const selectionHandleRegion: Region = {
         // reference is pinned to where it entered, so the take-in/drop decision is
         // latched until the finger actually crosses out one side.
         const prevRawFocus = session.handleDragPrevRawFocus ?? undefined;
-        const { anchor, focus: newFocus } = snapSelectionToConstructs(
+        const snapped = snapSelectionToConstructs(
           state,
           rawAnchor,
           newPosition,
           prevRawFocus,
         );
+        const anchor = insideAnchor ?? snapped.anchor;
+        const newFocus = snapped.focus;
         const focusSettled =
           newFocus.blockIndex === newPosition.blockIndex &&
           newFocus.textIndex === newPosition.textIndex;
@@ -732,6 +755,9 @@ const selectionHandleRegion: Region = {
               isForward,
               isCollapsed,
               lastUpdate: Date.now(),
+              ...(fixedInside && insideAnchor
+                ? { inside: { anchor: fixedInside } }
+                : {}),
             },
             cursor: {
               position: newFocus,

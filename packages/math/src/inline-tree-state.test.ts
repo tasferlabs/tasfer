@@ -1471,7 +1471,7 @@ describe("interactive structured MathMark", () => {
       });
     });
 
-    it("covers the chip whole when Shift+Home/Shift+End extend out of it", () => {
+    it("takes the part of the chip on that side when Shift+Home/Shift+End extend out of it", () => {
       const before = hosted();
 
       const home = before.actionBus.dispatchState(
@@ -1490,8 +1490,10 @@ describe("interactive structured MathMark", () => {
         isCtrl: false,
       });
       expect(end.claimed).toBe(true);
+      // The caret was at the chip's end: nothing of it lies towards the
+      // line's end, so the chip stays out of the selection.
       expect(getSelectionRange(end.state)).toEqual({
-        start: { blockIndex: 0, textIndex: 2 },
+        start: { blockIndex: 0, textIndex: 3 },
         end: { blockIndex: 0, textIndex: flatText(before).length },
       });
     });

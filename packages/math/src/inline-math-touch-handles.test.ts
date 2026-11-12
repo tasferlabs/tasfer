@@ -43,7 +43,9 @@ import {
   getWordRangeFromViewport,
   isPointWithinSelectionRects,
   moveCursorToPosition,
+  updateSelection,
 } from "@tasfer/editor/selection";
+import { selectionInsideParts } from "@tasfer/editor/selection-inside";
 import { loadPage } from "@tasfer/editor/serlization/loadPage";
 import type { EditorState, ViewportState } from "@tasfer/editor/state-types";
 import { createInitialState } from "@tasfer/editor/state-utils";
@@ -473,7 +475,7 @@ describe("a handle that leaves a formula and comes back", () => {
     expect(insideRange(state)).toEqual({ from: 2, to: 6 });
   });
 
-  it("forgets that end once the finger lifts", () => {
+  it("still knows that end after the finger lifts and grabs the handle again", () => {
     const start = selectInside(load(md), 2, 4);
     const ball = ballOf(start, "focus").x;
     const drag = grab(start, "focus");
@@ -482,6 +484,195 @@ describe("a handle that leaves a formula and comes back", () => {
     const lifted = drag.release();
     expect(lifted.ui.selectionHandleDrag).toBeNull();
     expect(lifted.document.contentSelection).toBeNull();
+
+    const again = grab(lifted, "focus");
+    const state = again(xAt(6) - ballOf(lifted, "focus").x);
+    expect(state.document.selection).toBeNull();
+    expect(insideRange(state)).toEqual({ from: 2, to: 6 });
+  });
+});
+
+describe("a handle that takes part of a formula out into the text", () => {
+  // `a+b+c+d` is source 0..7 and sits at flat 3..4 of "hi ￼ yo".
+  const md = "hi $a+b+c+d$ yo\n\nnext line";
+
+  function xAt(offset: number) {
+    return getTouchSelectionHandlePositions(
+      selectInside(load(md), 0, offset),
+      viewport,
+    )!.focus!.x;
+  }
+
+  /** The source range of each formula part the flat selection holds. */
+  function parts(state: EditorState) {
+    return selectionInsideParts(state).map((part) => ({
+      end: part.end,
+      side: part.side,
+      ...mathSourceRangeFromContentSelection(
+        chip(state).document,
+        part.selection,
+      ),
+    }));
+  }
+
+  it("keeps the part it had when the handle runs onto the text after it", () => {
+    const start = selectInside(load(md), 2, 4);
+    const ball = ballOf(start, "focus").x;
+    const drag = grab(start, "focus");
+
+    const state = drag(xAt(7) + 40 - ball);
+    expect(state.document.contentSelection).toBeNull();
+    expect(state.document.selection).toMatchObject({
+      anchor: { blockIndex: 0, textIndex: 3 },
+      isForward: true,
+    });
+    expect(state.document.selection!.focus.textIndex).toBeGreaterThan(4);
+    expect(parts(state)).toEqual([
+      { end: "anchor", side: "start", from: 2, to: 7 },
+    ]);
+  });
+
+  it("keeps the part it had when the handle drops to the line below", () => {
+    const start = selectInside(load(md), 2, 4);
+    const ball = ballOf(start, "focus").x;
+    const drag = grab(start, "focus");
+
+    const state = drag(xAt(4) - ball, 40);
+    expect(state.document.selection!.focus.blockIndex).toBeGreaterThan(0);
+    expect(parts(state)).toEqual([
+      { end: "anchor", side: "start", from: 2, to: 7 },
+    ]);
+  });
+
+  it("takes the part before the fixed end when the handle leaves by the start", () => {
+    const start = selectInside(load(md), 2, 4);
+    const ball = ballOf(start, "anchor").x;
+    const drag = grab(start, "anchor");
+
+    const state = drag(xAt(1) - 40 - ball);
+    expect(state.document.selection).toMatchObject({
+      anchor: { blockIndex: 0, textIndex: 4 },
+      isForward: false,
+    });
+    expect(state.document.selection!.focus.textIndex).toBeLessThan(3);
+    expect(parts(state)).toEqual([
+      { end: "anchor", side: "end", from: 0, to: 4 },
+    ]);
+  });
+
+  it("hangs the fixed handle at the stop inside the formula, not at its edge", () => {
+    const start = selectInside(load(md), 2, 4);
+    const inside = getTouchSelectionHandlePositions(start, viewport)!.anchor!;
+    const ball = ballOf(start, "focus").x;
+    const state = grab(start, "focus")(xAt(7) + 40 - ball);
+
+    const handles = getTouchSelectionHandlePositions(state, viewport)!;
+    expect(handles.anchor!.x).toBeCloseTo(inside.x, 3);
+    expect(handles.focus!.x).toBeGreaterThan(xAt(7));
+  });
+
+  it("takes the formula whole when the fixed end is at its edge", () => {
+    const start = selectInside(load(md), 0, 4);
+    const ball = ballOf(start, "focus").x;
+    const state = grab(start, "focus")(xAt(7) + 40 - ball);
+
+    expect(state.document.selection).toMatchObject({
+      anchor: { blockIndex: 0, textIndex: 3 },
+    });
+    expect(parts(state)).toEqual([]);
+  });
+
+  it("leaves the formula out when nothing of it is on the side the handle left by", () => {
+    const start = selectInside(load(md), 0, 4);
+    const ball = ballOf(start, "focus").x;
+    const state = grab(start, "focus")(xAt(1) - 40 - ball);
+
+    expect(state.document.selection).toMatchObject({
+      anchor: { blockIndex: 0, textIndex: 3 },
+      isForward: false,
+    });
+    expect(parts(state)).toEqual([]);
+  });
+});
+
+describe("a handle dragged from the text into a formula", () => {
+  // `a+b+c+d` is source 0..7 and sits at flat 3..4 of "hi ￼ yo".
+  const md = "hi $a+b+c+d$ yo";
+
+  function xAt(offset: number) {
+    return getTouchSelectionHandlePositions(
+      selectInside(load(md), 0, offset),
+      viewport,
+    )!.focus!.x;
+  }
+
+  function parts(state: EditorState) {
+    return selectionInsideParts(state).map((part) => ({
+      end: part.end,
+      side: part.side,
+      ...mathSourceRangeFromContentSelection(
+        chip(state).document,
+        part.selection,
+      ),
+    }));
+  }
+
+  /** A flat selection of `[from, to)` in the first block. */
+  function selectText(from: number, to: number) {
+    const state = load(md);
+    return updateSelection(moveCursorToPosition(state, 0, to), {
+      anchor: { blockIndex: 0, textIndex: from },
+      focus: { blockIndex: 0, textIndex: to },
+    });
+  }
+
+  it("stops the end handle inside the formula and takes the part before it", () => {
+    const start = selectText(0, 2);
+    const ball = ballOf(start, "focus").x;
+    const state = grab(start, "focus")(xAt(4) - ball);
+
+    expect(state.document.contentSelection).toBeNull();
+    expect(state.document.selection).toMatchObject({
+      anchor: { blockIndex: 0, textIndex: 0 },
+      focus: { blockIndex: 0, textIndex: 4 },
+    });
+    expect(parts(state)).toEqual([
+      { end: "focus", side: "end", from: 0, to: 4 },
+    ]);
+    const handles = getTouchSelectionHandlePositions(state, viewport)!;
+    expect(handles.focus!.x).toBeCloseTo(xAt(4), 3);
+  });
+
+  it("stops the start handle inside the formula and takes the part after it", () => {
+    const start = selectText(5, 7);
+    const ball = ballOf(start, "anchor").x;
+    const state = grab(start, "anchor")(xAt(2) - ball);
+
+    expect(state.document.selection).toMatchObject({
+      anchor: { blockIndex: 0, textIndex: 7 },
+      focus: { blockIndex: 0, textIndex: 3 },
+    });
+    expect(parts(state)).toEqual([
+      { end: "focus", side: "start", from: 2, to: 7 },
+    ]);
+  });
+
+  it("lets the stop inside be picked up again after the finger lifts", () => {
+    // Leave the formula with part of it, lift, then grab the handle that is
+    // still inside the formula and move it within the formula.
+    const inside = selectInside(load(md), 2, 4);
+    const out = grab(inside, "focus");
+    out(xAt(7) + 40 - ballOf(inside, "focus").x);
+    const lifted = out.release();
+    expect(parts(lifted)).toEqual([
+      { end: "anchor", side: "start", from: 2, to: 7 },
+    ]);
+
+    const ball = ballOf(lifted, "anchor").x;
+    const state = grab(lifted, "anchor")(xAt(4) - ball);
+    expect(parts(state)).toEqual([
+      { end: "focus", side: "start", from: 4, to: 7 },
+    ]);
   });
 });
 

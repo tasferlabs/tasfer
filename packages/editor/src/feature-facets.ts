@@ -33,7 +33,7 @@
 import type { ActionBus, StateResult } from "./action-bus";
 import type { Block, Mark } from "./serlization/loadPage";
 import type { EditorState } from "./state-types";
-import type { ContentSelection } from "./structured-selection";
+import type { ContentPoint, ContentSelection } from "./structured-selection";
 import type {
   StructuredContentMap,
   StructuredDocument,
@@ -232,6 +232,58 @@ export type ContentSelectionPaste = (
 export type ContentSelectionResolver = (
   ctx: ContentSelectionCtx,
 ) => ContentSelection | undefined;
+
+/**
+ * Cut one structured document down to a range inside it, registered on the
+ * schema through a `structuredKinds` entry.
+ *
+ * Returns a detached copy of the document that holds only what `selection`
+ * covers, under the same root id — never an edit of the live document. Core
+ * uses it to copy a text selection that takes only part of an inline formula:
+ * the copied block carries the cut-down formula in place of the whole one, so
+ * every clipboard flavor spells just the selected part. Return `undefined`
+ * when the range cannot stand on its own; the formula is then copied whole.
+ */
+export type ContentSelectionSlicer = (
+  ctx: ContentSelectionCtx,
+) => StructuredDocument | undefined;
+
+/** What a kind is asked when a text selection stops inside one of its documents. */
+export interface ContentEdgeRangeCtx {
+  readonly document: StructuredDocument;
+  readonly blockId: string;
+  readonly contentId: string;
+  /** The stop inside the document where the selection begins or ends. */
+  readonly point: ContentPoint;
+  /** The edge of the document the selected part runs to, in reading order. */
+  readonly edge: "start" | "end";
+}
+
+/** The part of a structured document between a stop inside it and one edge. */
+export interface ContentEdgeRange {
+  /**
+   * The part as the kind selects it — `anchor` on the stop's side, `focus` on
+   * the edge's side, already widened to whatever the kind only takes whole.
+   */
+  readonly selection: ContentSelection;
+  /** How much of the document the part holds. */
+  readonly covers: "none" | "part" | "all";
+}
+
+/**
+ * Describe the part of one structured document that a text selection takes
+ * when it starts or ends inside it, registered on the schema through a
+ * `structuredKinds` entry.
+ *
+ * A selection that runs from the middle of an inline formula out into the
+ * text around it keeps a stop inside the formula; core asks the formula's kind
+ * what lies between that stop and the edge the selection leaves by, so it can
+ * paint, copy, and delete just that part. A kind without this adapter is
+ * always taken whole. Return `undefined` when the stop no longer resolves.
+ */
+export type ContentEdgeRangeResolver = (
+  ctx: ContentEdgeRangeCtx,
+) => ContentEdgeRange | undefined;
 
 /**
  * The single flat character anchoring a structured mark's run.

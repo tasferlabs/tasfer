@@ -17,6 +17,7 @@ import type { NodeContentSelectionGeometry } from "./rendering/nodes/Node";
 import type { NodeRegistry } from "./rendering/nodes/Node";
 import { getBlockHeight } from "./rendering/renderer";
 import { getBlockDirection } from "./rtl";
+import { flatEndForInside } from "./selection-inside";
 import type { Block, CharRun, MarkSpan } from "./serlization/loadPage";
 import type {
   CursorState,
@@ -2404,16 +2405,27 @@ function commitSelectionFocus(
   focus: Position,
   initialBoundary?: SelectionState["initialBoundary"],
 ): EditorState {
+  // An anchor that really stops inside a formula keeps that stop while the
+  // focus moves, and its flat end follows the side the focus is on: the
+  // formula's far edge while some of it is selected, its near edge once none
+  // is (see `flatEndForInside`).
+  const fixedInside = initialBoundary
+    ? undefined
+    : state.document.selection?.inside?.anchor;
+  const insideAnchor = fixedInside
+    ? flatEndForInside(state, fixedInside, focus)
+    : null;
   const snapped = snapSelectionToConstructs(
     state,
-    anchor,
+    insideAnchor ?? anchor,
     focus,
     state.document.selection?.focus,
   );
   const next = updateSelection(state, {
-    anchor: snapped.anchor,
+    anchor: insideAnchor ?? snapped.anchor,
     focus: snapped.focus,
     ...(initialBoundary ? { initialBoundary } : {}),
+    ...(fixedInside && insideAnchor ? { inside: { anchor: fixedInside } } : {}),
   });
   return next.document.cursor ? updateCursor(next, snapped.focus) : next;
 }
@@ -2506,6 +2518,12 @@ export function updateSelection(
             // This prevents unintentional preservation of gesture boundaries in programmatic selections
             ...("initialBoundary" in updates && updates.initialBoundary !== null
               ? { initialBoundary: updates.initialBoundary }
+              : {}),
+            // Likewise the stops inside formulas: only a caller that names
+            // them keeps them, so every other selection is a plain one.
+            ...(updates.inside &&
+            (updates.inside.anchor || updates.inside.focus)
+              ? { inside: updates.inside }
               : {}),
           }
         : null,

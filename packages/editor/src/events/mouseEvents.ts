@@ -33,11 +33,13 @@ import {
   getInlineRunBox,
   getTextPositionFromViewport,
   getWordRangeFromViewport,
+  isNodeSelection,
   isPointWithinSelectionRects,
   paintedCoordsResolver,
 } from "../selection";
 import { updateCursor } from "../selection";
-import { updateSelectionFocus } from "../selection";
+import { updateSelection, updateSelectionFocus } from "../selection";
+import { flatEndForInside, selectionHasInsidePart } from "../selection-inside";
 import type {
   EditorState,
   MouseEvent,
@@ -102,7 +104,11 @@ export function canDragSelection(state: EditorState): boolean {
   const content = state.document.contentSelection;
   if (content) return !isContentSelectionCollapsed(content);
   const selection = state.document.selection;
-  return !!selection && !selection.isCollapsed;
+  if (!selection || selection.isCollapsed) return false;
+  // A drag carries a flat range and removes it at the source as one. A
+  // selection that takes only part of a formula would lose the rest of that
+  // formula on a move, so it is not draggable.
+  return !selectionHasInsidePart(state);
 }
 
 /** Whether a press continues the previous click's double/triple-click run. */
@@ -713,6 +719,43 @@ export function extendDragSelectionToPoint(
     });
     return updated.document.contentSelection ? updated : null;
   }
+  // A flat selection whose fixed end stops inside a formula (the drag left
+  // that formula earlier) goes back to a range inside it once the pointer is
+  // over the formula again: the fixed end where it was, the moving end under
+  // the pointer. "Over it" is the same test the drag left by, so the two
+  // never disagree about which side of the edge the pointer is on.
+  const fixedInside = state.document.selection?.inside?.anchor;
+  if (fixedInside) {
+    const caret = updateContentSelection(state, {
+      anchor: fixedInside,
+      focus: fixedInside,
+      lastUpdate: Date.now(),
+    });
+    if (caret.document.contentSelection) {
+      const back = extendDragSelectionToPoint(
+        caret,
+        canvasX,
+        canvasY,
+        viewport,
+        visibility,
+        pointerType,
+      );
+      if (back?.document.contentSelection) return back;
+    }
+  }
+  // The moving end dragged in over a formula the fixed end is not in stops
+  // inside that formula, taking the part of it on the fixed end's side.
+  if (!state.document.selection?.initialBoundary) {
+    const into = dragFocusIntoRunAtPoint(
+      state,
+      canvasX,
+      canvasY,
+      viewport,
+      visibility,
+      pointerType,
+    );
+    if (into) return into;
+  }
   const position = getTextPositionFromViewport(
     canvasX,
     canvasY,
@@ -732,6 +775,103 @@ export function extendDragSelectionToPoint(
     newState.document.selection?.focus ?? position,
   );
   return newState;
+}
+
+/**
+ * Move the focus of a flat selection to a stop INSIDE the inline formula under
+ * the pointer, when the selection's fixed end lies outside that formula. The
+ * flat focus goes to the formula's far edge so the range covers its
+ * character, and the stop is kept on the selection (`inside.focus`): what the
+ * selection takes of the formula is the part between its near edge and the
+ * stop (see `selectionInsideParts`). A fixed end that itself stops inside
+ * another formula keeps its stop.
+ *
+ * Null when the pointer is not over an inline formula, or over the one the
+ * fixed end is in — that is a range inside the formula, the callers' own
+ * business.
+ */
+export function dragFocusIntoRunAtPoint(
+  state: EditorState,
+  canvasX: number,
+  canvasY: number,
+  viewport: ViewportState,
+  visibility?: VisibleBlockRange,
+  pointerType: "mouse" | "touch" = "mouse",
+): EditorState | null {
+  const selection = state.document.selection;
+  if (!selection || isNodeSelection(selection)) return null;
+  const stop = getContentSelectionFromViewport(
+    canvasX,
+    canvasY,
+    state,
+    viewport,
+    pointerType,
+    undefined,
+    visibility,
+    {
+      drag: true,
+      ...(selection.inside?.focus
+        ? { previousContentPoint: selection.inside.focus }
+        : {}),
+    },
+  )?.focus;
+  if (!stop) return null;
+  const run = structuredMarkRunForContentPoint(state, stop);
+  if (!run) return null;
+  // Over the formula, by the same test a range inside it leaves by: the flat
+  // position under the pointer is one of the formula's two edges.
+  const flat = getTextPositionFromViewport(
+    canvasX,
+    canvasY,
+    state,
+    viewport,
+    undefined,
+    visibility,
+  );
+  if (
+    !flat ||
+    flat.blockIndex !== run.blockIndex ||
+    flat.textIndex < run.startIndex ||
+    flat.textIndex > run.endIndex
+  ) {
+    return null;
+  }
+
+  const fixed = selection.inside?.anchor;
+  const fixedRun = fixed
+    ? structuredMarkRunForContentPoint(state, fixed)
+    : null;
+  if (
+    fixedRun &&
+    fixedRun.blockIndex === run.blockIndex &&
+    fixedRun.startIndex === run.startIndex
+  ) {
+    return null;
+  }
+  const runStart: Position = {
+    blockIndex: run.blockIndex,
+    textIndex: run.startIndex,
+  };
+  const anchor =
+    (fixed ? flatEndForInside(state, fixed, runStart) : null) ??
+    selection.anchor;
+  // A fixed end that sits strictly inside this formula's flat span has no
+  // side of it to be on.
+  if (
+    anchor.blockIndex === run.blockIndex &&
+    anchor.textIndex > run.startIndex &&
+    anchor.textIndex < run.endIndex
+  ) {
+    return null;
+  }
+  const focus = flatEndForInside(state, stop, anchor);
+  if (!focus) return null;
+  const next = updateSelection(state, {
+    anchor,
+    focus,
+    inside: { ...(fixed ? { anchor: fixed } : {}), focus: stop },
+  });
+  return updateCursor(next, focus);
 }
 
 export function handleMouseMove(

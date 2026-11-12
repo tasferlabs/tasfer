@@ -12,6 +12,7 @@ import {
   isNodeSelection,
   scrollToMakeCursorVisible,
 } from "../selection";
+import { selectionInsideParts } from "../selection-inside";
 import type {
   EditorState,
   ViewportState,
@@ -195,7 +196,7 @@ export function getTouchSelectionHandlePositions(
     return null;
   }
 
-  return {
+  const positions = {
     anchor: {
       x: anchorCoords.x,
       y: anchorCoords.y,
@@ -209,6 +210,23 @@ export function getTouchSelectionHandlePositions(
       isTop: !isForward,
     },
   };
+  // An end that stops inside a formula hangs its handle off the part of the
+  // formula it takes, at the stop — not off the formula's flat edge.
+  for (const part of selectionInsideParts(state)) {
+    const geometry = getContentSelectionDocumentGeometry(
+      {
+        ...state,
+        document: { ...state.document, contentSelection: part.selection },
+      },
+      viewport,
+      styles,
+      visibility,
+    );
+    if (geometry) {
+      positions[part.end] = contentSelectionHandlePositions(geometry).anchor;
+    }
+  }
+  return positions;
 }
 /**
  * Detect if a touch point is on a selection handle.
