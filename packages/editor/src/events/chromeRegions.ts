@@ -230,7 +230,10 @@ export function dragContentHandleToPoint(
   // Over a piece the range takes whole (a √), follow the finger across it
   // and count the piece only past its middle — see crossWidenedPiece. The
   // tick below then fires at the middle, when the range really changes.
-  const next = crossWidenedPiece(extended, x, viewport, visibility);
+  const next = rememberFixedInside(
+    state,
+    crossWidenedPiece(extended, x, viewport, visibility),
+  );
   const focus = next.document.contentSelection?.focus;
   if (
     signalBoundary &&
@@ -239,6 +242,64 @@ export function dragContentHandleToPoint(
     state.actionBus.dispatch(CURSOR_DRAG_BOUNDARY);
   }
   return next;
+}
+
+/**
+ * When a move took the held handle out of an inline formula (`next` is flat,
+ * `previous` had a range inside), keep that range's fixed end on the drag —
+ * see `fixedInside` on the handle drag state.
+ */
+function rememberFixedInside(
+  previous: EditorState,
+  next: EditorState,
+): EditorState {
+  const fixed = previous.document.contentSelection?.anchor;
+  const drag = next.ui.selectionHandleDrag;
+  if (!fixed || !drag || next.document.contentSelection) return next;
+  return {
+    ...next,
+    ui: { ...next.ui, selectionHandleDrag: { ...drag, fixedInside: fixed } },
+  };
+}
+
+/**
+ * Bring back the range inside an inline formula when the held handle returns
+ * over it after leaving: the fixed end is the one the range had when the
+ * handle left (`fixedInside` on the handle drag state), the moving end
+ * follows the finger. Without it the way back in started from the formula's
+ * edge, so a trip outside moved the end the finger was not holding.
+ *
+ * The finger counts as back by the same test it left by: an ordinary move of
+ * a range inside the formula, from the fixed end, that stays inside.
+ *
+ * `x`/`y` are the point on the handle's text row, in viewport space. Null when
+ * no such end is kept or the point is not over that formula.
+ */
+function returnToLeftRunAtPoint(
+  state: EditorState,
+  x: number,
+  y: number,
+  viewport: ViewportState,
+  visibility?: VisibleBlockRange,
+): EditorState | null {
+  const fixed = state.ui.selectionHandleDrag?.fixedInside;
+  if (!fixed || state.document.contentSelection) return null;
+  const caret = updateContentSelection(state, {
+    anchor: fixed,
+    focus: fixed,
+    lastUpdate: Date.now(),
+  });
+  if (!caret.document.contentSelection) return null;
+  const extended = extendDragSelectionToPoint(
+    caret,
+    x,
+    y,
+    viewport,
+    visibility,
+    "touch",
+  );
+  if (!extended?.document.contentSelection) return null;
+  return crossWidenedPiece(extended, x, viewport, visibility);
 }
 
 /**
@@ -529,9 +590,24 @@ const selectionHandleRegion: Region = {
 
       // A handle dragged in over a wholly selected inline formula continues as
       // a range inside it (see enterSelectedRunAtPoint).
+      // One that left a formula it held a part of and is back over it picks
+      // that part up again (see returnToLeftRunAtPoint).
       const entered =
         state.ui.selectionHandleDrag && state.document.selection
-          ? enterSelectedRunAtPoint(state, rowX, rowY, viewport, ctx.visibility)
+          ? (returnToLeftRunAtPoint(
+              state,
+              rowX,
+              rowY,
+              viewport,
+              ctx.visibility,
+            ) ??
+            enterSelectedRunAtPoint(
+              state,
+              rowX,
+              rowY,
+              viewport,
+              ctx.visibility,
+            ))
           : null;
       if (entered) {
         session.handleDragPrevHit = null;

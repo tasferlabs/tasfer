@@ -337,6 +337,14 @@ export interface SelectionHandleDragState {
    * finger left, and a handle that crossed the fixed end swapped the two.
    */
   readonly fixedEdge?: Position | null;
+  /**
+   * The fixed end of a range inside an inline mark run (a formula), kept from
+   * the moment the held handle leaves the run. Outside, the selection is flat
+   * and holds the run whole, so the point inside is gone from it; when the
+   * handle comes back over the run, the range inside picks its fixed end up
+   * from here instead of from the run's edge.
+   */
+  readonly fixedInside?: ContentPoint | null;
 }
 
 /**

@@ -437,6 +437,54 @@ describe("dragging a handle into a wholly selected formula", () => {
   });
 });
 
+describe("a handle that leaves a formula and comes back", () => {
+  // `a+b+c+d` is source 0..7; the part held fixed is around `b+` (2..4).
+  const md = "hi $a+b+c+d$ yo\n\nnext line";
+
+  /** Where a handle stands at a source offset inside the formula. */
+  function xAt(offset: number) {
+    return getTouchSelectionHandlePositions(
+      selectInside(load(md), 0, offset),
+      viewport,
+    )!.focus!.x;
+  }
+
+  it("keeps the other end where it was after a trip to the line below", () => {
+    const start = selectInside(load(md), 2, 4);
+    const ball = ballOf(start, "anchor").x;
+    const drag = grab(start, "anchor");
+
+    // Across the fixed end, down to the next line, then back in before it.
+    expect(insideRange(drag(xAt(6) - ball))).toEqual({ from: 4, to: 6 });
+    expect(drag(xAt(6) - ball, 40).document.contentSelection).toBeNull();
+    const state = drag(xAt(1) - ball);
+    expect(state.document.selection).toBeNull();
+    expect(insideRange(state)).toEqual({ from: 1, to: 4 });
+  });
+
+  it("keeps the other end where it was after a trip onto the text beside it", () => {
+    const start = selectInside(load(md), 2, 4);
+    const ball = ballOf(start, "focus").x;
+    const drag = grab(start, "focus");
+
+    expect(drag(xAt(7) + 40 - ball).document.contentSelection).toBeNull();
+    const state = drag(xAt(6) - ball);
+    expect(state.document.selection).toBeNull();
+    expect(insideRange(state)).toEqual({ from: 2, to: 6 });
+  });
+
+  it("forgets that end once the finger lifts", () => {
+    const start = selectInside(load(md), 2, 4);
+    const ball = ballOf(start, "focus").x;
+    const drag = grab(start, "focus");
+
+    drag(xAt(7) + 40 - ball);
+    const lifted = drag.release();
+    expect(lifted.ui.selectionHandleDrag).toBeNull();
+    expect(lifted.document.contentSelection).toBeNull();
+  });
+});
+
 describe("a handle crossing a root inside a formula", () => {
   // `r(y)=` is source 0..5; the root `\sqrt{a^2-y^2}` is 5..27.
   const md = "$r(y)=\\sqrt{a^2-y^2}i+yj$";
