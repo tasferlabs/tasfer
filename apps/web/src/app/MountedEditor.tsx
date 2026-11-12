@@ -162,7 +162,7 @@ import { MathCommandMenu } from "../editor/MathCommandMenu";
 import {
   activeTreeMath,
   activeTreeMathCommandRun,
-  tableFormulaInSelection,
+  heldFormula,
   treeMathAtAnchor,
   treeMathAtFocus,
 } from "../editor/treeMath";
@@ -398,7 +398,7 @@ function matrixContextForCaret(
             )
           : null))
       : null) ??
-    tableFormulaMatrix(editor)?.ctx;
+    heldFormulaMatrix(editor)?.ctx;
   if (!ctx) return null;
   return {
     env: ctx.env,
@@ -410,12 +410,12 @@ function matrixContextForCaret(
 }
 
 /**
- * The matrix inside a formula a table-cell selection holds whole (see
- * {@link tableFormulaInSelection}), or null. The whole formula is held, so the
- * first grid in it is the one meant.
+ * The matrix inside a formula held from the text around it (see
+ * {@link heldFormula}), or null. The whole formula is held, so no caret says
+ * which grid is meant; with several, the first one is taken.
  */
-function tableFormulaMatrix(editor: EditorInstance) {
-  const formula = tableFormulaInSelection(editor);
+function heldFormulaMatrix(editor: EditorInstance) {
+  const formula = heldFormula(editor);
   if (!formula) return null;
   const ctx = mathMatrixContextInRange(
     formula.source,
@@ -426,14 +426,15 @@ function tableFormulaMatrix(editor: EditorInstance) {
 }
 
 /**
- * Move a table-cell selection that holds a formula into the formula itself,
- * holding its matrix whole — the selection a paragraph has after a matrix is
- * held — so the matrix editor's resize, which works on the nested selection,
- * has a grid to work on. No-op when the selection is anything else.
+ * Move a selection that holds a formula from the text around it into the
+ * formula itself, holding its matrix whole — the selection a paragraph has
+ * after a matrix is held — so the matrix editor's resize, which works on the
+ * nested selection, has a grid to work on. No-op when the selection is
+ * anything else.
  */
-function enterTableFormulaMatrix(editor: EditorInstance): void {
+function enterHeldFormulaMatrix(editor: EditorInstance): void {
   if (treeMathAtFocus(editor)) return;
-  const found = tableFormulaMatrix(editor);
+  const found = heldFormulaMatrix(editor);
   if (!found) return;
   const { formula, ctx } = found;
   const at = (offset: number) =>
@@ -1726,7 +1727,7 @@ function PageEditor({
   // is not in one. Shared by the toolbar action and the context-menu item.
   const openMatrixEditor = useCallback(() => {
     const editor = mountedRef.current?.editor;
-    if (editor) enterTableFormulaMatrix(editor);
+    if (editor) enterHeldFormulaMatrix(editor);
     const ctx = editor ? matrixContextForCaret(editor) : null;
     if (ctx) setMatrixEditor({ rows: ctx.rows, cols: ctx.cols });
   }, []);

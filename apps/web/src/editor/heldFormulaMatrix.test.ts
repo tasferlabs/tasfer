@@ -1,16 +1,17 @@
 /**
- * "Edit matrix" for a matrix inside a table cell.
+ * "Edit matrix" for a formula held from the nested text around it.
  *
- * A formula in a cell is one character in the cell's text plus its own
- * document beside the grid. With the caret inside the formula the matrix is
- * found as in a paragraph; with the formula held from the cell's side — a range
- * over that one character — the lookup used to read only the grid and find no
- * matrix, so the context menu offered no "Edit matrix". These pin that the
- * held formula is found, and that the matrix editor's resize then works on it.
+ * A formula in a node's nested text (here a table cell, the one such node the
+ * app ships) is one character in that text plus its own document. With the
+ * caret inside the formula the matrix is found as in a paragraph; with the
+ * formula held from the text's side — a range over that one character — the
+ * lookup used to find no matrix, so the context menu offered no "Edit matrix".
+ * These pin that the held formula is found through the editor's mark read, and
+ * that the matrix editor's resize then works on it.
  */
 
 import { appSchema, type AppEditor } from "../editorSchema";
-import { tableFormulaInSelection } from "./treeMath";
+import { heldFormula } from "./treeMath";
 import {
   RESIZE_MATH_MATRIX,
   mathContentSelectionFromSourceOffset,
@@ -29,7 +30,7 @@ import { updateContentSelection } from "@tasfer/editor/structured-selection";
 import { getCharIdAtVisiblePosition } from "@tasfer/editor/sync/char-runs";
 import { canonicalizeStructuredDocument } from "@tasfer/editor/sync/structured-content";
 import { createCRDTbinding } from "@tasfer/editor/sync/sync";
-import { blockTextFields } from "@tasfer/editor/text-fields";
+import { queryMarkInfos } from "@tasfer/editor/positions";
 import {
   CELL_TEXT_FIELD,
   getTableDocument,
@@ -44,6 +45,12 @@ const SOURCE = [
   String.raw`| a $\begin{pmatrix}a&b\\c&d\end{pmatrix}$ b |`,
 ].join("\n");
 const CHIP = 2;
+/** Same cell layout, with a 2×2 pmatrix then a 1×3 bmatrix in one formula. */
+const TWO_GRIDS = [
+  "| A |",
+  "| --- |",
+  String.raw`| a $\begin{pmatrix}a&b\\c&d\end{pmatrix}\begin{bmatrix}x&y&z\end{bmatrix}$ b |`,
+].join("\n");
 
 function editorOver(source: string): EditorState {
   const page = loadPage(source, appSchema.data);
@@ -75,10 +82,7 @@ function readerOver(state: EditorState): AppEditor {
         const document = block(blockId)?.structuredContent?.[contentId];
         return document ? canonicalizeStructuredDocument(document) : null;
       },
-      textFields: (blockId: string) => {
-        const found = block(blockId);
-        return found ? blockTextFields(found, state.schema) : [];
-      },
+      marks: (at: "selection") => queryMarkInfos(state, at),
     },
   } as unknown as AppEditor;
 }
@@ -119,10 +123,10 @@ function cellFormula(state: EditorState): string | undefined {
     : undefined;
 }
 
-describe("Edit matrix on a formula in a table cell", () => {
+describe("Edit matrix on a formula held from nested text", () => {
   it("finds the matrix of a formula held from the cell's side", () => {
     const held = selectInCell(editorOver(SOURCE), CHIP, CHIP + 1);
-    const formula = tableFormulaInSelection(readerOver(held));
+    const formula = heldFormula(readerOver(held));
     expect(formula?.source).toBe(
       String.raw`\begin{pmatrix}a&b\\c&d\end{pmatrix}`,
     );
@@ -136,17 +140,28 @@ describe("Edit matrix on a formula in a table cell", () => {
 
   it("finds it when the range runs past the formula into the cell's text", () => {
     const held = selectInCell(editorOver(SOURCE), 0, CHIP + 3);
-    expect(tableFormulaInSelection(readerOver(held))).not.toBeNull();
+    expect(heldFormula(readerOver(held))).not.toBeNull();
   });
 
   it("finds nothing for a range that misses the formula", () => {
     const plain = selectInCell(editorOver(SOURCE), 0, CHIP);
-    expect(tableFormulaInSelection(readerOver(plain))).toBeNull();
+    expect(heldFormula(readerOver(plain))).toBeNull();
+  });
+
+  it("takes the first grid of a held formula with two", () => {
+    const two = selectInCell(editorOver(TWO_GRIDS), CHIP, CHIP + 1);
+    const formula = heldFormula(readerOver(two))!;
+    const ctx = mathMatrixContextInRange(
+      formula.source,
+      0,
+      formula.source.length,
+    );
+    expect(ctx).toMatchObject({ env: "pmatrix", rows: 2, cols: 2 });
   });
 
   it("resizes the matrix once the selection holds it inside the formula", () => {
     const held = selectInCell(editorOver(SOURCE), CHIP, CHIP + 1);
-    const formula = tableFormulaInSelection(readerOver(held))!;
+    const formula = heldFormula(readerOver(held))!;
     const { span } = mathMatrixContextInRange(
       formula.source,
       0,

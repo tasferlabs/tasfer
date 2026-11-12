@@ -11,7 +11,6 @@ import {
   printMathDocument,
   structuredToMathDocument,
 } from "@tasfer/math/data";
-import { tableCaretFromContentPoint } from "@tasfer/table";
 import {
   contentPointToMathTreeCaret,
   mathSourceOffsetFromContentPoint,
@@ -66,7 +65,7 @@ export function treeMathAtAnchor(editor: AppEditor): ActiveTreeMath | null {
 }
 
 /** A formula addressed by its document, with no caret inside it yet. */
-export interface HeldTreeMath {
+export interface HeldFormula {
   readonly blockId: string;
   readonly contentId: string;
   readonly document: StructuredDocument;
@@ -74,53 +73,31 @@ export interface HeldTreeMath {
 }
 
 /**
- * The formula a table-cell selection holds whole.
+ * The formula a range in a block's nested text holds — text a node keeps
+ * inside its own content, such as a table cell.
  *
- * Clicking a formula in a cell puts the caret inside it, and
- * {@link treeMathAtFocus} finds it. But a range in the cell's own text — a
- * drag, Shift+arrow, the whole formula held — only covers the formula's one
- * character in the cell; the formula itself is a separate document beside the
- * grid. This finds that document. In a paragraph the flat selection does the
- * same job; a table has none.
+ * With the caret inside a formula, {@link treeMathAtFocus} finds it. But a
+ * range in the surrounding text — a drag, Shift+arrow, the whole formula held
+ * — only covers the formula's one character there; the formula itself is a
+ * separate document. This finds that document through the editor's own mark
+ * read, so it works for any node with nested text, not one kind.
  *
- * Null unless the range stays inside one cell and touches a formula. With
- * several, the first one wins, as a paragraph range resolves the chip at its
- * start.
+ * Null for a caret, or when the range touches no formula. With several, the
+ * first one wins, as a paragraph range resolves the chip at its start.
  */
-export function tableFormulaInSelection(
-  editor: AppEditor,
-): HeldTreeMath | null {
+export function heldFormula(editor: AppEditor): HeldFormula | null {
   const selection = editor.state.contentSelection;
   if (!selection || isContentSelectionCollapsed(selection)) return null;
-  const { anchor, focus } = selection;
-  if (anchor.blockId !== focus.blockId) return null;
-  if (anchor.contentId !== focus.contentId) return null;
-  const block = editor.query.block({ block: focus.blockId });
-  if (block?.type !== "table") return null;
-  const grid = editor.query.content(block.id, focus.contentId);
-  if (!grid) return null;
-  const from = tableCaretFromContentPoint(grid, anchor);
-  const to = tableCaretFromContentPoint(grid, focus);
-  if (!from || !to || from.cellId !== to.cellId) return null;
-  const start = Math.min(from.offset, to.offset);
-  const end = Math.max(from.offset, to.offset);
-  const field = editor.query
-    .textFields(block.id)
-    .find(
-      (candidate) =>
-        candidate.contentId === focus.contentId &&
-        candidate.nodeId === from.cellId,
-    );
-  for (const mark of field?.marks ?? []) {
-    if (mark.name !== "math" || mark.to <= start || mark.from >= end) continue;
+  for (const mark of editor.query.marks("selection")) {
+    if (mark.name !== "math") continue;
     const contentId = mathMarkContentId({ type: mark.name, attrs: mark.attrs });
     const document = contentId
-      ? editor.query.content(block.id, contentId)
+      ? editor.query.content(mark.block, contentId)
       : null;
     const math = document ? structuredToMathDocument(document) : undefined;
     if (!contentId || !document || !math) continue;
     return {
-      blockId: block.id,
+      blockId: mark.block,
       contentId,
       document,
       source: printMathDocument(math),
