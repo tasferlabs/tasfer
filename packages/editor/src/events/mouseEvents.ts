@@ -18,7 +18,11 @@ import {
   extendSelectionOutOfStructuredMark,
   structuredMarkRunForContentPoint,
 } from "../actions/structured-marks";
-import { DOUBLE_CLICK_TIME, EDGE_SCROLL_THRESHOLD } from "../constants";
+import {
+  DOUBLE_CLICK_TIME,
+  EDGE_SCROLL_THRESHOLD,
+  SELECTION_HANDLE_LINE_SLOP,
+} from "../constants";
 import { isApplePlatform, supportsHtml5Drag } from "../platform";
 import {
   getScrollbarStyles,
@@ -661,7 +665,12 @@ export function extendDragSelectionToPoint(
       : null;
     let y = canvasY;
     if (band) {
-      const slop = (band.bottom - band.top) / 2;
+      // A finger drifts more than a mouse, and a short formula's box is
+      // only a few millimetres tall: give touch a floor.
+      const slop = Math.max(
+        (band.bottom - band.top) / 2,
+        pointerType === "touch" ? SELECTION_HANDLE_LINE_SLOP : 0,
+      );
       if (canvasY > band.top - slop && canvasY < band.bottom + slop) {
         y = Math.min(Math.max(canvasY, band.top + 1), band.bottom - 1);
       }

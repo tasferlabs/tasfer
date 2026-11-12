@@ -21,6 +21,7 @@ import {
   MOVEMENT_THRESHOLD,
   SCROLLBAR_HOLD_DURATION,
   SCROLLBAR_TOUCH_BUFFER,
+  SELECTION_HANDLE_LINE_SLOP,
 } from "../constants";
 import { getOutOfViewIndicatorAtPoint } from "../rendering/renderer";
 import {
@@ -283,6 +284,47 @@ function returnToLeftRunAtPoint(
   );
   if (!extended?.document.contentSelection) return null;
   return crossWidenedPiece(extended, x, viewport, visibility);
+}
+
+/**
+ * The row point's `y`, held on the line the held handle is on until the
+ * finger has clearly left that line.
+ *
+ * A finger sliding a handle along a line never moves dead level, and a line
+ * is only a few millimetres tall: read raw, a small drift up or down already
+ * lands on the neighbouring line and the selection jumps a whole line. So the
+ * point counts as on the handle's line until it is past the line by half the
+ * line's height ({@link SELECTION_HANDLE_LINE_SLOP} at the least). Changing
+ * lines then takes about one line of finger travel in either direction, and
+ * the point arrives in the middle of the new line, not on its edge.
+ *
+ * `y` and the result are in viewport space.
+ */
+function stickToHeldLine(
+  state: EditorState,
+  y: number,
+  viewport: ViewportState,
+  visibility?: VisibleBlockRange,
+): number {
+  const selection = state.document.selection;
+  if (!selection) return y;
+  // The handle's own geometry is the line it is drawn on; a range that has
+  // closed up for a moment draws none, so read the caret there instead.
+  const held =
+    getTouchSelectionHandlePositions(state, viewport, visibility)?.focus ??
+    getCursorDocumentCoords(
+      selection.focus,
+      state,
+      viewport,
+      undefined,
+      visibility,
+    );
+  if (!held) return y;
+  const top = held.y - viewport.scrollY;
+  const bottom = top + held.height;
+  const slop = Math.max(held.height / 2, SELECTION_HANDLE_LINE_SLOP);
+  if (y <= top - slop || y >= bottom + slop) return y;
+  return Math.min(Math.max(y, top + 1), bottom - 1);
 }
 
 /**
@@ -580,7 +622,13 @@ const selectionHandleRegion: Region = {
       // flat hit lands on the paragraph's start or the next block, and a
       // nested one (rows only) misses.
       const rowX = p.x - (session.handleDragGrabOffset?.dx ?? 0);
-      const rowY = p.y - (session.handleDragGrabOffset?.dy ?? 0);
+      const rawRowY = p.y - (session.handleDragGrabOffset?.dy ?? 0);
+      // In flat text the handle stays on its line until the finger has clearly
+      // left it (see stickToHeldLine). A range inside a formula keeps the raw
+      // point: its own move holds it to the formula's box.
+      const rowY = state.document.selection
+        ? stickToHeldLine(state, rawRowY, viewport, ctx.visibility)
+        : rawRowY;
 
       // A handle dragged in over a wholly selected inline formula continues as
       // a range inside it (see enterSelectedRunAtPoint).

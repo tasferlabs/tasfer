@@ -39,6 +39,7 @@ import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
 import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import {
+  getCursorDocumentCoords,
   getTextPositionFromViewport,
   getWordRangeFromViewport,
   isPointWithinSelectionRects,
@@ -673,6 +674,81 @@ describe("a handle dragged from the text into a formula", () => {
     expect(parts(state)).toEqual([
       { end: "focus", side: "start", from: 4, to: 7 },
     ]);
+  });
+});
+
+describe("a handle dragged along a line with an unsteady finger", () => {
+  // One paragraph long enough to wrap over several lines.
+  const words = Array.from({ length: 60 }, (_, i) => `word${i}`).join(" ");
+
+  function selectText(md: string, from: number, to: number) {
+    const state = load(md);
+    return updateSelection(moveCursorToPosition(state, 0, to), {
+      anchor: { blockIndex: 0, textIndex: from },
+      focus: { blockIndex: 0, textIndex: to },
+    });
+  }
+
+  /** The top of the line the held handle is on. */
+  function lineOf(state: EditorState) {
+    return getCursorDocumentCoords(
+      state.document.selection!.focus,
+      state,
+      viewport,
+    )!.y;
+  }
+
+  it("stays on its line while the finger drifts less than a line", () => {
+    const start = selectText(words, 0, 5);
+    const line = getTouchSelectionHandlePositions(start, viewport)!.focus!
+      .height;
+    const first = lineOf(start);
+
+    expect(lineOf(grab(start, "focus")(60, line * 0.8))).toBe(first);
+    expect(lineOf(grab(start, "focus")(60, line * 0.5 + 2))).toBe(first);
+  });
+
+  it("moves to the next line once the finger has travelled a line", () => {
+    const start = selectText(words, 0, 5);
+    const line = getTouchSelectionHandlePositions(start, viewport)!.focus!
+      .height;
+
+    const below = lineOf(grab(start, "focus")(60, line * 1.2));
+    expect(below).toBeGreaterThan(lineOf(start));
+  });
+
+  it("needs the same travel to come back up", () => {
+    const start = selectText(words, 0, 5);
+    const line = getTouchSelectionHandlePositions(start, viewport)!.focus!
+      .height;
+    const first = lineOf(start);
+    const drag = grab(start, "focus");
+
+    const below = lineOf(drag(60, line * 1.2));
+    expect(below).toBeGreaterThan(first);
+    // Back up by less than a line: still on the second line.
+    expect(lineOf(drag(60, line * 0.5))).toBe(below);
+    // Back to where it started: the first line again.
+    expect(lineOf(drag(60, 0))).toBe(first);
+  });
+
+  it("keeps the handle on the formula's line when it leaves the formula sideways with a drift", () => {
+    const md = `hi $a+b+c+d$ ${words}`;
+    const inside = selectInside(load(md), 2, 4);
+    const end = getTouchSelectionHandlePositions(
+      selectInside(load(md), 0, 7),
+      viewport,
+    )!.focus!.x;
+    const handle = getTouchSelectionHandlePositions(inside, viewport)!.focus!;
+    const ball = ballOf(inside, "focus").x;
+    const drag = grab(inside, "focus");
+
+    // Out past the formula's end, a little low, then further along.
+    const out = drag(end + 60 - ball, handle.height * 0.6);
+    expect(out.document.contentSelection).toBeNull();
+    const first = lineOf(out);
+    expect(lineOf(drag(end + 90 - ball, handle.height * 0.6))).toBe(first);
+    expect(lineOf(drag(end + 120 - ball, handle.height * 0.9))).toBe(first);
   });
 });
 
