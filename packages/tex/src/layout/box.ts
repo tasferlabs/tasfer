@@ -18,6 +18,13 @@ export interface Dim {
   depth: number;
 }
 
+/** One caret stop inside a shaped fallback run (see {@link GlyphBox.textCarets}). */
+export interface TextCaret {
+  readonly offset: number;
+  readonly dx: number;
+  readonly edge?: boolean;
+}
+
 /** A single drawn glyph. */
 export interface GlyphBox extends Dim {
   readonly type: "glyph";
@@ -46,8 +53,14 @@ export interface GlyphBox extends Dim {
    * like `width`) from this box's left edge — already resolved for the run's
    * direction, so an RTL run's stops decrease in `offset` as `dx` grows. When
    * present, the caret layer uses these instead of the box's two span edges.
+   *
+   * An `edge` stop is not between two characters: it is the enclosing `\text{…}`
+   * group's own outer edge (before `\text`, after `}`), placed where it shows. An
+   * RTL run's first letter sits at its RIGHT, so without these the position
+   * before the group would borrow that letter's stop and draw on the wrong
+   * side. Edge stops place the caret only; they never widen a highlight.
    */
-  readonly textCarets?: readonly { offset: number; dx: number }[];
+  readonly textCarets?: readonly TextCaret[];
   /**
    * Caret override for this glyph's trailing edge (its span end), for a slanted
    * big operator whose ink leans past its advance. `dx` (em, from the box's left
@@ -235,7 +248,7 @@ export function textFallbackBox(
   span: Span | null,
   font: string,
   m: { width: number; ascent: number; depth: number },
-  textCarets?: readonly { offset: number; dx: number }[],
+  textCarets?: readonly TextCaret[],
 ): GlyphBox {
   return {
     type: "glyph",

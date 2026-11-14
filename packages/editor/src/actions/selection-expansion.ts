@@ -35,7 +35,7 @@ import { updateMode } from "../state-utils";
 import { contentPointsEqual } from "../structured-selection";
 import { findBlockIndex } from "../sync/block-lookup";
 import { isTextualBlock } from "../sync/block-registry";
-import { findWordEnd, findWordStart, isWordChar } from "../word-chars";
+import { findWordEnd, findWordStart, isWordCharAt } from "../word-chars";
 import { selectAll } from "./actions";
 
 /** A half-open `[from, to)` span of offsets in one piece of text. */
@@ -121,9 +121,9 @@ function wordAround(
   to: number,
 ): SelectionRungRange | null {
   const seed =
-    from < text.length && isWordChar(text[from])
+    from < text.length && isWordCharAt(text, from)
       ? from
-      : from > 0 && isWordChar(text[from - 1])
+      : from > 0 && isWordCharAt(text, from - 1)
         ? from - 1
         : -1;
   if (seed < 0) return null;

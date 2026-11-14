@@ -51,6 +51,69 @@ export function nextCodePointEnd(text: string, index: number): number {
   return isMidSurrogatePair(text, at + 1) ? at + 2 : at + 1;
 }
 
+// An emoji can be many code points drawn as one picture: a family 👨‍👩‍👧‍👦 is
+// four people glued by joiners, 👩🏽‍💻 adds a skin tone, a flag 🇸🇦 is two
+// letters, ❤️ carries a colour selector. A caret or a word edge inside one
+// splits the picture apart, so these find the whole emoji. Where it starts and
+// ends comes from the platform's own splitting (`Intl.Segmenter`), not from a
+// list kept here.
+
+// A character that can only show up inside an emoji: the pictures themselves,
+// flag letters, skin tones, the joiner, the colour selector, the keycap frame
+// and the tag letters of subdivision flags. Only a cheap first look: text with
+// none of these never asks the segmenter.
+const EMOJI_PART =
+  /[\p{Extended_Pictographic}\p{Regional_Indicator}\p{Emoji_Modifier}\u200d\ufe0f\u20e3\u{e0020}-\u{e007f}]/u;
+// What makes a character cluster an emoji rather than a letter with marks.
+const EMOJI =
+  /[\p{Extended_Pictographic}\p{Regional_Indicator}\p{Emoji_Modifier}\u20e3]/u;
+
+// Splits text into what a reader sees as one character. Holds no state of its
+// own (each `segment` call is independent), so one shared instance is safe for
+// every editor on the page. Null on a host without `Intl.Segmenter`.
+const GRAPHEMES: Intl.Segmenter | null = (() => {
+  try {
+    if (typeof Intl === "undefined" || typeof Intl.Segmenter !== "function") {
+      return null;
+    }
+    return new Intl.Segmenter(undefined, { granularity: "grapheme" });
+  } catch {
+    return null;
+  }
+})();
+
+/**
+ * The whole emoji covering `text[index]` as `[start, end)`, or null when there
+ * is none there. Includes keycaps ("1️⃣", "#️⃣"). Without `Intl.Segmenter` it
+ * falls back to the one code point, which at least never splits a pair.
+ */
+export function emojiClusterAt(
+  text: string,
+  index: number,
+): { start: number; end: number } | null {
+  if (index < 0 || index >= text.length) return null;
+  const start = isMidSurrogatePair(text, index) ? index - 1 : index;
+  const end = nextCodePointEnd(text, start);
+  if (
+    !EMOJI_PART.test(text.slice(start, end)) &&
+    // "#️⃣" starts on a plain "#"; the selector after it gives it away.
+    !(end < text.length && EMOJI_PART.test(text[end]))
+  ) {
+    return null;
+  }
+  const cluster = GRAPHEMES?.segment(text).containing(index);
+  const span = cluster
+    ? { start: cluster.index, end: cluster.index + cluster.segment.length }
+    : { start, end };
+  return EMOJI.test(text.slice(span.start, span.end)) ? span : null;
+}
+
+/** Whether `index` falls strictly inside an emoji, where no caret belongs. */
+export function isInsideEmoji(text: string, index: number): boolean {
+  const span = emojiClusterAt(text, index);
+  return span !== null && span.start < index;
+}
+
 /**
  * Whether a keydown's `key` is a character to type rather than a named key.
  *

@@ -22,6 +22,7 @@
  * flowing into the text via `inlineText()`.
  */
 
+import { analyzeLineBidi } from "../bidi";
 import {
   captureReopenedWord,
   planRecomposition,
@@ -163,6 +164,8 @@ export interface TextNodeLayout extends NodeLayout, TextLayout {
   readonly formats: MarkSpan[];
   readonly indentOffset: number;
   readonly markerWidth: number;
+  /** Space kept free on the line-end side of the text. See `trailingInset`. */
+  readonly trailingInset: number;
   /**
    * Vertical inset before the first line (and mirrored after the last via the
    * style's paddingBottom). Resolved from the style's `paddingTop` — headings
@@ -171,7 +174,7 @@ export interface TextNodeLayout extends NodeLayout, TextLayout {
    * selection) starts from `blockTop + insetY`.
    */
   readonly insetY: number;
-  /** Content width available to text (maxWidth minus list indent + marker). */
+  /** Content width available to text (maxWidth minus leading + trailing insets). */
   readonly adjustedMaxWidth: number;
 }
 
@@ -768,6 +771,70 @@ function composeMarkStyle(
   };
 }
 
+/** One piece of a line to paint: a format batch, cut where the direction changes. */
+interface PaintPiece {
+  readonly batch: TextBatch;
+  readonly text: string;
+  /** Visible offsets `[start, end)` of the piece. */
+  readonly start: number;
+  readonly end: number;
+  /** Whether the piece reads right to left (an odd bidi level). */
+  readonly rtl: boolean;
+}
+
+/**
+ * Cut a line's format batches at every direction change and return the pieces
+ * in visual (left-to-right) order, using the same bidi runs the caret, click
+ * mapping and selection highlight use — so painted glyphs and those agree.
+ *
+ * Cuts only fall where the direction changes (between Arabic and Latin, or
+ * around digits), where letters never join anyway, so Arabic shaping inside a
+ * batch is untouched. A replacement batch (inline math) is one atomic box and
+ * is never cut; it goes with the run its first character belongs to.
+ */
+function visualPieces(
+  batches: readonly TextBatch[],
+  lineStartIndex: number,
+  isRTL: boolean,
+): PaintPiece[] {
+  const lineText = batches.map((b) => b.text).join("");
+  const { levels, runs, visual } = analyzeLineBidi(
+    lineText,
+    isRTL ? "rtl" : "ltr",
+  );
+  const runAt = new Int32Array(lineText.length);
+  runs.forEach((run, r) => runAt.fill(r, run.start, run.end));
+
+  const byRun: PaintPiece[][] = runs.map(() => []);
+  let offset = 0;
+  for (const batch of batches) {
+    const batchEnd = offset + batch.text.length;
+    let start = offset;
+    while (start < batchEnd) {
+      let end = start + 1;
+      if (batch.replacement) end = batchEnd;
+      else while (end < batchEnd && levels[end] === levels[start]) end++;
+      byRun[runAt[start]].push({
+        batch,
+        text: lineText.slice(start, end),
+        start: lineStartIndex + start,
+        end: lineStartIndex + end,
+        rtl: levels[start] % 2 === 1,
+      });
+      start = end;
+    }
+    offset = batchEnd;
+  }
+
+  const pieces: PaintPiece[] = [];
+  for (const run of visual) {
+    const inRun = byRun[runs.indexOf(run)];
+    if (run.level % 2 === 1) inRun.reverse();
+    pieces.push(...inRun);
+  }
+  return pieces;
+}
+
 // Render a single line with CRDT formatting (batched to preserve ligatures).
 // Per-mark visual style is resolved through the editor's MarkRegistry, so the
 // renderer no longer special-cases individual mark types.
@@ -845,25 +912,35 @@ function renderLine(
     }
   }
 
-  let batchVisibleStart = lineStartIndex;
+  // Lay the pieces down in VISUAL order (left to right), the same order the
+  // caret, click mapping and selection highlight read from bidi.ts. Painting
+  // the batches in typing order instead put a formatted piece of a mixed line
+  // on the wrong side of its neighbours ("world Hello" for "Hello world").
+  const pieces = visualPieces(batches, lineStartIndex, isRTL);
+  const savedAlign = ctx.textAlign;
 
-  for (const batch of batches) {
+  type PreparedPiece = {
+    width: number;
+    paint: (left: number) => void;
+  };
+
+  const prepare = (piece: PaintPiece): PreparedPiece => {
+    const { batch } = piece;
     const style = composeMarkStyle(batch.formats, marks, styles);
     const effectiveFontWeight = batch.bold ? "bold" : textStyle.fontWeight;
     const fontStyle = batch.italic ? "italic" : "normal";
-
-    ctx.font = `${fontStyle} ${effectiveFontWeight} ${textStyle.fontSize}px ${getFontStack(fontFamily, styles.fonts)}`;
-    ctx.textBaseline = "alphabetic";
-
-    const batchVisibleEnd = batchVisibleStart + batch.text.length;
+    const font = `${fontStyle} ${effectiveFontWeight} ${textStyle.fontSize}px ${getFontStack(fontFamily, styles.fonts)}`;
+    const batchVisibleStart = piece.start;
+    const batchVisibleEnd = piece.end;
 
     // Replacement marks (inline math) draw their own glyphs and measure as an
     // atomic unit — they win the run. Fall through to plain text only when the
     // replacement can't render (measure returns null), matching prior behavior.
     if (style.replacement) {
+      const replacement = style.replacement;
       const owner = resolvedReplacements.find(
         (run) =>
-          run.replacement === style.replacement &&
+          run.replacement === replacement &&
           batchVisibleStart >= run.start &&
           batchVisibleEnd <= run.end,
       );
@@ -882,11 +959,11 @@ function renderLine(
           ? owner.text.slice(anchored.sourceStart, anchored.sourceEnd)
           : owner.text
         : style.replacementMark
-          ? (style.replacement.source?.(batch.text, {
+          ? (replacement.source?.(piece.text, {
               mark: style.replacementMark,
               attachments,
-            }) ?? batch.text)
-          : batch.text;
+            }) ?? piece.text)
+          : piece.text;
       const hovered =
         hoveredInlineMath !== null &&
         batchVisibleStart >= hoveredInlineMath.startIndex &&
@@ -912,97 +989,114 @@ function renderLine(
             caretOffset,
             editing: commandEntryActive,
           };
-      const dims = style.replacement.measure(
+      const dims = replacement.measure(
         replacementText,
         textStyle.fontSize,
         edit,
       );
       if (dims) {
-        style.replacement.paint({
-          ctx,
-          text: replacementText,
-          x: currentX,
-          y,
-          fontSize: textStyle.fontSize,
-          isRTL,
-          hovered,
-          dims,
-          styles,
-          edit,
-          requestRedraw,
-        });
-        currentX += isRTL ? -dims.width : dims.width;
-        batchVisibleStart = batchVisibleEnd;
-        continue;
+        return {
+          width: dims.width,
+          paint: (left) => {
+            // The replacement keeps its contract: `x` is its start edge in the
+            // block's direction (its right edge in RTL).
+            ctx.direction = isRTL ? "rtl" : "ltr";
+            ctx.textAlign = savedAlign;
+            replacement.paint({
+              ctx,
+              text: replacementText,
+              x: isRTL ? left + dims.width : left,
+              y,
+              fontSize: textStyle.fontSize,
+              isRTL,
+              hovered,
+              dims,
+              styles,
+              edit,
+              requestRedraw,
+            });
+          },
+        };
       }
     }
 
-    const drawn = expandTabs(batch.text);
+    const drawn = expandTabs(piece.text);
+    ctx.font = font;
     const textWidth = ctx.measureText(drawn).width;
-    const visualX = currentX;
 
-    // Background chip (code).
-    if (style.background) {
-      const chip = style.background;
-      ctx.save();
-      ctx.fillStyle = chip.color;
-      const rectX = isRTL
-        ? visualX - textWidth - chip.padding
-        : visualX - chip.padding;
-      const rectY = y - textStyle.fontSize - chip.padding;
-      const rectWidth = textWidth + chip.padding * 2;
-      const rectHeight = textStyle.fontSize * textStyle.lineHeight;
-      ctx.beginPath();
-      ctx.roundRect(rectX, rectY, rectWidth, rectHeight, chip.borderRadius);
-      ctx.fill();
-      ctx.restore();
-    }
+    return {
+      width: textWidth,
+      paint: (left) => {
+        ctx.font = font;
+        ctx.textBaseline = "alphabetic";
 
-    ctx.fillStyle = style.color ?? textStyle.color;
-    ctx.fillText(drawn, visualX, y);
+        // Background chip (code).
+        if (style.background) {
+          const chip = style.background;
+          ctx.save();
+          ctx.fillStyle = chip.color;
+          const rectY = y - textStyle.fontSize - chip.padding;
+          const rectWidth = textWidth + chip.padding * 2;
+          const rectHeight = textStyle.fontSize * textStyle.lineHeight;
+          ctx.beginPath();
+          ctx.roundRect(
+            left - chip.padding,
+            rectY,
+            rectWidth,
+            rectHeight,
+            chip.borderRadius,
+          );
+          ctx.fill();
+          ctx.restore();
+        }
 
-    // Underline (link).
-    if (style.underline) {
-      const u = style.underline;
-      ctx.save();
-      ctx.strokeStyle = u.color;
-      ctx.lineWidth = u.thickness;
-      ctx.beginPath();
-      if (isRTL) {
-        ctx.moveTo(visualX - textWidth, y + textStyle.fontSize * 0.1);
-        ctx.lineTo(visualX, y + textStyle.fontSize * 0.1);
-      } else {
-        ctx.moveTo(visualX, y + textStyle.fontSize * 0.1);
-        ctx.lineTo(visualX + textWidth, y + textStyle.fontSize * 0.1);
-      }
-      ctx.stroke();
-      ctx.restore();
-    }
+        // Every piece holds one direction, so the browser only orders the
+        // glyphs inside it; drawing it in that direction keeps its edge spaces
+        // and brackets on the side the caret expects.
+        ctx.direction = piece.rtl ? "rtl" : "ltr";
+        ctx.textAlign = "left";
+        ctx.fillStyle = style.color ?? textStyle.color;
+        ctx.fillText(drawn, left, y);
 
-    // Strike-through — uses the resolved fill color, matching prior behavior.
-    if (style.strikethrough) {
-      ctx.save();
-      ctx.strokeStyle = ctx.fillStyle;
-      ctx.lineWidth = Math.max(1, textStyle.fontSize / 16);
-      ctx.beginPath();
-      if (isRTL) {
-        ctx.moveTo(visualX - textWidth, y - textStyle.fontSize * 0.3);
-        ctx.lineTo(visualX, y - textStyle.fontSize * 0.3);
-      } else {
-        ctx.moveTo(visualX, y - textStyle.fontSize * 0.3);
-        ctx.lineTo(visualX + textWidth, y - textStyle.fontSize * 0.3);
-      }
-      ctx.stroke();
-      ctx.restore();
-    }
+        // Underline (link).
+        if (style.underline) {
+          const u = style.underline;
+          ctx.save();
+          ctx.strokeStyle = u.color;
+          ctx.lineWidth = u.thickness;
+          ctx.beginPath();
+          ctx.moveTo(left, y + textStyle.fontSize * 0.1);
+          ctx.lineTo(left + textWidth, y + textStyle.fontSize * 0.1);
+          ctx.stroke();
+          ctx.restore();
+        }
 
-    if (isRTL) {
-      currentX -= textWidth;
-    } else {
-      currentX += textWidth;
-    }
-    batchVisibleStart = batchVisibleEnd;
+        // Strike-through — uses the resolved fill color, matching prior behavior.
+        if (style.strikethrough) {
+          ctx.save();
+          ctx.strokeStyle = ctx.fillStyle;
+          ctx.lineWidth = Math.max(1, textStyle.fontSize / 16);
+          ctx.beginPath();
+          ctx.moveTo(left, y - textStyle.fontSize * 0.3);
+          ctx.lineTo(left + textWidth, y - textStyle.fontSize * 0.3);
+          ctx.stroke();
+          ctx.restore();
+        }
+      },
+    };
+  };
+
+  const prepared = pieces.map(prepare);
+  let lineWidth = 0;
+  for (const p of prepared) lineWidth += p.width;
+  // `currentX` is the text's start edge (past any continuation row): the left
+  // edge in LTR, the right edge in RTL.
+  let left = isRTL ? currentX - lineWidth : currentX;
+  for (const p of prepared) {
+    p.paint(left);
+    left += p.width;
   }
+  ctx.textAlign = savedAlign;
 
   ctx.direction = "ltr";
 }
@@ -1162,15 +1256,13 @@ export class TextNode<
       this.textStyle(c.styles, block.type),
       block.style,
     );
-    const layoutMaxWidth = this.estimateLayoutMaxWidth(
-      block,
-      c.maxWidth,
-      c.styles,
-    );
     const { indentOffset, markerWidth } = this.leadingInset(block, c.styles);
     const usableWidth = Math.max(
       1,
-      layoutMaxWidth - indentOffset - markerWidth,
+      c.maxWidth -
+        indentOffset -
+        markerWidth -
+        this.trailingInset(block, c.styles),
     );
     const averageGlyphWidth = textStyle.fontSize * 0.55;
     const charsPerLine = Math.max(
@@ -1199,19 +1291,6 @@ export class TextNode<
     const layout = this.layout(c);
     const first = layout.lines[0];
     return layout.insetY + (first ? first.y + first.height / 2 : 0);
-  }
-
-  /**
-   * Width handed to the shared text layout before leading insets are removed.
-   * CodeNode overrides this because its right-side container padding is applied
-   * before TextNode's left-side leading inset.
-   */
-  protected estimateLayoutMaxWidth(
-    _block: B,
-    maxWidth: number,
-    _styles: EditorStyles,
-  ): number {
-    return maxWidth;
   }
 
   /**
@@ -1268,7 +1347,9 @@ export class TextNode<
     // the layout here means every downstream pass (caret, selection, hit-test)
     // gets correct geometry without re-checking the block type.
     const { indentOffset, markerWidth } = this.leadingInset(block, styles);
-    const adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
+    const trailingInset = this.trailingInset(block, styles);
+    const adjustedMaxWidth =
+      maxWidth - indentOffset - markerWidth - trailingInset;
     const insetY = this.contentInsetY(block, styles, textStyle);
 
     const chars = content?.chars ?? charRunsToChars(block.charRuns);
@@ -1313,16 +1394,26 @@ export class TextNode<
       maxWidth,
       indentOffset,
       markerWidth,
+      trailingInset,
       insetY,
       adjustedMaxWidth,
     };
   }
 
-  /** Base text x (left edge of the text area) given the block's left origin. */
+  /**
+   * Left edge of the text area given the block's left origin — the one answer
+   * the painter and every geometry pass (caret, selection, hit-test) share, so
+   * a highlight always lands on the glyphs it covers.
+   *
+   * The leading inset (list indent + marker gutter, a quote's accent, a code
+   * box's padding) sits on the line-start side and the trailing inset on the
+   * line-end side. Both swap sides with the block's direction: RTL text is
+   * mirrored, so its area starts after the trailing inset and the leading inset
+   * follows its `adjustedMaxWidth` on the right.
+   */
   private baseX(layout: TextNodeLayout, originX: number): number {
-    if (layout.indentOffset === 0 && layout.markerWidth === 0) return originX;
     return layout.isRTL
-      ? originX + layout.indentOffset
+      ? originX + layout.trailingInset
       : originX + layout.indentOffset + layout.markerWidth;
   }
 
@@ -1587,7 +1678,6 @@ export class TextNode<
       fontMetrics,
       codePadding,
       indentOffset,
-      markerWidth,
       insetY,
       adjustedMaxWidth,
       chars: renderChars,
@@ -1595,18 +1685,12 @@ export class TextNode<
       compositionRange,
     } = layout;
 
-    // Marker / text-area x positions. For non-list blocks indentOffset and
-    // markerWidth are 0, so adjustedX === x and markerX is unused (no marker is
-    // painted) — the same result the old isListBlock branch produced.
-    let adjustedX: number;
-    let markerX: number;
-    if (isRTL) {
-      adjustedX = x;
-      markerX = x + adjustedMaxWidth;
-    } else {
-      markerX = x + indentOffset;
-      adjustedX = x + indentOffset + markerWidth;
-    }
+    // Marker / text-area x positions. The text area comes from `baseX`, the
+    // same edge the caret, selection and hit-test passes use. The marker gutter
+    // sits on the line-start side of it: right after the text for RTL, after
+    // the indent for LTR. Blocks without a marker never paint at `markerX`.
+    const adjustedX = this.baseX(layout, x);
+    const markerX = isRTL ? adjustedX + adjustedMaxWidth : x + indentOffset;
 
     const renderedLines: RenderedLine[] = [];
     const fullContent = getBlockTextContent(runtimeBlock);
@@ -2008,6 +2092,16 @@ export class TextNode<
     _styles: EditorStyles,
   ): { indentOffset: number; markerWidth: number } {
     return { indentOffset: 0, markerWidth: 0 };
+  }
+
+  /**
+   * Horizontal space kept free on the line-END side of the text (the right for
+   * LTR, the left for RTL) — a card's inner padding opposite its accent. Zero
+   * for plain blocks. Like `leadingInset` it is folded into `computeLayout`, so
+   * it mirrors with the block's direction in every pass at once.
+   */
+  protected trailingInset(_block: B, _styles: EditorStyles): number {
+    return 0;
   }
 
   /**

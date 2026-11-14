@@ -109,7 +109,7 @@ import {
   findWordDeleteBoundaryRight,
   findWordEnd,
   findWordStart,
-  isWordChar,
+  isWordCharAt,
 } from "../word-chars";
 import {
   cloneStructuredBlockContent,
@@ -3421,7 +3421,7 @@ export function selectWordAtPosition(
     const isOnWord =
       !runStartingHere &&
       textIndex < text.length &&
-      isWordChar(text[textIndex]);
+      isWordCharAt(text, textIndex);
     // Clamps so a word beside a chip never drags chip source into the selection.
     const scanFloor = Math.max(
       0,
@@ -3448,11 +3448,12 @@ export function selectWordAtPosition(
       // of a line that ends in a chip — selects the chip whole.
       wordStart = runEndingHere.startIndex;
       wordEnd = runEndingHere.endIndex;
-    } else if (textIndex > 0 && isWordChar(text[textIndex - 1])) {
+    } else if (textIndex > 0 && isWordCharAt(text, textIndex - 1)) {
       // Not on a word but right after one (a click past the line end, or on
       // the space following a word): select the word that just ended, matching
-      // native text fields.
-      wordStart = Math.max(findWordStart(text, textIndex), scanFloor);
+      // native text fields. Asked from the last character, so a word that is
+      // one unit by itself (an emoji, a Chinese character) is found too.
+      wordStart = Math.max(findWordStart(text, textIndex - 1), scanFloor);
       wordEnd = textIndex;
     } else {
       // Nothing word-like at or before the point.

@@ -8,9 +8,9 @@
  *   - `wrapLines`        — break on "\n" (a consumed, non-rendered break, exactly
  *                          like a wrap space) so one block spans many lines.
  *   - `resolveFontFamily`— render/measure in monospace.
- *   - `leadingInset` + `contentInsetY`/`contentPaddingBottom` — pad the text
- *                          inside the background box, plus the outer card
- *                          margins that keep prose clear of the box.
+ *   - `leadingInset`/`trailingInset` + `contentInsetY`/`contentPaddingBottom`
+ *                          — pad the text inside the background box, plus the
+ *                          outer card margins that keep prose clear of the box.
  *
  * Editing affordances that the plain text pipeline gets wrong for code are
  * redirected through the action bus in {@link registerActions}: Enter inserts a
@@ -281,34 +281,18 @@ export class CodeNode extends TextNode {
   // Host-overridable for i18n via `theme.nodeStrings.code.placeholder`.
   readonly strings = { placeholder: "Write or paste code…" };
 
-  protected estimateLayoutMaxWidth(
-    _block: TextualBlock,
-    maxWidth: number,
-    styles: EditorStyles,
-  ): number {
-    return maxWidth - styles.blocks.code.paddingX;
-  }
-
   // ── Layout ────────────────────────────────────────────────────────────────
 
   /**
-   * Reserve symmetric horizontal padding. The right inset is taken off `maxWidth`
-   * here; the matching left inset is added by {@link leadingInset} (which also
-   * shrinks the wrap width), so the text area is `maxWidth - 2·paddingX` wide and
-   * starts `paddingX` in from the box's left edge.
+   * Symmetric horizontal padding: {@link leadingInset} pads the line-start side
+   * and this pads the line-end side, so the text area is `maxWidth - 2·paddingX`
+   * wide and sits `paddingX` in from both box edges — in either direction.
    */
-  computeLayout(
-    block: TextualBlock,
-    maxWidth: number,
+  protected override trailingInset(
+    _block: TextualBlock,
     styles: EditorStyles,
-    content?: {
-      chars: Char[];
-      formats: MarkSpan[];
-      compositionRange: { start: number; end: number } | null;
-    },
-  ): TextNodeLayout {
-    const paddingX = styles.blocks.code.paddingX;
-    return super.computeLayout(block, maxWidth - paddingX, styles, content);
+  ): number {
+    return styles.blocks.code.paddingX;
   }
 
   protected resolveFontFamily(_styles: EditorStyles): FontFamily {

@@ -36,6 +36,7 @@ import {
   mathTreeCaretToContentSelection,
   mathUnitBoundaryOffset,
   moveMathTreeCaretVertically,
+  moveMathTreeCaretVisually,
 } from "./tree-selection";
 import type { FeatureInputRule } from "@tasfer/editor/feature-facets";
 import { getBlockTextLength } from "@tasfer/editor/node-shared";
@@ -125,7 +126,11 @@ export function moveActiveMathTreeCaret(
 ): { state: EditorState; ops: Operation[]; handled: true } | undefined {
   const context = activeMathTreeContext(state);
   if (!context) return undefined;
-  const moved = moveMathTreeCaret(context.document, context.caret, motion);
+  const moved = moveMathTreeCaretVisually(
+    context.document,
+    context.caret,
+    motion,
+  );
   if (moved.handled) return commitMathTreeResult(state, context, moved);
   // A selection whose focus is already at the equation edge still has to
   // collapse even though there is no further caret stop in this direction.
@@ -662,7 +667,7 @@ export function extendActiveMathTreeSelectionHorizontally(
   if (!context || !current) return undefined;
   const continuation = mathTreeSelectionContinuation(context.document, current);
   if (!continuation) return undefined;
-  const moved = moveMathTreeCaret(
+  const moved = moveMathTreeCaretVisually(
     context.document,
     continuation.caret,
     direction === "left" ? "arrow-left" : "arrow-right",

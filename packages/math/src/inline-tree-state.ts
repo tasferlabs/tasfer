@@ -32,6 +32,7 @@ import {
   mathTreeCaretToContentSelection,
   mathUnitBoundaryOffset,
   moveMathTreeCaretVertically,
+  moveMathTreeCaretVisually,
 } from "./tree-selection";
 import {
   extendSelectionOutOfStructuredMark,
@@ -868,7 +869,11 @@ export function moveActiveInlineMathTreeCaret(
 ): InlineMathTreeStateResult | undefined {
   const context = activeInlineMathContext(state);
   if (!context) return undefined;
-  const moved = moveMathTreeCaret(context.document, context.caret, motion);
+  const moved = moveMathTreeCaretVisually(
+    context.document,
+    context.caret,
+    motion,
+  );
   if (moved.handled) return commitInlineMathResult(state, context, moved);
   // Collapse a range even when its focus is already at the formula boundary.
   // Previously the failed move left a full-formula selection active.
@@ -1124,7 +1129,7 @@ export function extendActiveInlineMathTreeSelectionHorizontally(
     current,
   );
   if (!continuation) return undefined;
-  const moved = moveMathTreeCaret(
+  const moved = moveMathTreeCaretVisually(
     context.document,
     continuation.caret,
     direction === "left" ? "arrow-left" : "arrow-right",
