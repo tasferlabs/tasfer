@@ -1,0 +1,956 @@
+{
+ "name": "@tasfer/provider-core",
+ "entries": [
+  {
+   "id": "@tasfer/provider-core",
+   "symbols": [
+    {
+     "name": "createBroadcastChannelTransport",
+     "kind": "function",
+     "sigs": [
+      "function createBroadcastChannelTransport(\n  room: string,\n  localId: string,\n): Transport"
+     ],
+     "params": [
+      {
+       "name": "room",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "channel name. Same string, same room."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "localId",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "this tab's stable id (pass "
+          },
+          {
+           "type": "inlineCode",
+           "value": "doc.peerId"
+          },
+          {
+           "type": "text",
+           "value": ")."
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "summary": "A transport that syncs tabs and frames in one browser, with no server.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "A transport that syncs tabs and frames in one browser, with no server. They\nmust share an origin (the same scheme, host and port). Every tab that uses\nthe same "
+        },
+        {
+         "type": "inlineCode",
+         "value": "room"
+        },
+        {
+         "type": "text",
+         "value": " sees the same document. Give it to "
+        },
+        {
+         "type": "link",
+         "url": "ref:createProvider",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "createProvider"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": "."
+        }
+       ]
+      }
+     ],
+     "src": "packages/provider-core/src/broadcast-channel.ts",
+     "from": [
+      "@tasfer/provider-core"
+     ]
+    },
+    {
+     "name": "createProvider",
+     "kind": "function",
+     "sigs": [
+      "function createProvider(options: CreateProviderOptions): Provider"
+     ],
+     "summary": "Keep a document in sync with every peer a transport reaches.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "Keep a document in sync with every peer a transport reaches. It sends each\nnew peer the edits that peer is missing, shares local edits as they happen,\nand carries presence such as cursors and names. Call "
+        },
+        {
+         "type": "inlineCode",
+         "value": "destroy()"
+        },
+        {
+         "type": "text",
+         "value": " on the\nresult to stop."
+        }
+       ]
+      },
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "It assumes every peer is connected to every other. If two peers cannot reach\neach other directly, they can miss each other's edits."
+        }
+       ]
+      },
+      {
+       "type": "code",
+       "value": "const provider = createProvider({\n  doc: editor.doc,\n  transport: createBroadcastChannelTransport(\"notes/today\", editor.doc.peerId),\n});\nprovider.on(\"sync\", ({ peers }) => console.log(`${peers} peers`));\nprovider.presence.set({ name: \"Sam\" });",
+       "lang": "ts"
+      }
+     ],
+     "src": "packages/provider-core/src/provider.ts",
+     "from": [
+      "@tasfer/provider-core"
+     ]
+    },
+    {
+     "name": "decodeMessage",
+     "kind": "function",
+     "sigs": [
+      "function decodeMessage(bytes: Uint8Array): WireMessage | null"
+     ],
+     "summary": "Read bytes from a peer back into a `WireMessage`.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "Read bytes from a peer back into a "
+        },
+        {
+         "type": "link",
+         "url": "ref:WireMessage",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "WireMessage"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": ". Returns "
+        },
+        {
+         "type": "inlineCode",
+         "value": "null"
+        },
+        {
+         "type": "text",
+         "value": " when\nthe bytes are not a valid message. Bytes come from other people's devices, so\nthe message's shape is checked before it is used. The edits inside an "
+        },
+        {
+         "type": "inlineCode",
+         "value": "ops"
+        },
+        {
+         "type": "text",
+         "value": "\nmessage are only checked to be objects."
+        }
+       ]
+      }
+     ],
+     "src": "packages/provider-core/src/wire.ts",
+     "from": [
+      "@tasfer/provider-core"
+     ]
+    },
+    {
+     "name": "encodeMessage",
+     "kind": "function",
+     "sigs": [
+      "function encodeMessage(msg: WireMessage): Uint8Array"
+     ],
+     "summary": "Turn a `WireMessage` into the bytes sent to a peer.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "Turn a "
+        },
+        {
+         "type": "link",
+         "url": "ref:WireMessage",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "WireMessage"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": " into the bytes sent to a peer.\n"
+        },
+        {
+         "type": "link",
+         "url": "ref:decodeMessage",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "decodeMessage"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": " reads them back."
+        }
+       ]
+      }
+     ],
+     "src": "packages/provider-core/src/wire.ts",
+     "from": [
+      "@tasfer/provider-core"
+     ]
+    },
+    {
+     "name": "CreateProviderOptions",
+     "kind": "interface",
+     "sigs": [
+      "interface CreateProviderOptions"
+     ],
+     "summary": "Options for `createProvider`: the document to sync and the transport that carries it to other peers.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "Options for "
+        },
+        {
+         "type": "link",
+         "url": "ref:createProvider",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "createProvider"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": ": the document to sync and the transport\nthat carries it to other peers."
+        }
+       ]
+      }
+     ],
+     "members": [
+      {
+       "name": "doc",
+       "kind": "property",
+       "sig": "doc: Doc",
+       "summary": "The document to keep in sync.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "The document to keep in sync."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "transport",
+       "kind": "property",
+       "sig": "transport: Transport",
+       "summary": "The pipe that reaches other replicas.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "The pipe that reaches other replicas."
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "src": "packages/provider-core/src/provider.ts",
+     "from": [
+      "@tasfer/provider-core"
+     ]
+    },
+    {
+     "name": "Presence",
+     "kind": "interface",
+     "sigs": [
+      "interface Presence"
+     ],
+     "summary": "The presence sub-API hung off a `Provider`.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "The presence sub-API hung off a "
+        },
+        {
+         "type": "link",
+         "url": "ref:Provider",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "Provider"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": "."
+        }
+       ]
+      }
+     ],
+     "members": [
+      {
+       "name": "set",
+       "kind": "method",
+       "sig": "set(state: PresenceState): void",
+       "summary": "Publish this replica's presence to all peers (replaces any prior value).",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Publish this replica's presence to all peers (replaces any prior value)."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "getLocal",
+       "kind": "method",
+       "sig": "getLocal(): PresenceState | null",
+       "summary": "This replica's current published presence, or null if unset.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "This replica's current published presence, or null if unset."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "getRemote",
+       "kind": "method",
+       "sig": "getRemote(): RemotePresence[]",
+       "summary": "Every connected peer's latest presence (this replica excluded).",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Every connected peer's latest presence (this replica excluded)."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "on",
+       "kind": "method",
+       "sig": "on(event: \"change\", cb: (peers: RemotePresence[]) => void): () => void",
+       "summary": "Call `cb` with every other peer's presence when one of them sets, changes or clears it, or leaves.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Call "
+          },
+          {
+           "type": "inlineCode",
+           "value": "cb"
+          },
+          {
+           "type": "text",
+           "value": " with every other peer's presence when one of them sets, changes\nor clears it, or leaves. Returns a function that stops listening."
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "src": "packages/provider-core/src/types.ts",
+     "from": [
+      "@tasfer/provider-core"
+     ]
+    },
+    {
+     "name": "Provider",
+     "kind": "interface",
+     "sigs": [
+      "interface Provider"
+     ],
+     "summary": "The handle returned by `createProvider` / a `create*Provider` factory.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "The handle returned by "
+        },
+        {
+         "type": "inlineCode",
+         "value": "createProvider"
+        },
+        {
+         "type": "text",
+         "value": " / a "
+        },
+        {
+         "type": "inlineCode",
+         "value": "create*Provider"
+        },
+        {
+         "type": "text",
+         "value": " factory."
+        }
+       ]
+      }
+     ],
+     "members": [
+      {
+       "name": "presence",
+       "kind": "property",
+       "sig": "readonly presence: Presence",
+       "summary": "Ephemeral presence channel — cursors, names, colors.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Ephemeral presence channel — cursors, names, colors."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "getPeerIds",
+       "kind": "method",
+       "sig": "getPeerIds(): string[]",
+       "summary": "ids of currently-connected peers.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "ids of currently-connected peers."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "on",
+       "kind": "method",
+       "sig": "on(event: \"sync\", cb: (state: SyncState) => void): () => void",
+       "summary": "Subscribe to connectivity changes.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Subscribe to connectivity changes. Returns an unsubscribe fn."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "destroy",
+       "kind": "method",
+       "sig": "destroy(): void",
+       "summary": "Stop syncing and close the transport.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Stop syncing and close the transport. The document itself is kept."
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "src": "packages/provider-core/src/types.ts",
+     "from": [
+      "@tasfer/provider-core"
+     ]
+    },
+    {
+     "name": "RemotePresence",
+     "kind": "interface",
+     "sigs": [
+      "interface RemotePresence"
+     ],
+     "summary": "A remote peer's most recent presence.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "A remote peer's most recent presence."
+        }
+       ]
+      }
+     ],
+     "members": [
+      {
+       "name": "peerId",
+       "kind": "property",
+       "sig": "peerId: string"
+      },
+      {
+       "name": "state",
+       "kind": "property",
+       "sig": "state: PresenceState"
+      }
+     ],
+     "src": "packages/provider-core/src/types.ts",
+     "from": [
+      "@tasfer/provider-core"
+     ]
+    },
+    {
+     "name": "SyncState",
+     "kind": "interface",
+     "sigs": [
+      "interface SyncState"
+     ],
+     "summary": "Snapshot delivered to `provider.on(\"sync\")` whenever connectivity changes.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "Snapshot delivered to "
+        },
+        {
+         "type": "inlineCode",
+         "value": "provider.on(\"sync\")"
+        },
+        {
+         "type": "text",
+         "value": " whenever connectivity changes."
+        }
+       ]
+      }
+     ],
+     "members": [
+      {
+       "name": "connected",
+       "kind": "property",
+       "sig": "connected: boolean",
+       "summary": "`true` while at least one peer is connected.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "true"
+          },
+          {
+           "type": "text",
+           "value": " while at least one peer is connected."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "peers",
+       "kind": "property",
+       "sig": "peers: number",
+       "summary": "Number of currently-connected peers.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Number of currently-connected peers."
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "src": "packages/provider-core/src/types.ts",
+     "from": [
+      "@tasfer/provider-core"
+     ]
+    },
+    {
+     "name": "Transport",
+     "kind": "interface",
+     "sigs": [
+      "interface Transport"
+     ],
+     "summary": "The connection under a provider.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "The connection under a provider. It finds peers in a room and gives you each\none as a "
+        },
+        {
+         "type": "link",
+         "url": "ref:TransportPeer",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "TransportPeer"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": ". After "
+        },
+        {
+         "type": "inlineCode",
+         "value": "connect()"
+        },
+        {
+         "type": "text",
+         "value": ", it reports peers joining\nand leaving through events. Implement it to sync over your own backend."
+        }
+       ]
+      }
+     ],
+     "members": [
+      {
+       "name": "connect",
+       "kind": "method",
+       "sig": "connect(): Promise<void> | void",
+       "summary": "Start finding peers.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Start finding peers. Calling it more than once must be safe. If it returns\na promise that rejects, the provider logs the error."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "onPeerJoin",
+       "kind": "method",
+       "sig": "onPeerJoin(cb: (peer: TransportPeer) => void): () => void",
+       "summary": "A peer became reachable (its channel opened).",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "A peer became reachable (its channel opened)."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "onPeerLeave",
+       "kind": "method",
+       "sig": "onPeerLeave(cb: (peerId: string) => void): () => void",
+       "summary": "A peer became unreachable.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "A peer became unreachable."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "getPeers",
+       "kind": "method",
+       "sig": "getPeers(): TransportPeer[]",
+       "summary": "Currently-connected peers.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Currently-connected peers."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "destroy",
+       "kind": "method",
+       "sig": "destroy(): void",
+       "summary": "Tear down all connections and listeners.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Tear down all connections and listeners."
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "src": "packages/provider-core/src/types.ts",
+     "from": [
+      "@tasfer/provider-core"
+     ]
+    },
+    {
+     "name": "TransportPeer",
+     "kind": "interface",
+     "sigs": [
+      "interface TransportPeer"
+     ],
+     "summary": "One reachable replica, as seen by the protocol.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "One reachable replica, as seen by the protocol. Mirrors a data channel."
+        }
+       ]
+      }
+     ],
+     "members": [
+      {
+       "name": "id",
+       "kind": "property",
+       "sig": "readonly id: string",
+       "summary": "Stable remote identity (its `doc.peerId`).",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Stable remote identity (its "
+          },
+          {
+           "type": "inlineCode",
+           "value": "doc.peerId"
+          },
+          {
+           "type": "text",
+           "value": "). Used to de-dupe connections."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "send",
+       "kind": "method",
+       "sig": "send(bytes: Uint8Array): void",
+       "summary": "Send bytes to this peer.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Send bytes to this peer. They must arrive complete and in order. Splitting\nlarge messages is up to the transport, as the WebRTC transport does."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "onMessage",
+       "kind": "method",
+       "sig": "onMessage(cb: (bytes: Uint8Array) => void): () => void",
+       "summary": "Subscribe to bytes from this peer.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Subscribe to bytes from this peer. Returns an unsubscribe fn."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "onClose",
+       "kind": "method",
+       "sig": "onClose(cb: () => void): () => void",
+       "summary": "Fires once when this peer disconnects.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Fires once when this peer disconnects. Returns an unsubscribe fn."
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "src": "packages/provider-core/src/types.ts",
+     "from": [
+      "@tasfer/provider-core"
+     ]
+    },
+    {
+     "name": "PresenceState",
+     "kind": "type",
+     "sigs": [
+      "type PresenceState = Record<string, unknown>"
+     ],
+     "summary": "Presence for one peer, like a cursor color or display name.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "Presence for one peer, like a cursor color or display name. It travels with\nthe document but is never saved in it. You choose its shape. The provider\nonly passes it along."
+        }
+       ]
+      }
+     ],
+     "src": "packages/provider-core/src/types.ts",
+     "from": [
+      "@tasfer/provider-core"
+     ]
+    },
+    {
+     "name": "WireMessage",
+     "kind": "type",
+     "sigs": [
+      "type WireMessage =\n  | { t: \"hello\"; vv: Record<string, number> }\n  | { t: \"ops\"; ops: Operation[] }\n  | { t: \"pres\"; state: PresenceState | null }"
+     ],
+     "summary": "A message two peers exchange while syncing.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "A message two peers exchange while syncing: "
+        },
+        {
+         "type": "inlineCode",
+         "value": "hello"
+        },
+        {
+         "type": "text",
+         "value": " (what the sender\nalready has), "
+        },
+        {
+         "type": "inlineCode",
+         "value": "ops"
+        },
+        {
+         "type": "text",
+         "value": " (a batch of edits) or "
+        },
+        {
+         "type": "inlineCode",
+         "value": "pres"
+        },
+        {
+         "type": "text",
+         "value": " (the sender's presence, or\n"
+        },
+        {
+         "type": "inlineCode",
+         "value": "null"
+        },
+        {
+         "type": "text",
+         "value": " once it clears it)."
+        }
+       ]
+      }
+     ],
+     "src": "packages/provider-core/src/wire.ts",
+     "from": [
+      "@tasfer/provider-core"
+     ]
+    }
+   ]
+  }
+ ]
+}

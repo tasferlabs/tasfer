@@ -1650,3 +1650,828 @@ body:has(.dx-page) .site-banner-inner {
     display: none;
   }
 }
+
+/* ------------------------------------------------------------
+   API reference (reference/ApiReferenceView.tsx)
+   One row per export: collapsed to kind · name · summary, opened
+   to its signature, doc comment and members.
+   ------------------------------------------------------------ */
+.dx-page .dx-nav-version {
+  margin-inline-start: auto;
+  font-family: var(--font-terminal);
+  font-size: 10.5px;
+  letter-spacing: 0;
+  color: var(--cy-muted-fg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 7px;
+  line-height: 1.7;
+}
+.dx-page .dx-ref {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  margin-top: 20px;
+  min-width: 0;
+}
+.dx-page .dx-ref button:focus-visible,
+.dx-page .dx-ref a:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.dx-page .dx-ref-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* Headings inside the reference are labels for a list, not chapters of an
+   article: the UI face at a modest size, with the count of what they head. */
+.dx-page .dx-article .dx-ref h2 {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 20px;
+  letter-spacing: 0;
+  line-height: 1.3;
+  margin: 0;
+  padding: 0;
+  /* Clear the sticky header when a link or the URL scrolls here. */
+  scroll-margin-top: calc(var(--dx-chrome-top) + 12px);
+}
+.dx-page .dx-article .dx-ref h2[data-count]::after,
+.dx-page .dx-ref-fold-label::after {
+  content: attr(data-count);
+  margin-inline-start: 8px;
+  font-family: var(--font-terminal);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--cy-muted-fg);
+}
+.dx-page .dx-article .dx-ref h2.dx-ref-entry {
+  font-family: var(--font-terminal);
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+
+/* ── what the badges mean ── */
+.dx-page .dx-ref-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  font-size: 13px;
+  color: var(--cy-muted-fg);
+}
+.dx-page .dx-ref-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── choosing a package ── */
+.dx-page .dx-ref-intro {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dx-page .dx-article .dx-ref-intro p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--cy-muted-fg);
+}
+.dx-page .dx-ref-pkgs {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.dx-page .dx-ref-pkgrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.dx-page .dx-ref-pkgrow-label {
+  flex: 0 0 96px;
+  padding-top: 12px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--cy-muted-fg);
+}
+.dx-page .dx-ref-pkgrow-cards {
+  flex: 1 1 400px;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.dx-page .dx-ref-pkg {
+  flex: 1 1 220px;
+  min-width: 0;
+  min-height: 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 14px;
+  font: inherit;
+  text-align: start;
+  color: inherit;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--cy-radius-lg);
+  cursor: pointer;
+  transition:
+    border-color var(--cy-duration-fast),
+    background var(--cy-duration-fast);
+}
+.dx-page .dx-ref-pkg:hover {
+  border-color: oklch(from var(--fg) l c h / 0.35);
+}
+.dx-page .dx-ref-pkg.is-active {
+  border-color: var(--primary);
+  background: var(--cy-muted);
+}
+.dx-page .dx-ref-pkg-name {
+  font-family: var(--font-terminal);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.dx-page .dx-ref-scope {
+  font-weight: 400;
+  color: var(--cy-muted-fg);
+}
+.dx-page .dx-ref-pkg-desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--cy-muted-fg);
+}
+
+/* ── the chosen package ── */
+.dx-page .dx-ref-pkgcard {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  padding: 20px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--cy-radius-lg);
+}
+.dx-page .dx-ref-pkgcard-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--cy-muted-fg);
+}
+.dx-page .dx-article .dx-ref h2.dx-ref-pkg-title {
+  font-family: var(--font-terminal);
+  overflow-wrap: anywhere;
+}
+.dx-page .dx-ref-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 40px;
+  margin: 0;
+}
+.dx-page .dx-ref-facts > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.dx-page .dx-ref-facts > div.is-wide {
+  flex: 1 1 280px;
+}
+.dx-page .dx-ref-facts dt {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--cy-muted-fg);
+}
+.dx-page .dx-ref-facts dd {
+  margin: 0;
+  font-family: var(--font-terminal);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.dx-page .dx-ref-facts dd.is-version {
+  color: var(--primary);
+}
+/* Import paths are code: always left-to-right. */
+.dx-page .dx-ref-facts dd.is-entries {
+  direction: ltr;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+[dir="rtl"] .dx-page .dx-ref-facts dd.is-entries {
+  justify-content: flex-end;
+}
+
+/* The install block keeps the install page's layout — managers on top, the
+   command below — in this card's colours: the muted fill of a copy line. */
+.dx-page .dx-ref .dx-ref-pkgcard .dx-code {
+  margin: 0;
+  border: 0;
+  background: var(--cy-muted);
+}
+.dx-page .dx-ref .dx-ref-pkgcard .dx-code-head {
+  padding: 6px 6px 6px 8px;
+  background: transparent;
+  border-bottom-color: oklch(from var(--fg) l c h / 0.08);
+}
+.dx-page .dx-ref .dx-ref-pkgcard .dx-code-tab.is-active {
+  background: var(--surface-raised);
+}
+.dx-page .dx-ref .dx-ref-pkgcard .dx-code pre {
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg);
+}
+
+/* A line of code with its copy button. */
+.dx-page .dx-ref-copyline {
+  direction: ltr;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 6px 6px 14px;
+  background: var(--cy-muted);
+  border-radius: var(--cy-radius-lg);
+}
+.dx-page .dx-article .dx-ref-copyline code {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  font-family: var(--font-terminal);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg);
+  background: none;
+  border: 0;
+  padding: 0;
+}
+.dx-page .dx-ref-copyline .dx-copy {
+  flex: none;
+}
+
+/* ── filtering ── */
+.dx-page .dx-ref-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.dx-page .dx-ref-filter {
+  position: relative;
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.dx-page .dx-ref-filter svg {
+  position: absolute;
+  inset-inline-start: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 15px;
+  height: 15px;
+  color: var(--cy-muted-fg);
+  pointer-events: none;
+}
+.dx-page .dx-ref-filter input {
+  width: 100%;
+  height: 38px;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--cy-radius-md);
+  padding: 0 12px;
+  padding-inline-start: 34px;
+  outline: none;
+  transition: border-color var(--cy-duration-fast);
+}
+.dx-page .dx-ref-filter input::placeholder {
+  color: var(--cy-muted-fg);
+}
+.dx-page .dx-ref-filter input:focus {
+  border-color: var(--primary);
+}
+.dx-page .dx-ref-btn,
+.dx-page .dx-ref-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 38px;
+  padding: 0 14px;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--cy-radius-md);
+  cursor: pointer;
+  transition:
+    background var(--cy-duration-fast),
+    color var(--cy-duration-fast),
+    border-color var(--cy-duration-fast);
+}
+.dx-page .dx-ref-btn.is-sm,
+.dx-page .dx-ref-chip {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+.dx-page .dx-ref-btn.is-sm {
+  align-self: flex-start;
+}
+.dx-page .dx-ref-btn:hover,
+.dx-page .dx-ref-chip:hover {
+  background: var(--cy-muted);
+}
+.dx-page .dx-ref-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.dx-page .dx-ref-chip.is-active {
+  color: var(--bg);
+  background: var(--fg);
+  border-color: var(--fg);
+}
+.dx-page .dx-ref-chip span {
+  font-family: var(--font-terminal);
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+/* ── a group of exports: unfolded, or folded to one row ── */
+.dx-page .dx-ref-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.dx-page .dx-ref-group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.dx-page .dx-ref-count {
+  font-size: 13px;
+  color: var(--cy-muted-fg);
+}
+.dx-page .dx-ref-folds,
+.dx-page .dx-article ul.dx-ref-list {
+  overflow: hidden;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--cy-radius-lg);
+}
+.dx-page .dx-article .dx-ref h2.dx-ref-fold {
+  font-size: 16px;
+}
+.dx-page .dx-article .dx-ref h2.dx-ref-fold + h2.dx-ref-fold {
+  border-top: 1px solid var(--border);
+}
+.dx-page .dx-ref-fold button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 14px;
+  font: inherit;
+  text-align: start;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: background var(--cy-duration-fast);
+}
+.dx-page .dx-ref-fold button:hover {
+  background: var(--cy-muted);
+}
+.dx-page .dx-ref-fold button:focus-visible,
+.dx-page .dx-ref-row-head:focus-visible {
+  outline-offset: -2px;
+}
+.dx-page .dx-ref-fold.is-entry .dx-ref-fold-label {
+  font-family: var(--font-terminal);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+/* ── one export: its row ── */
+.dx-page .dx-article ul.dx-ref-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.dx-page .dx-article li.dx-ref-row {
+  margin: 0;
+  border-bottom: 1px solid var(--border);
+  scroll-margin-top: calc(var(--dx-chrome-top) + 12px);
+}
+.dx-page .dx-article li.dx-ref-row:last-child {
+  border-bottom: 0;
+}
+.dx-page .dx-ref-row-head {
+  display: flex;
+  align-items: center;
+  gap: 6px 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 14px;
+  font: inherit;
+  text-align: start;
+  color: var(--fg);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: background var(--cy-duration-fast);
+}
+.dx-page .dx-ref-row-head:hover,
+.dx-page .dx-ref-row.is-open > .dx-ref-row-head {
+  background: var(--cy-muted);
+}
+.dx-page .dx-ref-chevron {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--cy-muted-fg);
+  transition: transform var(--cy-duration-fast);
+}
+[dir="rtl"] .dx-page .dx-ref-chevron {
+  transform: scaleX(-1);
+}
+.dx-page .dx-ref-row.is-open > .dx-ref-row-head .dx-ref-chevron {
+  transform: rotate(90deg);
+}
+.dx-page .dx-ref-kind {
+  flex: none;
+  font-family: var(--font-terminal);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1px 6px;
+}
+.dx-page .dx-article code.dx-ref-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  background: none;
+  border: 0;
+  padding: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.dx-page .dx-ref-summary {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--cy-muted-fg);
+}
+.dx-page .dx-article .dx-ref-summary code {
+  font-size: 0.9em;
+}
+.dx-page .dx-ref-row-meta {
+  flex: none;
+  margin-inline-start: auto;
+  font-size: 12px;
+  color: var(--cy-muted-fg);
+}
+.dx-page .dx-ref-badges {
+  display: inline-flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.dx-page .dx-ref-badge {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--cy-muted-fg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+.dx-page .dx-ref-badge.is-since {
+  color: var(--fg);
+}
+.dx-page .dx-ref-badge.is-unreleased {
+  color: var(--fg);
+  background: var(--cy-muted);
+  border-color: transparent;
+}
+/* On a row that is already tinted, the filled badge needs an edge. */
+.dx-page .dx-ref-row-head:hover .dx-ref-badge.is-unreleased,
+.dx-page .dx-ref-row.is-open > .dx-ref-row-head .dx-ref-badge.is-unreleased {
+  border-color: var(--border);
+}
+.dx-page .dx-ref-badge.is-experimental {
+  color: oklch(0.62 0.14 70);
+  border-color: oklch(0.62 0.14 70 / 0.45);
+}
+.dx-page .dx-ref-badge.is-deprecated {
+  color: oklch(0.62 0.16 30);
+  border-color: oklch(0.62 0.16 30 / 0.4);
+}
+
+/* ── one export: opened ── */
+.dx-page .dx-ref-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+  padding: 16px 20px 20px;
+  padding-inline-start: 40px;
+  border-top: 1px solid var(--border);
+}
+.dx-page .dx-ref-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.dx-page .dx-ref-label {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--cy-muted-fg);
+}
+/* Signatures are code: always left-to-right. */
+.dx-page .dx-ref-sigs {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--cy-radius-lg);
+}
+.dx-page .dx-ref-sig {
+  direction: ltr;
+  text-align: left;
+  margin: 0;
+  padding: 10px 14px;
+  overflow-x: auto;
+  font-family: var(--font-terminal);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--cy-editor-text);
+  tab-size: 2;
+}
+.dx-page .dx-ref-sig + .dx-ref-sig {
+  border-top: 1px solid var(--border);
+}
+.dx-page .dx-ref-sig code {
+  font-family: inherit;
+  white-space: pre;
+}
+.dx-page .dx-article .dx-ref-sig a.dx-ref-link,
+.dx-page .dx-article .dx-ref-ptype a.dx-ref-link {
+  border-bottom-style: dotted;
+}
+.dx-page .dx-article .dx-ref-doc p,
+.dx-page .dx-article .dx-ref-doc li,
+.dx-page .dx-article .dx-ref-note p {
+  font-size: 14px;
+  line-height: 1.65;
+  margin-bottom: 10px;
+}
+.dx-page .dx-article .dx-ref-doc li {
+  margin-bottom: 4px;
+}
+.dx-page .dx-article .dx-ref-doc ul,
+.dx-page .dx-article .dx-ref-doc ol {
+  margin-bottom: 10px;
+}
+.dx-page .dx-article .dx-ref-doc > :last-child,
+.dx-page .dx-article .dx-ref-params dd > :last-child {
+  margin-bottom: 0;
+}
+.dx-page .dx-article .dx-ref-doc :not(pre) > code,
+.dx-page .dx-article .dx-ref-params dd :not(pre) > code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* A name in prose that leads to its own row: the chip takes the link colour,
+   so it reads as something to click, not just as code. */
+.dx-page .dx-article .dx-ref a.dx-ref-link:has(> code) {
+  border-bottom: 0;
+}
+.dx-page .dx-article .dx-ref a.dx-ref-link > code {
+  color: var(--primary);
+  border-color: oklch(from var(--primary) l c h / 0.35);
+  transition:
+    border-color var(--cy-duration-fast),
+    background var(--cy-duration-fast);
+}
+.dx-page .dx-article .dx-ref a.dx-ref-link:hover > code {
+  border-color: var(--primary);
+  background: oklch(from var(--primary) l c h / 0.1);
+}
+.dx-page .dx-ref-doc blockquote {
+  margin: 0 0 10px;
+  padding-inline-start: 12px;
+  border-inline-start: 2px solid var(--border);
+}
+.dx-page .dx-ref-doc .dx-code {
+  margin-bottom: 12px;
+}
+.dx-page .dx-ref-table {
+  overflow-x: auto;
+  margin-bottom: 12px;
+}
+.dx-page .dx-ref-table table {
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+.dx-page .dx-ref-table td {
+  border: 1px solid var(--border);
+  padding: 5px 9px;
+  vertical-align: top;
+}
+.dx-page .dx-ref-table tr:first-child td {
+  font-weight: 600;
+  background: var(--cy-muted);
+}
+.dx-page .dx-ref-note {
+  padding: 8px 12px;
+  border: 1px solid oklch(0.62 0.16 30 / 0.35);
+  border-radius: var(--cy-radius-md);
+}
+.dx-page .dx-article .dx-ref-note > :last-child {
+  margin-bottom: 0;
+}
+.dx-page .dx-article p.dx-ref-default {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+}
+
+/* Parameters: name and type on one side, what it is for on the other. */
+.dx-page .dx-ref-params {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+.dx-page .dx-ref-params > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.dx-page .dx-ref-params > div:last-child {
+  padding-bottom: 0;
+}
+.dx-page .dx-ref-params dt {
+  flex: 0 0 200px;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+/* A parameter's name and type are code, whatever the page's direction. */
+.dx-page .dx-ref-params dt:not(.is-plain) {
+  direction: ltr;
+  text-align: left;
+}
+[dir="rtl"] .dx-page .dx-ref-params dt:not(.is-plain) {
+  text-align: right;
+}
+.dx-page .dx-article .dx-ref-params dt code {
+  font-size: 13px;
+  background: none;
+  border: 0;
+  padding: 0;
+  white-space: normal;
+}
+.dx-page .dx-article .dx-ref-params dt code.dx-ref-ptype {
+  margin-inline-start: 8px;
+  color: var(--cy-muted-fg);
+}
+.dx-page .dx-ref-opt {
+  margin-inline-start: 8px;
+  font-size: 12px;
+  color: var(--cy-muted-fg);
+}
+.dx-page .dx-ref-params dd {
+  flex: 1 1 280px;
+  min-width: 0;
+  margin: 0;
+  color: var(--cy-muted-fg);
+}
+.dx-page .dx-article .dx-ref-params dd p {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: inherit;
+}
+
+.dx-page .dx-ref-members {
+  border: 1px solid var(--border);
+  border-radius: var(--cy-radius-lg);
+}
+.dx-page .dx-ref-member {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  scroll-margin-top: calc(var(--dx-chrome-top) + 12px);
+}
+.dx-page .dx-ref-member:last-child {
+  border-bottom: 0;
+}
+.dx-page .dx-ref-member-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+.dx-page .dx-ref-member .dx-ref-sig {
+  max-width: 100%;
+  padding: 0;
+}
+.dx-page .dx-article p.dx-ref-empty {
+  margin: 0;
+  font-size: 14px;
+  color: var(--cy-muted-fg);
+}
+.dx-page .dx-article p.dx-ref-empty.is-card {
+  padding: 24px 20px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--cy-radius-lg);
+}
+.dx-page .dx-ref-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 20px;
+  font-size: 13px;
+  color: var(--cy-muted-fg);
+}
+/* A button that reads as one of the links beside it. */
+.dx-page .dx-ref-linkbtn {
+  padding: 0;
+  font: inherit;
+  color: var(--primary);
+  background: none;
+  border: 0;
+  border-bottom: 1px solid oklch(from var(--primary) l c h / 0.35);
+  cursor: pointer;
+  transition: border-color var(--cy-duration-fast);
+}
+.dx-page .dx-ref-linkbtn:hover {
+  border-bottom-color: var(--primary);
+}
+
+@media (max-width: 620px) {
+  .dx-page .dx-ref-pkgrow-label {
+    flex-basis: 100%;
+    padding-top: 0;
+  }
+  .dx-page .dx-ref-pkgcard {
+    padding: 16px;
+  }
+  /* The summary drops to its own line, in full, under the name. */
+  .dx-page .dx-ref-row-head {
+    flex-wrap: wrap;
+  }
+  .dx-page .dx-ref-summary {
+    flex-basis: 100%;
+    white-space: normal;
+  }
+  .dx-page .dx-ref-body {
+    padding-inline: 14px;
+  }
+  .dx-page .dx-ref-params dt {
+    flex-basis: 100%;
+  }
+}

@@ -120,6 +120,11 @@ export function Sidebar({
             >
               {section.icon}
               {section.labelKey ? t(section.labelKey, section.label) : section.label}
+              {section.version ? (
+                <span className="dx-nav-version" dir="ltr">
+                  v{section.version}
+                </span>
+              ) : null}
             </div>
             {visibleGroups.map((g, gi) => (
               <div className="dx-nav-group" key={gi}>

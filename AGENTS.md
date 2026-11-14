@@ -67,6 +67,11 @@ The editor API specification lives in:
 Update the relevant page whenever its public contract changes. These pages are
 English-only; the SDK section has no Arabic translation.
 
+The "All exports" page (`/docs/editor/reference`) is generated from the doc
+comments in `packages/*/src`. After changing an export or its doc comment, run
+`npm run api` in `apps/site` and commit the result. Every new export needs a doc
+comment and a `@since <version>` tag; CI fails without them.
+
 # Translation
 
 We should not hardcode any string, in the app. Everything should be localized. Translations should not be word by word instead we should keep though the meaning. Currently we have only arabic as second language. But you should should use subagent to find best wording for each language.

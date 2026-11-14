@@ -20,6 +20,7 @@ import EditorCustomNodesEn from "./pages/editor/custom-nodes.mdx";
 import EditorFirstEditorEn from "./pages/editor/first-editor.mdx";
 import EditorInstallEn from "./pages/editor/install.mdx";
 import EditorQuickstartEn from "./pages/editor/quickstart.mdx";
+import EditorReferenceEn from "./pages/editor/reference.mdx";
 import EditorThemingEn from "./pages/editor/theming.mdx";
 
 import AppGettingStartedAr from "./pages/ar/app/getting-started.mdx";
@@ -60,4 +61,5 @@ export const EditorCustomNodes = EditorCustomNodesEn;
 export const EditorFirstEditor = EditorFirstEditorEn;
 export const EditorInstall = EditorInstallEn;
 export const EditorQuickstart = EditorQuickstartEn;
+export const EditorReference = EditorReferenceEn;
 export const EditorTheming = EditorThemingEn;

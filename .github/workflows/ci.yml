@@ -36,6 +36,16 @@ jobs:
             (cd "packages/$p" && npm test)
           done
 
+      # The docs' API reference is generated from the packages and committed.
+      # Runs here, not in the site job, because it reads the packages installed
+      # and built. Fails when the committed data is stale, or when a new export
+      # has no doc comment or no `@since`.
+      - name: API reference is up to date
+        working-directory: apps/site
+        run: |
+          npm ci
+          npm run api:check
+
   web:
     runs-on: ubuntu-latest
     steps:

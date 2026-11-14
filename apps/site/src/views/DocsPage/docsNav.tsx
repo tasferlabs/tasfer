@@ -21,8 +21,10 @@ import {
   EditorFirstEditor,
   EditorInstall,
   EditorQuickstart,
+  EditorReference,
   EditorTheming,
 } from "./localizedDocs";
+import apiMeta from "./reference/data/meta.json";
 
 /* ============================================================
    Documentation navigation model — ported from docs-shell.jsx.
@@ -52,6 +54,8 @@ export interface NavSection {
   labelKey?: string;
   icon: ReactElement;
   mono?: boolean;
+  /** Version of the packages the section documents, shown beside its label. */
+  version?: string;
   groups: NavGroup[];
 }
 
@@ -139,6 +143,8 @@ export const NAV: NavSection[] = [
     labelKey: "docs.navModel.section.editor",
     icon: <Icons.Terminal />,
     mono: true,
+    // Written by scripts/generate-api.mjs from the repo's version.json.
+    version: apiMeta.version,
     groups: [
       {
         label: "Getting started",
@@ -243,6 +249,14 @@ export const NAV: NavSection[] = [
             descKey: "docs.navModel.editor.apiReact.desc",
             Comp: EditorApiReact,
             kw: "react useeditor editor component useeditorstate hook jsx tsx binding",
+          },
+          {
+            route: "editor/reference",
+            title: "All exports",
+            titleKey: "docs.navModel.editor.reference",
+            descKey: "docs.navModel.editor.reference.desc",
+            Comp: EditorReference,
+            kw: "reference api exports every function class interface type constant signature members index list packages math code table tex provider since version",
           },
         ],
       },
