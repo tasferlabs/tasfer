@@ -55,6 +55,13 @@ export type MathFeatureExtension = {
  * ```
  *
  * For workers and servers with no canvas, use {@link mathDataExtension}.
+ *
+ * Math is not in `baseSchema`, and `@tasfer/editor` never imports this package.
+ * An editor without math pays nothing for it. Install `@tasfer/tex` next to
+ * this package; it is a peer dependency.
+ *
+ * Without math in the schema, `$…$` and `$$…$$` stay plain text, kept exactly
+ * as written. So Markdown read without math loses no formulas.
  */
 export function mathExtension(): MathFeatureExtension {
   const data = mathDataExtension();

@@ -123,6 +123,10 @@ export interface CreateDocOptions<
  * history of changes that lets copies on different devices merge to the same
  * result. Create one with {@link createDoc}, show it in an editor, and connect
  * sync and storage to it.
+ *
+ * A doc needs no editor and no page element. So it also works on a server, in
+ * a worker or in a test: read it with `getMarkdown()`, sync it with
+ * `applyUpdate`, and save it with `encodeState()`.
  */
 export interface Doc<D extends SchemaDefinition = BaseSchemaDefinition> {
   /** @internal Phantom carrier preserving the schema type across APIs. */

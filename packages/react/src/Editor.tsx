@@ -51,12 +51,22 @@ export type EditorProps<D extends SchemaDefinition = BaseSchemaDefinition> =
  *
  * Options are read once, when it mounts. Changing them later does nothing. To
  * change the editor afterwards, use the editor you get from `onReady`.
- * `onChange` is the one prop that can change, and it only reports edits. Give
- * the component a height with `style` or `className`, or it shows nothing.
+ * `onChange` is the one prop that can change, and it only reports edits. There
+ * is no `value` prop: the editor owns its content. Give the component a height
+ * with `style` or `className`, or it shows nothing.
  *
  * @example
- * <Editor markdown="# Hello" onChange={save} style={{ height: "100vh" }}
- * onReady={(editor) => editor.focus("end")} />
+ * ```tsx
+ * <Editor
+ *   markdown="# Hello"
+ *   onChange={save}
+ *   style={{ height: "100vh" }}
+ *   onReady={(editor) => {
+ *     editor.focus();
+ *     editor.setCaret("end");
+ *   }}
+ * />
+ * ```
  */
 export function Editor<D extends SchemaDefinition = BaseSchemaDefinition>(
   props: EditorProps<D>,

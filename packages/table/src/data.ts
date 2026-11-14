@@ -252,6 +252,10 @@ export const tableStructuredKind: StructuredKindSpec = {
  * Markdown tools, where nothing is drawn. Tables still load, save and sync.
  * Each call returns a new bundle.
  *
+ * A table reads and writes as a GitHub-flavored Markdown table, and also
+ * writes as an HTML `<table>` and as plain text. A cell holds inline Markdown
+ * only, as in GitHub: `**bold**` is bold, but `# not a heading` stays as typed.
+ *
  * ```ts
  * import { baseDataSchema } from "@tasfer/editor";
  * import { tableDataExtension } from "@tasfer/table/data";

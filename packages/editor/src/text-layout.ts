@@ -446,6 +446,14 @@ function textAscentOf(layout: TextLayout): number {
  * null`) starts at the reading side: left in LTR, right in RTL. A line wider
  * than the box keeps its reading start at the box edge, and its end runs past
  * the other edge.
+ *
+ * @example
+ * ```ts
+ * for (const line of text.lines) {
+ *   const { left, right } = lineEdges(text, line);
+ *   const x = boxX + (text.isRTL ? right : left); // paintTextRun's `x`
+ * }
+ * ```
  */
 // Aligning a negative slack would push the first characters out of view, so an
 // overflowing line ignores align.
@@ -479,7 +487,27 @@ function pureBidi(layout: TextLayout, line: RenderedLine) {
 // Layout
 // ---------------------------------------------------------------------------
 
-/** Wrap and measure a text box once; every other pass reads the result. */
+/**
+ * Wrap and measure a text box once; every other pass reads the result. Use it
+ * when your node lays out its own text, like a table cell or a caption. The
+ * caret ({@link textCaretRect}), clicks ({@link textOffsetAtPoint}) and
+ * highlights ({@link textRangeRects}) then land on the glyphs
+ * {@link paintTextRun} draws. That holds for mixed Arabic and English lines,
+ * and a click never lands between the two halves of an emoji.
+ *
+ * Every coordinate is relative to the text box: `x` from the left edge of the
+ * text area, `y` from the top of its first line. Add your box's own origin.
+ *
+ * @example
+ * ```ts
+ * const text = layoutText({
+ *   chars, formats, width, textStyle, fontFamily,
+ *   fonts: styles.fonts, direction: "ltr", marks,
+ * });
+ * const caret = textCaretRect(text, offset); // { x, y, height }
+ * const offsetAtClick = textOffsetAtPoint(text, x - boxX, y - boxY);
+ * ```
+ */
 export function layoutText(input: TextLayoutInput): TextLayout {
   const {
     chars,
@@ -1212,6 +1240,8 @@ export function textRangeRects(
  * `replace` hides the range or ranges the commit will overwrite (selected text
  * being typed over), so the preview looks like the result. `compositionRange`
  * is the preview's visible range, or `null` when `text` is empty.
+ *
+ * Pass both to {@link layoutText}, then underline {@link compositionRects}.
  */
 // Tombstones stay in document order: mark ranges anchor to their endpoint ids,
 // and a range whose endpoint char went missing would drop its mark for the
@@ -1275,7 +1305,8 @@ export function textLength(layout: TextLayout): number {
 /**
  * The replacement run whose attachment is `contentId` — the run a nested
  * caret or range in that attachment sits in — or `undefined` when this box
- * holds none.
+ * holds none. To draw that formula lit, pass `{ startIndex: run.start,
+ * endIndex: run.end }` as {@link paintTextRun}'s `highlighted`.
  */
 export function replacementRunForContent(
   layout: TextLayout,
@@ -1295,6 +1326,10 @@ function lineBaseline(layout: TextLayout, line: RenderedLine): number {
  * Where a caret INSIDE a replacement run's attachment stands, relative to the
  * box — the nested-caret twin of {@link textCaretRect}. `null` when no run of
  * this box owns `point`'s attachment or the run places no nested caret.
+ *
+ * Use it for a caret inside an inline formula, such as in a numerator. On the
+ * formula's own row the caret fills the text line, like prose. On a row inside
+ * it, such as an exponent, it takes that row's height.
  */
 export function textContentCaretRect(
   layout: TextLayout,
@@ -1334,7 +1369,8 @@ export function textContentCaretRect(
 /**
  * The highlight of a range INSIDE a replacement run's attachment, relative to
  * the box — the nested twin of {@link textRangeRects}. Empty for a collapsed
- * selection or one no run of this box owns.
+ * selection or one no run of this box owns. Its heights follow the same rule
+ * as {@link textContentCaretRect}.
  */
 export function textContentSelectionRects(
   layout: TextLayout,

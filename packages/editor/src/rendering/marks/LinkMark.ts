@@ -46,6 +46,12 @@ const LINK_CODEC: MarkCodec = {
 /**
  * The built-in `link` mark: colored, underlined text that carries a `url`,
  * written as `[text](url)` in Markdown. Ctrl/Cmd+click opens the link.
+ *
+ * It is not togglable, because it needs a url. Apply it with attrs:
+ *
+ * ```ts
+ * editor.change((c) => c.setMark("link", { attrs: { url }, range }));
+ * ```
  */
 export class LinkMark extends Mark {
   readonly type = "link";

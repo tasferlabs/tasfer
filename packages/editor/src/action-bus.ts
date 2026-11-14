@@ -297,6 +297,27 @@ export interface ActionBus {
    * state action. It runs after the action's own handlers all pass, and before
    * its default. Forwarders run from highest `priority` to lowest. Like a
    * handler, a forwarder can claim the action. Returns an unsubscribe function.
+   *
+   * A node that keeps text in its own fields (a table cell) uses one
+   * forwarder to run a feature's actions there, such as a math command, without
+   * knowing those actions. Return nothing when the caret is not in your node,
+   * so the action goes on. {@link runFieldAsParagraph} then runs the same action
+   * on the field. Inside that paragraph your forwarder finds no field of its own
+   * and passes, so the feature's own handler answers.
+   *
+   * @example
+   * ```ts
+   * bus.registerForwarder((state, action, payload) => {
+   *   const cell = activeCell(state);
+   *   if (!cell) return undefined; // not ours: the action goes on
+   *   const run = runFieldAsParagraph(state, cell.address, cell.range, (paragraph) =>
+   *     paragraph.actionBus.dispatchState(action, paragraph, payload),
+   *   );
+   *   return run.kind === "applied"
+   *     ? { state: run.state, ops: run.ops, handled: true }
+   *     : { state, ops: [], handled: true };
+   * }, 100);
+   * ```
    */
   // Keep `{@link StateActionOptions.forwardable forwardable}` on one source
   // line so the generator does not pick up the `*` from the next line.
@@ -649,6 +670,9 @@ export const SCROLL = action<{
  * The editor wants a context menu. It fires on right-click, on the keyboard
  * shortcut, and on a touch long-press. The editor draws no menu itself. Observe
  * this, show your own menu, and return `true`.
+ *
+ * The keyboard shortcuts are Cmd+Enter (Ctrl+Enter off Apple devices),
+ * Shift+F10 and the Menu key. From the keyboard, `x` and `y` sit at the caret.
  *
  * - `x` and `y` are canvas coordinates. Add your container's position to place
  *   the menu.

@@ -80,7 +80,8 @@ export interface DecorationRange {
  * How a range decoration is painted over its span. `fill` (the default) is the
  * translucent wash the local selection uses; `underline` strokes a line under
  * the text instead, in the decoration's own colour. The core knows only the
- * stroke pattern — what an underline *means* is the producer's business.
+ * stroke pattern — what an underline *means* is the producer's business. An
+ * underline is drawn below a link's own underline, so both stay visible.
  */
 export type RangeDecorationStyle =
   | { readonly type: "fill" }

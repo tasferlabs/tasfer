@@ -1,7 +1,7 @@
 /**
  * View-window builders — construct a {@link ViewWindow} that scopes an editor to
  * a subset of a shared document's blocks (see `ViewWindow` and the `window`
- * option on `mountEditor`/`createEditor`/`useEditor`).
+ * option on `createEditor`/`useEditor`).
  *
  * A window is node/mark-agnostic in the CORE (`getVisibleBlocks` just applies
  * `window.select`); these builders are the host-facing helpers that encode a
@@ -43,6 +43,10 @@ export function titleBlockIndex(blocks: readonly Block[]): number {
  * nothing else. It can never add, split or merge blocks. When the document has
  * no text block, the window is empty and nothing renders.
  *
+ * The title block is the first block that holds text: a heading, paragraph,
+ * list and so on. Leading images and dividers are skipped. It stays the same
+ * block while the user clears and retypes the title.
+ *
  * Pair it with a restricted schema, and a {@link bodyBlocksWindow} editor on
  * the same doc:
  *
@@ -78,6 +82,13 @@ export function titleBlockWindow(): ViewWindow {
  * body leaves the title alone. A document with only a title gives an empty
  * window. Nothing renders and there is no caret until the host adds a first
  * body block.
+ *
+ * @example
+ * ```ts
+ * body.change((c) =>
+ *   c.insertBlock({ type: "paragraph" }, { block: titleId, side: "after" }),
+ * );
+ * ```
  */
 export function bodyBlocksWindow(): ViewWindow {
   return {

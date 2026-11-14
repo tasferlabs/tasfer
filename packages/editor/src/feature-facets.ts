@@ -69,6 +69,11 @@ export interface FeatureInputRuleCtx {
 /** The `insertText` options an input rule sees (see `InsertTextOptions`). */
 export interface FeatureInputOptions {
   readonly wrapSelection?: boolean;
+  /**
+   * `false` means Markdown shortcuts are off for this text, as in a table cell
+   * without them. A rule that adds a shortcut of its own, such as `$x$` for
+   * math, should then leave the typed text as it is.
+   */
   readonly inlineMarkdown?: boolean;
 }
 
@@ -408,6 +413,12 @@ export interface StructuredMarkCloneCtx {
  * content lives only in the attachment. `create` runs only when a new mark is
  * made, not when an existing one is extended, so it never replaces an existing
  * attachment.
+ *
+ * The same mark can also sit in a text field of a structured document, such as
+ * a table cell, and point at another attachment on the same block. When the
+ * block is copied (paste, snapshot restore), the editor updates those marks
+ * with `clone` too, and copies their attachments to the clipboard. So a node
+ * with rich-text fields needs no extra code for them.
  */
 export interface StructuredMarkFacet {
   create?(ctx: StructuredMarkCreateCtx): StructuredMarkCreateResult | undefined;

@@ -59,9 +59,18 @@ const useIsomorphicLayoutEffect =
  * methods, such as `editor.setTheme(...)` or `editor.setMarkdown(...)`.
  *
  * @example
- * function MyEditor() { const { containerRef, editor } = useEditor({ markdown:
- * "# Hello" }); useEffect(() => { if (editor) editor.focus("end"); },
- * [editor]); return <div ref={containerRef} style={{ height: "100%" }} />; }
+ * ```tsx
+ * function MyEditor() {
+ *   const { containerRef, editor } = useEditor({ markdown: "# Hello" });
+ *   useEffect(() => {
+ *     if (editor) {
+ *       editor.focus();
+ *       editor.setCaret("end");
+ *     }
+ *   }, [editor]);
+ *   return <div ref={containerRef} style={{ height: "100%" }} />;
+ * }
+ * ```
  */
 // Created in a layout effect; correct under React 18/19 StrictMode's
 // double-invoke because each create is paired with its destroy. The latest

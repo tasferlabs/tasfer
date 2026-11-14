@@ -56,8 +56,8 @@ export function isUnambiguousLatexPaste(text: string): boolean {
 
 /**
  * Paste rule that turns pasted text into an inline formula when the text is
- * clearly LaTeX (see {@link isUnambiguousLatexPaste}). {@link mathExtension}
- * already includes it.
+ * clearly LaTeX, such as `\frac{a}{b}` or `x^2` (never a URL or a file name).
+ * {@link mathExtension} already includes it.
  */
 export const mathPasteRule: FeaturePasteRule = {
   id: "math.paste.raw-latex",

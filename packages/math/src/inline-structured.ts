@@ -35,7 +35,14 @@ import type {
 } from "@tasfer/editor/sync/structured-content";
 import { needsCommandSeparator, printMathDocument } from "@tasfer/tex/data";
 
-/** The attributes stored on an inline math mark. */
+/**
+ * The attributes stored on an inline math mark.
+ *
+ * An inline formula keeps no LaTeX in the block's text. The mark covers one
+ * placeholder character (U+FFFC), and the formula lives in the math document
+ * that `contentId` names. An editor without math shows that placeholder
+ * character. Read the LaTeX with {@link getStructuredMathMarkSource}.
+ */
 export type MathMarkAttrs = {
   /** Id of the math document that holds this formula. */
   readonly contentId?: string;

@@ -116,7 +116,9 @@ export function isSameContentTextField(
   );
 }
 
-/** Exact value equality for one nested point. */
+/**
+ * Exact value equality for one nested point.
+ */
 export function contentTextPointsEqual(
   left: ContentTextPoint,
   right: ContentTextPoint,
@@ -141,7 +143,9 @@ export function isSameContentGapSlot(
   );
 }
 
-/** Exact value equality for one structural gap point. */
+/**
+ * Exact value equality for one structural gap point.
+ */
 export function contentGapPointsEqual(
   left: ContentGapPoint,
   right: ContentGapPoint,
@@ -488,7 +492,9 @@ export function captureContentSelection(
   return cloneContentSelection(state.document.contentSelection);
 }
 
-/** Restore a captured selection, dropping it safely if its content is gone. */
+/**
+ * Restore a captured selection, dropping it safely if its content is gone.
+ */
 export function restoreContentSelection(
   state: EditorState,
   selection: ContentSelection | null,

@@ -280,8 +280,7 @@ function resolve(
  * Whether `offset` is inside a fraction, root, script, brace group or other
  * multi-part construct. If it is, splitting the formula there would leave
  * invalid LaTeX, like `\frac{a` and `b}`. Returns false at the top level
- * between items, inside a plain command name, and at the very start or end. The
- * editor checks this before a typed space splits an inline formula in two.
+ * between items, inside a plain command name, and at the very start or end.
  */
 export function isInsideConstruct(latex: string, offset: number): boolean {
   if (offset <= 0 || offset >= latex.length) return false;

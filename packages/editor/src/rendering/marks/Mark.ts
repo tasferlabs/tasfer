@@ -426,9 +426,8 @@ export abstract class Mark {
   /**
    * Whether {@link ChangeApi | setMark(name)} with no options can toggle this
    * mark on and off. Defaults to `true`. Marks that need extra input, such as a
-   * link's url or a formula's LaTeX, set `false`. For those, `setMark(name)`
-   * alone does nothing. Apply them with attrs and a range, or through their own
-   * actions.
+   * link's url, set `false`. For those, `setMark(name)` alone does nothing.
+   * Apply them with attrs and a range, or through their own actions.
    */
   readonly togglable: boolean = true;
 

@@ -148,6 +148,23 @@ export interface MarkSpec<
  * You can register several entries for one kind, and they merge. Each adapter
  * may come from only one entry: two entries giving the same adapter for a kind
  * throw.
+ *
+ * @example
+ * ```ts
+ * const tableKind: StructuredKindSpec = {
+ *   kind: "table",
+ *   // The cells people read as prose, in reading order.
+ *   textFields: (document) =>
+ *     readTable(document).rows.flatMap((row) =>
+ *       row.cells.flatMap((cell) => (cell ? [{ nodeId: cell.id, field: "text" }] : [])),
+ *     ),
+ *   contentSelection: ({ document, selection }) => ({
+ *     plainText: gridAsTabSeparatedText(document, selection),
+ *     blocks: [selectionAsTableBlock(document, selection)],
+ *   }),
+ *   paste: (ctx) => spreadAcrossCells(ctx), // undefined: plain insert
+ * };
+ * ```
  */
 // Example of the merge: the worker-safe data bundle contributes `clone`, the
 // interactive bundle contributes `contentSelection`.
@@ -168,6 +185,8 @@ export interface StructuredKindSpec {
   /**
    * The part of one document between a stop inside it and one of its edges —
    * what a text selection that starts or ends inside the document takes of it.
+   * Without it, such a selection always takes the whole document. That suits
+   * a mark with nothing to select inside it.
    */
   readonly edgeRange?: ContentEdgeRangeResolver;
   /** A detached copy of one document cut down to a range inside it. */
@@ -374,6 +393,9 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
    * `contentFill` and `contentTypesAt` then allow everything. Like the
    * allow-lists, it only limits what the user creates. Edits from other people
    * are not checked against it. Set it with `restrict({ content })`.
+   *
+   * @internal Read it through `contentAccepts`, `contentFill` and
+   * `contentTypesAt`.
    */
   // ProseMirror content-expression analogue for the flat block model; the
   // reducer never reads it, so peers with different shapes still converge.
@@ -734,7 +756,11 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
     for (const hook of this.actions()) hook.register(bus);
   }
 
-  /** Resolve all feature theme defaults, with later installations winning. */
+  /**
+   * Resolve all feature theme defaults, with later installations winning.
+   *
+   * @internal The editor applies these itself when it resolves its theme.
+   */
   resolveThemeDefaults(): ResolvedFeatureThemeDefaults {
     return resolveFeatureThemeDefaults(this.features.themes);
   }
@@ -744,7 +770,11 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
     return this.marks.get(markType)?.structured;
   }
 
-  /** The merged adapters registered for one structured document kind. */
+  /**
+   * The merged adapters registered for one structured document kind.
+   *
+   * @internal Exposed for tests. The editor reads these adapters itself.
+   */
   structuredKind(kind: string): Readonly<StructuredKindAdapters> | undefined {
     return this.kinds.get(kind);
   }
@@ -951,7 +981,19 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
     return "paragraph";
   }
 
-  /** Whether the local user may create a block of `type` (registered + allowed). */
+  /**
+   * Whether the local user may create a block of `type` (registered + allowed).
+   * Use it to hide your own toolbar or menu items. A type that is not allowed
+   * can still be registered, and then it still shows.
+   * {@link DataSchema.hasBlock} says whether it is registered.
+   *
+   * @example
+   * ```ts
+   * const restricted = baseSchema.restrict({ blocks: ["heading1"], marks: [] });
+   * restricted.data.isBlockAllowed("bullet_list"); // false
+   * restricted.data.hasBlock("bullet_list"); // true: still shows if it arrives
+   * ```
+   */
   isBlockAllowed(type: string): boolean {
     return this.allowedBlocks
       ? this.allowedBlocks.has(type)
@@ -982,7 +1024,15 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
 
   /**
    * Whether `types` — a whole document's block types, in order — satisfies the
-   * shape rule. Always true for an unshaped schema.
+   * shape rule. Always true for an unshaped schema. Use it to check the shape
+   * where your code depends on it, or to gate your own controls.
+   *
+   * @example
+   * ```ts
+   * const shaped = baseSchema.restrict({ content: "heading1 paragraph+" });
+   * shaped.data.contentAccepts(["heading1", "paragraph"]); // true
+   * shaped.data.contentAccepts(["paragraph"]); // false
+   * ```
    */
   contentAccepts(types: readonly string[]): boolean {
     if (!this.content) return true;
@@ -994,6 +1044,12 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
    * `[]` when it is already complete, or when the schema has no `content` rule.
    * `null` when nothing added at the end can fix it, because the order itself
    * breaks the rule.
+   *
+   * @example
+   * ```ts
+   * // With content: "heading1 paragraph+"
+   * shaped.data.contentFill(["heading1"]); // ["paragraph"]
+   * ```
    */
   // Used on import, the one path allowed to mint the ids such a fill needs.
   contentFill(types: readonly string[]): string[] | null {
@@ -1006,6 +1062,12 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
    * The block types the shape rule permits at `index`, given the document's
    * current `types`. `undefined` for an unshaped schema (every type is fine);
    * `[]` when nothing may go there.
+   *
+   * @example
+   * ```ts
+   * // With content: "heading1 paragraph+"
+   * shaped.data.contentTypesAt(["heading1"], 1); // ["paragraph"]
+   * ```
    */
   contentTypesAt(
     types: readonly string[],

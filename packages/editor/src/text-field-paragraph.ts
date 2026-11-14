@@ -115,14 +115,20 @@ export type FieldRun =
       /** The editor state with the edits committed and the caret placed. */
       readonly state: EditorState;
       readonly ops: Operation[];
-      /** Where the paragraph code left the caret, in field offsets. */
+      /**
+       * Where the paragraph code left the caret, in field offsets. When
+       * `range.content` is set, the caret is inside a formula in the field.
+       */
       readonly range: FieldRange;
       /**
        * Whether the run committed any edit: to the field's characters or marks,
        * or to an attachment in it, such as an inline formula.
        */
       readonly edited: boolean;
-      /** Whether the caret or the range moved. */
+      /**
+       * Whether the caret or the range moved. `false` after an arrow key means
+       * the caret was already at the field's edge, so your node can move it on.
+       */
       readonly moved: boolean;
     }
   | {
@@ -131,10 +137,13 @@ export type FieldRun =
        */
       readonly kind: "refused";
       /**
-       * `missing`: the field is not there. `outside`: the action produced an
-       * op that is not a text edit of the field. `no-caret`: it left no caret
-       * in the field. `mismatch`: the translated edits did not rebuild what the
-       * paragraph code produced.
+       * `missing`: the field is not there, or `range.content` points at
+       * content the field's marks do not use. `outside`: the action changed
+       * something other than the field, a formula in it, or a new formula for
+       * it, such as adding a block. `no-caret`: it left no caret in the field
+       * or in a formula of it. `mismatch`: the result on your block did not
+       * come out exactly as the paragraph code made it, or the action added a
+       * formula mark with no content behind it.
        */
       readonly reason: "missing" | "outside" | "no-caret" | "mismatch";
     };
@@ -674,12 +683,26 @@ function carryUi(
  *
  * `action` gets an editor state where the field is the page's only paragraph,
  * with `range` as its caret or selection. Typing, deleting, marks and caret
- * moves work as they do in a paragraph. Rules that would turn the paragraph
- * into another block, like a typed `# `, stay plain text. `action` returns what
- * any text action returns, and it can dispatch through `paragraph.actionBus` as
+ * moves work as they do in a paragraph. That includes marks turned on for the
+ * next typed text, and which side of a mark's edge the caret is on. Every mark
+ * the editor allows works there. Rules that would turn the paragraph into
+ * another block, like a typed `# `, stay plain text. `action` returns what any
+ * text action returns, and it can dispatch through `paragraph.actionBus` as
  * usual.
  *
- * Returns `applied` with the new state. Returns `refused` when the field is
+ * An inline formula in the field works too. Arrow keys walk into it, and
+ * typing, pasting and deleting there edit the formula. While the caret is in a
+ * formula, pass that nested selection as `range.content`. When the action makes
+ * a new formula (a typed `$x$`), its content is saved on your block, next to
+ * the field.
+ *
+ * A feature's own actions, such as math's `INSERT_MATH_COMMAND`, can run in your
+ * field too. Register a forwarder with {@link ActionBus.registerForwarder}, and
+ * call this from it with the action and payload it gets.
+ *
+ * Returns `applied` with the new state. Its `edited` and `moved` flags tell you
+ * when the action stopped at the field's edge, so your node can take over, for
+ * example by moving into the next cell. Returns `refused` when the field is
  * missing, or the action did something a text field cannot hold. `reason` says
  * which. A refused run changes nothing.
  *

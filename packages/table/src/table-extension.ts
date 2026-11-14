@@ -48,6 +48,11 @@ export type TableFeatureOptions = TableInputOptions;
  * copying inside cells. Each call returns a new bundle, so every editor can
  * have its own. Options are off unless you turn them on.
  *
+ * It includes everything in {@link tableDataExtension}, plus the canvas node
+ * and the copy and paste handlers. Turning a block into a `table` block, from
+ * a menu for example, makes an empty 3×3 grid with the caret in the first
+ * header cell.
+ *
  * ```ts
  * import { baseSchema } from "@tasfer/editor";
  * import { tableExtension } from "@tasfer/table";

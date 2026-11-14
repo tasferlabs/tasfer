@@ -740,7 +740,12 @@ export interface SelectionExpansionHistory {
  * A window only changes what this editor shows and lets you edit. Every peer
  * still gets the whole document. Build one with {@link titleBlockWindow},
  * {@link bodyBlocksWindow} or {@link blockIdWindow}, and pass it as the
- * `window` option.
+ * `window` option, or write your own with `select`.
+ *
+ * No windowed editor joins a block it does not show. Backspace at the start of
+ * the first block in the window, or Delete at the end of the last, does
+ * nothing. To also limit which type a block may be, pair the window with
+ * `Schema.restrict`. The block still shows whatever type it already is.
  *
  * ```ts
  * const title = createEditor({ element: titleEl, doc, window: titleBlockWindow() });
@@ -759,6 +764,10 @@ export interface ViewWindow {
    * When `true`, this editor shows exactly one block, like a title. Edits that
    * would add, split or merge away a block are blocked, and the caret stays
    * inside. Like `Schema.restrict`, it only limits editing in this editor.
+   *
+   * Enter does nothing, so your host can give it its own meaning, like moving
+   * focus to the body. Backspace and Delete at the edges do nothing. A paste
+   * becomes plain text on one line. No other block is ever changed.
    */
   readonly singleBlock?: boolean;
 }
@@ -1707,7 +1716,7 @@ export type DeepPartial<T> = T extends readonly (infer _U)[]
  * resolved {@link EditorStyles} default every color leaf to one of these.
  *
  * The editor ships neutral, opinion-free defaults (see `DEFAULT_TOKENS`); a
- * host overrides them per instance via `mountEditor({ theme: { tokens } })` or
+ * host overrides them per instance via `createEditor({ theme: { tokens } })` or
  * `editor.setTheme({ tokens })`. Nothing here is read from the DOM — a host
  * driving these from CSS variables converts them on its own side.
  */

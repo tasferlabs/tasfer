@@ -23,7 +23,33 @@ import { toggleFormat } from "../../actions/actions";
  * action and get bold, italic, strike and code at once. Without such a handler,
  * the toggle finds no plain text selection there and does nothing.
  *
+ * In your handler, return nothing when the selection is not in your node, so
+ * the normal toggle runs. The easy way to handle it is
+ * {@link runFieldAsParagraph}, which runs this same action on your text field.
+ * If you write the toggle yourself, a collapsed caret needs no edit. Set
+ * `state.ui.activeMarksMode` to `{ type: "explicit", formats }`, and put those
+ * marks on the next characters your node inserts. That is what makes Ctrl+B,
+ * then typing, come out bold.
+ *
  * An unknown or disallowed mark name does nothing.
+ *
+ * @example
+ * ```ts
+ * bus.registerState(
+ *   TOGGLE_MARK,
+ *   (state, { name }) => {
+ *     const cell = activeCell(state);
+ *     if (!cell) return undefined; // not in a cell: the normal toggle runs
+ *     const run = runFieldAsParagraph(state, cell.address, cell.range, (paragraph) =>
+ *       paragraph.actionBus.dispatchState(TOGGLE_MARK, paragraph, { name }),
+ *     );
+ *     return run.kind === "applied"
+ *       ? { state: run.state, ops: run.ops, handled: true }
+ *       : { state, ops: [], handled: true };
+ *   },
+ *   100,
+ * );
+ * ```
  */
 // The mark is a name, never a class, so core stays mark-agnostic.
 export const TOGGLE_MARK = stateAction<{ name: string }>(

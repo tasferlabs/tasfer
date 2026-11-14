@@ -288,6 +288,9 @@ function withHistory(
  * editor's own steps are word, whole block, then whole document. A node can add
  * its own steps through {@link EXPAND_SELECTION_STEP}. Each step is remembered,
  * so {@link SHRINK_SELECTION} can go back. It does not change the document.
+ *
+ * The shortcut follows the physical arrow, not the text direction: → always
+ * grows and ← always shrinks, in right-to-left text too.
  */
 export const EXPAND_SELECTION = stateAction("expand-selection", (state) => {
   const history = liveHistory(state);

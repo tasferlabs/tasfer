@@ -480,7 +480,12 @@ export const DELETE_TO_LINE_END = stateAction("delete-to-line-end", (state) =>
 // in `dev-docs/enter-key.md`. Every SPLIT_BLOCK / EXIT_BLOCK handler follows
 // that table; change the table first when the policy changes.
 
-/** Split the current block at the caret (Enter). */
+/**
+ * Split the current block at the caret (Enter). Blocks can handle Enter their
+ * own way: a code block adds a new line, and a table moves down a row. Enter
+ * on an empty heading, list item, quote or equation turns it into a paragraph.
+ * Selected text is deleted first.
+ */
 export const SPLIT_BLOCK = stateAction("split-block", (state) => {
   const result = splitBlock(state);
   return { state: result.state, ops: result.ops };

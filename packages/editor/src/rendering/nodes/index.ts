@@ -3,9 +3,8 @@
  *
  * A `NodeRegistry` is per-editor-instance (created at mount, stored on
  * `EditorState.nodes`) — not a module global. Hosts compose the set of
- * nodes they want: pass a custom `nodes` list to `mountEditor` to
- * opt in/out of block types, or use `createDefaultNodeRegistry()` for the
- * built-in set.
+ * nodes they want: pass a custom `nodes` list to `createEditor` to
+ * opt in/out of block types, or use `defaultNodes()` for the built-in set.
  *
  * Two low-level primitives back everything: `TextNode` (text geometry: wrap,
  * caret, selection, hit-test) and `AtomicNode` (intrinsic-sized void/embed
@@ -125,7 +124,12 @@ export function createNodeRegistry(nodes: readonly Node[]): NodeRegistry {
   return registry;
 }
 
-/** Build a registry pre-populated with the built-in nodes. */
+/**
+ * Build a registry pre-populated with the built-in nodes.
+ *
+ * @internal The editor builds this itself. Pass `createNodeRegistry(nodes)` a
+ * custom list instead.
+ */
 export function createDefaultNodeRegistry(): NodeRegistry {
   return createNodeRegistry(defaultNodes());
 }

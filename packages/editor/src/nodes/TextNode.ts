@@ -1143,6 +1143,9 @@ function headingLevel(ctx: InputCtx): number {
  * The built-in node for text blocks: paragraphs and headings 1 to 3. It handles
  * line wrapping, the caret, selection and painting. Extend it to build your own
  * text-based block, as the list and quote nodes do.
+ *
+ * A `paragraph` is plain text in Markdown. `heading1`, `heading2` and
+ * `heading3` are written as `#`, `##` and `###`.
  */
 export class TextNode<
   B extends TextualBlockBase = TextualBlock,

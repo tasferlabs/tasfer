@@ -16,9 +16,6 @@
  * The relay still learns the room name, peer ids, and traffic timing — and
  * peers sharing the key can forge each other's ids. `@tasfer/provider-webrtc`
  * is the transport that keeps the server out of the data path entirely.
- *
- * The low-level {@link RelayTransport} is exported too, for hosts that want to
- * drive `createProvider` from `@tasfer/provider-core` themselves.
  */
 
 export {

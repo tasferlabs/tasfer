@@ -311,6 +311,11 @@ export function tableGridWidth(
  * lines. A missing `document`, or a table with no rows or columns, gives an
  * empty layout. Pass `composition` to show text that is still being typed with
  * an IME.
+ *
+ * What a cell holds never changes a column's width. Only a saved width from a
+ * resize drag does. Cell text wraps inside its column, and each row is as
+ * tall as its tallest cell. No column gets narrower than `minColumnWidth`
+ * while there is room.
  */
 export function layoutTable(
   document: StructuredDocument | undefined,

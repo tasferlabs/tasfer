@@ -327,8 +327,14 @@ export interface TableInputOptions {
    * text, and typing a delimiter over a selection wraps it. Backspace or the
    * first undo takes the format back.
    *
+   * With the math extension installed, `$x$` makes inline math too. A shortcut
+   * fires on the key that closes it, so pasted text is never formatted. Only
+   * inline shortcuts work: a line starting with `#` or `-` stays as typed,
+   * because a Markdown table cell cannot hold a heading or a list.
+   *
    * Off by default, so a table of glob patterns or shell snippets keeps `*` and
-   * `` ` `` as typed.
+   * `` ` `` as typed. Brackets and quotes typed over a selection still wrap it
+   * either way.
    */
   readonly markdownShortcuts?: boolean;
 }
@@ -363,7 +369,9 @@ export function createTableInputRule(
   };
 }
 
-/** The cell-input rule with every option left at its default. */
+/**
+ * The cell-input rule with every option left at its default.
+ */
 export const tableInputRule: FeatureInputRule = createTableInputRule();
 
 /**

@@ -30,7 +30,9 @@ export type CodeFeatureExtension = {
 
 /**
  * Adds code blocks with syntax highlighting to a schema. Without it, code
- * blocks still load and save, but they show as a placeholder.
+ * blocks still load, save, sync and export, but they show as a placeholder.
+ * The `code` block type is already in `baseSchema`; this adds how it looks
+ * and how typing in it works.
  *
  * ```ts
  * import { baseSchema, createEditor } from "@tasfer/editor";

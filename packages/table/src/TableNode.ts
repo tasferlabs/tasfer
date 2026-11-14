@@ -168,7 +168,9 @@ const EDGE_ADD_TARGET = ":edge-add:";
 
 /**
  * A table block. The block stores no content itself. The table lives in a
- * document attached to it, which {@link getTableDocument} returns.
+ * document attached to it, which {@link getTableDocument} returns. Because
+ * every cell is its own text, two people editing the same table merge cell by
+ * cell and letter by letter, not as one big value.
  */
 export interface TableBlock extends BlockRuntimeState {
   readonly type: "table";
@@ -311,6 +313,49 @@ function tableStyle(styles: EditorStyles): TableBlockStyle {
  * The table block node: lays out and paints the grid, and handles the caret,
  * typing and selection inside cells. {@link tableExtension} installs it for
  * you; create one yourself only when you put a schema together by hand.
+ *
+ * A cell edits like a paragraph that cannot turn into another block: typing,
+ * deleting, mark toggles, IME input and links all work the same way. What the
+ * grid adds:
+ *
+ * - Arrow keys move inside a cell and cross into the next cell at its edge.
+ *   Up and Down also enter and leave the table at its top and bottom rows.
+ * - Tab walks the cells row by row. Enter moves down a row, and adds a row
+ *   when on the last one. Shift+Enter leaves the table for a new paragraph
+ *   below.
+ * - Delete keys, including the word and line variants, never leave the cell.
+ *   Backspace never joins two cells.
+ * - Backspace at the very start of the first cell selects the whole table.
+ *   The next press deletes it.
+ * - Ctrl/Cmd+A selects the caret's cell, then the whole table, then the whole
+ *   document.
+ *
+ * A selection inside one cell covers characters, as in prose. A selection
+ * that spans cells covers the rectangle between its two ends, each cell whole,
+ * as in a spreadsheet. Copy, cut, delete and mark toggles all act on those
+ * whole cells. Once a selection spans cells, Shift+Left/Right grows it one
+ * column at a time and stops at the row's edge.
+ *
+ * Columns split the block's width evenly. When there are so many that each
+ * would be narrower than `overflowColumnWidth` in the table theme, the table
+ * gets wider than the page and scrolls sideways. A trackpad swipe, Shift +
+ * wheel, a finger drag or the scrollbar under it scroll it. Moving the caret
+ * into a hidden column scrolls it into view. The scroll position belongs to
+ * this device only: it is not saved in the document or shared with others.
+ *
+ * With a mouse, the table also offers these controls:
+ *
+ * - Drag the edge between two columns to trade width between them. Drag the
+ *   grid's right edge to make the whole table wider or narrower. On touch, a
+ *   short hold starts the drag.
+ * - Click the strip past the right edge, or below the last row, to add a
+ *   column or a row there. The caret lands in the new cell.
+ * - Drag a column's grip, above its header, to move the column. Click the grip
+ *   without dragging to select the column. Escape cancels the drag.
+ *
+ * Column widths are saved as a share of the table, so a table keeps its
+ * proportions on a phone and on a desktop. A width drag is one undo step.
+ * Widths are not written to Markdown.
  */
 export class TableNode extends Node<TableBlock> {
   readonly type = "table" as const;

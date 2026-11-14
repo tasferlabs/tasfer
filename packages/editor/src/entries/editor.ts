@@ -308,13 +308,17 @@ function hasTextStorage(
  *   - "change"          — the document content changed
  *   - "selectionchange" — the caret/selection moved (no content change)
  *   - "focus" / "blur"  — the editor gained or lost focus
+ *
+ * There is no sync event. Connection status and peer count come from your sync
+ * provider, which owns the connection.
  */
 export type EditorEvent = "change" | "selectionchange" | "focus" | "blur";
 
 /**
  * What an `on("change", …)` listener gets: the edits that changed the document,
  * and whether they came from another person. Check `isRemote` to skip your own
- * edits. `ops.length` tells you how big the change was.
+ * edits. `ops.length` tells you how big the change was. One
+ * {@link Editor.change} call gives one transaction with all of its edits.
  */
 export interface ChangeTransaction {
   /** True when applied from a peer via sync; false for a local edit/undo/redo. */
@@ -437,12 +441,22 @@ export interface ChangeApi<S extends SchemaDefinition = AnySchemaDefinition> {
    * or italic button. Pass `active: true` to apply or `false` to remove, and
    * `attrs` for the mark's data (a link's `url`). Pass `range` to pick other
    * text. The mark is then applied, not toggled, unless `active` is `false`.
+   * A mark that is not togglable, such as `link`, ignores the plain toggle:
+   * give it `attrs`.
    *
    * With any option set, the text must sit in one block, so a selection across
    * blocks does nothing. `range` can also be a {@link ContentSelection} in one
    * text field inside a node's content (a table cell), such as a
    * {@link MarkInfo}'s `content`. Does nothing for an empty range or a block
-   * without text.
+   * without text. Also does nothing for a mark the schema does not allow.
+   *
+   * A link carries data, so it is not toggled. Apply it with a range and its
+   * url, and remove it with `active: false`:
+   *
+   * ```ts
+   * editor.change((c) => c.setMark("link", { attrs: { url }, range }));
+   * editor.change((c) => c.setMark("link", { active: false, range }));
+   * ```
    */
   setMark<T extends MarkNameOf<S>>(
     name: T,
@@ -458,7 +472,20 @@ export interface ChangeApi<S extends SchemaDefinition = AnySchemaDefinition> {
    * Apply edits to one piece of a block's structured content, found by
    * `blockId` and `contentId`. This is how a feature like a table or a formula
    * changes its own data. The edits join this change's undo step. Edits that
-   * cannot apply are skipped.
+   * cannot apply are skipped. Make every new id with {@link identities}.
+   *
+   * ```ts
+   * editor.change((c) => {
+   *   c.editContent(blockId, contentId, {
+   *     kind: "node_insert",
+   *     node: {
+   *       id: c.identities.nextId(),
+   *       type: "shape",
+   *       placement: { parentId: rootId, slot: "children", orderKey: "a0" },
+   *     },
+   *   });
+   * });
+   * ```
    */
   editContent(
     blockId: string,
@@ -504,6 +531,13 @@ export interface ChangeApi<S extends SchemaDefinition = AnySchemaDefinition> {
    * time, so two people can change different properties at once: `setBlock({
    * style: { color: "#f00" } })`. `null` clears a property. A type the schema
    * does not allow is skipped, and the other fields still apply.
+   *
+   * A block's own `style` wins over the theme's `styles.blocks` for its type.
+   * The built-in text blocks read `fontSize`, `fontWeight`, `color`,
+   * `lineHeight`, `paddingTop` and `paddingBottom`. A value of the wrong type,
+   * such as a string `fontSize`, is ignored. A custom node can read any other
+   * key itself. Markdown export drops `style`, since Markdown has no way to
+   * write it.
    */
   setBlock<T extends BlockName<S>>(
     attrs: { readonly type: T } & Partial<BlockAttrs<S, T>>,
@@ -565,7 +599,20 @@ export interface EditorStateSnapshot {
    * plain data, so you can send it to other people as your cursor position.
    */
   readonly contentSelection: ContentSelection | null;
-  /** Inline marks active at the caret / across the selection. */
+  /**
+   * Inline marks active at the caret / across the selection, by name. Use it to
+   * light up toolbar buttons such as bold.
+   *
+   * Where a mark starts or ends, the caret has two stops: with the text before
+   * it, or with the text after it. Text typed there gets the marks of that
+   * side, and `activeMarks` shows them. ArrowLeft and ArrowRight first switch
+   * sides without moving, then move. After a step, the caret sits with the
+   * text it just passed. Any other caret move (a click, Home/End, up/down, a
+   * word jump) lands on the side before the caret. So typing at the end of a
+   * bold run stays bold, and typing at its start does not. This works
+   * the same for every mark, links included, and inside table cells. Inline
+   * formulas have their own caret stops and do not follow it.
+   */
   readonly activeMarks: ReadonlySet<Mark["type"]>;
   /** Whether {@link EditorApi.undo} would currently change the document. */
   readonly canUndo: boolean;
@@ -613,7 +660,7 @@ export interface EditorViewApi {
    * `"start"` or `"end"`. Use it to place a popover. For example, a slash menu
    * anchors at the `/` so it stays put while the user types. When a selection
    * ends inside an inline formula, `"caret"` is that spot in the formula, not
-   * the formula's edge.
+   * the formula's edge. `"caret"` also finds a caret inside a table cell.
    */
   coordsAtPos: (point: DocPoint) => {
     x: number;
@@ -660,8 +707,9 @@ export interface EditorViewApi {
   /**
    * Scroll so a point is visible. Takes a {@link DocPoint} (`"caret"`,
    * `"start"`, `"end"` or `{ block, offset }`), or a {@link ContentPoint} for a
-   * spot inside a node's content, such as a table cell. The caret does not
-   * move. By default it scrolls as little as needed. Pass `viewportOffsetY` to
+   * spot inside a node's content, such as a table cell. `"caret"` also follows
+   * a caret inside a table cell. The caret does not move. By default it
+   * scrolls as little as needed. Pass `viewportOffsetY` to
    * put the point that many pixels below the top of the view instead.
    */
   scrollToPosition: (
@@ -674,7 +722,8 @@ export interface EditorViewApi {
    * `"presence:<peerId>"`). Layers do not touch each other. An empty array
    * clears the layer. Decorations point at blocks by id, so they stay in place
    * while others edit. They are not part of the document: never saved, never in
-   * undo.
+   * undo. Where layers cover the same text, they paint in the order the layers
+   * were added.
    */
   setDecorations: (layer: string, decorations: readonly Decoration[]) => void;
   /** Clear one decoration layer. */
@@ -765,7 +814,8 @@ export interface EditorHostApi {
   /**
    * Is a live pointer gesture the editor's own — a selection handle being
    * dragged, a grabbed caret, a drag off the existing selection, a scrollbar or
-   * resize-handle drag?
+   * resize-handle drag, or a sideways drag over a block wider than the page (a
+   * table with many columns)?
    *
    * For a host that grows a page-level drag of its own (a drawer pulled in from
    * anywhere on the page, a swipe between views): ask before taking a touch
@@ -821,14 +871,21 @@ export interface QueryApi<S extends SchemaDefinition = BaseSchemaDefinition> {
    * order, across blocks too. A collapsed range works like a point. Returns
    * `[]` when the target cannot be found.
    *
+   * Touching runs of the same mark with the same `attrs` come back as one run.
+   * So text typed onto the end of a link is part of that link. When the caret
+   * or selection is inside a table cell, the runs come from that cell's text:
+   * `from`/`to` count from the start of the cell, and `content` is the run to
+   * pass back as `setMark`'s `range`.
+   *
    * To light up a toolbar button, use {@link EditorStateSnapshot.activeMarks}
    * instead. It covers the whole selection and includes marks waiting at the
    * caret, which this read leaves out.
    */
   marks(at?: DocPoint | DocRange): MarkInfo<S>[];
   /**
-   * Detached snapshot of one structured attachment, addressed without knowing
-   * its node class. Returns `null` for a missing block/content id.
+   * Detached snapshot of one structured attachment (a table's grid, a block
+   * equation's formula), addressed without knowing its node class. Returns
+   * `null` for a missing block/content id.
    */
   content(blockId: string, contentId: string): StructuredDocument | null;
   /**
@@ -837,6 +894,10 @@ export interface QueryApi<S extends SchemaDefinition = BaseSchemaDefinition> {
    * block's own flat text is not included — read that with {@link block}.
    * Empty for a missing block or one without structured prose. Address a
    * position in a field with a `ContentTextPoint` built from the same ids.
+   *
+   * A node lists its prose fields with a `textFields` adapter on its
+   * {@link StructuredKindSpec}. Tools such as a spell checker read them here
+   * without knowing the node.
    */
   textFields(blockId: string): TextFieldInfo[];
   /**
@@ -844,6 +905,9 @@ export interface QueryApi<S extends SchemaDefinition = BaseSchemaDefinition> {
    * clipboard as `text/plain`. A selection inside structured content (text in a
    * table cell) reads through the owning node's serializer, so cells across a
    * range come back tab- and newline-separated. `""` for a bare caret.
+   *
+   * It is always the plain words, never the Markdown that a copy with
+   * `asMarkdown` puts on the clipboard.
    */
   selectedText(): string;
 }
@@ -854,6 +918,26 @@ export interface QueryApi<S extends SchemaDefinition = BaseSchemaDefinition> {
  * `editor.query` ({@link QueryApi}), screen positions and highlights on
  * `editor.view` ({@link EditorViewApi}), and tools for building menus and
  * overlays on `editor.host` ({@link EditorHostApi}).
+ *
+ * Keyboard: the editor takes only the Ctrl/Cmd shortcuts it uses. Every other
+ * one, such as Cmd+S, reaches your app, even while the caret is in the editor.
+ * There is no built-in save shortcut, so listen for it yourself. Shortcuts
+ * match the physical key, so they work on non-Latin keyboard layouts.
+ *
+ * - Cmd+Z, Cmd+Shift+Z, Cmd+Y (undo, redo) and Cmd+A (select all) are always
+ *   taken.
+ * - Cmd+B, Cmd+I, Cmd+E and Cmd+Shift+X toggle bold, italic, code and strike.
+ *   They are taken only when the schema has that mark and allows it. So a title
+ *   field with no marks lets Cmd+B reach your app.
+ * - Cmd+Shift+C copies as Markdown.
+ * - Cmd+C, Cmd+X and Cmd+V are never taken. They stay the browser's own copy,
+ *   cut and paste.
+ * - A shortcut with Alt held is never taken. On Windows that is AltGr, which
+ *   types a character.
+ * - On macOS, bare Ctrl+A, E, B, F, P, N, H, D and K move the caret and delete,
+ *   as in other Mac text fields. On other systems those reach your app.
+ *
+ * "Cmd" is ⌘ on Apple devices and Ctrl elsewhere.
  */
 // Kept as a standalone interface (EditorApi) so the Editor class is
 // compile-checked against it. Engine-only doc-to-editor wiring lives on
@@ -884,12 +968,16 @@ export interface EditorApi<S extends SchemaDefinition = BaseSchemaDefinition> {
   destroy: () => void;
   /**
    * Focus the editor and its hidden input surface so it can receive keyboard
-   * and IME input. Does not create, clear, or reposition the model selection.
+   * and IME input. It takes no position: place the caret with
+   * {@link setCaret} or {@link setSelection}. If the editor is editable and
+   * has no caret or selection yet, a caret is placed at the start. An existing
+   * caret or selection stays where it is.
    */
   focus: () => void;
   /**
-   * Blur the editor and its hidden input surface, clearing the model selection
-   * and dismissing the soft keyboard.
+   * Blur the editor and its hidden input surface, and dismiss the soft
+   * keyboard. A selected range is cleared a moment later, unless focus comes
+   * back or a host menu is open.
    */
   blur: () => void;
   /**
@@ -935,6 +1023,14 @@ export interface EditorApi<S extends SchemaDefinition = BaseSchemaDefinition> {
    * built-in handlers. Return `true` to handle the action: later handlers and
    * the default do not run. Return `false` or nothing to let it pass on.
    * Returns a function that removes the handler.
+   *
+   * ```ts
+   * // Open links in your own router instead of a new browser tab.
+   * const off = editor.registerAction(OPEN_LINK, ({ url }) => {
+   *   router.push(url);
+   *   return true; // handled: the editor's default does not run
+   * });
+   * ```
    */
   registerAction<P>(
     action: Action<P>,
@@ -952,6 +1048,10 @@ export interface EditorApi<S extends SchemaDefinition = BaseSchemaDefinition> {
    *   It is one step, saved to undo when it edits the document. Returns `true`
    *   when the editor state changed. Use it to trigger a node's own behavior,
    *   such as moving the caret out of a math formula (`EXIT_INLINE_MATH`).
+   *
+   * For your own one-off edits, use {@link change}. Actions are for named
+   * behavior that others can watch or replace, like the editor's built-in
+   * {@link OPEN_LINK}.
    *
    * @see {@link Editor.registerAction}
    */
@@ -971,6 +1071,12 @@ export interface EditorApi<S extends SchemaDefinition = BaseSchemaDefinition> {
    * Returns `true` when something changed. If the result would break the
    * schema's rules for the document, nothing is applied and it returns `false`.
    *
+   * The callback is the transaction. There is no separate transaction object to
+   * build. All its edits are applied together, reach other people as one
+   * update, and arrive in one {@link ChangeTransaction}. Two `change` calls are
+   * two undo steps. A change that only moves the caret or selection returns
+   * `true`, but adds no undo step.
+   *
    * ```ts
    * editor.change((c) => {
    *   c.setBlock({ type: "heading", level: 2 });
@@ -979,11 +1085,31 @@ export interface EditorApi<S extends SchemaDefinition = BaseSchemaDefinition> {
    * ```
    */
   change: (fn: (c: ChangeApi<S>) => void) => boolean;
-  /** Dry-run a {@link change}: would the queued mutations change anything now? */
+  /**
+   * Dry-run a {@link change}: would the queued mutations change anything now?
+   * It also returns `false` when the schema's document shape would refuse
+   * them, so you can hide a control that would do nothing.
+   *
+   * It runs the callback on a throwaway copy, so the document, the caret and
+   * undo history are never touched.
+   *
+   * ```ts
+   * headingButton.disabled = !editor.canChange((c) =>
+   *   c.setBlock({ type: "heading", level: 1 }),
+   * );
+   * ```
+   */
   canChange: (fn: (c: ChangeApi<S>) => void) => boolean;
-  /** Step local history backward; returns whether it changed the document. */
+  /**
+   * Step local history backward; returns whether it changed the document.
+   * Only edits made in this editor are undone. Edits from other people never
+   * enter its history, and undo stays correct after their edits merge in.
+   */
   undo: () => boolean;
-  /** Step local history forward; returns whether it changed the document. */
+  /**
+   * Step local history forward; returns whether it changed the document. Like
+   * {@link undo}, it only covers edits made in this editor.
+   */
   redo: () => boolean;
   /**
    * Place a collapsed caret at a {@link DocPoint} (default `"start"`), clearing
@@ -991,7 +1117,8 @@ export interface EditorApi<S extends SchemaDefinition = BaseSchemaDefinition> {
    * point speaks the same stable vocabulary as the read/write API — `"start"`/
    * `"end"`, or an absolute `{ block, offset }`. Forces the caret to move unless
    * `onlyIfUnset` is passed, in which case it is a no-op when a cursor already
-   * exists (seed-an-initial-caret). No-op when the point can't be resolved
+   * exists (seed-an-initial-caret). A caret inside a table cell counts too.
+   * No-op when the point can't be resolved
    * (empty doc, unknown block). The selection it produces is read back at
    * {@link EditorStateSnapshot.selection} (`editor.state.selection.range`).
    */
@@ -1017,6 +1144,9 @@ export interface EditorApi<S extends SchemaDefinition = BaseSchemaDefinition> {
    * `options.asMarkdown` puts the markdown source there instead (`**bold**`,
    * `- ` bullets), as Cmd/Ctrl+Shift+C does. Resolves to whether the copy
    * succeeded.
+   *
+   * With `asMarkdown`, text inside a code block copies as the raw code. A range
+   * inside one block copies without that block's prefix (no `# ` or `- `).
    */
   copy: (
     docRange?: DocRange | null,

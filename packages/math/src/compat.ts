@@ -6,12 +6,13 @@
  * `getBaseDataSchema()`, so a host that never installs math never pulls the math
  * codecs — or `@tasfer/tex` — into its bundle.
  *
- * Callers that relied on the old implicit behavior pass this schema explicitly:
+ * Callers that relied on the old implicit behavior pass a math schema
+ * explicitly:
  *
- *   parsePage(tokens, getCompatibilityDataSchema())
+ *   parsePage(tokens, getBaseDataSchema().extend(mathDataExtension()))
  *
- * It lives behind the `@tasfer/math` entry precisely so core can no
- * longer reach it.
+ * `getCompatibilityDataSchema` is a cached shortcut for that schema, used
+ * inside this package only; it is not on the public entries.
  */
 
 import { mathDataExtension } from "./data";
@@ -24,10 +25,8 @@ import type { DataSchema } from "@tasfer/editor/sync/schema";
 let cachedCompatibilityDataSchema: DataSchema | null = null;
 
 /**
- * The base data schema with math added. Pass it to the parsing and
- * serializing functions that take an optional schema when your documents may
- * contain math; without a schema they no longer understand math. Every call
- * returns the same schema.
+ * The base data schema with math added, built once and reused. Internal: hosts
+ * build the same schema with `getBaseDataSchema().extend(mathDataExtension())`.
  */
 export function getCompatibilityDataSchema(): DataSchema {
   return (cachedCompatibilityDataSchema ??=
@@ -40,8 +39,12 @@ export function getCompatibilityDataSchema(): DataSchema {
  * inline math as `<code>$…$</code>`. Throws for any type other than `"math"`.
  *
  * ```ts
+ * import { getBaseDataSchema, serializeToHTML } from "@tasfer/editor";
+ * import { mathReplacementRenderer } from "@tasfer/math";
+ * import { mathDataExtension } from "@tasfer/math/data";
+ *
  * const html = serializeToHTML(blocks, {
- *   schema: getCompatibilityDataSchema(),
+ *   schema: getBaseDataSchema().extend(mathDataExtension()),
  *   renderReplacement: mathReplacementRenderer,
  * });
  * ```

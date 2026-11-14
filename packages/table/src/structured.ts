@@ -181,10 +181,23 @@ export interface TableRowView {
   readonly cells: readonly (StructuredNode | undefined)[];
 }
 
-/** A whole table resolved for reading: columns, rows, and cells by column. */
+/**
+ * A whole table resolved for reading: columns, rows, and cells by column.
+ *
+ * In the table document, columns and rows are separate lists under the root.
+ * Each row holds cell nodes. A cell names its column in `attrs.columnId` and
+ * keeps its text in the {@link CELL_TEXT_FIELD} field. Because a cell names its
+ * column, two people can add a row and a column at the same time and still end
+ * up with the same table.
+ */
 export interface TableView {
   readonly root: StructuredNode | undefined;
   readonly columns: readonly StructuredNode[];
+  /**
+   * The rows, top to bottom. `rows[0]` is the header row. It looks like any
+   * other row on the canvas, but Markdown writes it as the column titles and
+   * HTML as `<th>` cells.
+   */
   readonly rows: readonly TableRowView[];
 }
 
@@ -193,6 +206,10 @@ export interface TableView {
  * column, in column order. A cell the row does not have is `undefined`. If the
  * root is not a table, you get no root, no columns and no rows. If a broken
  * document has two cells for one column in a row, the first one wins.
+ *
+ * A table is not always a full rectangle: a row can lack a cell for some
+ * column. Read cells through this function rather than by their position in
+ * the row.
  */
 // Builds one child index for the whole document rather than asking per row: a
 // layout pass walks every row and cell, and the unindexed lookup scans all

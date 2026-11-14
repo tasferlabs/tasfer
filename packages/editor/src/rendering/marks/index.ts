@@ -3,7 +3,7 @@
  *
  * A `MarkRegistry` is per-editor-instance (created at mount, stored on
  * `EditorState.marks`), not a module global. Hosts compose the set of marks
- * they want: pass a custom `marks` list to `mountEditor`, or use
+ * they want: pass a custom `marks` list to `createEditor`, or use
  * `createDefaultMarkRegistry()` for the built-in set.
  */
 

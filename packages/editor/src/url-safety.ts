@@ -101,7 +101,9 @@ export function safeLinkHref(raw: unknown): string | null {
   return normalizeLinkUrl(cleaned);
 }
 
-/** True when {@link normalizeLinkUrl} would accept `raw`. */
+/**
+ * True when {@link normalizeLinkUrl} would accept `raw`.
+ */
 export function isSafeLinkUrl(raw: unknown): boolean {
   return normalizeLinkUrl(raw) !== null;
 }

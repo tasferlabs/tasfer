@@ -192,7 +192,8 @@ function markerSlotX(
 /**
  * The built-in node for the three list block types: `bullet_list`,
  * `numbered_list` and `todo_list`. A list item is a text block with an indent
- * and a marker (bullet, number or checkbox) in front of it.
+ * and a marker (bullet, number or checkbox) in front of it. In Markdown they
+ * are written as `- `, `1. ` and `- [ ] ` (`- [x] ` when checked).
  */
 export class ListNode extends TextNode {
   // Representative type; registered under every LIST_BLOCK_TYPES key.

@@ -57,6 +57,10 @@ export { normalizeMathSource } from "./source";
 /**
  * The attributes stored on a math block. `displayMode` is always `true` for a
  * block equation.
+ *
+ * A math block's text is empty. The formula lives in the block's math
+ * document, not in its text. Read it as LaTeX with
+ * {@link getStructuredMathSource}.
  */
 export type MathBlockAttrs = {
   readonly displayMode: boolean;
@@ -291,11 +295,16 @@ export function cloneMathStructuredContent({
  * {@link mathExtension}.
  *
  * ```ts
- * import { baseDataSchema } from "@tasfer/editor";
+ * import { baseDataSchema, createDoc } from "@tasfer/editor";
  * import { mathDataExtension } from "@tasfer/math/data";
  *
  * const dataSchema = baseDataSchema.extend(mathDataExtension());
+ * const doc = createDoc({ markdown, schema: dataSchema });
  * ```
+ *
+ * Keep this data schema matched with the editor's schema, built with
+ * {@link mathExtension}. Put each in its own module. Then a worker that imports
+ * the data schema never loads the canvas code.
  */
 // Each piece registers on the spec that owns it: the block spec carries the
 // display syntax rule, the mark spec carries the inline rule and

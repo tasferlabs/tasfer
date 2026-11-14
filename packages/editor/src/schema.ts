@@ -171,11 +171,47 @@ export interface SchemaRestriction<
    *
    * A name is a block type or a group: `block`, `text`, `heading`, `list`,
    * `void`, or a name from a node's `groups`. Use `|` for "or", `( )` to group,
-   * and `+`, `*`, `?`, `{n}`, `{n,}`, `{n,m}` to repeat.
+   * and `+`, `*`, `?`, `{n}`, `{n,}`, `{n,m}` to repeat. Spaces separate names.
+   *
+   * The groups come from the registered types, so there is no list to keep up:
+   *
+   * - `block`: every type.
+   * - `text`: every type that holds text (paragraph, headings, quote, lists,
+   *   code).
+   * - `void`: every type with no text (image, divider, custom nodes).
+   * - `heading`: `heading1`, `heading2` and `heading3`.
+   * - `list`: bullet, numbered and todo lists.
    *
    * An edit that would break this shape is refused. Paste and import are fixed
    * up to fit it. Edits from other people are not checked, so everyone still
    * ends up with the same document.
+   *
+   * Where an edit can adapt, it does. Enter makes the new block a type the
+   * shape allows there, and does nothing when none is allowed. A paste is fixed
+   * to fit where it lands. Other edits that would break the shape do nothing:
+   * turning a block into another type, a Backspace that joins two blocks,
+   * deleting a selected block, or `deleteBlock()`. {@link Editor.change}
+   * returns `false` when it refuses a batch, and {@link Editor.canChange}
+   * tells you ahead of time.
+   *
+   * A loaded document is fixed as a whole. A block that does not fit becomes a
+   * type that does, keeping its text, or is dropped. Blocks missing at the end
+   * are added.
+   *
+   * A document that already breaks the shape is never locked. It may come from
+   * someone on a looser schema, or be saved before you added the rule. It
+   * still edits normally. Only an edit that breaks a document that fit is
+   * refused.
+   *
+   * The shape is a guard on what this user types, not a promise about the
+   * document. Two people's edits can each be fine and still break the shape
+   * once they merge. If your code depends on the shape, for export or
+   * rendering, check it with `schema.data.contentAccepts()` at that point, and
+   * fix a document that fails.
+   *
+   * Every name must already be registered, so call `restrict()` after
+   * `extend()` and `use()`. A bad expression, an unknown name, or a shape no
+   * document can meet throws when you call `restrict()`, not later.
    */
   readonly content?: string;
 }
@@ -204,7 +240,12 @@ type ExtensionDefinition<E extends SchemaExtension> = {
 /**
  * The block and mark types an editor knows, and the nodes and marks that draw
  * them. A schema never changes: `extend()`, `use()` and `restrict()` each
- * return a new one. Start from `baseSchema`.
+ * return a new one. Start from `baseSchema`. Two editors on one page can use
+ * different schemas.
+ *
+ * TypeScript carries the schema's block and mark names into the editor, its
+ * `change()` and `query` APIs, and the React bindings, with no type argument
+ * to write. So `setBlock({ type: "calluot" })` is a type error.
  *
  * ```ts
  * const callout = defineNode("callout");
@@ -227,7 +268,15 @@ export class Schema<D extends SchemaDefinition = BaseSchemaDefinition> {
     this.marks = marks;
   }
 
-  /** Derive a new schema with extra custom node and mark types. */
+  /**
+   * Derive a new schema with extra custom node and mark types. `nodes` and
+   * `marks` are arrays. A type whose name is already in the schema replaces the
+   * old one. Use {@link Schema.use} for a reusable feature bundle.
+   *
+   * ```ts
+   * const schema = baseSchema.extend({ nodes: [defineNode("one_off")] });
+   * ```
+   */
   extend<const E extends SchemaExtension>(
     ext: E,
   ): Schema<MergeSchema<D, ExtensionDefinition<E>>> {
@@ -301,6 +350,17 @@ export class Schema<D extends SchemaDefinition = BaseSchemaDefinition> {
    * so your custom types exist first. It throws if a name is not in the schema,
    * or if `content` can never be met.
    *
+   * Every way of making a blocked type is stopped: menu conversions, Enter,
+   * Markdown shortcuts like `# `, and `change()` calls. Each one does nothing
+   * or makes a plain paragraph instead. A blocked mark does nothing. Paste and
+   * import are cut down to fit: a blocked heading pastes as plain text, and a
+   * blocked image is dropped. Content already in the document is not changed.
+   *
+   * Edits from other people are never checked against it, so editors with
+   * different limits (a locked title and a full body) still share one
+   * document. To hide your own controls for blocked types, ask
+   * `schema.data.isBlockAllowed(type)` and `schema.data.isMarkAllowed(type)`.
+   *
    * ```ts
    * const titleSchema = baseSchema.restrict({ blocks: ["heading1"], marks: [] });
    * const editor = createEditor({ element, schema: titleSchema });
@@ -361,9 +421,19 @@ function toBlockSpec(entry: BlockSpec | Node): BlockSpec {
 
 /**
  * The default schema: every built-in block and mark type, ready to draw.
- * Optional features such as math are not included. `baseSchema` never changes.
+ * Optional features such as math are not included. It has no `restrict()`
+ * limits, so the user can create every type. `baseSchema` never changes.
  * Add types with `baseSchema.extend()` or `baseSchema.use()`, which return a
  * new schema.
+ *
+ * The blocks are `paragraph`, `heading1` to `heading3`, `bullet_list`,
+ * `numbered_list`, `todo_list`, `quote`, `code`, `image` and `line`. The marks
+ * are `strong`, `emphasis`, `strike`, `code` and `link`. Note the mark names:
+ * `strong`, not bold; `emphasis`, not italic; `strike`, not strikethrough.
+ *
+ * The `code` block is the one type that is not drawn here. It still loads,
+ * saves, syncs and exports, but it shows as a placeholder until you add
+ * `codeExtension()` from `@tasfer/code`.
  */
 // The node/mark instances come straight from defaultNodes() / defaultMarks()
 // (the single source of truth for the core set), so this never drifts from
@@ -400,14 +470,18 @@ export interface DefineMarkConfig<
    */
   readonly codec?: MarkCodec;
   /**
-   * Rules that find this mark's own delimiters when Markdown is read. They only
-   * take effect when the mark's codec lists matching `tokens`.
+   * Rules that find this mark's own delimiters when Markdown is read. These
+   * are usually `scope: "inline"` rules. They only take effect when the mark's
+   * codec lists matching `tokens`, so a custom rule needs a codec you write.
    */
   readonly markdownSyntax?: readonly SyntaxRule[];
   /**
    * For a mark whose content lives in its own nested document, such as inline
    * math. It tells the editor how to create that content, read its source, copy
    * it and clean it up. Most marks do not need it.
+   *
+   * Such a mark covers one placeholder character in the text. The nested
+   * document is the only real copy of what it holds.
    */
   readonly structured?: StructuredMarkFacet;
   /**
@@ -421,8 +495,12 @@ export interface DefineMarkConfig<
 
 /**
  * Declares a custom inline mark. It returns a {@link MarkDef} to pass to
- * `baseSchema.extend({ marks })`. Set `render` to choose how it looks, and
- * `codec` to save it as Markdown and HTML.
+ * `baseSchema.extend({ marks })`, or to list in a {@link FeatureExtension}
+ * you install with `use()`. Set `render` to choose how it looks, and `codec`
+ * to save it as Markdown and HTML.
+ *
+ * With only a name, you get a format the user can turn on and off. It is kept
+ * and synced, but draws as plain text and is lost on Markdown export.
  *
  * ```ts
  * const schema = baseSchema.extend({
@@ -474,6 +552,10 @@ export interface DefineNodeConfig<
   /**
    * The block's attributes, by name. Each one is an {@link AttrSpec}. They sync
    * to other people like the rest of the document.
+   *
+   * TypeScript reads each attribute's type from its `default`. A `validate`
+   * written as a type guard gives a narrower type, such as
+   * `(v): v is "note" | "warn" => v === "note" || v === "warn"`.
    */
   attrs?: A;
   /**
@@ -483,13 +565,20 @@ export interface DefineNodeConfig<
    * card+"`.
    */
   groups?: readonly string[];
-  /** Style for the generated {@link BoxNode}. Ignored when `node` is supplied. */
+  /**
+   * Style for the generated {@link BoxNode}: background, border, left accent
+   * bar and label. Ignored when `node` is supplied.
+   */
   render?: BoxRenderStyle;
-  /** A custom Node to render with, instead of the generated BoxNode. */
+  /**
+   * A custom Node to render with, instead of the generated BoxNode. It does its
+   * own drawing, hit testing and overlays.
+   */
   node?: Node;
   /**
-   * Rules that find this block's own syntax when Markdown is read. They only
-   * take effect when `node` has its own `codec` whose `markdown.tokens` match.
+   * Rules that find this block's own syntax when Markdown is read. These are
+   * usually `scope: "block"` rules. They only take effect when `node` has its
+   * own `codec` whose `markdown.tokens` match.
    * The default `<x-type />` tag format does not use them.
    */
   markdownSyntax?: readonly SyntaxRule[];
@@ -532,8 +621,12 @@ function coerceAttr(raw: string, def: unknown): unknown {
 /**
  * Defines a custom block type with no text, such as a callout box or an embed.
  * You choose its attributes, how it draws, and how it is saved as Markdown,
- * HTML and plain text. There are two ways to write one, and both give the same
- * result:
+ * HTML and plain text. Pass the result to `baseSchema.extend({ nodes })`, or
+ * list it in a {@link FeatureExtension} you install with `use()`. With no
+ * serialization of your own, it is saved as a `<x-type …attrs />` tag that
+ * loads back as the same block.
+ *
+ * There are two ways to write one, and both give the same result:
  *
  * ```ts
  * // 1. Config: a styled box, no drawing code.

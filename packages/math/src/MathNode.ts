@@ -1098,6 +1098,17 @@ function mathDecorationRect(
  * The math block node: lays out, paints and edits a display equation on the
  * canvas. {@link mathExtension} installs it for you; create one yourself only
  * when you put a schema together by hand.
+ *
+ * An equation block has no text of its own: its LaTeX lives in the block's
+ * structured content. So `c.insertText` and `c.deleteRange` aimed inside it do
+ * nothing. Change the equation with `c.editContent(...)` instead.
+ *
+ * Block and inline formulas turn into each other with nothing lost. Backspace
+ * at the start of an equation turns it into an inline formula. Converting a
+ * block whose only content is one inline formula to `math`, for example with
+ * `setBlock({ type: "math" })`, turns it back into an equation. If the inline
+ * formula sits inside other text, the text stays and the formula moves into a
+ * new equation right after it.
  */
 export class MathNode extends TextNode<MathBlock> {
   readonly type = "math" as const;
@@ -2075,9 +2086,8 @@ export class MathNode extends TextNode<MathBlock> {
    * Enter leaves the equation instead of splitting it. Backspace at the start
    * of an equation turns it into an inline formula.
    *
-   * When the pointer moves, it lights up the math block under it with
-   * {@link SET_MATH_BLOCK_HOVER}, or the inline formula under it with
-   * {@link SET_INLINE_MATH_HOVER}. A read-only editor shows no hover.
+   * When the pointer moves, it lights up the math block or the inline formula
+   * under it. A read-only editor shows no hover.
    */
   // Legacy block math lands through positionFromPoint. Tree-backed blocks use
   // the structured-content hit-test, so a click enters the exact row/field

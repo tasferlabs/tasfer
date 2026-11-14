@@ -936,6 +936,10 @@ function imageResizeDetent(
  * its upload and loading states, and the resize handles. Written as
  * `![alt](url)` in Markdown, or as an `<img>` tag when the image has a size
  * Markdown cannot express.
+ *
+ * Its attrs are `url`, `alt`, `width` (a number, or `"full"` for full width),
+ * `height`, `objectFit` (`"cover"` or `"contain"`) and `objectPosition` (the
+ * crop point for `cover`, as `{ x, y }` from 0 to 1).
  */
 export class ImageNode extends AtomicNode<Image> {
   readonly type = "image" as const;

@@ -75,8 +75,7 @@ export type TableInsertSide = "before" | "after";
 
 /**
  * What the table command functions return: the edits to make, and where the
- * caret goes afterwards. Apply it by passing its `edits` and `caret` to
- * {@link commitTableEdits}.
+ * caret goes afterwards. The `TABLE_*` actions apply it for you.
  */
 export interface TableCommand {
   readonly edits: readonly StructuredEdit[];
@@ -102,7 +101,7 @@ function orderKeyAt(
 
 /**
  * Build the edits that add an empty row before or after row `rowIndex`. Nothing
- * is applied yet: pass its `edits` and `caret` to {@link commitTableEdits}. The
+ * is applied yet. The matching `TABLE_*` action applies it. The
  * caret goes to the new row's first cell.
  *
  * Returns `undefined` for an empty table, and for `side: "before"` on the
@@ -163,8 +162,7 @@ export function insertRow(
 }
 
 /**
- * Build the edit that removes row `rowIndex`. Nothing is applied yet: pass its
- * `edits` and `caret` to {@link commitTableEdits}. The caret moves to the next
+ * Build the edit that removes row `rowIndex`. Nothing is applied yet. The matching `TABLE_*` action applies it. The caret moves to the next
  * row, or to the one above if this was the last row.
  *
  * Returns `undefined` when the table has only one row or the row does not
@@ -194,8 +192,7 @@ export function deleteRow(
 
 /**
  * Build the edits that add an empty column before or after column
- * `columnIndex`, with a new cell in every row. Nothing is applied yet: pass its
- * `edits` and `caret` to {@link commitTableEdits}. The caret goes to the new
+ * `columnIndex`, with a new cell in every row. Nothing is applied yet. The matching `TABLE_*` action applies it. The caret goes to the new
  * column's header cell. Returns `undefined` for an empty table.
  */
 export function insertColumn(
@@ -263,8 +260,7 @@ export function insertColumn(
 }
 
 /**
- * Build the edit that removes column `columnIndex`. Nothing is applied yet:
- * pass its `edits` and `caret` to {@link commitTableEdits}. The caret moves to
+ * Build the edit that removes column `columnIndex`. Nothing is applied yet. The matching `TABLE_*` action applies it. The caret moves to
  * the header cell of the column next to it.
  *
  * Returns `undefined` when the table has only one column or the column does not
@@ -292,8 +288,7 @@ export function deleteColumn(
 
 /**
  * Build the edit that moves column `columnIndex` so it ends up at
- * `targetIndex`. Nothing is applied yet: pass its `edits` and `caret` to
- * {@link commitTableEdits}.
+ * `targetIndex`. Nothing is applied yet. The matching `TABLE_*` action applies it.
  *
  * `targetIndex` is where the column sits after the move, counted in the grid as
  * it is now. So `moveColumn(document, 0, 2)` on `A B C` gives `B C A`. A target
@@ -336,7 +331,9 @@ export function moveColumn(
   };
 }
 
-/** Set (or, with `null`, clear) a column's alignment. */
+/**
+ * Set (or, with `null`, clear) a column's alignment.
+ */
 export function setColumnAlign(
   document: StructuredDocument,
   columnIndex: number,
@@ -435,7 +432,24 @@ export const NEW_TABLE_COLUMNS = 3;
 
 // ── Action bus ───────────────────────────────────────────────────────────────
 
-/** Target a command at an explicit cell, or (by default) at the caret's own. */
+/**
+ * Target a command at an explicit cell, or (by default) at the caret's own.
+ *
+ * Every `TABLE_*` action takes these fields. A change made by one syncs,
+ * merges and undoes just like typing a character. When an action cannot apply,
+ * such as deleting the only row, it changes nothing. Use {@link tableShapeAt}
+ * to disable such a control ahead of time.
+ *
+ * @example
+ * ```ts
+ * import { TABLE_INSERT_ROW, TABLE_SELECT_COLUMN } from "@tasfer/table";
+ *
+ * // Add a row below the caret's row.
+ * editor.dispatch(TABLE_INSERT_ROW, { side: "after" });
+ * // Select the third column of the caret's table.
+ * editor.dispatch(TABLE_SELECT_COLUMN, { columnIndex: 2 });
+ * ```
+ */
 export interface TableTargetPayload {
   /**
    * The id of the table block to act on. Leave it out to act on the table the
@@ -444,7 +458,15 @@ export interface TableTargetPayload {
    * table than the caret.
    */
   readonly blockId?: string;
+  /**
+   * The row to act on, counted from 0. Row 0 is the header row. Leave it out
+   * to use the caret's row.
+   */
   readonly rowIndex?: number;
+  /**
+   * The column to act on, counted from 0. Leave it out to use the caret's
+   * column.
+   */
   readonly columnIndex?: number;
 }
 
@@ -480,9 +502,15 @@ export const TABLE_DELETE_COLUMN = stateAction<TableTargetPayload>(
 );
 
 /**
- * Move the target column so it ends up at `to` (see {@link moveColumn}). The
- * column-drag band on the canvas dispatches this on release; a menu passes the
- * caret column's index ± 1.
+ * Move the target column so it ends up at `to`. The column's cells move with
+ * it, and the caret stays in its cell.
+ *
+ * `to` is where the column sits after the move, counted in the grid as it is
+ * now. So moving column 0 of `A B C` to 2 gives `B C A`. A `to` past either end
+ * goes to the first or last column. For "move left" pass the column's index
+ * minus 1, and for "move right" its index plus 1.
+ *
+ * Dragging a column by its grip on the canvas dispatches this on release.
  */
 export const TABLE_MOVE_COLUMN = stateAction<
   TableTargetPayload & { readonly to: number }
@@ -570,6 +598,11 @@ function commandTarget(
  * The shape of a table around one caret, for a host drawing its own controls:
  * how big the grid is, where the caret sits in it, and that column's alignment.
  * Everything a row/column panel needs to label and enable itself.
+ *
+ * Some commands do nothing in some places. Disable "delete row" when `rows`
+ * is 1, "delete column" when `columns` is 1, and "add row above" when
+ * `rowIndex` is 0. A row above the header is not allowed, because Markdown
+ * tables always use the first row as the column titles.
  */
 export interface TableShape {
   readonly rows: number;

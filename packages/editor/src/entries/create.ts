@@ -18,7 +18,10 @@ export type CreateEditorContent<
   D extends SchemaDefinition = BaseSchemaDefinition,
 > =
   | {
-      /** Initial document as a Markdown string. */
+      /**
+       * Initial document as a Markdown string. Windows line endings (`\r\n`)
+       * are fine. `getMarkdown()` always writes plain `\n` line endings.
+       */
       markdown?: string;
       blocks?: never;
       doc?: never;
@@ -58,7 +61,10 @@ export type CreateEditorContent<
 export type CreateEditorBaseOptions<
   D extends SchemaDefinition = BaseSchemaDefinition,
 > = Omit<MountEditorOptions<D>, "doc" | "schema"> & {
-  /** The host element the canvas mounts into. Sized to fill this element. */
+  /**
+   * The host element the canvas mounts into. The canvas fills this element, so
+   * give it a height (or use `autoHeight`).
+   */
   element: HTMLElement;
   /**
    * The block and mark types this editor understands (see `defineNode` and
@@ -98,7 +104,8 @@ export interface TasferEditor<
    * The document this editor shows and edits: the `doc` you passed in, or one
    * the editor made for itself. Sync and saving go only through it:
    * `doc.applyUpdate(ops)` for incoming edits, `doc.on("update", …)` for
-   * outgoing ones, and `doc.encodeState()` to save.
+   * outgoing ones, and `doc.encodeState()` to save. Sync and storage providers
+   * attach to this doc, not to the editor.
    */
   readonly doc: Doc<D>;
   /**
@@ -112,7 +119,11 @@ export interface TasferEditor<
   // host that needs it diffs via the internal subscribeRaw
   // (@tasfer/editor/internal).
   readonly state: EditorStateSnapshot & { readonly doc: Doc<D> };
-  /** Container to mount React popovers/overlays into (slash menu, link editor). */
+  /**
+   * Container to mount React popovers/overlays into (slash menu, link editor).
+   * It floats over the canvas. It ignores pointer events, so set
+   * `pointer-events: auto` on what you put inside.
+   */
   readonly portalContainer: HTMLDivElement;
   /**
    * Gives the editor keyboard focus, so it gets typing and IME input. If the
@@ -139,16 +150,20 @@ export interface TasferEditor<
  * `markdown`, `blocks`, or an existing `doc`. Pass at most one: passing two or
  * more throws. With none, the editor starts blank.
  *
- * Use {@link mountEditor} instead when you want the mount and the editor as
- * separate handles.
- *
  * @example
- * const editor = createEditor({ element: document.querySelector("#editor")!,
- * markdown: "# Hello\n\nStart typing — **markdown** shortcuts work.",
- * autofocus: true, });
+ * ```ts
+ * const editor = createEditor({
+ *   element: document.querySelector("#editor")!,
+ *   markdown: "# Hello\n\nStart typing — **markdown** shortcuts work.",
+ *   autofocus: true,
+ * });
  *
- * editor.on("change", () => localStorage.setItem("draft",
- * editor.getMarkdown())); // …later editor.destroy();
+ * editor.on("change", () => {
+ *   localStorage.setItem("draft", editor.getMarkdown());
+ * });
+ * // …later
+ * editor.destroy();
+ * ```
  */
 export function createEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
   options: CreateEditorOptions<D>,

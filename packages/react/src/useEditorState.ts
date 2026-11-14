@@ -27,9 +27,19 @@ export type EditorStateValue<
  * is `null`, for example before {@link useEditor} has mounted.
  *
  * @example
- * const { editor } = useEditor({ markdown: "**bold**" }); const state =
- * useEditorState(editor); const isBold = state?.activeMarks.has("strong") ??
- * false;
+ * ```tsx
+ * function BoldButton({ editor }: { editor: TasferEditor | null }) {
+ *   const state = useEditorState(editor);
+ *   return (
+ *     <button
+ *       data-active={state?.activeMarks.has("strong") ?? false}
+ *       onClick={() => editor?.change((c) => c.setMark("strong"))}
+ *     >
+ *       Bold
+ *     </button>
+ *   );
+ * }
+ * ```
  */
 // Backed by useSyncExternalStore. editor.state builds a fresh object on every
 // read, so the snapshot is cached in a ref and only refreshed when a subscribed
@@ -85,12 +95,15 @@ export function useEditorState<
 
 /**
  * Read the editor's content as Markdown, and re-render whenever the document
- * changes. Returns `""` while `editor` is `null`. The Markdown is rebuilt only
- * when the document changes, not on every render.
+ * changes, including edits from other people. Returns `""` while `editor` is
+ * `null`. The Markdown is rebuilt only when the document changes, not on every
+ * render.
  *
  * @example
- * const { editor } = useEditor({ markdown: "# Title" }); const markdown =
- * useEditorMarkdown(editor); // "# Title", updates as you type
+ * ```tsx
+ * const { editor } = useEditor({ markdown: "# Title" });
+ * const markdown = useEditorMarkdown(editor); // "# Title", updates as you type
+ * ```
  */
 // Cached so getSnapshot stays referentially stable between edits.
 export function useEditorMarkdown<

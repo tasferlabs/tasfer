@@ -39,7 +39,10 @@ import {
   isWordChar,
 } from "@tasfer/editor/word-chars";
 
-/** A caret inside one cell: the cell node's id and a visible UTF-16 offset. */
+/**
+ * A caret inside one cell: the cell node's id and a visible UTF-16 offset.
+ * Because it names the cell, someone editing another cell never moves it.
+ */
 export interface TableCaret {
   readonly cellId: string;
   readonly offset: number;

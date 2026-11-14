@@ -133,10 +133,9 @@ export type {
 } from "./entries/editor";
 
 // Convenience constructor — parse Markdown + mount in a single call, returning
-// one handle that merges the editor action API with the mount lifecycle. The
-// lower-level `mountEditor` (above) stays available for hosts that want the
-// split. (The raw `entries/editor` constructor is reachable as `EditorClass`
-// from `@tasfer/editor/internal` for advanced use.)
+// one handle that merges the editor action API with the mount lifecycle. (The
+// lower-level `mountEditor` and the raw `entries/editor` constructor are
+// engine internals.)
 export type {
   CreateEditorBaseOptions,
   CreateEditorContent,
@@ -325,11 +324,10 @@ export {
 // internally; a host drives or observes one through `editor.dispatch` /
 // `editor.registerAction` (`editor.dispatch(SELECT_ALL)`,
 // `editor.dispatch(TOGGLE_STRONG)`,
-// `editor.dispatch(MOVE_CURSOR_LEFT, { viewport })`). They span a range of
-// altitudes — the move/edit/mark commands are a stable command vocabulary (key
-// remaps, command palettes, toolbars), whereas the mouse/touch/node actions are
-// intimate event-layer and node-internal geometry few hosts will ever bind —
-// but they all live in one flat namespace. The frequently-bound core signals
+// `editor.dispatch(MOVE_CURSOR_LEFT, { viewport })`). The move/edit/mark
+// commands are a stable command vocabulary (key remaps, command palettes,
+// toolbars). The intimate event-layer mouse/touch/image-drag actions stay
+// engine-internal and are not exported here. The frequently-bound core signals
 // (`OPEN_LINK`, the context-menu family, `CURSOR_DRAG_*`, `REGION_DRAG_START`,
 // `TEXT_INPUT` / `TEXT_INPUTTED`) are exported flat above alongside them.
 
@@ -551,7 +549,7 @@ export {
 } from "./sync/structured-content";
 
 // View windows — scope an editor to a subset of a shared doc's blocks (the
-// `window` option on `mountEditor`/`createEditor`/`useEditor`). `titleBlockWindow`
+// `window` option on `createEditor`/`useEditor`). `titleBlockWindow`
 // builds a single-block title surface (pair with `Schema.restrict`) and
 // `bodyBlocksWindow` the rest of the page; two editors on one `Doc` showing
 // different windows stay live-synced through the doc.
@@ -564,8 +562,8 @@ export {
 
 // CRDT sync — version-vector codecs the providers exchange on the wire. For
 // document sync + persistence prefer the high-level `Doc` (`createDoc` above):
-// attach it via `createEditor({ doc })` or `mountEditor(el, blocks, { doc })`,
-// then drive it with `applyUpdate` / `on("update")` / `load`. The lower-level
+// attach it via `createEditor({ doc })`, then drive it with `applyUpdate` /
+// `on("update")` / `load`. The lower-level
 // op-log engine (`createSyncEngine`/`createCRDTbinding`) lives in
 // `@tasfer/editor/internal` for advanced headless CRDT tooling.
 export { deserializeVV, serializeVV } from "./sync/sync";

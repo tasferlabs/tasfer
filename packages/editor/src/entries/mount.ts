@@ -35,9 +35,9 @@ import {
 } from "./layers";
 
 /**
- * What {@link mountEditor} returns: the `editor` you drive, the document it
- * shows (when you passed one), a container for your own floating UI, and the
- * calls to refocus, blur and `destroy` it.
+ * A mounted editor: the `editor` you drive, the document it shows (when you
+ * passed one), a container for your own floating UI, and the calls to refocus,
+ * blur and `destroy` it.
  */
 export interface MountedEditor<
   D extends SchemaDefinition = BaseSchemaDefinition,
@@ -117,9 +117,10 @@ export type PlaceholderOption =
   string | Partial<Record<PlaceholderBlockType, string>>;
 
 /**
- * Options for {@link mountEditor}: whether the editor is editable, how it sizes
- * itself, accessibility and keyboard behavior, placeholders, theme, fonts, the
- * schema and the document to show. Every field is optional.
+ * The mount options `CreateEditorOptions` builds on: whether the editor
+ * is editable, how it sizes itself, accessibility and keyboard behavior,
+ * placeholders, theme, fonts, the schema and the document to show. Every field
+ * is optional.
  */
 export interface MountEditorOptions<
   D extends SchemaDefinition = BaseSchemaDefinition,
@@ -183,6 +184,12 @@ export interface MountEditorOptions<
    * value fills both the keyboard and touch variants; `bullet_list` and
    * `numbered_list` share the rendered list-item slot (`bullet_list` wins if
    * both are given). Wins over `placeholderOverrides` for any slot it sets.
+   *
+   * By default it shows only in the empty block that holds the caret. Set
+   * `theme.styles.placeholder.showUnfocused` to show it in every empty block.
+   * Change its color, size or weight per block with
+   * `theme.styles.blocks.<block>.placeholder`. Those style keys are camelCase
+   * (`bulletList`, `numberedList`, `todoList`).
    */
   placeholder?: PlaceholderOption;
   pageId?: string;
@@ -191,6 +198,7 @@ export interface MountEditorOptions<
    * to change any single style, `fonts`, the chosen `fontFamily`, and
    * translated `strings` and `nodeStrings`. Each editor has its own theme, and
    * the editor never reads your CSS. Change it later with `editor.setTheme`.
+   * Omit it for the default neutral colors.
    *
    * It wins over the old `padding`, `blockStyleOverrides`,
    * `placeholderOverrides`, `strings` and `fonts` options.
@@ -227,9 +235,11 @@ export interface MountEditorOptions<
    * An editor without the image block:
    *
    * ```ts
-   * import { LineNode, ListNode, QuoteNode, TextNode, mountEditor } from "@tasfer/editor";
+   * import { createEditor, LineNode, ListNode, QuoteNode, TextNode } from "@tasfer/editor";
    *
-   * mountEditor(el, blocks, {
+   * createEditor({
+   *   element: el,
+   *   blocks,
    *   nodes: [new LineNode(), new QuoteNode(), new TextNode(), new ListNode()],
    * });
    * ```
@@ -245,8 +255,7 @@ export interface MountEditorOptions<
    * Limits which blocks and marks the user can create. Pass `schema.data` from
    * a schema made with `Schema.restrict`. Omit it to allow everything.
    *
-   * `createEditor({ schema })` passes this for you. Set it here only when you
-   * call `mountEditor` yourself with a restricted schema.
+   * `createEditor({ schema })` passes this for you.
    *
    * It does not change what is shown. A block the schema does not allow still
    * shows if it is in `nodes`/`marks`.
@@ -259,7 +268,8 @@ export interface MountEditorOptions<
    * Two editors on the same `doc` can show different parts, such as a title
    * field above the page body. They stay in sync through the doc. The window
    * only changes what this editor shows. The document and sync are not
-   * affected. See {@link titleBlockWindow}.
+   * affected. See {@link titleBlockWindow} for a title-only editor and
+   * {@link bodyBlocksWindow} for everything after the title.
    */
   window?: ViewWindow;
   /**
