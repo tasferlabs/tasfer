@@ -56,21 +56,14 @@ package or application directory.
 
 ## Public API documentation
 
-The editor API specification lives in:
-
-- `apps/site/src/views/DocsPage/pages/editor/api-editor.mdx`
-- `apps/site/src/views/DocsPage/pages/editor/api-commands.mdx`
-- `apps/site/src/views/DocsPage/pages/editor/api-schema.mdx`
-- `apps/site/src/views/DocsPage/pages/editor/custom-nodes.mdx`
-- `apps/site/src/views/DocsPage/pages/editor/collaboration.mdx`
-
-Update the relevant page whenever its public contract changes. These pages are
-English-only; the SDK section has no Arabic translation.
-
-The "All exports" page (`/docs/editor/reference`) is generated from the doc
-comments in `packages/*/src`. After changing an export or its doc comment, run
+The editor's API reference is the "All exports" page (`/docs/editor/reference`).
+It is generated from the doc comments in `packages/*/src`, so the doc comment is
+the spec: when an export's behaviour changes, update its doc comment. Then run
 `npm run api` in `apps/site` and commit the result. Every new export needs a doc
 comment and a `@since <version>` tag; CI fails without them.
+
+Only export what users need. Keep helpers inside the package: adding an export
+later is easy, removing one breaks people.
 
 # Translation
 

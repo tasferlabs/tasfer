@@ -21,22 +21,18 @@ import {
   rows={[
     {
       name: "provider-relay",
-      type: "WebSocket relay",
       desc: "People are behind firewalls or home routers. A small server passes the edits along, encrypted with a room secret it never gets.",
     },
     {
       name: "provider-webrtc",
-      type: "Peer-to-peer",
       desc: "Browsers talk to each other directly, so it is the fastest. A small signaling server is needed only to introduce them.",
     },
     {
       name: "provider-indexeddb",
-      type: "Local disk",
       desc: "Not a network provider. It saves the document in the browser, so a reload is instant and works offline.",
     },
     {
       name: "custom",
-      type: "Anything",
       desc: "Write a Transport (from @tasfer/provider-core) and give it to createProvider. Sync over your own backend, a BroadcastChannel, or a file watcher.",
     },
   ]}
