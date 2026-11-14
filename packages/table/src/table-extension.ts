@@ -26,6 +26,10 @@ import type { FeatureInputRule } from "@tasfer/editor/feature-facets";
 import type { BlockSpec } from "@tasfer/editor/schema";
 import type { StructuredKindSpec } from "@tasfer/editor/sync/schema";
 
+/**
+ * What {@link tableExtension} returns: everything the editor needs for
+ * tables, ready to pass to `schema.use(...)`.
+ */
 export type TableFeatureExtension = {
   readonly name: "table";
   readonly nodes: readonly [BlockSpec<"table", TableBlockAttrs>];
@@ -33,16 +37,26 @@ export type TableFeatureExtension = {
   readonly inputRules: readonly FeatureInputRule[];
 };
 
-/** What a host can turn on when it installs the table feature. */
+/**
+ * What a host can turn on when it installs the table feature. The options are
+ * listed on {@link TableInputOptions}.
+ */
 export type TableFeatureOptions = TableInputOptions;
 
 /**
- * Build a fresh, instance-safe table feature bundle.
+ * Adds tables to your schema: the table block, plus typing, selecting and
+ * copying inside cells. Each call returns a new bundle, so every editor can
+ * have its own. Options are off unless you turn them on.
  *
- * Everything optional is off unless asked for, so `tableExtension()` keeps
- * meaning exactly what it did. Opt cells into markdown auto-format with:
+ * ```ts
+ * import { baseSchema } from "@tasfer/editor";
+ * import { tableExtension } from "@tasfer/table";
  *
- *   const schema = baseSchema.use(tableExtension({ markdownShortcuts: true }));
+ * const schema = baseSchema.use(tableExtension());
+ *
+ * // Let **bold**, *italic* and the other shortcuts format text inside cells
+ * const withShortcuts = baseSchema.use(tableExtension({ markdownShortcuts: true }));
+ * ```
  */
 export function tableExtension(
   options: TableFeatureOptions = {},

@@ -39,12 +39,20 @@ import {
 } from "../sync/reducer";
 import { TextNode, type TextNodeLayout, type TextualBlock } from "./TextNode";
 
+/**
+ * The stored shape of a `quote` block: its text and the marks on that text,
+ * with the type `"quote"`.
+ */
 export interface QuoteBlock extends BlockRuntimeState {
   type: "quote";
   charRuns: CharRun[];
   formats: MarkSpan[];
 }
 
+/**
+ * The built-in `quote` block: editable text drawn as a quote card, written as
+ * `> text` in Markdown and `<blockquote>` in HTML.
+ */
 export class QuoteNode extends TextNode {
   readonly type = "quote" as const;
   readonly types: readonly string[] = ["quote"];
@@ -231,15 +239,18 @@ export class QuoteNode extends TextNode {
   }
 
   /**
-   * Quote-specific editing affordances:
-   * - Backspace at the start of an empty quote exits to a paragraph instead of
-   *   merging into the previous block (shared
-   *   {@link registerEmptyBlockBackspaceExit}).
-   * - Enter policy: inside text splits into two quotes; at the end keeps the
-   *   quote and starts a paragraph below; on an empty quote converts to a
-   *   paragraph. Shift+Enter takes the generic EXIT_BLOCK (a plain split).
-   *   The full per-block table lives in `dev-docs/enter-key.md`.
+   * Registers the quote's key handling:
+   *
+   * - Backspace in an empty quote turns it into a paragraph, instead of merging
+   *   it into the block above. This uses
+   *   {@link registerEmptyBlockBackspaceExit}.
+   * - Enter before the end of the text splits it into two quotes.
+   * - Enter at the end keeps the quote and starts a paragraph below it.
+   * - Enter in an empty quote turns it into a paragraph.
+   * - Shift+Enter skips these rules and splits the quote at the caret.
    */
+  // Shift+Enter takes the generic EXIT_BLOCK. The full per-block Enter table
+  // lives in dev-docs/enter-key.md.
   registerActions(bus: ActionBus): void {
     registerEmptyBlockBackspaceExit(bus, this.types);
 

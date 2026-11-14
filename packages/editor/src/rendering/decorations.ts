@@ -35,23 +35,42 @@ import {
   getVisibleOffsetAfterChar,
 } from "../sync/char-runs";
 
-/** An offset point in a block's flat text. */
+/**
+ * A point in a block's text, given as a block id and a character offset. The
+ * offset is clamped to the text length. It does not move when text before it
+ * changes. Use {@link CharacterDecorationPoint} for a point that does.
+ */
 export interface FlatDecorationPoint {
   readonly block: string;
   readonly offset: number;
 }
 
-/** A CRDT-stable gap in a block's flat text. */
+/**
+ * A point in a block's text, pinned right after one character (`afterCharId`,
+ * or `null` for the start of the text). It stays in place when people edit the
+ * text around it.
+ */
 export interface CharacterDecorationPoint {
   readonly blockId: string;
   readonly afterCharId: string | null;
 }
 
-/** A decoration endpoint may address flat text or extension-owned content. */
+/**
+ * Where one end of a decoration sits: a text offset
+ * ({@link FlatDecorationPoint}), a point pinned to a character
+ * ({@link CharacterDecorationPoint}), or a point inside a node's own content,
+ * such as a table cell ({@link ContentPoint}).
+ */
 export type DecorationPoint =
   FlatDecorationPoint | CharacterDecorationPoint | ContentPoint;
 
-/** A stable span between two points; structured endpoints share one attachment. */
+/**
+ * The span a range decoration covers, from `from` to `to`. Text points can sit
+ * in different blocks. For text inside a node's own content (a table cell, an
+ * inline formula), both ends must be content points in the same piece of
+ * content. A range that mixes the two kinds, or splits across content, is not
+ * painted.
+ */
 export interface DecorationRange {
   readonly from: DecorationPoint;
   readonly to: DecorationPoint;
@@ -91,12 +110,10 @@ export interface RangeDecoration {
   /** How the span is painted; a missing style is a fill. */
   readonly style?: RangeDecorationStyle;
   /**
-   * Accessibility semantics for the span. Not painted: the a11y DOM mirror
-   * projects the covered text as `<span aria-invalid="…">`, so a screen reader
-   * announces it while reading (NVDA says "spelling error", VoiceOver and
-   * Narrator say "misspelled"). The tokens are ARIA's own `aria-invalid`
-   * vocabulary — the core attaches them to text without knowing what a
-   * producer checked for.
+   * Tells screen readers the span has a spelling or grammar error. It is not
+   * drawn. The covered text gets `aria-invalid` with this value, so a screen
+   * reader announces it while reading. For `spelling`, NVDA says "spelling
+   * error", and VoiceOver and Narrator say "misspelled".
    */
   readonly a11y?: { readonly invalid: "spelling" | "grammar" | "true" };
 }
@@ -153,6 +170,12 @@ export interface CaretDecoration {
   };
 }
 
+/**
+ * Something drawn over the document without being part of it: a highlighted or
+ * underlined range of text, a highlighted block, or a caret with an optional
+ * name label. Hosts use decorations for things like search matches and other
+ * people's cursors, and set them with `editor.view.setDecorations(layer, …)`.
+ */
 export type Decoration = RangeDecoration | BlockDecoration | CaretDecoration;
 
 /** Per-instance decoration store: opaque layer name -> that layer's decorations. */
@@ -248,12 +271,11 @@ function buildBlockDecorationIndex(
 }
 
 /**
- * The decorations that can touch one block, in all-layers insertion order —
- * everything anchored to `blockId` plus every range that spans blocks (its
- * endpoints sit on other blocks, but it may pass through this one). Painters
- * iterate this instead of {@link allDecorations} so a page carrying thousands
- * of decorations costs each block only its own share. Derived lazily once per
- * `DecorationLayers` identity.
+ * The decorations that may touch one block, in layer order. That is every
+ * decoration anchored in `blockId`, plus every range that spans several blocks,
+ * since it may pass through this one. Paint from this instead of
+ * {@link allDecorations}, so each block only walks its own share. The result is
+ * cached until the decorations change.
  */
 export function decorationsForBlock(
   layers: DecorationLayers,
@@ -435,15 +457,17 @@ export function boxDecorationRect(
 }
 
 /**
- * Paint a range decoration over the fragments a node's selection geometry
- * produced. A fill (the default) is the translucent wash the local selection
- * uses — `color`, `opacity ?? styles.selection.remoteOpacity`, the theme's
- * corner radius. An underline strokes one line per fragment just below the
- * baseline (under a link's own underline, so both stay visible), in `color`,
- * fully opaque unless `opacity` says otherwise. Wavy strokes are phase-locked
- * to absolute x, so the fragments of one span (adjacent bidi runs, a chip
- * beside prose) tile into one continuous wave. Custom nodes call this from
- * `paint` so every style renders in their block too.
+ * Paints a range decoration over the rectangles your node's selection geometry
+ * gave you. Call it from a custom node's `paint` so decorations show in your
+ * block too.
+ *
+ * - A fill (the default) is a see-through wash like the selection. It uses
+ *   `color`, then `opacity` or the theme's remote selection opacity, and the
+ *   theme's corner radius.
+ * - An underline draws one line per rectangle, just below the baseline and
+ *   below a link's own underline. It uses `color` and is fully opaque unless
+ *   `opacity` is set. Wavy lines join up across rectangles, so one span reads
+ *   as one wave.
  */
 export function paintDecorationRects(
   ctx: CanvasRenderingContext2D,

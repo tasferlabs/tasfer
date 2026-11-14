@@ -23,6 +23,10 @@ export interface Line extends BlockRuntimeState {
   type: "line";
 }
 
+/**
+ * The built-in `line` block: a horizontal divider, written as `---` in Markdown
+ * and `<hr />` in HTML.
+ */
 export class LineNode extends AtomicNode<Line> {
   readonly type = "line" as const;
 

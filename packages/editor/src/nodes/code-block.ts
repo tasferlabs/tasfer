@@ -37,7 +37,10 @@ import type { BlockSpecCore } from "../sync/schema";
 export interface CodeBlock extends BlockRuntimeState {
   type: "code";
   charRuns: CharRun[];
-  /** Always empty — code carries no inline marks — but kept for the textual shape. */
+  /**
+   * Always empty, because code has no inline marks. The field is kept so code
+   * has the same shape as other text blocks.
+   */
   formats: MarkSpan[];
   /** Highlighting language hint (e.g. "javascript"); empty when unset. */
   language?: string;

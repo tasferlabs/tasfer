@@ -132,11 +132,13 @@ function clampFraction(value: number): number {
 }
 
 /**
- * A block's effective crop origin. Falls back to centered, and clamps stored
- * values defensively — a peer on an older build (or a hand-edited op) can put
- * anything on the block, and an out-of-range fraction would drag the drawn
- * source rect off the decoded image and blank the frame.
+ * The image's crop position, as a fraction from 0 to 1 on each axis. Returns
+ * the center, `{ x: 0.5, y: 0.5 }`, when none is set. Stored values outside 0
+ * to 1 are clamped, so a bad value cannot blank the image.
  */
+// A peer on an older build, or a hand-edited op, can put anything on the block.
+// An out-of-range fraction would drag the drawn source rect off the decoded
+// image.
 export function imageObjectPosition(block: Image): { x: number; y: number } {
   const raw = block.objectPosition;
   if (!raw) return DEFAULT_OBJECT_POSITION;
@@ -195,9 +197,12 @@ export function imageCropSlack(
   return { x: 0, y: img.naturalHeight - img.naturalWidth / frameAspect };
 }
 
-/** Whether a block has any room to reposition — the gate for offering the
- *  affordance at all. A crop whose aspect matches its frame hides nothing, and
- *  a "Reposition" button that cannot move anything is a lie. */
+/**
+ * Whether the image can be repositioned in a frame of this size, in canvas
+ * pixels. Use it to decide whether to show a Reposition button. Returns `false`
+ * unless the image is in `cover` mode, has loaded, and its crop hides more than
+ * one pixel of it.
+ */
 export function canRepositionImage(
   block: Image,
   frameWidth: number,
@@ -636,16 +641,14 @@ function imageGeometry(
 }
 
 /**
- * Whether an image has crop slack at the size it currently DRAWS at, resolved
- * without a paint context.
- *
- * The on-canvas chrome tests the box it already holds ({@link
- * canRepositionImage}); host chrome that owns no layout — the mobile toolbar,
- * which is where the mode is reachable at all on touch, since the on-canvas
- * affordance is revealed by hover — has only the block and the viewport. Both
- * resolve the frame through {@link imageGeometry}, so the two surfaces always
- * agree about whether the affordance is on offer.
+ * Like {@link canRepositionImage}, but it works out the image's drawn size from
+ * the block and the viewport. Use it in host UI that has no layout of its own,
+ * such as a mobile toolbar. It uses the same size math as the canvas, so both
+ * always give the same answer.
  */
+// Both this and the on-canvas chrome resolve the frame through imageGeometry,
+// so the two surfaces cannot disagree. The mobile toolbar is the only way into
+// the mode on touch, because the on-canvas button only shows on hover.
 export function canRepositionImageAt(
   block:
     | Pick<Image, "url" | "width" | "height" | "objectFit">
@@ -831,10 +834,9 @@ export interface ImageViewState {
 }
 
 /**
- * Whether a block is currently in reposition mode. Hosts gate the mode's chrome
- * on this ALONE, never additionally on hover: the pointer routinely leaves the
- * image during the mode (a pan that drags past its edge, a reach for Done), and
- * a hover-gated Done/Cancel would vanish exactly then.
+ * Whether the image block with this id is in reposition mode. Show the mode's
+ * Done and Cancel buttons based on this alone, not on hover. The pointer often
+ * leaves the image during the mode, and buttons tied to hover would vanish.
  */
 export function isRepositioning(state: EditorState, blockId: string): boolean {
   return (
@@ -929,13 +931,19 @@ function imageResizeDetent(
   return "free";
 }
 
+/**
+ * The built-in `image` block. It draws the picture (centered or full width),
+ * its upload and loading states, and the resize handles. Written as
+ * `![alt](url)` in Markdown, or as an `<img>` tag when the image has a size
+ * Markdown cannot express.
+ */
 export class ImageNode extends AtomicNode<Image> {
   readonly type = "image" as const;
 
   /**
-   * The image block's localized canvas strings (status labels), owned by the
-   * node rather than the global string table. English defaults; a host
-   * localizes per instance via `theme.nodeStrings.image`. Read with `this.str`.
+   * The labels the image block draws on the canvas, such as "Uploading
+   * image...". They are in English by default. Translate them for each editor
+   * with `theme.nodeStrings.image`. A subclass reads them with `this.str`.
    */
   readonly strings = {
     clickToUpload: "Click to upload image",
@@ -946,13 +954,21 @@ export class ImageNode extends AtomicNode<Image> {
   } as const;
 
   /**
-   * Map a block's `url` to a loadable one, just before the image is fetched.
-   * Default: identity — the engine treats `block.url` as a normal, loadable URL
-   * and never resolves assets itself. A host whose image blocks store a
-   * content-addressed reference (not a `blob:`/`data:`/`http(s):` URL) subclasses
-   * this node, overrides `resolveUrl` to map that reference to a loadable URL
-   * (e.g. its platform asset store), and registers the subclass in its schema.
-   * Only called for sources that aren't already loadable URLs.
+   * Turns a block's `url` into one the browser can load, just before the image
+   * is fetched. By default it returns the url unchanged. It is only called when
+   * the url does not start with `blob:`, `data:`, `http://` or `https://`. If
+   * it throws, the original url is used.
+   *
+   * Override it when your image blocks store your own asset ids. Then register
+   * your subclass in the schema.
+   *
+   * ```ts
+   * class MyImageNode extends ImageNode {
+   *   protected resolveUrl(id: string) {
+   *     return myAssets.urlFor(id); // a string or a Promise<string>
+   *   }
+   * }
+   * ```
    */
   protected resolveUrl(url: string): string | Promise<string> {
     return url;
@@ -979,23 +995,22 @@ export class ImageNode extends AtomicNode<Image> {
   }
 
   /**
-   * Whether this block draws as a cover: the document's first visible block in
-   * full-width mode, bled up into the top canvas padding for an edge-to-edge
-   * look. The flow origin is untouched — only the drawn rect starts higher —
-   * so the top padding re-emerges as a strip *below* the image, which hosts
-   * use for page chrome (see {@link imageBleedHeight}).
+   * Whether this image draws as a cover: it is the first block on the page and
+   * is full width. A cover is drawn higher, inside the top padding, so it
+   * reaches the top edge. The rest of the page does not move. So the padding
+   * shows up as a strip below the image, which hosts use for page UI (see
+   * `imageBleedHeight`).
    */
   protected bleedsIntoTopPadding(c: NodeLayoutCtx): boolean {
     return c.isFirst && imageWidthMode(c.block as Image) === "full";
   }
 
   /**
-   * The drawn image rect in `c`'s origin space — a first full-width image bleeds
-   * up into the top padding for an edge-to-edge look (it keeps its drawn
-   * dimensions but starts higher). Shared by paint ({@link paintBox}) and
-   * overlay positioning, so a subclass can land host chrome (e.g. hover
-   * buttons) exactly on the image. Accepts any ctx with an `origin` — both
-   * `NodePaintCtx` and `NodeRegionCtx` qualify.
+   * The rect where the image is drawn, in the same coordinates as `c.origin`. A
+   * full-width image at the top of the page starts higher, inside the top
+   * padding. Painting uses this rect. A subclass can use it to place its own
+   * UI, such as hover buttons, exactly on the image. Any context with an
+   * `origin` works, such as `NodePaintCtx` or `NodeRegionCtx`.
    */
   protected displayBox(c: NodeLayoutCtx & { origin: Point }): BlockBounds {
     const { displayX, displayWidth, displayHeight } = this.geometry(c);
@@ -1006,11 +1021,10 @@ export class ImageNode extends AtomicNode<Image> {
   }
 
   /**
-   * The resize drag handles are an interactive sub-region that carries its own
-   * drag behavior: hit-test resolves the handle, and the drag spec records the
-   * resize (with edge auto-scroll), dispatching the `*_IMAGE_HANDLE_DRAG`
-   * actions defined below. The event layer (blockRegions) binds this directly —
-   * no id→behavior table.
+   * The image's two drag areas. While the block is in reposition mode, dragging
+   * the image pans its crop. Otherwise, dragging a resize handle resizes the
+   * image, and the page scrolls when the pointer nears the edge. Resizing is
+   * off in a read-only document and while the image has no url yet.
    */
   regions(c: NodeRegionCtx): readonly NodeHitRegion[] {
     return [
@@ -1250,16 +1264,23 @@ export class ImageNode extends AtomicNode<Image> {
   }
 
   /**
-   * Register the image node's pointer/click handlers:
-   *  - `POINTER_MOVE` (observe, priority 0) — highlight the image (and any resize
-   *    handle under the pointer) when over an image block; clear otherwise. Owns
-   *    the `ui.imageHover` slot via {@link SET_IMAGE_HOVER}.
-   *  - `TEXT_CLICK` (claim, priority 50) — a click/tap that resolved to a caret on
-   *    a *trailing* image block (its flow area / below all content, not the image
-   *    visual — that's handled by `activate`) appends a paragraph below it. This is
-   *    the generic replacement for the old `block.type === "image"` branches in
-   *    the touch handler, and brings desktop click to parity with touch.
+   * Registers the image block's pointer and keyboard handlers:
+   *
+   * - Pointer move: highlights the image, and the resize handle under the
+   *   pointer, through {@link SET_IMAGE_HOVER}. It clears the highlight when
+   *   the pointer is not over an image.
+   * - Click on the last block of the page when it is an image, outside the
+   *   picture itself: adds an empty paragraph below it. Not in read-only mode.
+   * - Click on another block while an image is in reposition mode: leaves the
+   *   mode and keeps the new crop. The click still places the caret.
+   * - In reposition mode: arrow keys nudge the crop, Shift+arrow nudges
+   *   further, Escape cancels, and Enter or Shift+Enter keeps the crop.
    */
+  // POINTER_MOVE observes at priority 0. The trailing-image TEXT_CLICK claims
+  // at priority 50 (a click on the image visual itself is handled by
+  // `activate`). The click-away TEXT_CLICK runs at priority 40 and does not
+  // claim. Reposition keys are claimed at priority 100 and return undefined
+  // when nothing is repositioning.
   registerActions(bus: ActionBus): void {
     bus.registerState(
       POINTER_MOVE,
@@ -1952,11 +1973,11 @@ function renderImageDragHandles(
 // reuses this file's local {@link getDragHandleAtPoint}, avoiding a cycle).
 
 /**
- * Begin an image-resize drag: mark which handle of which block is active in the
- * block's transient view-state so the renderer highlights it. The drag's start
- * descriptor itself lives on the captured hit (not state) — this action only
- * records the render-visible highlight. Pure UI change, no ops.
+ * Starts an image resize drag by highlighting the grabbed handle. It only
+ * changes what is drawn and saves nothing. The drag's start values are not kept
+ * here. The caller holds them.
  */
+// The drag's start descriptor lives on the captured hit, not in state.
 export const START_IMAGE_HANDLE_DRAG = stateAction<{
   blockIndex: number;
   handle: "left" | "right" | "bottom";
@@ -1976,12 +1997,10 @@ export interface UpdateImageDragPayload extends ImageDragStart {
 }
 
 /**
- * Recompute the dragged image's dimensions from the current pointer position,
- * applying the resize math (handle direction, full-width snapping, aspect-ratio
- * height capping) and writing the new width/height/objectFit onto the block.
- * Pure block-dimension update — no ops; the final `block_set`s are emitted by
- * {@link END_IMAGE_HANDLE_DRAG} when the drag releases. No-op when the target
- * block is gone / not an image.
+ * Resizes the dragged image to follow the pointer. It snaps to full width or to
+ * the text width, and keeps the height in line with the image's shape. The new
+ * size is shown but not saved. {@link END_IMAGE_HANDLE_DRAG} saves it when the
+ * drag ends. Does nothing if the block is gone or is not an image.
  */
 export const UPDATE_IMAGE_HANDLE_DRAG = stateAction<UpdateImageDragPayload>(
   "update-image-handle-drag",
@@ -2156,17 +2175,16 @@ export const UPDATE_IMAGE_HANDLE_DRAG = stateAction<UpdateImageDragPayload>(
 );
 
 /**
- * Finish an image-resize drag: clear the resize-handle highlight and emit a
- * `block_set` op for each dimension (width / height / objectFit) that actually
- * changed since the drag began (the start values come from the captured hit via
- * the payload).
- *
- * The `!== undefined` guards are load-bearing — a defensive resize-math edge
- * case could leave a dimension unset, and emitting `value: undefined`
- * serializes to a value-less `block_set` that `applyBlockSet`/`validateField`
- * reject on every peer, silently desyncing the local image. They are preserved
- * exactly (see `__fuzz__/image-resize-undefined.test.ts`).
+ * Finishes an image resize drag. It clears the handle highlight and saves each
+ * size field (`width`, `height`, `objectFit`) that changed since the drag
+ * began. Pass the values the block had when the drag started. A field left
+ * unset is never saved.
  */
+// The `!== undefined` guards are load-bearing: a resize-math edge case could
+// leave a dimension unset, and emitting `value: undefined` serializes to a
+// value-less `block_set` that `applyBlockSet`/`validateField` reject on every
+// peer, silently desyncing the local image. Keep them exactly (see
+// `__fuzz__/image-resize-undefined.test.ts`).
 export const END_IMAGE_HANDLE_DRAG = stateAction<{
   blockIndex: number;
   startWidth: number | "full";
@@ -2234,10 +2252,10 @@ export const END_IMAGE_HANDLE_DRAG = stateAction<{
 );
 
 /**
- * Cancel an image-resize drag (e.g. pointer cancel) without recording undo:
- * clear the resize-handle highlight and emit no ops. The in-progress dimension
- * changes {@link UPDATE_IMAGE_HANDLE_DRAG} wrote stay on the block but were
- * never committed as ops, mirroring the previous behavior.
+ * Cancels an image resize drag, for example when the pointer is cancelled. It
+ * clears the handle highlight and saves nothing. The size that
+ * {@link UPDATE_IMAGE_HANDLE_DRAG} already set stays on screen, but it is not
+ * saved, sent to others, or added to undo.
  */
 export const CANCEL_IMAGE_HANDLE_DRAG = stateAction<{ blockIndex: number }>(
   "cancel-image-handle-drag",
@@ -2314,10 +2332,13 @@ function repositionCommitOps(
 }
 
 /**
- * Enter reposition mode on an image, remembering the crop position at entry so
- * {@link EXIT_IMAGE_REPOSITION} can revert to it, and confirm to tell a real
- * move from a wash. Entering emits nothing of its own — the mode is local, never
- * shared with peers.
+ * Puts an image into reposition mode, where dragging pans its crop. Leave out
+ * `blockIndex` to use the image at the selection. It remembers the current
+ * crop, so {@link EXIT_IMAGE_REPOSITION} can go back to it on Cancel. The mode
+ * is local and is not shared with others.
+ *
+ * Only one image can be in the mode. If another image is in it, that image
+ * leaves first and its new crop is saved.
  */
 export const ENTER_IMAGE_REPOSITION = stateAction<{ blockIndex?: number }>(
   "enter-image-reposition",
@@ -2352,10 +2373,10 @@ export const ENTER_IMAGE_REPOSITION = stateAction<{ blockIndex?: number }>(
 );
 
 /**
- * Pan the crop while adjusting. Local only, for the WHOLE mode — not just one
- * drag: peers and storage see nothing until the user confirms via
- * {@link EXIT_IMAGE_REPOSITION}, so a session of dragging and nudging lands as
- * one op and one undo step rather than a stream of intermediate crops.
+ * Moves the crop while the image is in reposition mode. It only changes what is
+ * shown. Nothing is saved or sent to others until the user leaves the mode with
+ * {@link EXIT_IMAGE_REPOSITION}. So a whole reposition becomes one change and
+ * one undo step.
  */
 export const UPDATE_IMAGE_REPOSITION = stateAction<{
   blockIndex: number;
@@ -2366,12 +2387,13 @@ export const UPDATE_IMAGE_REPOSITION = stateAction<{
 }));
 
 /**
- * Leave reposition mode, deciding what the whole session amounted to.
+ * Leaves reposition mode.
  *
- * Confirm (Done / Enter / clicking away) is where the crop is saved: one op for
- * the position the user settled on, or none if they ended up back where they
- * started. `revert` (Cancel / Escape) restores the entry position locally and
- * emits nothing — no peer ever saw the pan, so there is nothing to take back.
+ * With `revert: false` (Done, Enter, or a click away), it saves the new crop as
+ * one change. It saves nothing if the crop ended where it started.
+ *
+ * With `revert: true` (Cancel, Escape), it puts back the crop the image had
+ * when the mode started, and saves nothing.
  */
 export const EXIT_IMAGE_REPOSITION = stateAction<{
   blockIndex: number;
@@ -2394,8 +2416,8 @@ export const EXIT_IMAGE_REPOSITION = stateAction<{
 });
 
 /**
- * Set or clear the image hover overlay (the resize-handle chrome). The handler
- * passes the resolved {@link ImageHoverState} (or `null` to clear). Pure, no ops.
+ * Sets the image hover state, which shows the resize handles. Pass an
+ * `ImageHoverState`, or `null` to clear it. It does not change the document.
  */
 export const SET_IMAGE_HOVER = stateAction<{
   imageHover: ImageHoverState | null;
@@ -2411,11 +2433,11 @@ export const SET_IMAGE_HOVER = stateAction<{
 });
 
 /**
- * Tap below a trailing image block: append a new empty paragraph after it and
- * place the caret in it. This is a touch-driven document mutation, so it emits a
- * single `block_insert`. The handler supplies the `afterBlock` (the trailing
- * image), its index, and the per-instance {@link CRDTbinding} used to mint the
- * new block + op ids.
+ * Adds an empty paragraph right after the given image and puts the caret in it.
+ * The editor uses it when someone clicks or taps below an image at the end of
+ * the page. Pass the image block, its index, and the editor's
+ * {@link CRDTbinding}, which makes the new ids. It switches the editor to edit
+ * mode.
  */
 export const CREATE_PARAGRAPH_BELOW_IMAGE = stateAction<{
   afterBlock: Block;
@@ -2472,10 +2494,13 @@ export const CREATE_PARAGRAPH_BELOW_IMAGE = stateAction<{
 // resize-handle drag logic is co-located with the image block.
 
 /**
- * Start an image drag resize operation. Returns the updated state plus the
- * resolved `start` descriptor (which the caller stashes on the captured hit), or
- * `null` if no drag handle was hit. `extraTolerance` widens the hit area (mouse
- * vs touch).
+ * Starts an image resize drag if the point is on a resize handle. `imageBlock`
+ * is the block index plus the rect where the image is drawn. Returns the new
+ * state and a `start` value. Keep `start` and pass it to
+ * {@link updateImageHandleDrag} and {@link endImageHandleDrag}. Returns `null`
+ * when no handle is under the point, or the block is not an image with a url.
+ * `extraTolerance` widens the handle's hit area, in canvas pixels. It defaults
+ * to 4. Use a larger value, such as 12, for touch.
  */
 export function startImageHandleDrag(
   state: EditorState,
@@ -2538,8 +2563,10 @@ export function startImageHandleDrag(
   return null;
 }
 
-/** Update image dimensions during a drag resize. `start` is the drag's start
- *  descriptor (from the captured hit). */
+/**
+ * Resizes the image to follow the pointer during a resize drag, and returns the
+ * new state. `start` is the value {@link startImageHandleDrag} returned.
+ */
 export function updateImageHandleDrag(
   state: EditorState,
   viewport: ViewportState,
@@ -2558,9 +2585,9 @@ export function updateImageHandleDrag(
 }
 
 /**
- * End an image drag resize operation, returning the `{ state, ops }` with the
- * `block_set` ops for the dimensions that changed. `start` (from the captured
- * hit) supplies the pre-drag dimensions to diff against.
+ * Ends an image resize drag. Returns the new state and the changes to save, one
+ * for each size field that changed. `start` is the value
+ * {@link startImageHandleDrag} returned.
  */
 export function endImageHandleDrag(
   state: EditorState,

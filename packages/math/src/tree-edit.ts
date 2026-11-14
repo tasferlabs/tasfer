@@ -58,10 +58,19 @@ export interface MathTextCaret {
   readonly afterCharId: string | null;
 }
 
-/** Feature-local caret used by the pure tree controller. */
+/**
+ * A caret inside a formula: either a gap between items in a row
+ * ({@link MathRowCaret}) or a spot inside a piece of text
+ * ({@link MathTextCaret}). It points at ids, not offsets, so it stays in place
+ * when other parts of the formula change.
+ */
 export type MathTreeCaret = MathRowCaret | MathTextCaret;
 
-/** Resolve the first or last editable caret in the caret's current math row. */
+/**
+ * The caret at the start or end of the row the caret is in. If the row starts
+ * or ends with a construct, like a fraction, the caret goes inside it. Returns
+ * `undefined` when the caret is not valid or the document is not a formula.
+ */
 export function mathTreeRowEdgeCaret(
   document: StructuredDocument,
   caret: MathTreeCaret,
@@ -74,14 +83,15 @@ export function mathTreeRowEdgeCaret(
 }
 
 /**
- * The row edge one Shift+Home/Shift+End press extends to: the edge of the
- * caret's own row, or — when the caret already rests on it — the edge of the
- * row holding the construct around it. Each press therefore reaches the next
- * boundary outward (numerator start, then the equation start) instead of
- * stalling at the slot edge. Edges stay at the row's own level and never
- * descend into a leading or trailing construct, which would bounce the next
- * press back into the slot it just left.
+ * Where one Shift+Home or Shift+End press takes the caret. If the caret is not
+ * at the edge of its row yet, it goes there. If it already is, it goes to the
+ * edge of the row outside. So each press walks outward: first the numerator
+ * start, then the equation start. Returns `undefined` when there is no outer
+ * row or the caret is invalid.
  */
+// Edges stay at the row's own level and never descend into a leading or
+// trailing construct, which would bounce the next press back into the slot it
+// just left.
 export function mathTreeNextRowEdgeCaret(
   document: StructuredDocument,
   caret: MathTreeCaret,
@@ -102,18 +112,22 @@ export function mathTreeNextRowEdgeCaret(
     : undefined;
 }
 
-/** A directional selection expressed entirely with stable tree identities. */
+/**
+ * A selection inside a formula, from `anchor` (where it started) to `focus`
+ * (where it ends). Both ends are {@link MathTreeCaret}s.
+ */
 export interface MathTreeRange {
   readonly anchor: MathTreeCaret;
   readonly focus: MathTreeCaret;
 }
 
 /**
- * Select-first range for a composite construct adjacent to a collapsed caret.
- *
- * Raw text and atomic leaves keep their one-key deletion behavior. Fractions,
- * radicals, scripts, delimiters, and matrices are large visual constructs, so
- * Backspace/Delete first exposes exactly what a second press will remove.
+ * The range that selects the construct right next to the caret: a fraction,
+ * root, script, accent, `\overset`-style stack, box, bracket group or matrix.
+ * Hosts use it so the first Backspace or Delete selects the construct and the
+ * second press removes it. Returns `null` when the item next to the caret is
+ * plain text or a single symbol, when there is nothing there, or when the caret
+ * is not at the edge of its text.
  */
 export function adjacentMathTreeConstructRange(
   document: StructuredDocument,
@@ -153,17 +167,22 @@ export function adjacentMathTreeConstructRange(
   };
 }
 
-/**
- * Identity allocation is deliberately feature-agnostic.
- *
- * Live commands receive the page's CRDT binding directly. Imports and tests
- * may use a generic deterministic allocator with a unique document scope.
- * Node and character ids share the allocator, so a future structured block
- * does not need its own `createXIdGenerator` API or parallel namespaces.
- */
+// Identity allocation is deliberately feature-agnostic. Live commands receive
+// the page's CRDT binding directly. Imports and tests may use a generic
+// deterministic allocator with a unique document scope. Node and character ids
+// share the allocator, so a future structured block does not need its own
+// `createXIdGenerator` API or parallel namespaces.
 
+/**
+ * A caret move for {@link moveMathTreeCaret}: Tab, Shift+Tab, or the left or
+ * right arrow.
+ */
 export type MathTreeMotion = "tab" | "shift-tab" | "arrow-right" | "arrow-left";
 
+/**
+ * Why a math editing command did nothing. It comes back as `reason` on a
+ * {@link MathTreeEditResult} whose `handled` is `false`.
+ */
 export type MathTreeEditFailure =
   | "not-math-document"
   | "invalid-caret"
@@ -176,36 +195,70 @@ export type MathTreeEditFailure =
   | "no-command"
   | "no-navigation-target";
 
+/**
+ * What a math editing command returns: the edits to apply to the formula, in
+ * order, and where the caret goes afterwards. When `handled` is `false` there
+ * are no edits and `reason` says why.
+ */
 export interface MathTreeEditResult {
-  /** Whether this controller consumed the requested input/navigation. */
+  /**
+   * `true` when the command handled the input. It can be `true` with no edits,
+   * for example after a caret move.
+   */
   readonly handled: boolean;
-  /** Generic mutations to send in this exact order. */
+  /** The edits to apply, in this order. */
   readonly edits: readonly StructuredEdit[];
-  /** Identity-based caret after all returned edits have been applied. */
+  /** Where the caret goes once all the edits are applied. */
   readonly caret: MathTreeCaret;
   readonly reason?: MathTreeEditFailure;
   readonly completedCommand?: string;
 }
 
-/** Semantic template returned when one literal command is safe to commit. */
+/**
+ * What a typed command such as `\frac` turns into: an `id` for the command and
+ * the `latex` to insert in its place.
+ */
 export interface MathCommandCompletion {
   readonly id: string;
   readonly latex: string;
 }
 
-/** Host vocabulary seam; the pure tree editor does not import UI catalogs. */
+/**
+ * Your lookup from a typed command name to what it becomes. `command` is the
+ * name without the backslash, like `"frac"`. `following` is the next character
+ * being typed, when the editor knows it. Return `undefined` when the name is
+ * not a known command.
+ */
 export type MathCommandCompletionResolver = (
   command: string,
   following?: string,
 ) => MathCommandCompletion | undefined;
 
+/**
+ * Options for inserting a LaTeX construct (a fraction, a root, a matrix…) into
+ * a formula with {@link insertMathSemanticLatex}.
+ */
 export interface MathSemanticInsertionOptions {
-  /** Command templates enter their first slot; paste/IME normally land at end. */
+  /**
+   * Where the caret goes after the insert. `"first-slot"`, the default, puts it
+   * in the construct's first slot, like a numerator. When there is no slot, it
+   * goes after the insert. `"end"` puts it after the inserted construct, which
+   * suits paste.
+   */
   readonly caret?: "first-slot" | "end";
-  /** Preserve parser-droppable committed source as one exact atomic fallback. */
+  /**
+   * Insert the LaTeX as one block, kept exactly as written, without parsing it
+   * into parts. Use it when parsing could drop some of the source.
+   */
   readonly forceAtomic?: boolean;
 }
 
+/**
+ * Where the caret sits inside a matrix: the ids of the matrix, its row and its
+ * cell, the size of the matrix, and the caret's row and column (counted from
+ * 0). Returned by {@link getMathTreeMatrixContext}; use it to build controls
+ * that add or remove rows and columns.
+ */
 export interface MathTreeMatrixContext {
   readonly matrixId: string;
   readonly matrixRowId: string;
@@ -217,6 +270,12 @@ export interface MathTreeMatrixContext {
   readonly col: number;
 }
 
+/**
+ * The plain text inside a selected range of a formula, from
+ * {@link getMathTreeRangeText}. When the range cannot be read as plain
+ * characters (it covers a fraction or a root, say), `handled` is `false` and
+ * `reason` says why.
+ */
 export type MathTreeRangeTextResult =
   | { readonly handled: true; readonly text: string }
   | {
@@ -226,9 +285,11 @@ export type MathTreeRangeTextResult =
     };
 
 /**
- * Expand range endpoints that cut through an exact recognized command token.
- * Incomplete command scratch stays character-editable; once `\\sin` is exact,
- * selecting `si` can only remove the whole source token, never leave `\\n`.
+ * Widen a range so it never cuts through a known command like `\sin`. If the
+ * selection covers only `si`, it grows to cover all of `\sin`, so deleting it
+ * never leaves a stray `\n`. `resolveCommand` decides which names are known. A
+ * command still being typed stays editable letter by letter. The range comes
+ * back unchanged when its ends are in different rows.
  */
 export function expandMathTreeRangeToAtomicCommands(
   document: StructuredDocument,
@@ -316,7 +377,10 @@ interface FractionSlot {
   readonly slot: "numerator" | "denominator";
 }
 
-/** Insert literal math text at a row gap or inside a character-editable leaf. */
+/**
+ * Type literal math text at the caret. `caretOffset` is where the caret ends up
+ * inside the new text. It defaults to the end.
+ */
 export function insertMathText(
   document: StructuredDocument,
   caret: MathTreeCaret,
@@ -401,14 +465,14 @@ export function insertMathText(
 }
 
 /**
- * Whether every code point of `text` is prose the math fonts cannot render as
- * a math glyph but that IS real text — a letter, number, punctuation, symbol
- * or combining mark (CJK, kana, hangul, Arabic, emoji, …). Mirrors the legacy
- * flat-source rule in `mathTransformTypedInput`: such input belongs inside a
- * `\text{…}` run — committed bare it projects as a zero-width, caret-less
- * "latent" glyph, so the keystroke looks silently dropped.
- * Control/format/whitespace code points are excluded.
+ * `true` when every character of `text` is real text that the math fonts cannot
+ * draw: a letter, number, punctuation mark, symbol or combining mark, such as
+ * Chinese, Arabic or emoji. Such input belongs in a `\text{…}` run. Typed bare,
+ * it would be invisible and look dropped. Returns `false` for empty text and
+ * for spaces or control characters.
  */
+// Mirrors the legacy flat-source rule in `mathTransformTypedInput`; committed
+// bare it projects as a zero-width, caret-less "latent" glyph.
 export function isMathProseText(text: string): boolean {
   const codePoints = [...text];
   return (
@@ -420,7 +484,10 @@ export function isMathProseText(text: string): boolean {
   );
 }
 
-/** Semantic projection of prose input: a host-font-typeset `\text{…}` run. */
+/**
+ * Wrap `text` in `\text{…}` so it is drawn in the normal text font. Special
+ * characters are not escaped.
+ */
 export function mathProseLatex(text: string): string {
   return `\\text{${text}}`;
 }
@@ -428,13 +495,10 @@ export function mathProseLatex(text: string): string {
 /**
  * Insert prose (see {@link isMathProseText}) as a `\text{…}` run.
  *
- * Consecutive prose keystrokes MUST extend one `text` node instead of minting
- * `\text{中}\text{文}` siblings: cursive scripts (Arabic) only take their
- * joined forms within a single run, and one run keeps the projected source
- * readable. The caret a prose commit leaves behind is the gap right after the
- * `text` node, so a caret in that gap appends to the node; a caret inside a
- * `text` node splices at its position; anywhere else the input commits a
- * fresh semantic `\text{…}`.
+ * Typing keeps adding to the same run, so `中` then `文` gives one `\text{中文}`,
+ * not two. This matters for Arabic, whose letters only join inside one run. A
+ * caret right after a run adds to it. A caret inside a run inserts there.
+ * Anywhere else, a new `\text{…}` run starts.
  */
 export function insertMathProseText(
   document: StructuredDocument,
@@ -485,11 +549,9 @@ export function insertMathProseText(
 }
 
 /**
- * Insert an ordinary `\frac` structure and enter its numerator.
- *
- * A text caret is accepted at either edge of its raw-text leaf. Inserting a
- * structure in the middle of a leaf is intentionally not handled by this
- * first slice: doing so safely needs a CRDT-preserving leaf split operation.
+ * Insert an empty fraction at the caret and put the caret in its numerator. The
+ * caret must be between items or at either end of a piece of text. In the
+ * middle of text it does nothing and returns `reason` `"unsupported-position"`.
  */
 export function insertMathFraction(
   document: StructuredDocument,
@@ -508,28 +570,21 @@ export function insertMathFraction(
 }
 
 /**
- * Parse a committed LaTeX construct and splice its semantic subtree at a row
- * gap. This is the command-menu boundary: supported constructs such as
- * radicals, scripts, delimiters, matrices, operators, and named symbols enter
- * the CRDT as their typed nodes, never as editable command/bracket characters
- * inside a `raw-text` leaf. Parser fallbacks remain one atomic `raw-latex`
- * node, preserving unsupported source without exposing its syntax piecemeal.
+ * Parse `latex` and insert it at the caret as real formula parts. A root,
+ * script, bracket group, matrix, operator or symbol becomes its own part, not
+ * loose characters that can be edited one by one. LaTeX the parser does not
+ * support goes in as one block, kept exactly as written.
  *
- * A text caret in the middle of a leaf performs a stable split: the original
- * leaf retains its left-hand identity, a fresh right leaf preserves the source
- * suffix, and the semantic subtree is ordered between them. The returned caret
- * enters the construct's first useful empty slot (numerator, radicand, script,
- * delimited body, or matrix cell), or lands after an atomic construct.
+ * A caret in the middle of text splits the text and puts the construct between
+ * the two halves. The caret then goes into the first empty slot (a numerator, a
+ * root, a script, a bracket body or a matrix cell), or after the construct when
+ * it has no slot. Set `options.caret` to `"end"` to always land after it.
  *
- * A script construct with an empty base (`_{}`/`^{}`, the typed `_`/`^`
- * commit) binds to the atom before the caret the way TeX reads `F_{}`: the
- * preceding character or construct becomes the base, and a preceding scripts
- * node gains the missing slot instead of nesting a second construct. A caret
- * still INSIDE a script slot at its end (`x^{2|}`, where typing leaves it)
- * likewise gives the missing slot to the enclosing scripts node, so the
- * natural `x` `^` `2` `_` `3` gesture yields one construct with both scripts
- * rather than a subscript nested inside the superscript. Only at a row start
- * (or inside a pending `\command` run) does the empty base slot remain.
+ * An empty script (`_{}` or `^{}`, what typing `_` or `^` inserts) attaches to
+ * the item before the caret, the way TeX reads `F_{}`. If that item already has
+ * a script, the new slot joins it. So typing `x`, `^`, `2`, `_`, `3` gives one
+ * `x` with both scripts. At the start of a row, or right after a command still
+ * being typed, the base stays empty.
  */
 export function insertMathSemanticLatex(
   document: StructuredDocument,
@@ -664,7 +719,11 @@ export function insertMathSemanticLatex(
   return success(insertedCaret, edits);
 }
 
-/** Replace one supported same-row range with a committed semantic construct. */
+/**
+ * Delete `range` and insert a LaTeX construct in its place, as one batch of
+ * edits. It works like {@link insertMathSemanticLatex}. The range must stay
+ * inside one row.
+ */
 export function replaceMathTreeRangeWithSemanticLatex(
   document: StructuredDocument,
   range: MathTreeRange,
@@ -688,7 +747,10 @@ export function replaceMathTreeRangeWithSemanticLatex(
   return success(inserted.caret, [...deleted.edits, ...inserted.edits]);
 }
 
-/** Resolve the identity-bearing matrix cell containing one tree caret. */
+/**
+ * Where the caret sits in a matrix: its cell, row, column and the matrix size.
+ * Returns `undefined` when the caret is not directly in a matrix cell.
+ */
 export function getMathTreeMatrixContext(
   document: StructuredDocument,
   caret: MathTreeCaret,
@@ -745,9 +807,11 @@ export function getMathTreeMatrixContext(
 }
 
 /**
- * Editing caret for a matrix target represented either by an interior caret or
- * by a same-row range holding the whole construct — the select-first range, or
- * a mouse drag whose endpoints rest a step outside the parentheses.
+ * The caret to use for matrix commands such as resize. A caret already in a
+ * matrix cell comes back as is. Otherwise, if `range` is on one row and covers
+ * a matrix, you get a caret in that matrix's first cell. This covers the
+ * selection the first Backspace makes and a mouse drag just outside the
+ * brackets. In every other case the caret comes back unchanged.
  */
 export function mathTreeMatrixTargetCaret(
   document: StructuredDocument,
@@ -793,12 +857,18 @@ export function mathTreeMatrixTargetCaret(
 }
 
 /**
- * Resize the active matrix with node-level CRDT edits.
+ * Resize the matrix around the caret to `nextRows` by `nextCols`. Cells that
+ * stay keep their content. New rows and columns are added empty at the end.
+ * Shrinking removes rows and columns from the end, with their content. Sizes
+ * below 1 become 1.
  *
- * Surviving rows, cells, body rows, and all of their text keep their identities.
- * Growth appends fresh matrix-row/matrix-cell/row nodes; shrinkage tombstones
- * only trailing rows/cells. No source projection or LaTeX rewrite participates.
+ * If the caret's cell is removed, the caret moves to the nearest cell that is
+ * left. Returns `reason` `"no-matrix-target"` when the caret is not in a
+ * matrix.
  */
+// Surviving rows, cells and body rows keep their identities; shrinkage
+// tombstones only trailing rows/cells. No source projection or LaTeX rewrite
+// participates.
 export function resizeMathTreeMatrix(
   document: StructuredDocument,
   caret: MathTreeCaret,
@@ -939,10 +1009,13 @@ export function resizeMathTreeMatrix(
 }
 
 /**
- * Complete one trailing literal command through a caller-owned vocabulary.
- * The pure controller owns parsing/splicing, while an interactive host decides
- * when a command name is unambiguous in its catalog. The default preserves the
- * original standalone `\frac` behavior for headless consumers.
+ * Turn a command typed just before the caret, like `\frac`, into the real
+ * construct. `resolveCommand` decides which names count as commands. Without
+ * it, only `\frac` is recognized. It works only in plain math text, not inside
+ * `\text{…}`.
+ *
+ * On success, `completedCommand` on the result is the command's `id`. Returns
+ * `reason` `"no-command"` when there is no known command before the caret.
  */
 export function completeMathCommand(
   document: StructuredDocument,
@@ -1002,7 +1075,12 @@ export function completeMathCommand(
   };
 }
 
-/** Insert text, then run structural command completion against the new value. */
+/**
+ * Type `text` at the caret and turn a finished command into its construct, like
+ * {@link completeMathCommand}. Longer text is typed one character at a time.
+ * Without `resolveCommand`, only `\frac` is known. When a command turns into a
+ * construct, `completedCommand` on the result says which one.
+ */
 export function insertMathTextWithCompletion(
   document: StructuredDocument,
   caret: MathTreeCaret,
@@ -1112,12 +1190,12 @@ function atomicMathDocument(
 }
 
 /**
- * Replace a range inside one raw-text leaf as a single ordered edit batch.
+ * Replace the text between `anchor` and `focus` with `text`. It works like
+ * {@link replaceMathTreeRange}, but both ends are text carets. A command menu
+ * uses it to swap the typed `\query` for its result.
  *
- * This is the structured counterpart to a command palette replacing its typed
- * `\query`; {@link replaceMathTreeRange} is the broader same-row operation.
- * `caretOffset` is measured inside the replacement text and defaults to its
- * end.
+ * `caretOffset` is where the caret ends up inside the new text. It defaults to
+ * the end.
  */
 export function replaceMathTextRange(
   document: StructuredDocument,
@@ -1137,13 +1215,12 @@ export function replaceMathTextRange(
 }
 
 /**
- * Delete a normalized range without flattening structural siblings to source.
+ * Delete everything in `range`. Constructs fully inside it are removed whole.
+ * Text at either end loses only the selected characters. The caret ends at the
+ * start of the range.
  *
- * The safe range domain is one math row: endpoints may be gaps in that row or
- * positions in any of its raw-text leaves. Whole siblings between the
- * endpoints are tombstoned, while endpoint leaves retain their node identity
- * and only tombstone the selected characters. A range crossing into another
- * row/slot is rejected explicitly.
+ * Both ends must be in the same row. A range that crosses into another row or
+ * slot returns `reason` `"unsupported-cross-slot-range"`.
  */
 export function deleteMathTreeRange(
   document: StructuredDocument,
@@ -1160,7 +1237,11 @@ export function deleteMathTreeRange(
   );
 }
 
-/** Replace one supported tree range as a single ordered deletion/insertion. */
+/**
+ * Delete `range` and type `text` in its place, as one batch of edits. The range
+ * follows the rules of {@link deleteMathTreeRange}. `caretOffset` is where the
+ * caret ends up inside the new text. It defaults to the end.
+ */
 export function replaceMathTreeRange(
   document: StructuredDocument,
   range: MathTreeRange,
@@ -1185,11 +1266,11 @@ export function replaceMathTreeRange(
 }
 
 /**
- * Extract literal characters for a supported range of character-editable
- * leaves (raw-text source, `\text{…}` prose). Structural children are
- * deliberately reported as unsupported: callers that need their canonical
- * LaTeX must use the math document printer rather than pretending a generic
- * text concatenation is lossless.
+ * The plain characters inside `range`, from math text and `\text{…}` runs. Both
+ * ends must be in the same row. If the range covers a whole construct like a
+ * fraction, it returns `handled: false` with `reason` `"unsupported-position"`.
+ * To get LaTeX instead, turn the formula into a math document with
+ * `structuredToMathDocument` and print it with `printMathDocument`.
  */
 export function getMathTreeRangeText(
   document: StructuredDocument,
@@ -1229,7 +1310,13 @@ export function getMathTreeRangeText(
   return { handled: true, text };
 }
 
-/** Resolve Tab/Shift-Tab and horizontal-arrow movement inside a fraction. */
+/**
+ * Move the caret for Tab, Shift+Tab, or the left or right arrow. The arrows
+ * step through the formula, into and out of constructs. Tab and Shift+Tab jump
+ * between a fraction's numerator and denominator, then out of the fraction. The
+ * result has no edits. When there is nowhere to go, `reason` is
+ * `"no-navigation-target"`.
+ */
 export function moveMathTreeCaret(
   document: StructuredDocument,
   caret: MathTreeCaret,
@@ -1265,7 +1352,16 @@ export function moveMathTreeCaret(
     : failure(caret, "no-navigation-target");
 }
 
-/** Delete one raw-text character or unwrap a fraction from an empty slot. */
+/**
+ * What Backspace does at the caret. It deletes the character or symbol before
+ * the caret. With `resolveCommand`, a known command like `\sin` is deleted as a
+ * whole. Right after a fraction, it moves into the denominator instead of
+ * deleting. In an empty slot, it removes the empty fraction, root, script,
+ * accent or similar construct around it. A fraction keeps its other half. In an
+ * empty matrix cell, it just moves back. Right after another construct, such as
+ * a root or a matrix, it does nothing and returns `reason`
+ * `"unsupported-position"`.
+ */
 export function backspaceMathTree(
   document: StructuredDocument,
   caret: MathTreeCaret,
@@ -1318,7 +1414,15 @@ export function backspaceMathTree(
   return backspaceAtRowGap(math, gap, caret);
 }
 
-/** Delete the next raw-text character, or enter the next structural child. */
+/**
+ * What Delete does at the caret. It deletes the character or symbol after the
+ * caret. With `resolveCommand`, a known command like `\sin` is deleted as a
+ * whole. Right before a fraction, it moves into the numerator instead of
+ * deleting. At the end of a numerator, it moves to the denominator. At the end
+ * of a denominator, it moves out of the fraction. In an empty matrix cell, it
+ * just moves forward. Right before another construct, such as a root or a
+ * matrix, it does nothing and returns `reason` `"unsupported-position"`.
+ */
 export function deleteForwardMathTree(
   document: StructuredDocument,
   caret: MathTreeCaret,

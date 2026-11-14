@@ -28,44 +28,54 @@ export interface MarkHtmlCtx {
   /** Feature replacement renderer, when the host supplied one. */
   readonly renderReplacement?: ReplacementRenderer;
   /**
-   * Consumer prefers editable source over a rendered replacement — see
-   * {@link import("./types").OutputCtx.preferSource}. A replacement mark (inline
-   * math) emits its `$…$` source instead of an SVG when set.
+   * When `true`, write editable source instead of a rendered picture. Inline
+   * math then writes its `$…$` source instead of an SVG. The editor sets it
+   * when copying HTML to the clipboard, so pasted math stays editable.
    */
   readonly preferSource?: boolean;
 }
 
+/**
+ * The HTML part of a {@link MarkCodec}: how a marked run of text becomes HTML,
+ * and where it nests when several marks cover the same text.
+ */
 export interface MarkHtmlCodec {
   /**
-   * Application order when several marks wrap one run — lower wraps innermost,
-   * matching the prior fixed nesting (code → strong → emphasis → strike → link).
+   * Nesting order when several marks cover the same text. Lower numbers sit
+   * further inside. The built-in values are code 0, strong 1, emphasis 2,
+   * strike 3 and link 4.
    */
   readonly priority: number;
   /**
-   * If true, this mark REPLACES the run's content (inline math renders an SVG)
-   * rather than wrapping `inner`; a replacement mark wins the run.
+   * When `true`, `render` replaces the run's content instead of wrapping
+   * `inner`. Inline math uses this to write an SVG. Other marks on the same run
+   * are then not written.
    */
   readonly replace?: boolean;
   /** Produce the HTML for the run; `inner` is the already-escaped child HTML. */
   render(inner: string, mark: Mark, ctx: MarkHtmlCtx): string;
 }
 
+/**
+ * How one inline mark is written to and read from Markdown, and optionally how
+ * it appears in plain text and HTML. A custom mark supplies one so its
+ * formatting is kept when the document is saved as Markdown and loaded again.
+ */
 export interface MarkCodec {
   readonly type: string;
   /** Wrap inline `text` in this mark's markdown delimiters. */
   toMarkdown(text: string, mark: Mark): string;
   /**
-   * Plain-text projection of a marked run. Most marks drop to bare text on the
-   * plain-text clipboard flavor, so this is omitted; a mark whose visible text
-   * is not self-describing (inline math, whose chars are raw LaTeX) implements
-   * it to keep its `$…$` delimiters so the equation survives a plain-text paste.
+   * How a marked run reads as plain text, for example on a plain-text copy.
+   * Leave it out to write the bare text. Inline math sets it to keep its `$…$`
+   * delimiters, so the equation survives a plain-text paste.
    */
   toText?(text: string, mark: Mark): string;
   /**
-   * The tokenizer start/end tokens that open/close this mark. Set for marks the
-   * tokenizer recognizes as paired inline delimiters (bold/italic/strike/code/
-   * inline-math). Omitted for marks parsed specially (link) and for custom
-   * marks (which round-trip via HTML tags, not new markdown delimiters).
+   * The tokens that open and close this mark when Markdown is read, such as the
+   * `**` pairs of bold. Built-in bold, italic, strike, code and inline math set
+   * them. A custom mark needs them, plus its own `markdownSyntax`, to be read
+   * back from Markdown. Link leaves them out because it is read in its own way.
    */
   readonly tokens?: { readonly start: TokenType; readonly end: TokenType };
   /** Inline-HTML output facet. Omitted marks contribute no HTML wrapping. */

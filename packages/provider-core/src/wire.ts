@@ -21,6 +21,11 @@ import type { Operation } from "@tasfer/editor";
 
 import type { PresenceState } from "./types";
 
+/**
+ * A message two peers exchange while syncing: `hello` (what the sender
+ * already has), `ops` (a batch of edits) or `pres` (the sender's presence, or
+ * `null` once it clears it).
+ */
 export type WireMessage =
   | { t: "hello"; vv: Record<string, number> }
   | { t: "ops"; ops: Operation[] }
@@ -29,6 +34,10 @@ export type WireMessage =
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+/**
+ * Turn a {@link WireMessage} into the bytes sent to a peer.
+ * {@link decodeMessage} reads them back.
+ */
 export function encodeMessage(msg: WireMessage): Uint8Array {
   return encoder.encode(JSON.stringify(msg));
 }
@@ -37,14 +46,14 @@ const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
 /**
- * Decode a frame, or null if it is not a well-formed protocol message.
- *
- * A frame is remote input from an unauthenticated peer, so every field the
- * protocol later dereferences is checked here. Checking only the `t`
- * discriminant would let `{"t":"ops"}` through, and `doc.applyUpdate(undefined)`
- * throws out of the transport's message callback — one malformed frame from any
- * peer would fault the receiver's message pump.
+ * Read bytes from a peer back into a {@link WireMessage}. Returns `null` when
+ * the bytes are not a valid message. Bytes come from other people's devices, so
+ * the message's shape is checked before it is used. The edits inside an `ops`
+ * message are only checked to be objects.
  */
+// Checking only the `t` discriminant would let `{"t":"ops"}` through, and
+// `doc.applyUpdate(undefined)` throws out of the transport's message callback;
+// one malformed frame from any peer would fault the receiver's message pump.
 export function decodeMessage(bytes: Uint8Array): WireMessage | null {
   let msg: unknown;
   try {

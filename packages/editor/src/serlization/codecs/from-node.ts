@@ -23,7 +23,10 @@ export interface SerializableNode {
   readonly codec?: NodeCodec;
 }
 
-/** Build the {@link BlockCodec} for a node by injecting its `types` into its codec. */
+/**
+ * Builds a {@link BlockCodec} from a node's `codec` by adding the node's block
+ * type names (`types`, or else `[type]`). Throws if the node has no `codec`.
+ */
 export function codecFromNode(node: SerializableNode): BlockCodec {
   invariant(
     node.codec,

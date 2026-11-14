@@ -87,7 +87,10 @@ export interface TableCellLayout {
    * The caret, the hit-test and the highlight all read this.
    */
   readonly text: TextLayout;
-  /** Document-order characters (tombstones included) of the cell's text field. */
+  /**
+   * Every character of the cell's text, in stored order. Deleted characters
+   * stay in the list, marked `deleted`.
+   */
   readonly chars: Char[];
   readonly marks: readonly MarkRange[];
   /**
@@ -161,9 +164,9 @@ export interface TableLayoutCtx {
   readonly fonts: FontStyles;
   readonly marks?: MarkRegistry;
   /**
-   * The table block's attachments. A cell's structured marks (an inline
-   * formula) point at the ones beside the table's own document; measuring
-   * reads them, so a formula reserves its real width instead of a placeholder.
+   * The table block's attached content, such as the inline formulas in its
+   * cells. Pass it so a formula is measured at its real width, not a
+   * placeholder's.
    */
   readonly attachments?: StructuredContentMap;
 }
@@ -213,29 +216,24 @@ function allocate(
 }
 
 /**
- * Fit `count` column widths into `available`.
+ * Split `available` pixels into `count` column widths. Returns an empty list
+ * when `count` is 0 or less.
  *
- * `fixed` carries each column's explicitly set width as a fraction of the grid
- * (`null` for automatic) — what a resize drag writes, and the ONLY thing that
- * makes one column wider than another. Columns nobody has touched split the
- * grid evenly and the text inside them wraps to whatever they got.
+ * `fixed` holds each column's width as a fraction of the grid, set by a resize
+ * drag, or `null` for automatic. Automatic columns share what is left evenly.
+ * The text in a cell never changes a column's width.
  *
- * Fitting columns to their content instead meant the grid rearranged itself
- * while someone typed: a cell's text growing moved columns in the rest of the
- * table, and a width the user had chosen by eye was taken back the moment the
- * text under it changed. A width is a decision, so it changes when the user
- * makes one.
+ * No column goes under `minWidth`, a fixed one included. When the grid is too
+ * narrow for that, the columns share it evenly. With the default theme, a
+ * table's grid is wide enough that this does not happen.
  *
- * `minWidth` is the floor no column goes under, a dragged one included — and
- * including a document written on a wide screen and opened on a phone, where
- * the stored fractions scale down with the grid. It yields only when the grid
- * cannot hold even one floor per column: the columns then share what there is.
- * The grid a table is given ({@link tableGridWidth}) is wide enough that this
- * does not happen with the default theme.
- *
- * Widths are rounded to whole pixels with the rounding error carried forward,
- * so the columns always sum to exactly `available` on every peer.
+ * Widths are whole pixels and always add up to exactly `available`.
  */
+// Fitting columns to their content made the grid rearrange itself while someone
+// typed: a growing cell moved other columns, and a width chosen by eye was
+// taken back when the text changed. A width is a decision, so it changes only
+// when the user makes one. Rounding carries the error forward so the sum is
+// exact on every peer.
 export function fitColumnWidths(
   count: number,
   available: number,
@@ -308,7 +306,12 @@ export function tableGridWidth(
     : Math.max(automatic, Math.round(width * maxWidth));
 }
 
-/** Lay out a whole table document at `maxWidth`. */
+/**
+ * Measure a whole table at `ctx.maxWidth`: its columns, rows, cells and wrapped
+ * lines. A missing `document`, or a table with no rows or columns, gives an
+ * empty layout. Pass `composition` to show text that is still being typed with
+ * an IME.
+ */
 export function layoutTable(
   document: StructuredDocument | undefined,
   ctx: TableLayoutCtx,

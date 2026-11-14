@@ -31,22 +31,27 @@ export interface LatexInsert {
   readonly text: string;
 }
 
+/**
+ * The result of {@link normalizeLatex}: the LaTeX with every missing `{}`
+ * filled in, the insertions that got it there, and a way to carry a caret
+ * offset over from the old string to the new one.
+ */
 export interface LatexNormalization {
-  /** The fully-materialized LaTeX (every construct slot has its braces). */
+  /** The LaTeX with every missing `{}` added. */
   readonly latex: string;
   /**
-   * The insertions, by ascending source index, that turn the original into
-   * {@link latex}. Each `at` is an offset into the ORIGINAL string — a host
-   * applies them right-to-left (or accounts for the shift) to keep indices
-   * valid. Empty when nothing needed filling.
+   * The `{}` insertions, in order of position, that turn the original string
+   * into `latex`. Each `at` is an offset in the ORIGINAL string, so apply them
+   * from last to first to keep the offsets right. Empty when nothing was
+   * missing.
    */
   readonly inserts: readonly LatexInsert[];
   /** Whether anything changed (i.e. `inserts.length > 0`). */
   readonly changed: boolean;
   /**
-   * Map a caret offset in the ORIGINAL string to its position in {@link latex}.
-   * A caret that sat exactly where a slot was filled lands *inside* that slot's
-   * first brace pair, so completing `\frac` drops the caret in the numerator.
+   * Move a caret offset in the ORIGINAL string to the matching place in
+   * `latex`. A caret right where braces were added lands inside the first new
+   * `{}`, so completing `\frac` puts the caret in the numerator.
    */
   mapCaret(offset: number): number;
 }
@@ -115,8 +120,10 @@ function collect(node: Node, out: number[]): void {
 }
 
 /**
- * Materialize every incomplete construct in `latex` into canonical placeholder
- * form. Pure and idempotent. See {@link LatexNormalization}.
+ * Add the missing `{}` to every unfinished construct in `latex`, so a bare
+ * `\frac` becomes `\frac{}{}` and `x^` becomes `x^{}`. How the formula looks
+ * does not change. Running it again changes nothing. See
+ * {@link LatexNormalization} for what it returns.
  */
 export function normalizeLatex(latex: string): LatexNormalization {
   if (!latex) {
@@ -175,18 +182,14 @@ function parseShape(latex: string): string {
 }
 
 /**
- * Whether the space at `offset` carries no LaTeX meaning — removing it leaves a
- * formula that parses to the same shape, so it renders identically. In math mode
- * the lexer collapses runs of inter-atom whitespace, so most literal spaces are
- * dead source: `a b`, `x }`, `\, y`, and a doubled space all typeset exactly as
- * if the space weren't there. The exceptions — spaces that DO change the parse —
- * are a control-word separator (`\sin x`, which fuses into the unknown `\sinx`
- * without it) and a space inside a text-mode group (`\text{a b}`, where interior
- * spaces are literal glyphs); for those this returns false, i.e. keep the space.
+ * Whether the space at `offset` can be removed without changing how the formula
+ * looks. Most spaces in math do nothing: `a b`, `x }`, `\, y` and a double
+ * space all look the same without them. An editor uses this to drop such spaces
+ * as the user types.
  *
- * A live editor uses this to drop the meaningless spaces a user types *into* a
- * formula rather than persisting them as dead LaTeX. Returns false when `offset`
- * isn't a space. Pure.
+ * Returns false for spaces that matter: one that ends a command name (`\sin x`
+ * would become the unknown `\sinx`), and one inside text such as `\text{a b}`.
+ * Also returns false when the character at `offset` is not a space.
  */
 export function isRedundantSpace(latex: string, offset: number): boolean {
   if (latex[offset] !== " ") return false;

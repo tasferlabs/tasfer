@@ -239,12 +239,28 @@ function reindentCodeBlock(
   return { state: next, ops };
 }
 
-/** Indent the caret's line(s) in a code block by one level (two spaces). */
+/**
+ * Adds two spaces to the start of every line the caret or selection touches in
+ * a code block. It does nothing outside a code block. Use it for a toolbar
+ * button, since a phone keyboard has no Tab key.
+ *
+ * ```ts
+ * editor.dispatch(INDENT_CODE);
+ * ```
+ */
 export const INDENT_CODE = stateAction("indent-code", (state) =>
   reindentCodeBlock(state, "indent"),
 );
 
-/** Outdent the caret's line(s) in a code block by one level (up to two spaces). */
+/**
+ * Removes up to two leading spaces from every line the caret or selection
+ * touches in a code block. It does nothing outside a code block, or when none
+ * of those lines start with a space.
+ *
+ * ```ts
+ * editor.dispatch(OUTDENT_CODE);
+ * ```
+ */
 export const OUTDENT_CODE = stateAction("outdent-code", (state) =>
   reindentCodeBlock(state, "outdent"),
 );
@@ -255,21 +271,28 @@ export const CODE_LANGUAGE_OVERLAY = "code-language";
 /** What the host component needs to render the language band. */
 export interface CodeLanguageOverlayData {
   /**
-   * Mirrors `state.ui.isReadonlyBase`. The slot is emitted in a readonly
-   * document too — the band is reserved in the layout regardless and the
-   * language is worth reading — so the host gates the *picker* on this and
-   * renders a static label instead. Selecting a language commits a `language`
-   * block_set op, which must stay unreachable there.
+   * `true` when the editor was opened read-only. The language label still shows
+   * then. So show the language as plain text and do not offer the picker,
+   * because picking a language would change the document.
    */
+  // Mirrors state.ui.isReadonlyBase (not mode === "readonly"), so it also
+  // covers the select mode a read-only editor uses for copy. Selecting a
+  // language commits a `language` block_set op.
   readonly readonly: boolean;
   /**
-   * Set by a host that drives the picker from its own chrome rather than the
-   * band (the app's mobile keyboard toolbar opens it as a drawer). Absent from
-   * the engine's own payload; see `TasferCodeNode` in the web app.
+   * For your own use: set it when your app opens the language picker from
+   * somewhere else, such as a toolbar on mobile. The editor never sets it.
    */
+  // The web app's mobile keyboard toolbar opens the picker as a drawer; see
+  // TasferCodeNode in apps/web.
   readonly open?: boolean;
 }
 
+/**
+ * The code block node: draws a multi-line, monospace code block with syntax
+ * highlighting and handles typing inside it. {@link codeExtension} installs it
+ * for you; subclass it to change how the block looks or behaves.
+ */
 export class CodeNode extends TextNode {
   readonly type = "code" as const;
   readonly types: readonly string[] = ["code"];
@@ -292,11 +315,12 @@ export class CodeNode extends TextNode {
   // ── Layout ────────────────────────────────────────────────────────────────
 
   /**
-   * Reserve symmetric horizontal padding. The right inset is taken off `maxWidth`
-   * here; the matching left inset is added by {@link leadingInset} (which also
-   * shrinks the wrap width), so the text area is `maxWidth - 2·paddingX` wide and
-   * starts `paddingX` in from the box's left edge.
+   * Lays out the block with the same padding on the left and right
+   * (`styles.blocks.code.paddingX`). The text area is `maxWidth` minus twice
+   * that padding.
    */
+  // The right inset is taken off maxWidth here. The matching left inset is
+  // added by leadingInset, which also shrinks the wrap width.
   computeLayout(
     block: TextualBlock,
     maxWidth: number,
@@ -323,8 +347,9 @@ export class CodeNode extends TextNode {
   }
 
   /**
-   * Top inset = outer card margin (zeroed against an adjacent card) + the
-   * box's internal top padding. Mirrored below by `contentPaddingBottom`.
+   * The space above the first line of code: the card's top margin plus its top
+   * padding. The margin is zero when another card sits right above.
+   * `contentPaddingBottom` does the same at the bottom.
    */
   protected override contentInsetY(
     block: TextualBlock,
@@ -345,13 +370,13 @@ export class CodeNode extends TextNode {
   }
 
   /**
-   * Newline-aware wrap: split the visible text into hard lines at each "\n", then
-   * soft-wrap each hard line to the content width. A "\n" is modeled as a
-   * consumed (non-rendered) break — `consumedSpace: true` on the line before it —
-   * so `computeLayout`'s visible-index accounting advances by one across it,
-   * exactly as it does for a wrap space. Code carries no marks, so wrapping each
-   * segment with empty `formats` is exact (no math/bold spans to honor).
+   * Splits the code into lines at each line break, then wraps any line wider
+   * than `maxWidth`. A line break is not drawn, but it still counts as one
+   * character, like the space where a long line wraps.
    */
+  // A "\n" is modeled as consumedSpace: true on the line before it, so
+  // computeLayout's visible-index accounting advances by one across it. Code
+  // carries no marks, so wrapping each segment with empty formats is exact.
   protected wrapLines(
     chars: Char[],
     _formats: MarkSpan[],
@@ -442,11 +467,12 @@ export class CodeNode extends TextNode {
   }
 
   /**
-   * Paint one line as syntax-highlighted tokens. Code carries no CRDT marks, so
-   * we bypass the mark-aware renderer and color each token from the theme. For
-   * monospace text, token-by-token advance matches the whole-line measurement
-   * the caret/selection passes use, so the caret stays aligned.
+   * Draws one line of code with syntax colors from the theme. A right-to-left
+   * line is drawn as plain text, without syntax colors.
    */
+  // Code carries no marks, so this bypasses the mark-aware renderer. For
+  // monospace text, token-by-token advance matches the whole-line measurement
+  // the caret/selection passes use, so the caret stays aligned.
   protected renderLineText(p: RenderLineTextArgs): void {
     // RTL code is rare; defer to the plain bidi-correct renderer rather than
     // re-implementing right-to-left layout for colored tokens.
@@ -477,11 +503,13 @@ export class CodeNode extends TextNode {
   }
 
   /**
-   * The empty-block ghost hint. The base class resolves no placeholder for a
-   * code block (it handles paragraph/heading only), so this opts the type in.
-   * Drawn only while the caret is in this block — `placeholder.showUnfocused` is
-   * off — so an unfocused empty card stays quiet, as everywhere else.
+   * The hint shown in an empty code block. The default is "Write or paste
+   * code…". Change it with `theme.nodeStrings.code.placeholder`. It shows only
+   * while the caret is in the block, unless the theme turns on
+   * `styles.placeholder.showUnfocused`.
    */
+  // The base class resolves no placeholder for a code block (it handles
+  // paragraph/heading only), so this opts the type in.
   protected override placeholderText(
     _block: TextualBlock,
     _styles: EditorStyles,

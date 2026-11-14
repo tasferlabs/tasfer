@@ -32,15 +32,19 @@ import { allCharsHaveFormat } from "./sync/crdt-utils";
 import { getStructuredMarks } from "./sync/structured-content";
 
 /**
- * A single addressable point in the document — the optional target every
- * {@link ChangeApi} method accepts, and the currency the read API returns.
+ * One spot in the document. Every {@link ChangeApi} method takes one as its
+ * optional target, and the read API returns them.
  *
- * - **relative** anchors resolve against the live state: `"caret"` (the current
- *   caret), `"start"` / `"end"` (document start/end), and a block edge
- *   `{ block, side }`.
- * - **absolute** `{ block, offset }` is stable across concurrent edits — the
- *   block id is a CRDT identity and `offset` is local to that block's text
- *   (clamped to its length; defaults to 0).
+ * - `"caret"`: where the caret is now.
+ * - `"start"` / `"end"`: the start or end of the document.
+ * - `{ block, side }`: the start (`"before"`) or end (`"after"`) of a block's
+ *   text.
+ * - `{ block, offset }`: a character offset in a block's text. It defaults to 0
+ *   and is clamped to the text length.
+ *
+ * The block is found by its id, so a saved point still finds its block after
+ * other edits, unless that block was deleted. The offset is a plain count, so
+ * edits earlier in the same block can shift what it points at.
  */
 export type DocPoint =
   | "caret"
@@ -50,10 +54,17 @@ export type DocPoint =
   | { block: string; side: "before" | "after" };
 
 /**
- * A span in the document. Defaults to the live selection wherever a method
- * accepts it. A bare {@link DocPoint} is a collapsed range at that point;
- * `{ from, to }` is an explicit range (must resolve to a single block for the
- * inline methods). Cross-block explicit ranges resolve to a no-op.
+ * A stretch of the document. When a method takes one and you leave it out, it
+ * uses the current selection.
+ *
+ * - `"selection"`: the current selection.
+ * - A {@link DocPoint}: an empty range at that point.
+ * - `{ from, to }`: everything from one point to the other.
+ *
+ * Methods that work on text inside one block (marks, inline edits) need the
+ * range to stay in one block. Given a range across blocks, they do nothing. The
+ * one exception is `insertText`, which then types over the current selection
+ * instead.
  */
 export type DocRange =
   "selection" | DocPoint | { from: DocPoint; to: DocPoint };

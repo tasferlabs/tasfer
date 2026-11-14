@@ -231,9 +231,12 @@ import {
 } from "@tasfer/tex";
 import type { MathNode as MathTreeNode, MathRow } from "@tasfer/tex/data";
 
-// Math block — a display LaTeX equation. `charRuns` is the legacy/interchange
-// source until a structured attachment exists, after which it is only a
-// compatibility shadow. Named `MathBlock` to avoid shadowing global `Math`.
+/**
+ * A math block: one LaTeX equation shown on its own line. `charRuns` holds the
+ * LaTeX source only until the block gets a structured math document; after
+ * that the document is the real content and `charRuns` is kept just for
+ * compatibility. Named `MathBlock` so it does not shadow the global `Math`.
+ */
 export interface MathBlock extends BlockRuntimeState {
   type: "math";
   charRuns: CharRun[];
@@ -1091,6 +1094,11 @@ function mathDecorationRect(
   };
 }
 
+/**
+ * The math block node: lays out, paints and edits a display equation on the
+ * canvas. {@link mathExtension} installs it for you; create one yourself only
+ * when you put a schema together by hand.
+ */
 export class MathNode extends TextNode<MathBlock> {
   readonly type = "math" as const;
   readonly types: readonly string[] = ["math"];
@@ -1098,9 +1106,9 @@ export class MathNode extends TextNode<MathBlock> {
   readonly joinGroup = "card";
 
   /**
-   * The visible equation renders through the tex bridge, not as wrapped text.
-   * The inherited compatibility layout still needs a valid TextStyle, so
-   * borrow the paragraph's (there is no dedicated text style for `math`).
+   * Returns the paragraph text style. The equation is drawn as math, not as
+   * text, but the shared text layout still needs a style. There is no separate
+   * text style for `math`.
    */
   override textStyle(styles: EditorStyles): TextStyle {
     return styles.blocks.paragraph;
@@ -1119,9 +1127,8 @@ export class MathNode extends TextNode<MathBlock> {
   }
 
   /**
-   * Anchor the gutter drag grip to the top of the card surface (past the outer
-   * margin), not to the equation glyphs — a tall equation would otherwise pull
-   * the grip toward the middle of the block.
+   * Returns the y position of the drag handle: near the top of the equation's
+   * card, not its middle. So a tall equation keeps its handle at the top.
    */
   override gutterAnchorY(c: NodeLayoutCtx): number {
     const layout = this.layout(c) as MathNodeLayout;
@@ -1218,10 +1225,12 @@ export class MathNode extends TextNode<MathBlock> {
   // ── Layout ───────────────────────────────────────────────────────────────
 
   /**
-   * Reuse TextNode's layout to get a valid `TextNodeLayout` (chars, textStyle,
-   * fonts — everything the editing/caret stack reads), then lay the text out as
-   * an equation and override the block height + record where to center it.
+   * Lays the block out as a centered equation and sets the block's height. The
+   * result is still a text layout, so caret and editing code can read it like
+   * any text block.
    */
+  // Reuses TextNode's layout for chars, textStyle and fonts, then overrides
+  // height and records the centering offsets.
   computeLayout(
     block: MathBlock,
     maxWidth: number,
@@ -1721,18 +1730,19 @@ export class MathNode extends TextNode<MathBlock> {
   }
 
   /**
-   * Selection highlight rectangles in the tex-rendered formula's geometry — the
-   * SAME rects {@link paint} fills (via {@link localSelectionRange} +
-   * `texSelectionRects`), NOT the base {@link TextNode.selectionRects} band
-   * derived from laying the raw LaTeX source out as prose. The generic selection
-   * hit-test (`isPointWithinSelectionRects`) keys off this, so a point only counts
-   * as "inside the selection" when it lands on the highlight the reader actually
-   * sees. Without the override the whole block's source-text band reads as
-   * selected, so a tap anywhere on the equation — well outside the lit range —
-   * spuriously opens the context menu instead of collapsing the selection and
-   * moving the caret. `continuous` (the base's one-ribbon flag) is irrelevant:
-   * `texSelectionRects` already returns per-row rects matching the paint.
+   * Returns the selection highlight rectangles for this equation. They match
+   * what is painted, so a tap counts as inside the selection only when it lands
+   * on the visible highlight.
+   *
+   * When the whole block is selected, returns one rectangle covering the card.
+   * Otherwise returns an empty list when the equation is empty or nothing in it
+   * is selected.
    */
+  // Same rects paint fills (localSelectionRange + texSelectionRects), not the
+  // base TextNode band from laying LaTeX out as prose. Without this, a tap
+  // anywhere on the equation opens the context menu instead of moving the
+  // caret. `continuous` is irrelevant: texSelectionRects already returns
+  // per-row rects.
   selectionRects(
     layout: TextNodeLayout,
     selection: { anchor: Position; focus: Position; isForward: boolean },
@@ -1773,7 +1783,10 @@ export class MathNode extends TextNode<MathBlock> {
 
   // ── Caret geometry (via the tex bridge, not text lines) ────────────────────
 
-  /** Resolve either a stable tree caret or its transient source-offset bridge. */
+  /**
+   * Returns where to draw the caret inside the equation: its position and
+   * height.
+   */
   caretRect(
     layout: TextNodeLayout,
     textIndex: number,
@@ -1881,7 +1894,10 @@ export class MathNode extends TextNode<MathBlock> {
     };
   }
 
-  /** Pixels → stable nested caret for an authoritative structured equation. */
+  /**
+   * Finds the caret spot inside the equation under a point. Returns null when
+   * the block has no structured equation or the point hits nothing in it.
+   */
   override contentSelectionFromPoint(
     layout: NodeLayout,
     local: Point,
@@ -1978,7 +1994,10 @@ export class MathNode extends TextNode<MathBlock> {
     };
   }
 
-  /** Legacy display-math click → LaTeX offset via the tex hit-test. */
+  /**
+   * For an older equation that has no structured form yet: returns the LaTeX
+   * offset under a point. Returns 0 for an empty equation.
+   */
   positionFromPoint(
     _block: MathBlock,
     layout: TextNodeLayout,
@@ -2006,14 +2025,15 @@ export class MathNode extends TextNode<MathBlock> {
   }
 
   /**
-   * Double-tap / double-click → the LaTeX range to select, resolved from the tap
-   * POINT (not a caret offset). Selecting math by point is what makes a small
-   * operator reachable: a `+`/`-`/`=` wedged between two constructs is impossible
-   * to hit through the offset path (the tap maps to a shared boundary and
-   * `mathUnitAt` prefers the neighbouring construct), but here the finger just
-   * lands in the operator's own box. Uses a finger-sized target on touch. Returns
-   * null for an empty block, so the caller falls back to the offset path.
+   * Returns the LaTeX range to select on a double-tap or double-click at a
+   * point. It works from the point itself, so a small `+` or `=` between two
+   * parts is easy to hit. Touch gets a finger-sized target.
+   *
+   * Returns null for an empty equation. The caller then selects by offset
+   * instead.
    */
+  // Through the offset path the tap maps to a shared boundary and mathUnitAt
+  // prefers the neighbouring construct, so a small operator is unreachable.
   wordRangeFromPoint(
     layout: TextNodeLayout,
     x: number,
@@ -2049,18 +2069,19 @@ export class MathNode extends TextNode<MathBlock> {
   // Equation navigation lives in the tree action handlers (nested selection).
 
   /**
-   * Register the math node's pointer handler:
-   *  - `POINTER_MOVE` (observe, priority 0) — highlight the whole math block
-   *    under the pointer (full-block backdrop, `ui.hoveredMathBlockIndex` via
-   *    {@link SET_MATH_BLOCK_HOVER}), and otherwise the inline-math chip under
-   *    the pointer when over ordinary text (`ui.inlineMathHover` via
-   *    {@link SET_INLINE_MATH_HOVER}).
+   * Registers how a math block handles editing: typing, Backspace and Delete,
+   * arrow keys, selection, Enter, and "turn into math".
    *
-   * Legacy block math lands through {@link positionFromPoint}. Tree-backed
-   * blocks instead use the node-agnostic structured-content hit-test contract,
-   * so a click enters the exact stable row/field without storing a source
-   * offset even transiently.
+   * Enter leaves the equation instead of splitting it. Backspace at the start
+   * of an equation turns it into an inline formula.
+   *
+   * When the pointer moves, it lights up the math block under it with
+   * {@link SET_MATH_BLOCK_HOVER}, or the inline formula under it with
+   * {@link SET_INLINE_MATH_HOVER}. A read-only editor shows no hover.
    */
+  // Legacy block math lands through positionFromPoint. Tree-backed blocks use
+  // the structured-content hit-test, so a click enters the exact row/field
+  // without storing a source offset.
   registerActions(bus: ActionBus): void {
     // At the leading edge, Backspace changes a display equation into the same
     // structured formula inline. This must run before the ordinary tree delete
@@ -2943,7 +2964,11 @@ export interface InlineMathHover {
   contentId?: string;
 }
 
-/** Set or clear the hovered block-math index (full-block backdrop). Pure, no ops. */
+/**
+ * Sets or clears which math block shows the hover backdrop, by block index.
+ * Pass `{ blockIndex: null }` to clear it. The math node sends this for you
+ * when the pointer moves. It changes only the hover state, never the document.
+ */
 export const SET_MATH_BLOCK_HOVER = stateAction<{ blockIndex: number | null }>(
   "set-math-block-hover",
   (state, { blockIndex }) => {
@@ -2960,9 +2985,11 @@ export const SET_MATH_BLOCK_HOVER = stateAction<{ blockIndex: number | null }>(
 );
 
 /**
- * Set or clear the inline-math chip hover highlight. The handler resolves the
- * chip range under the pointer (or `null`); this installs it only when the range
- * actually changed. Pure, no ops.
+ * Sets or clears the hover highlight on an inline formula. Pass an
+ * {@link InlineMathHover} as `hover`, or `{ hover: null }` to clear it. The
+ * math node sends this for you when the pointer moves. It changes only the
+ * hover state, never the document, and does nothing if the highlight is already
+ * the same.
  */
 export const SET_INLINE_MATH_HOVER = stateAction<{
   hover: InlineMathHover | null;
@@ -2984,19 +3011,28 @@ export const SET_INLINE_MATH_HOVER = stateAction<{
 });
 
 /**
- * Move the caret out of the inline-math chip `[startIndex, endIndex)` in
- * `blockId`, toward `direction`, and dismiss the chip's transient UI (any open
- * menu + the edit-highlight `inlineMathHover`). A pure cursor move — no ops.
+ * Moves the caret out of the inline formula at `[startIndex, endIndex)` in
+ * block `blockId`, to its `left` or `right` side. It also closes any open menu
+ * and clears the formula's highlight.
  *
- * This is the inline-math counterpart to the caret-exit a host needs when the
- * user arrows/Escapes out of the WYSIWYG popover that mirrors the chip. It lives
- * here with the math node (not as a method on the generic editor handle) and is
- * fired by the host via `editor.dispatch(EXIT_INLINE_MATH, …)`, like
- * every other node/mark behavior. The caret is placed on the exiting edge and
- * then stepped one position further with the caret-model-aware
- * {@link moveCursorLeft} / {@link moveCursorRight}, so the chip's own snap can't
- * pull it back inside.
+ * Use it when the user leaves your formula editor popup with the arrow keys or
+ * Escape. It does not change the document. It does nothing if the block is not
+ * found.
+ *
+ * ```ts
+ * import { EXIT_INLINE_MATH } from "@tasfer/math";
+ *
+ * editor.dispatch(EXIT_INLINE_MATH, {
+ *   blockId,
+ *   startIndex: span.startIndex,
+ *   endIndex: span.endIndex,
+ *   direction: "right",
+ * });
+ * ```
  */
+// Lives with the math node, not on the generic editor handle. The caret is
+// placed on the exiting edge, then stepped once more with
+// moveCursorLeft/moveCursorRight so the chip's snap can't pull it back inside.
 export const EXIT_INLINE_MATH = stateAction<{
   blockId: string;
   startIndex: number;

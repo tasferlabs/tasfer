@@ -76,12 +76,11 @@ export interface MarkUnderlineStyle {
 }
 
 /**
- * The visual channels one mark contributes to a run. The renderer composes the
- * styles of every mark on the run (see the precedence notes in the renderer):
- * `background`/`color` from the chip-bearing mark win over a plain `color`;
- * `strikethrough`/`underline` are additive. These channels are render-only —
- * none of them change advance width. A variant that *does* (bold, italic)
- * belongs in {@link MarkMetrics} instead.
+ * How one mark paints a run of text. When several marks share a run, the editor
+ * combines them. The color of a mark with a background (like code) wins over a
+ * plain `color`. Underline and strikethrough are drawn on top of the rest. None
+ * of these change how wide the text is. Bold and italic do, so they go in
+ * {@link MarkMetrics} instead.
  */
 export interface MarkStyle {
   /** Glyph fill color (code chip color, link color, …). */
@@ -108,6 +107,10 @@ export interface MarkMetrics {
   readonly italic?: boolean;
 }
 
+/**
+ * What {@link Mark.style} receives: the editor's current styles and the stored
+ * mark for the run being drawn, including its `attrs`.
+ */
 export interface MarkStyleCtx {
   readonly styles: EditorStyles;
   /** The stored mark for this run, carrying its `attrs` (e.g. a link's url). */
@@ -132,10 +135,11 @@ export interface MarkReplacementEdit {
   /** Caret offset *within this run's text*, or undefined if the caret isn't in it. */
   readonly caretOffset?: number;
   /**
-   * Whether caret-anchored scratch is armed at `caretOffset` — i.e. the user is
-   * actively typing here, so an in-progress token should render literally instead
-   * of resolving. `measure` and `paint` MUST derive identical geometry from this
-   * so reserved width matches drawn glyphs.
+   * `true` while the user is typing a command at the caret. A half-typed
+   * command should then show as its literal text, not its symbol. The flag is
+   * set for the whole block, so only act on it when `caretOffset` is set.
+   * `measure` and `paint` must make the same choice from this, or the reserved
+   * width will not match what is drawn.
    */
   readonly editing?: boolean;
 }
@@ -182,6 +186,12 @@ export interface MarkReplacementSelectionRect {
   readonly fillsLine?: boolean;
 }
 
+/**
+ * What a mark receives when it draws its own content in place of the text, as
+ * an inline formula does: the canvas context, the run's text, where to draw,
+ * the measured size and the current styles. Passed to
+ * {@link MarkReplacement.paint}.
+ */
 export interface MarkReplacementPaintCtx {
   readonly ctx: CanvasRenderingContext2D;
   /** The run's text (e.g. the LaTeX source for inline math). */
@@ -211,17 +221,23 @@ export interface MarkReplacementSourceCtx {
   readonly attachments: StructuredContentMap | undefined;
 }
 
-/** Structured-caret context for a replacement run in one textual block. */
+/**
+ * What the caret and selection hooks of {@link MarkReplacement} receive for a
+ * run whose content lives in a block attachment: the stored mark, the block's
+ * attachments, the block id, and the part of the run being drawn. When the
+ * editor is resolving a click or drag, it also says which pointer is used and
+ * whether a finger is dragging.
+ */
 export interface MarkReplacementContentCtx extends MarkReplacementSourceCtx {
   readonly blockId: string;
   /**
-   * Canonical-source range represented by the `text` argument for this visual
-   * fragment. A replacement can use this projection to keep an identity-backed
-   * nested caret in the fragment that owns it when one marked run wraps across
-   * lines. Omitted means the text represents the complete replacement source.
+   * The `start` and `end` offsets, in the run's full source, of the piece that
+   * `text` holds. This matters when one run wraps across lines and is drawn in
+   * pieces. Use it to keep the caret in the piece that holds it. Omitted means
+   * `text` is the whole source.
    *
-   * This is geometry metadata only: nested selection remains expressed as
-   * stable {@link ContentPoint} identities rather than flattened text offsets.
+   * It is only used to place things on screen. Positions inside the run are
+   * still {@link ContentPoint} values, not text offsets.
    */
   readonly sourceRange?: {
     readonly start: number;
@@ -233,29 +249,40 @@ export interface MarkReplacementContentCtx extends MarkReplacementSourceCtx {
 }
 
 /**
- * A mark that REPLACES glyph rendering for its run — inline math draws a
- * rendered formula instead of the LaTeX characters. The run measures as an
- * atomic unit (`measure`) and paints itself (`paint`). It MAY additionally let
- * the caret descend into the rendered content (`caretRect`/`hitTest`) instead of
- * treating the run as one opaque advance; a replacement that omits those keeps
- * the atomic-boundary behavior. The normal style/text path is skipped for the run.
+ * Lets a mark draw its run itself instead of its text, the way inline math
+ * draws a formula in place of the LaTeX. The run is sized by `measure` and
+ * drawn by `paint`, and normal text styling is skipped.
+ *
+ * By default the caret and clicks treat the run as one unit and stop only at
+ * its edges. Add `caretRect` and `hitTest` to let them go inside the drawn
+ * content.
  */
 export interface MarkReplacement {
   /**
-   * Resolve the canonical source painted/measured for this run. Omit to use the
-   * marked compatibility characters unchanged. The returned string affects
-   * replacement geometry only; flat-text indices continue to address the
-   * compatibility run, while structured caret hooks own attached content.
+   * Optional: the text to measure and draw for this run, when it differs from
+   * the characters stored in the run (for example, a formula kept in a block
+   * attachment). Omit it to use the run's own characters. It only changes what
+   * is measured and drawn. Text positions still count the run's stored
+   * characters.
    */
   source?(compatibilityText: string, c: MarkReplacementSourceCtx): string;
-  /** Stable nested caret geometry for an attached replacement run. */
+  /**
+   * Optional: where to draw the caret at `point` inside this run, when the
+   * run's content lives in a block attachment. Return `null` when the point is
+   * not in the piece of the run given by `c.sourceRange`.
+   */
   contentCaretRect?(
     text: string,
     fontSize: number,
     point: ContentPoint,
     c: MarkReplacementContentCtx,
   ): MarkReplacementCaret | null;
-  /** Map a run-local point directly to an identity-bearing nested selection. */
+  /**
+   * Optional: the selection inside this run at a point, when the run's content
+   * lives in a block attachment. `localX` is from the run's left edge and
+   * `localY` from the text baseline. Return `null` when the point does not land
+   * on the run's content.
+   */
   contentSelectionFromPoint?(
     text: string,
     fontSize: number,
@@ -264,12 +291,11 @@ export interface MarkReplacement {
     c: MarkReplacementContentCtx,
   ): ContentSelection | null;
   /**
-   * Highlight rectangles for a nested (identity-bearing) selection held inside
-   * this run — the selection analogue of {@link contentCaretRect}. The nested
-   * selection deliberately clears the flat cursor/range, so without this seam a
-   * range selected inside an attached run (e.g. a construct selected before
-   * deletion) would have no visible highlight. Return `null` when the selection
-   * doesn't resolve within the fragment described by `c.sourceRange`.
+   * Optional: highlight rectangles for a selection inside this run, when the
+   * run's content lives in a block attachment. Works like
+   * {@link MarkReplacement.contentCaretRect}, but for a range. Without it, a
+   * range selected inside the run shows no highlight. Return `null` when the
+   * selection is not in the piece of the run given by `c.sourceRange`.
    */
   contentSelectionRects?(
     text: string,
@@ -312,15 +338,16 @@ export interface MarkReplacement {
     edit?: MarkReplacementEdit,
   ): MarkReplacementCaret | null;
   /**
-   * Source offset nearest a run-local point (`localX` from the left edge,
-   * `localY` from the text baseline, +y down) — lets a click descend into the
-   * rendered content. Omit to keep the run atomic for hit-testing.
+   * Optional: the source offset nearest a point in the run, so a click can land
+   * inside the drawn content. `localX` is from the run's left edge and `localY`
+   * from the text baseline, with +y down. Omit it and a click lands only at the
+   * run's edges.
    *
-   * `drag` requests finger-drag (magnifier) resolution: nearest stop in 2-D with
-   * row hysteresis, so a vertical drag descends smoothly between a math chip's
-   * stacked rows without flipping on wobble. `prevOffset` is the caret's current
-   * run-local offset (the hysteresis anchor), or null when the caret is not
-   * already inside this run. A precise tap leaves both unset.
+   * `drag` is set while a finger drags the caret with the magnifier. Then pick
+   * the nearest stop in both directions, and stay on the current row until the
+   * finger clearly leaves it, so a small wobble does not flip between a
+   * formula's rows. `prevOffset` is the caret's current offset in this run, or
+   * `null` when the caret is not in it. A plain tap leaves both unset.
    */
   hitTest?(
     text: string,
@@ -348,10 +375,9 @@ export interface MarkReplacement {
   ): MarkReplacementSelectionRect[];
 }
 /**
- * Everything a mark needs to declare its host-overlay slots — the inline
- * analogue of `NodeRegionCtx`, minus the per-block geometry. A mark isn't tied
- * to one block, so it reads the run's position/range off the active menu in
- * {@link MarkOverlayCtx.state} rather than from a block origin.
+ * What {@link Mark.overlays} receives: the editor state, the viewport and the
+ * current styles. A mark is not tied to one block, so it finds the run's
+ * position and range in the active menu on `state`.
  */
 export interface MarkOverlayCtx {
   readonly state: EditorState;
@@ -360,98 +386,121 @@ export interface MarkOverlayCtx {
 }
 
 /**
- * Base class for an inline mark's on-canvas behavior. One instance per type,
- * registered in a {@link MarkRegistry}. Stateless — shareable across editors.
+ * Base class for how an inline mark looks and behaves on the canvas. Extend it,
+ * give it a `type` and a `style()`, and pass an instance to {@link defineMark}
+ * as `render`. Do not keep state on the instance. One instance can serve many
+ * editors.
+ *
+ * ```ts
+ * class HighlightMark extends Mark {
+ *   readonly type = "highlight";
+ *   style() {
+ *     return { background: { color: "#fde68a", padding: 2, borderRadius: 3 } };
+ *   }
+ * }
+ * const schema = baseSchema.extend({
+ *   marks: [defineMark("highlight", { render: new HighlightMark() })],
+ * });
+ * ```
  */
 export abstract class Mark {
   /** The mark type this renders (matches the stored `Mark.type`). */
   abstract readonly type: string;
 
-  /** Visual channels this mark contributes; composed across a run's marks. */
+  /**
+   * How this mark paints its text: color, background, underline or strike. When
+   * several marks share a run, their styles are combined (see
+   * {@link MarkStyle}).
+   */
   abstract style(c: MarkStyleCtx): MarkStyle;
 
   /**
-   * Optional: the metric-affecting font variants this mark forces (bold weight,
-   * italic slant). Read by the measurement engine without a theme so wrap and
-   * caret geometry stay in sync with paint — the reason these live here and not
-   * as cosmetic {@link MarkStyle} channels (those never change advance width).
-   * Folded across a run (any flag set wins). Omit for a metric-neutral mark.
+   * Optional: font changes that change how wide the text is, such as bold or
+   * italic. The editor uses them when it measures text, so line wrapping and
+   * the caret match what is drawn. That is why they live here and not in
+   * {@link MarkStyle}. When several marks share a run, any mark that sets a
+   * flag turns it on. Omit it for a mark that does not change text width.
    */
   readonly metrics?: MarkMetrics;
 
   /**
-   * Whether a bare `ChangeApi.setMark(name)` may toggle this mark directly.
-   * Marks that need extra input to apply (a link's url, math's LaTeX) set
-   * `false`; they're applied with explicit attrs and a range, or through their
-   * own dedicated actions.
+   * Whether {@link ChangeApi | setMark(name)} with no options can toggle this
+   * mark on and off. Defaults to `true`. Marks that need extra input, such as a
+   * link's url or a formula's LaTeX, set `false`. For those, `setMark(name)`
+   * alone does nothing. Apply them with attrs and a range, or through their own
+   * actions.
    */
   readonly togglable: boolean = true;
 
   /**
-   * Optional: the typed-delimiter triggers that apply this mark over a held
-   * selection — VS Code-style auto-surround with markdown semantics. When a
-   * non-collapsed text selection is active and the user types a trigger char,
-   * the editor applies this mark to the selection instead of replacing it,
-   * mirroring what the delimiter means in markdown source (`*` → emphasis,
-   * `` ` `` → code, `$` → math).
+   * Optional: characters that wrap a selection in this mark when typed. Select
+   * some text and type `*`, and the text turns italic instead of being
+   * replaced. Each character means what it means in Markdown: `*` for emphasis,
+   * a backtick for code, `$` for math.
    *
-   * Marks may share a trigger char at different `level`s (emphasis `*`/1,
-   * strong `*`/2); repeated presses over the held selection then walk the
-   * delimiter-count combinations exactly as markdown reads them — `*` →
-   * *emphasis*, `**` → **strong**, `***` → both, a fourth press back to
-   * plain. A single-mark trigger is a plain toggle (`$` wraps as math, `$`
-   * again unwraps). Omit for a mark with no typed delimiter (link).
+   * Marks can share a character at different `level`s, like emphasis (`*`,
+   * level 1) and strong (`*`, level 2). Typing it again over the same selection
+   * then steps through the Markdown meanings: one press is italic, two is bold,
+   * three is both, and a fourth goes back to plain. A character only one mark
+   * uses just toggles that mark (a backtick wraps the text as code, and a
+   * backtick again unwraps it). Omit it for a mark with no typed character,
+   * such as a link.
    *
-   * Consumed generically by `wrapSelectionOnInput` (actions/wrap-selection),
-   * gated per document by `DataSchema.isMarkAllowed` and per block by the
-   * block's `hasFormats` capability, like every other mark application.
+   * The wrap only happens where the mark could be applied anyway: the schema
+   * must allow the mark, and the block must accept formatting.
    */
+  // Consumed generically by `wrapSelectionOnInput` (actions/wrap-selection),
+  // gated by `DataSchema.isMarkAllowed` and the block's `hasFormats`
+  // capability.
   readonly selectionWrap?: readonly SelectionWrapTrigger[];
 
   /** If set, this mark replaces glyph rendering for its run (inline math). */
   readonly replacement?: MarkReplacement;
 
   /**
-   * Markdown/HTML serialization facet — how this mark round-trips on export.
-   * Declared here so the Mark is the single source of truth for ALL of a mark
-   * type's facets (the inline analogue of a Node owning its codec); the
-   * canvas-free DataSchema reads it off the registered mark. Omit for a mark
-   * that survives only via the CRDT (it's dropped from markdown/HTML export).
+   * Optional: how this mark is written to and read from Markdown and HTML. Set
+   * it here or on {@link defineMark}, not both: if the two codecs differ,
+   * building the schema throws an error. If neither has a codec, the mark stays
+   * in the document but is dropped from Markdown and HTML export.
    */
+  // Declared on the Mark so it is the single source of truth for the mark
+  // type's facets; the canvas-free DataSchema reads it off the registered mark.
   readonly codec?: MarkCodec;
 
   /**
-   * Optional: the host-rendered overlays this mark wants right now (an inline
-   * editor for the run under the active menu, …), derived from the current UI
-   * state. The inline analogue of `Node.overlays`: identity + geometry only —
-   * the host maps {@link NodeOverlay.key} to a component and mounts it at the
-   * returned `rect`. Marks aren't tied to one block, so this is consulted once
-   * per registered mark by `editor.host.collectOverlays()`; read the run's
-   * block/range/position off `c.state`'s active menu. Return `[]` (or omit) for
-   * none.
+   * Optional: the host UI this mark wants on screen right now, such as an
+   * inline editor for the run under the open menu. Works like `Node.overlays`.
+   * Each overlay gives a key, its block id and a place (`rect`). The host maps
+   * {@link NodeOverlay.key} to its own component and mounts it at `rect`.
+   *
+   * A mark is not tied to one block, so `editor.host.collectOverlays()` asks
+   * each registered mark once. Read the run's block and range from the active
+   * menu on `c.state`. Return `[]`, or leave the method out, for none.
    */
   overlays?(c: MarkOverlayCtx): readonly NodeOverlay[];
 
   /**
-   * Optional: register this mark's action-bus handlers for the instance. Called
-   * once at mount with the per-instance {@link ActionBus} (the inline analogue of
-   * {@link import("../nodes/Node").Node.registerActions}). This is how a mark
-   * contributes pointer/cursor behavior — LinkMark claims Ctrl/Cmd+click
-   * (`TEXT_CLICK`) to open the URL and observes `POINTER_MOVE` to drive its hover
-   * tooltip; a mark can observe `CURSOR_MOVED` to react when an arrow key steps
-   * the caret across its span. The registry is per-editor-instance, so handlers
-   * never leak across editors on the same page.
+   * Optional: add this mark's action handlers. The editor calls it once, when
+   * the editor is created, with that editor's own {@link ActionBus}. So
+   * handlers never leak into another editor on the page. Works like
+   * {@link Node.registerActions}.
+   *
+   * This is how a mark adds pointer or caret behavior. For example, the link
+   * mark claims Ctrl/Cmd+click (`TEXT_CLICK`) to open the url, and watches
+   * `POINTER_MOVE` to show its hover tooltip. A mark can watch `CURSOR_MOVED`
+   * to react when an arrow key moves the caret across it.
    */
   registerActions?(bus: ActionBus): void;
 
   /**
-   * Optional: how this mark's run behaves under the caret when it is **atomic**
-   * (an inline-math chip, whose visible chars ARE its source) — the inline
-   * analogue of {@link import("../nodes/Node").Node.caret}. The common case is
-   * `caret.atomicSpans` returning the mark's own runs; the mark inspects the
-   * block's runs of its own type to answer per-run. A mark with no atomic runs
-   * omits `caret`. The *effect* half (materializing a construct after an edit)
-   * is observed as the `TEXT_INPUTTED` action in {@link registerActions}.
+   * Optional: makes this mark's runs act as one unit under the caret, like an
+   * inline formula chip. The caret steps over the run instead of moving through
+   * its characters. Works like {@link Node.caret}.
+   *
+   * Usually you only supply `caret.atomicSpans`, returning this mark's own runs
+   * in the block. A mark with no such runs omits `caret`. To change the text
+   * after an edit, such as filling in `\frac` as `\frac{}{}` once it is typed,
+   * watch the `TEXT_INPUTTED` action in {@link Mark.registerActions}.
    */
   readonly caret?: CaretModel;
 
@@ -469,14 +518,13 @@ export abstract class Mark {
   caretEdgeFlag?(state: EditorState): "left" | "right" | null;
 }
 
-// ---------------------------------------------------------------------------
-// Mark registry — the per-editor-instance dispatch table that replaces the
-// hardcoded `f.type === "strong" | "code" | "link" | …` branches in the
-// renderer. Mirrors NodeRegistry: per instance (stored on EditorState.marks),
-// NOT a module global, so two editors on a page can register different mark
-// sets without clobbering each other.
-// ---------------------------------------------------------------------------
-
+/**
+ * The marks one editor can draw, looked up by mark type; the renderer asks it
+ * how to style each marked run instead of checking mark names itself. Each
+ * editor has its own registry (kept on its state as `marks`, not shared across
+ * the page), so two editors can register different marks without affecting
+ * each other. The mark-side twin of {@link NodeRegistry}.
+ */
 export class MarkRegistry {
   private readonly marks = new Map<string, Mark>();
 

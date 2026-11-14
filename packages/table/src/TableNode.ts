@@ -166,7 +166,10 @@ const EDGE_ADD_REGION = "table-edge-add";
 /** Separator between the block and the edge name in a hover target name. */
 const EDGE_ADD_TARGET = ":edge-add:";
 
-/** A table block: a bare identity whose content is its structured attachment. */
+/**
+ * A table block. The block stores no content itself. The table lives in a
+ * document attached to it, which {@link getTableDocument} returns.
+ */
 export interface TableBlock extends BlockRuntimeState {
   readonly type: "table";
 }
@@ -304,6 +307,11 @@ function tableStyle(styles: EditorStyles): TableBlockStyle {
   return styles.blocks.table;
 }
 
+/**
+ * The table block node: lays out and paints the grid, and handles the caret,
+ * typing and selection inside cells. {@link tableExtension} installs it for
+ * you; create one yourself only when you put a schema together by hand.
+ */
 export class TableNode extends Node<TableBlock> {
   readonly type = "table" as const;
   readonly types: readonly string[] = ["table"];
@@ -317,17 +325,16 @@ export class TableNode extends Node<TableBlock> {
   }
 
   /**
-   * A table's height comes from wrapping every cell, which is the expensive
-   * part — it needs canvas text metrics for every character in the grid. The
-   * estimate instead counts characters against an average glyph width, the same
-   * trade `TextNode.estimateHeight` makes, so a row with a paragraph in one cell
-   * is reported multiple lines tall without measuring anything.
-   *
-   * Assuming one line per row instead is not a cheaper approximation but a wrong
-   * one: the height index seeds every off-screen block with this number, so a
-   * table of wrapped cells claimed less flow height than it draws and the
-   * document below it shifted when the row was finally measured.
+   * A quick guess at the table's height in pixels, made without measuring any
+   * text. It counts each cell's characters against an average character width,
+   * like `TextNode.estimateHeight`, so a row with long text still counts as
+   * several lines tall. Returns `0` when the block has no table or the table
+   * has no rows.
    */
+  // One line per row is not a cheaper approximation but a wrong one: the height
+  // index seeds every off-screen block with this number, so a table of wrapped
+  // cells claimed less height than it draws and the document below shifted when
+  // the row was finally measured.
   estimateHeight(c: NodeLayoutCtx): number {
     const document = getTableDocument(c.block);
     if (!document) return 0;
@@ -1179,13 +1186,11 @@ export class TableNode extends Node<TableBlock> {
   // ── Caret and hit-testing ─────────────────────────────────────────────────
 
   /**
-   * A pointer inside the table always resolves to a cell caret — the table has
-   * no flat text for the ordinary path to land in, and clamping to the nearest
-   * cell is what lets a drag that strays outside the grid keep selecting.
-   *
-   * In a wide table the point is also held inside the page-wide window first,
-   * so a drag out past its side selects up to the column at the edge rather
-   * than reaching a column scrolled out of sight.
+   * Turns a pointer position into a caret in the nearest cell, so a drag that
+   * leaves the grid keeps selecting. A point on a formula in a cell lands
+   * inside the formula, just as it does in a paragraph. In a wide table a drag
+   * past the side stops at the column at the edge, not at a column scrolled out
+   * of sight. Returns `null` when the block has no table or no cell is found.
    */
   contentSelectionFromPoint(
     passedLayout: NodeLayout,
@@ -1223,7 +1228,10 @@ export class TableNode extends Node<TableBlock> {
     );
   }
 
-  /** Place the caret for a cell address — the inverse of the hit-test above. */
+  /**
+   * Where to draw the caret for a spot in a cell, or inside a formula in a
+   * cell. Returns `null` when the spot is not in this table.
+   */
   contentCaretRect(
     passedLayout: NodeLayout,
     point: ContentPoint,
@@ -1266,8 +1274,11 @@ export class TableNode extends Node<TableBlock> {
   }
 
   /**
-   * The band a range paints and the edges its touch handles hang from — the
-   * same band {@link paintContentBand} fills, so a handle sits on its corner.
+   * The rectangles a selected range covers in the table, and where its touch
+   * handles go. These are the same rectangles the selection is painted in, so
+   * each handle sits on a corner. In a wide table only the part in view counts.
+   * Returns `null` when the range is empty, is not in this table, or has no
+   * part in view.
    */
   contentSelectionGeometry(
     passedLayout: NodeLayout,
@@ -1315,29 +1326,28 @@ export class TableNode extends Node<TableBlock> {
   // ── Editing affordances ───────────────────────────────────────────────────
 
   /**
-   * The column-resize handles: one grab band on every interior column edge,
-   * and one on the grid's right edge.
+   * The parts of the table you can grab: the strips at the outer edge that add
+   * a row or column, the scrollbar of a wide table, the grip that moves a
+   * column, and the column edges that resize. An empty table has none. A
+   * one-column table has no move grip and no resize edges. In a read-only
+   * editor the edges do not resize.
    *
-   * An interior edge trades width between the two columns it separates, which
-   * keeps the grid's total width fixed by construction. The right edge is the
-   * one that changes it: dragging it out widens the last column and the table
-   * with it, past the page if need be — the table then scrolls sideways — and
-   * dragging it back in narrows them down to the table's automatic width, never
-   * under it. The other columns keep their widths either way. In a wide table
-   * only the edges in view can be grabbed, and the right one is in view only
-   * once the table is scrolled to its end, where it sits on the page's edge:
-   * from there the drag pulls the grid through the window instead of moving
-   * the edge, and a pointer held at the screen's edge keeps it growing.
+   * Dragging the edge between two columns moves width from one to the other.
+   * The table's total width stays the same. Dragging the right edge changes the
+   * table's width. Out makes the last column and the table wider, even past the
+   * page, and the table then scrolls sideways. In makes them narrower, but
+   * never below the table's automatic width. In a wide table you can only grab
+   * the edges that are in view.
    *
-   * On touch the drag arms behind a short hold rather than on contact. A column
-   * edge sits in the middle of the reading area, where scrolls and long-press
-   * selections begin; capturing the pointer on contact would snag both. While
-   * the hold is pending the page still scrolls, and any real scroll cancels it
-   * by moving — so only a finger that lands on the hairline and stays there
-   * resizes. The edge lights up the moment the hold takes, which alongside the
-   * haptic is how a finger learns the grab is live: the mouse reads that from
-   * its hover, and touch has none.
+   * On touch, a resize starts only after a short hold on the edge, so scrolling
+   * and long-press selection still work. The edge lights up when the hold
+   * takes.
    */
+  // Right edge at the end of a scrolled table sits on the page edge: the drag
+  // pulls the grid through the window instead of moving the edge, and a pointer
+  // held at the screen edge keeps it growing. Touch: any real scroll cancels
+  // the pending hold by moving; the edge lighting up plus the haptic is how a
+  // finger learns the grab is live, since touch has no hover.
   regions(c: NodeRegionCtx): readonly NodeHitRegion[] {
     const layout = viewedTableLayout(this.layout(c), c.state, c.block.id);
     if (layout.columns.length === 0 || layout.rows.length === 0) return [];
@@ -1687,8 +1697,11 @@ export class TableNode extends Node<TableBlock> {
   }
 
   /**
-   * The structural controls, anchored to the cell the caret is in. Geometry
-   * only — the host owns what they look like. See `./overlays`.
+   * Where the table's controls go, next to the cell the caret is in. It gives
+   * positions only. The host decides what the controls look like, under the
+   * {@link TABLE_TOOLS_OVERLAY} key. Returns an empty list in a read-only
+   * editor, when the caret is not in this table, or when its cell is scrolled
+   * out of view.
    */
   overlays(c: NodeRegionCtx): readonly NodeOverlay[] {
     const overlay = tableToolsOverlay(

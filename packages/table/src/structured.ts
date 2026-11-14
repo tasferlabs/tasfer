@@ -50,27 +50,46 @@ import {
   validateStructuredDocument,
 } from "@tasfer/editor/sync/structured-content";
 
-/** Adapter discriminator stored in `StructuredDocument.kind`. */
+/**
+ * The `kind` every table document has. Check `StructuredDocument.kind` against
+ * it to tell a table apart from other attached documents.
+ */
 export const TABLE_STRUCTURED_KIND = "table";
 
-/** Node types inside a table document. */
+/** Node type of a table document's root: the table itself. */
 export const TABLE_NODE = "table";
+/** Node type of a column inside a table document. */
 export const COLUMN_NODE = "column";
+/** Node type of a row inside a table document. */
 export const ROW_NODE = "row";
+/**
+ * Node type of a cell inside a table document. A cell sits in a row and names
+ * the column it belongs to.
+ */
 export const CELL_NODE = "cell";
 
-/** Child slots. */
+/** Name of the child list on the table root that holds its columns. */
 export const COLUMNS_SLOT = "columns";
+/** Name of the child list on the table root that holds its rows. */
 export const ROWS_SLOT = "rows";
+/** Name of the child list on a row that holds its cells. */
 export const CELLS_SLOT = "cells";
 
-/** The character-CRDT field a cell's text lives in. */
+/** Name of the text field that holds a cell's text. */
 export const CELL_TEXT_FIELD = "text";
 
-/** Horizontal alignment of a column. `null` is the reader's default. */
+/**
+ * Horizontal alignment of a column. When a column has no alignment,
+ * {@link columnAlign} returns `null` instead, and the default alignment is
+ * used.
+ */
 export type TableAlign = "left" | "center" | "right";
 
-/** The stable attachment address for a table block. */
+/**
+ * The key a block's table document is stored under in
+ * `block.structuredContent`. It is the same every time for the same block id.
+ * Throws when `blockId` is empty.
+ */
 export function tableContentIdForBlock(blockId: string): string {
   return structuredContentId(blockId, TABLE_STRUCTURED_KIND);
 }
@@ -93,15 +112,13 @@ export function columnAlign(column: StructuredNode): TableAlign | null {
 }
 
 /**
- * A column's explicit width, as a fraction of the grid, or `null` when it is
- * sized from its content.
- *
- * A fraction and not a pixel count: the grid is re-fitted to whatever width the
- * page has, and the same document is opened on a phone and on a desktop — a
- * stored pixel width would be wrong on one of them. Out-of-range values are
- * read as "no width" rather than clamped, so a document written by a future
- * version that means something else by them degrades to automatic sizing.
+ * A column's set width, as a fraction of the table's width (between 0 and 1).
+ * Returns `null` when the column sizes itself to its content. A stored value
+ * outside that range also returns `null`.
  */
+// A fraction, not pixels: the same document opens on a phone and a desktop.
+// Out-of-range values read as no width rather than clamped, so a future version
+// that means something else by them degrades to automatic sizing.
 export function columnWidth(column: StructuredNode): number | null {
   const width = column.attrs.width;
   return typeof width === "number" &&
@@ -113,22 +130,22 @@ export function columnWidth(column: StructuredNode): number | null {
 }
 
 /**
- * The most a dragged table may be widened to, in page widths. A sanity bound on
- * what a drag writes and what a reader accepts, not a layout rule.
+ * The widest a table can be dragged, in page widths. A stored width above it is
+ * ignored and the table uses its automatic width.
  */
 export const MAX_TABLE_WIDTH = 8;
 
 /**
- * How wide someone dragged the whole table, in page widths (`1.5` is half again
- * as wide as the page), or `null` when it is as wide as the page and its column
- * count make it (see `tableGridWidth`).
- *
- * Page widths for the reason a column width is a fraction: the same document
- * opens on a phone and a desktop. It lives on the root node, so a version that
- * predates it keeps the attr and draws the table at its automatic width, with
- * the columns in the same proportions. Values outside `(1, MAX_TABLE_WIDTH]`
- * are read as "no width".
+ * How wide someone dragged the whole table, in page widths. `1.5` is half again
+ * as wide as the page. Returns `null` when the table has its automatic width,
+ * which comes from the page width and the number of columns. A stored value
+ * outside `(1, MAX_TABLE_WIDTH]` also returns `null`. See
+ * {@link MAX_TABLE_WIDTH}.
  */
+// Page widths for the same reason column widths are fractions. It lives on the
+// root node, so an older version keeps the attr and draws the table at its
+// automatic width with the same column proportions. Automatic width: see
+// `tableGridWidth` in ./geometry.
 export function tableWidth(root: StructuredNode | undefined): number | null {
   const width = root?.attrs.width;
   return typeof width === "number" &&
@@ -157,8 +174,9 @@ export function cellText(
 export interface TableRowView {
   readonly node: StructuredNode;
   /**
-   * One entry per column, in column order. `undefined` is a cell this row does
-   * not have — a hole left by a concurrent add-column/add-row, rendered empty.
+   * One entry per column, in column order. `undefined` means this row has no
+   * cell for that column. This happens when two people add a row and a column
+   * at the same time. It is drawn as an empty cell.
    */
   readonly cells: readonly (StructuredNode | undefined)[];
 }
@@ -171,16 +189,16 @@ export interface TableView {
 }
 
 /**
- * Resolve a table document for reading.
- *
- * Builds ONE child index for the whole document rather than asking per row: a
- * layout pass walks every row and every cell, and the unindexed lookup scans
- * all nodes each time, so a large table would otherwise be quadratic per frame.
- *
- * Should a row somehow hold two cells for one column (only reachable from a
- * malformed remote document — the editing commands cannot produce it), the
- * first in sibling order wins, deterministically on every peer.
+ * Reads a table document as columns and rows. Each row lists one cell per
+ * column, in column order. A cell the row does not have is `undefined`. If the
+ * root is not a table, you get no root, no columns and no rows. If a broken
+ * document has two cells for one column in a row, the first one wins.
  */
+// Builds one child index for the whole document rather than asking per row: a
+// layout pass walks every row and cell, and the unindexed lookup scans all
+// nodes each time, so a large table would otherwise be quadratic per frame. Two
+// cells for one column is only reachable from a malformed remote document;
+// first in sibling order wins on every peer.
 export function readTable(document: StructuredDocument): TableView {
   const root = document.nodes[document.rootId];
   if (!root || root.type !== TABLE_NODE) {
@@ -218,22 +236,22 @@ export function readTable(document: StructuredDocument): TableView {
   return { root, columns, rows };
 }
 
-/** The plain content a table is built from — one cell's text and its marks. */
+/** One cell's content before the table is built: its text and its marks. */
 export interface TableCellSeed {
   readonly charRuns: readonly CharRun[];
   readonly marks?: readonly MarkRange[];
   /**
-   * Attachments the cell's structured marks (an inline formula) point at.
-   * They do not live in the table document: the caller carries them onto the
-   * table block, beside it, the way a paragraph carries its own.
+   * Attachments the cell's marks point at, such as an inline formula. They are
+   * not stored in the table document. The caller puts them on the table block,
+   * the way a paragraph keeps its own.
    */
   readonly attachments?: StructuredContentMap;
 }
 
 /**
- * A whole table's content, before it has identities. This is what a Markdown
- * parse produces and what {@link buildTableDocument} turns into CRDT state.
- * `rows[0]` is the header row.
+ * A whole table's content, before it gets ids. A Markdown parse produces it,
+ * and {@link buildTableDocument} turns it into a table document. `rows[0]` is
+ * the header row. `aligns[i]` is the alignment of column `i`.
  */
 export interface TableSeed {
   readonly aligns: readonly (TableAlign | null)[];
@@ -251,12 +269,15 @@ export interface BuildTableOptions {
 }
 
 /**
- * Build the structured document for a table.
- *
- * Attachments are created eagerly by exactly one peer (the one typing or
- * importing), so no cross-peer identity convergence is required here — the
- * same contract display math is built under.
+ * Builds a table document from plain cell content. The table gets as many
+ * columns as its widest row or its `aligns` list. A shorter row is filled out
+ * with empty cells. Without `options.identityAllocator`, ids are made from
+ * `options.contentId`, so the same input always gets the same ids. Throws if
+ * the built document is not valid.
  */
+// Attachments are created eagerly by exactly one peer (the one typing or
+// importing), so no cross-peer identity convergence is needed here, the same
+// contract display math is built under.
 export function buildTableDocument(
   seed: TableSeed,
   options: BuildTableOptions,
@@ -350,7 +371,10 @@ export function buildTableDocument(
   return validated;
 }
 
-/** The atomic initializer a `content_edit` operation carries for a new table. */
+/**
+ * Builds a new table document and wraps it as the edit that creates it. Takes
+ * the same input as {@link buildTableDocument} and throws in the same case.
+ */
 export function tableDocumentInit(
   seed: TableSeed,
   options: BuildTableOptions,
@@ -376,9 +400,9 @@ export function cellRunsFromText(
 }
 
 /**
- * Validate both the generic wire shape and this feature's own tree schema, so a
- * malformed document from a peer on a different version is rejected whole
- * rather than rendered as a half-built grid.
+ * Checks that a document is a well-formed table. Returns the checked document,
+ * or `undefined` if anything is wrong. A broken table, for example from another
+ * app version, is rejected whole, so it is never drawn half-built.
  */
 export function validateTableDocument(
   value: StructuredDocument,
@@ -428,14 +452,14 @@ export function validateTableDocument(
 }
 
 /**
- * Re-address a table when a snapshot or import mints a new block id.
- *
- * The generic clone rewrites placements, text and mark anchors, but copies
- * attrs verbatim — it cannot know that `columnId` is an identity. Rewriting it
- * here is what keeps every cell attached to its column in the copy; without it
- * the clone's cells would all name columns that no longer exist and the table
- * would read as entirely empty.
+ * Copies a table document under a new content id, with new ids throughout. Use
+ * it when a snapshot or import gives the table block a new id. Every cell stays
+ * attached to its column in the copy.
  */
+// The generic clone copies attrs verbatim and cannot know `columnId` is an
+// identity. Without rewriting it here, every cell would name a column that no
+// longer exists and the table would read as empty. A dangling reference is kept
+// as it is.
 export function cloneTableDocument(
   document: StructuredDocument,
   targetContentId: string,

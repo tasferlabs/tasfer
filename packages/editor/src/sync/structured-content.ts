@@ -40,12 +40,13 @@ export type StructuredValue =
   | { readonly [key: string]: StructuredValue };
 
 /**
- * The complete structural address of a node.
+ * Where a node sits in the tree.
  *
- * `slot` names a child collection on the parent (for example `children`,
- * `numerator`, or `cells`).  The core treats every slot as an ordered list;
- * adapters may impose cardinality such as exactly one child.  Sibling order is
- * `(orderKey, id)`, so equal keys from concurrent inserts remain deterministic.
+ * `slot` names a child list on the parent, such as `children`, `numerator` or
+ * `cells`. Every slot is an ordered list, and a feature may allow only one
+ * child in it. Siblings sort by `orderKey`, then by `id`, so two inserts with
+ * the same key land in the same order for everyone. The root uses `parentId:
+ * null` with an empty `slot` and `orderKey`.
  */
 export interface StructuredPlacement {
   readonly parentId: string | null;
@@ -59,21 +60,27 @@ export interface StructuredNode {
   readonly type: string;
   readonly placement: StructuredPlacement;
   readonly attrs: Readonly<Record<string, StructuredValue>>;
-  /** Character-CRDT fields (`text`, `latex`, `name`, ...), keyed by adapter. */
+  /**
+   * The node's text fields, such as `text`, `latex` or `name`. The feature that
+   * owns the document picks the field names.
+   */
   readonly textFields: Readonly<Record<string, readonly CharRun[]>>;
   /**
-   * Inline marks over {@link textFields}, keyed by the SAME field name — so a
-   * nested text field can carry bold/link/… exactly as block text does, and
-   * resolves through the same `resolveMarkRunsFromChars`. Anchored to char
-   * identities, so a mark survives concurrent edits inside its range.
-   *
-   * Unlike a block's `formats`, the spans carry no HLC: structured edits fold in
-   * canonical op-log order, so the last applied write already wins. Absent (not
-   * an empty object) when a node carries no marks, which keeps documents that
-   * never use them byte-identical to before this field existed.
+   * Inline marks (bold, link, ...) on the node's text fields, keyed by the same
+   * field name as {@link textFields}. They work like marks on block text. A
+   * mark is tied to its characters, so it stays in place when others edit
+   * inside its range. Missing (not `{}`) when the node has no marks.
    */
+  // Unlike a block's formats, the spans carry no HLC: structured edits fold in
+  // canonical op-log order, so the last applied write already wins. Absent
+  // rather than {} keeps documents that never use marks byte-identical to
+  // before this field existed.
   readonly markFields?: Readonly<Record<string, readonly MarkRange[]>>;
-  /** Node tombstone. Descendants remain in the store and become visible again. */
+  /**
+   * `true` when the node is deleted. It stays in the document, so undo can
+   * bring it back. Its children are hidden with it and show again once it is
+   * restored.
+   */
   readonly deleted?: boolean;
 }
 
@@ -88,17 +95,20 @@ export interface StructuredNodeSeed {
 }
 
 /**
- * A normalized structured document. `rootId` is immutable and doubles as the
- * stable content id at the editor operation boundary.
+ * A tree of nodes that a block keeps beside its text, such as a formula or a
+ * table. `rootId` never changes. It is also the attachment's content id: its
+ * key in the block's `structuredContent`.
  */
 export interface StructuredDocument {
   readonly version: 1;
   /** Extension-owned adapter key (for example `math`), never interpreted here. */
   readonly kind: string;
   /**
-   * `block` means this tree, rather than the block's compatibility char runs,
-   * owns the block's editable content. Generic flat-text APIs must not mutate
-   * those shadow runs. Omit for supplemental structured attachments.
+   * Set to `"block"` when this tree, not the block's own text, holds what the
+   * user edits (a table, for example). The block's own text is then kept only
+   * for compatibility, and generic text edits must not change it. Leave it out
+   * for an attachment that only adds to the block's text, such as an inline
+   * formula.
    */
   readonly authority?: "block";
   readonly rootId: string;
@@ -109,13 +119,13 @@ export interface StructuredDocument {
 export type StructuredContentMap = Readonly<Record<string, StructuredDocument>>;
 
 /**
- * Deterministically address one extension-owned attachment on a block.
- *
- * Attachment addressing is not identity allocation: the block identity and a
- * schema-stable slot name fully determine it. Every structured feature uses
- * this core convention instead of publishing a `featureContentIdForBlock`
- * scheme of its own. Slot encoding keeps future names containing `/` distinct.
+ * The content id of one attachment on a block. The same `blockId` and `slot`
+ * always give the same id, so every peer finds the attachment under the same
+ * key. Throws when `blockId` or `slot` is empty.
  */
+// Attachment addressing is not identity allocation. Every structured feature
+// uses this core convention instead of publishing a featureContentIdForBlock
+// scheme of its own. Slot encoding keeps future names containing `/` distinct.
 export function structuredContentId(blockId: string, slot: string): string {
   if (blockId.length === 0 || slot.length === 0) {
     throw new Error("Structured content requires a block id and slot");
@@ -130,7 +140,10 @@ export function hasStructuredContent(block: {
   return Object.keys(block.structuredContent ?? {}).length > 0;
 }
 
-/** Whether any attachment owns this block's editable content surface. */
+/**
+ * `true` when one of the block's attachments has `authority: "block"`. That
+ * attachment, not the block's own text, holds what the user edits.
+ */
 export function hasStructuredBlockAuthority(block: {
   readonly structuredContent?: StructuredContentMap;
 }): boolean {
@@ -264,7 +277,11 @@ export type StructuredEdit =
       readonly value: boolean;
     };
 
-/** Page-op payload: atomically initialize an attachment or edit it thereafter. */
+/**
+ * What one `content_edit` operation carries: create an attachment
+ * (`document_init`), remove it (`document_delete`), or make one
+ * {@link StructuredEdit} inside it.
+ */
 export type StructuredMutation =
   | {
       readonly kind: "document_init";
@@ -276,7 +293,20 @@ export type StructuredMutation =
     }
   | StructuredEdit;
 
-/** Create an empty store. The root node itself arrives as a `node_insert`. */
+/**
+ * Create an empty structured document with no nodes. Add the root node yourself
+ * with a `node_insert` edit. Its id is `rootId`, and its placement is
+ * `parentId: null` with an empty `slot` and `orderKey`.
+ *
+ * ```ts
+ * const rootId = structuredContentId(block.id, "formula");
+ * let doc = createStructuredDocument("math", rootId);
+ * doc = applyStructuredEdit(doc, {
+ *   kind: "node_insert",
+ *   node: { id: rootId, type: "row", placement: { parentId: null, slot: "", orderKey: "" } },
+ * });
+ * ```
+ */
 export function createStructuredDocument(
   kind: string,
   rootId: string,
@@ -284,7 +314,10 @@ export function createStructuredDocument(
   return { version: 1, kind, rootId, nodes: {} };
 }
 
-/** Read one node, including tombstones. */
+/**
+ * One node by id, or `undefined` when it is not there. Deleted nodes are
+ * returned too, with `deleted: true`.
+ */
 export function getStructuredNode(
   document: StructuredDocument,
   nodeId: string,
@@ -293,11 +326,12 @@ export function getStructuredNode(
 }
 
 /**
- * The inline marks over one text field, in canonical order.
+ * The inline marks on one text field, in a fixed order. Empty when there are
+ * none.
  *
- * Pair with `iterateAllChars` over the same field and hand both to
- * `resolveMarkRunsFromChars` to get the field's mark runs at caret-edge
- * offsets — the identical resolution block text uses.
+ * To get mark runs at visible offsets, as block text has them, pass the field's
+ * characters (from `iterateAllChars`) and these marks to
+ * `resolveMarkRunsFromChars`.
  */
 export function getStructuredMarks(
   document: StructuredDocument,
@@ -307,7 +341,10 @@ export function getStructuredMarks(
   return document.nodes[nodeId]?.markFields?.[field] ?? [];
 }
 
-/** Read the visible value of one character-CRDT field. */
+/**
+ * The visible text of one text field, without deleted characters. An empty
+ * string when the node or field is missing.
+ */
 export function getStructuredText(
   document: StructuredDocument,
   nodeId: string,
@@ -325,18 +362,17 @@ function childGroupKey(parentId: string, slot: string): string {
 }
 
 /**
- * Every parent/slot's children, resolved once for a whole document.
+ * All of a document's children, grouped by parent and slot. Build it with
+ * {@link buildStructuredChildIndex} and pass it to
+ * {@link getStructuredChildren} when you walk a whole tree, such as a big
+ * table. Without it, each call scans every node.
  *
- * {@link getStructuredChildren} answers one question by scanning every node, so
- * a caller that walks a whole tree is quadratic in the node count. That is
- * nothing for the small trees a formula is, and it is the wrong shape for a
- * grid: a 100-row table asks 100 times, a spreadsheet-sized document far more.
- *
- * Build one of these before such a walk and pass it back in. It is a value
- * derived from — and only valid for — the exact `document` it was built from;
- * it is deliberately NOT a cache hidden inside this module, so two editors on
- * one page can never share or invalidate each other's.
+ * An index only fits the exact document it was built from. Build a new one
+ * after an edit.
  */
+// Deliberately NOT a cache hidden inside this module, so two editors on one
+// page can never share or invalidate each other's. Walking a tree without it is
+// quadratic in node count: fine for a formula, wrong for a 100-row table.
 export interface StructuredChildIndex {
   readonly groups: ReadonlyMap<string, readonly StructuredNode[]>;
 }
@@ -359,15 +395,17 @@ export function buildStructuredChildIndex(
 }
 
 /**
- * Resolve direct children in deterministic document order.
+ * The direct children of `parentId` in one `slot`, in document order. Deleted
+ * children are left out unless you pass `includeDeleted`. A missing parent
+ * gives an empty list. So does a deleted parent, unless you pass
+ * `includeDeleted`.
  *
- * Orphans are retained by the reducer but do not appear until their parent is
- * present. A deleted parent is not traversable; callers naturally hide its
- * whole subtree by never asking for its children.
+ * A node whose parent is missing stays in the document, but is not listed until
+ * the parent arrives.
  *
- * Pass `index` (see {@link buildStructuredChildIndex}) when walking a whole
- * tree; without it every call scans the document's nodes. The two paths return
- * the same nodes in the same order.
+ * To walk a whole tree, build one index with {@link buildStructuredChildIndex}
+ * and pass it as `index`. Without it, every call scans all nodes. Both ways
+ * give the same nodes in the same order.
  */
 export function getStructuredChildren(
   document: StructuredDocument,
@@ -398,7 +436,11 @@ export function getStructuredChildren(
     .sort(compareStructuredSiblings);
 }
 
-/** Apply one mutation. Malformed or inapplicable edits are deterministic no-ops. */
+/**
+ * Apply one edit and return the new document. An edit that is broken or does
+ * not fit, such as one for a missing node, changes nothing: you get the same
+ * document object back.
+ */
 export function applyStructuredEdit(
   document: StructuredDocument,
   edit: StructuredEdit,
@@ -423,7 +465,11 @@ export function applyStructuredEdit(
   }
 }
 
-/** Apply an already-canonically-ordered batch. */
+/**
+ * Apply several edits, one after another in the order given, and return the new
+ * document. It does not sort them. Pass them in the order the operation history
+ * has them, so every peer ends up with the same document.
+ */
 export function applyStructuredEdits(
   document: StructuredDocument,
   edits: readonly StructuredEdit[],
@@ -434,11 +480,17 @@ export function applyStructuredEdits(
 }
 
 /**
- * Apply the payload carried by a generic page-level `content_edit` operation.
- * Initialization is first-writer-wins in canonical op-log order; later init
- * payloads are deterministic no-ops. Edits received before initialization are
- * retained in the op log and become meaningful if canonical replay orders a
- * valid initializer first.
+ * Apply what one `content_edit` operation carries to an attachment, and return
+ * the result. `document` is the attachment now, or `undefined` if it does not
+ * exist yet.
+ *
+ * - `document_init` creates the attachment. If it already exists, nothing
+ *   changes: the first init wins. An init whose root id is not `contentId`, or
+ *   that is not valid, gives `undefined`.
+ * - `document_delete` returns `undefined`.
+ * - Any other edit returns `undefined` while the attachment does not exist. The
+ *   edit stays in the operation history, and counts if a later replay puts a
+ *   valid init before it.
  */
 export function applyStructuredMutation(
   document: StructuredDocument | undefined,
@@ -455,13 +507,14 @@ export function applyStructuredMutation(
 }
 
 /**
- * Compute emit-time inverses against the pre-edit value.
- *
- * Text deletion may restore several runs but still needs only one insert: all
- * characters remain as tombstones, so the insertion path simply clears their
- * deletion bits. The returned array shape matches page-operation inversion and
- * leaves room for future edits that need multiple inverses.
+ * The edits that undo `edit`, worked out from the document before `edit` ran.
+ * Returns an empty array when `edit` changes nothing, and for inserting the
+ * root node, which is never undone.
  */
+// Text deletion may restore several runs but still needs only one insert: all
+// characters remain as tombstones, so the insertion path clears their deletion
+// bits. The array shape matches page-operation inversion and leaves room for
+// edits that need several inverses.
 export function invertStructuredEdit(
   edit: StructuredEdit,
   documentBefore: StructuredDocument,
@@ -627,8 +680,9 @@ export function invertStructuredEdit(
 }
 
 /**
- * Return a JSON-stable snapshot (sorted node/attribute/text-field keys).
- * Tombstones and character deletion masks are intentionally preserved.
+ * Return a copy with its nodes, attributes and text fields sorted by key, so
+ * the JSON comes out in a stable order. Deleted nodes and deleted characters
+ * are kept.
  */
 export function canonicalizeStructuredDocument(
   document: StructuredDocument,
@@ -795,7 +849,11 @@ export function cloneStructuredDocumentWithFreshIdentities(
   return cloned;
 }
 
-/** Validate and defensively clone a structured attachment received on the wire. */
+/**
+ * Check a structured document from outside, such as a file or another peer.
+ * Returns a clean copy when it is valid, or `undefined` when it is not. It
+ * never throws.
+ */
 export function validateStructuredDocument(
   value: StructuredDocument,
 ): StructuredDocument | undefined {

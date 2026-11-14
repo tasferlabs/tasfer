@@ -13,6 +13,12 @@ import type { OutputCtx } from "./codecs";
 import { inlineToMarkdown } from "./codecs/inline";
 import type { Block } from "./loadPage";
 
+/**
+ * Optional page details written as front matter (the `---` section at the top
+ * of a Markdown file): color, scheduled time, duration, all-day flag and
+ * whether the page is a task. Pass it to {@link serializeToMarkdown}; read it
+ * back with {@link parseFrontmatter}.
+ */
 export interface PageMetadata {
   color?: string | null;
   scheduledAt?: string | null;
@@ -21,11 +27,14 @@ export interface PageMetadata {
   task?: boolean;
 }
 
+/**
+ * Options for {@link serializeToMarkdown}: rewrite asset URLs as they are
+ * written out, and name the schema when the document uses custom block types.
+ */
 export interface MarkdownSerializeOptions {
   /**
-   * Map asset references (e.g. content-hash urls) to the url to emit.
-   * Identity by default. Export flows pass bundle-relative paths here
-   * instead of regex-rewriting the serialized output.
+   * Changes each asset URL as it is written, for example to a path inside an
+   * export folder. By default URLs are written unchanged.
    */
   mapAssetUrl?: (url: string) => string;
   /**
@@ -46,6 +55,18 @@ function serializeFrontmatter(metadata: PageMetadata): string {
   return `---\n${lines.join("\n")}\n---\n`;
 }
 
+/**
+ * Turns blocks into a Markdown string. Pass `metadata` to add front matter at
+ * the top. Deleted blocks are left out. Blocks whose type the schema does not
+ * know are left out too, so pass the schema your document uses. When no blocks
+ * are left, it returns an empty string, with no front matter.
+ *
+ * ```ts
+ * const markdown = serializeToMarkdown(page.blocks, page.metadata, {
+ *   schema: appSchema.data,
+ * });
+ * ```
+ */
 export function serializeToMarkdown(
   blocks: Block[],
   metadata?: PageMetadata,

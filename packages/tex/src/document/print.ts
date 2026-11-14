@@ -65,7 +65,10 @@ export interface MathDocumentSourceProjection {
   readonly literalBackslashes: readonly number[];
 }
 
-/** Serialize a structured math document to deterministic, canonical LaTeX. */
+/**
+ * Turns a formula into LaTeX source. The same formula always prints the same
+ * text.
+ */
 export function printMathDocument(document: MathDocument): string {
   return projectMathDocumentSource(document).latex;
 }

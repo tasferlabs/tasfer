@@ -7,16 +7,13 @@ import type { EditorApi, EditorStateSnapshot } from "./editor";
 import { mountEditor, type MountEditorOptions } from "./mount";
 
 /**
- * The three mutually exclusive content sources for {@link createEditor}. Supply
- * **at most one** of `markdown` / `blocks` / `doc` — the discriminated union
- * makes passing two a compile-time error (and `createEditor` also throws at
- * runtime, to backstop untyped JS callers). Passing none yields a blank
- * document.
- *
- * The `?: never` siblings on each variant are what enforce the exclusivity: if
- * you set `doc`, TypeScript narrows to the third variant, where
- * `markdown`/`blocks` are typed `never` and so can't also be set.
+ * Where {@link createEditor} gets its content: `markdown`, `blocks`, or an
+ * existing `doc`. Pass at most one. TypeScript rejects two, and `createEditor`
+ * throws if two reach it at runtime. Pass none for a blank document.
  */
+// The `?: never` siblings on each variant enforce the exclusivity: setting
+// `doc` narrows to the third variant, where `markdown`/`blocks` are typed
+// `never`.
 export type CreateEditorContent<
   D extends SchemaDefinition = BaseSchemaDefinition,
 > =
@@ -37,13 +34,14 @@ export type CreateEditorContent<
     }
   | {
       /**
-       * Attach an existing CRDT document (see `createDoc`). The editor renders
-       * and edits this doc: its local edits flow into the doc, and updates
-       * applied to the doc from elsewhere (`doc.applyUpdate`) flow into the
-       * editor. A doc already carries its content, and supersedes
-       * `crdtBinding`/`pageId` (it carries its own identity). When omitted, a
-       * private doc is created from `blocks`/`markdown` and exposed as
-       * `editor.doc`.
+       * An existing document to show (see {@link createDoc}). Edits in the
+       * editor go into the doc. Updates applied to the doc with
+       * `doc.applyUpdate` show up in the editor. The doc brings its own content
+       * and identity, so `pageId` and `crdtBinding` are not used.
+       * `editor.destroy()` leaves a doc you passed in working.
+       *
+       * When you leave `doc` out, the editor makes its own from `blocks` or
+       * `markdown` and exposes it as `editor.doc`.
        */
       doc: Doc<D>;
       markdown?: never;
@@ -51,22 +49,26 @@ export type CreateEditorContent<
     };
 
 /**
- * The non-content {@link createEditor} options, shared by every
- * {@link CreateEditorContent} variant. (`doc` is omitted from the inherited
- * `MountEditorOptions` here because it's one of the content sources above — the
- * union owns it so the exclusivity holds.)
+ * The {@link createEditor} options other than content. They work with every
+ * {@link CreateEditorContent} choice.
  */
+// `doc` is omitted from the inherited MountEditorOptions because it is one of
+// the content sources; the CreateEditorContent union owns it so the exclusivity
+// holds.
 export type CreateEditorBaseOptions<
   D extends SchemaDefinition = BaseSchemaDefinition,
 > = Omit<MountEditorOptions<D>, "doc" | "schema"> & {
   /** The host element the canvas mounts into. Sized to fill this element. */
   element: HTMLElement;
   /**
-   * The block/mark types this editor understands (see `defineNode` /
-   * `baseSchema.extend`). Drives parsing, serialization, CRDT validation, and
-   * which nodes render. Defaults to the built-in `baseSchema`. Ignored when a
-   * `doc` is supplied (the doc already carries its own schema) — but the
-   * `nodes` still take effect for rendering; pass a matching schema to both.
+   * The block and mark types this editor understands (see `defineNode` and
+   * `baseSchema.extend`). It decides how Markdown is read and written and which
+   * nodes are drawn. Its nodes and marks are used unless you pass `nodes` or
+   * `marks`. Defaults to `baseSchema`.
+   *
+   * When you pass a `doc`, the doc's own schema checks its content, but the
+   * editor still draws and edits with this one. So pass the same schema to
+   * both.
    */
   schema?: Schema<D>;
   /** Focus the editor and drop a caret in on mount. Default false. */
@@ -82,67 +84,71 @@ export type CreateEditorOptions<
 > = CreateEditorBaseOptions<D> & CreateEditorContent<D>;
 
 /**
- * The handle returned by {@link createEditor}: the full {@link Editor} action
- * surface plus the mount-level conveniences (focus / blur / teardown / portal).
+ * The handle {@link createEditor} returns. It has every {@link Editor} method,
+ * plus `doc`, `focus`, `blur`, `portalContainer` and a full `destroy`.
  *
- * Its `destroy()` performs the *complete* teardown — canvas layers, global
- * listeners, the portal, and the render loop — so always call it when removing
- * the editor (it supersedes the core `Editor.destroy`).
+ * Always call `destroy()` when you remove the editor. It replaces the plain
+ * `Editor.destroy` and also removes the canvas layers, page listeners, the
+ * portal and the render loop.
  */
 export interface TasferEditor<
   D extends SchemaDefinition = BaseSchemaDefinition,
 > extends EditorApi<D> {
   /**
-   * The CRDT document this editor renders and edits — the one passed via
-   * `CreateEditorOptions.doc`, or a private one created on mount. Sync and
-   * persistence go through it exclusively: `doc.applyUpdate(ops)` for inbound
-   * ops, `doc.on("update", …)` for outbound, `doc.encodeState()` to persist.
+   * The document this editor shows and edits: the `doc` you passed in, or one
+   * the editor made for itself. Sync and saving go only through it:
+   * `doc.applyUpdate(ops)` for incoming edits, `doc.on("update", …)` for
+   * outgoing ones, and `doc.encodeState()` to save.
    */
   readonly doc: Doc<D>;
   /**
-   * Read-only state snapshot for UI binding: the engine's
-   * {@link EditorStateSnapshot} (selection, active marks, caret block type,
-   * undo/redo readiness, focus) plus the attached `doc`. The raw internal
-   * `EditorState` is not exposed on this public handle; a first-party host that
-   * needs it diffs via the internal `subscribeRaw` (see
-   * `@tasfer/editor/internal`).
+   * `editor.state` tells you what is selected, which marks are active, the
+   * block type at the caret, whether undo and redo are possible, and whether
+   * the editor has focus (see {@link EditorStateSnapshot}). It also holds the
+   * attached `doc`. It is a snapshot: every edit makes a new one. So read
+   * `editor.state` when you need it, and do not keep an old copy.
    */
+  // The raw internal EditorState is not on this public handle. A first-party
+  // host that needs it diffs via the internal subscribeRaw
+  // (@tasfer/editor/internal).
   readonly state: EditorStateSnapshot & { readonly doc: Doc<D> };
   /** Container to mount React popovers/overlays into (slash menu, link editor). */
   readonly portalContainer: HTMLDivElement;
   /**
-   * Focus the editor and its hidden input surface so it can receive keyboard
-   * and IME input. Does not create, clear, or reposition the model selection.
+   * Gives the editor keyboard focus, so it gets typing and IME input. If the
+   * editor is editable and has no caret or selection yet, a caret is placed at
+   * the start. An existing caret or selection stays where it is.
    */
   focus: () => void;
   /**
-   * Blur the editor and its hidden input surface, clearing the model selection
-   * and dismissing the soft keyboard.
+   * Takes focus away from the editor and closes the soft keyboard. A selected
+   * range is cleared a moment later, unless focus comes back or a host menu is
+   * open.
    */
   blur: () => void;
-  /** Full teardown: canvas layers, global listeners, portal, render loop. */
+  /**
+   * Removes the editor completely: canvas layers, page listeners, the portal
+   * and the render loop. If the editor made its own doc, that doc is destroyed
+   * too. A doc you passed in keeps working.
+   */
   destroy: () => void;
 }
 
 /**
- * Convenience constructor: parse Markdown, mount the canvas editor into an
- * element, and return a single handle that merges the editor action API with
- * the mount lifecycle.
+ * Creates an editor inside `element` and returns its handle. Give it content as
+ * `markdown`, `blocks`, or an existing `doc`. Pass at most one: passing two or
+ * more throws. With none, the editor starts blank.
  *
- * A thin wrapper over `loadPage` + `mountEditor` — reach for `mountEditor`
- * directly when you want the lower-level split (e.g. to keep the `MountedEditor`
- * and `Editor` handles separate).
+ * Use {@link mountEditor} instead when you want the mount and the editor as
+ * separate handles.
  *
  * @example
- * const editor = createEditor({
- *   element: document.querySelector("#editor")!,
- *   markdown: "# Hello\n\nStart typing — **markdown** shortcuts work.",
- *   autofocus: true,
- * });
+ * const editor = createEditor({ element: document.querySelector("#editor")!,
+ * markdown: "# Hello\n\nStart typing — **markdown** shortcuts work.",
+ * autofocus: true, });
  *
- * editor.on("change", () => localStorage.setItem("draft", editor.getMarkdown()));
- * // …later
- * editor.destroy();
+ * editor.on("change", () => localStorage.setItem("draft",
+ * editor.getMarkdown())); // …later editor.destroy();
  */
 export function createEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
   options: CreateEditorOptions<D>,

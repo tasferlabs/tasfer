@@ -15,17 +15,17 @@ import { stateAction } from "../../action-bus";
 import { toggleFormat } from "../../actions/actions";
 
 /**
- * Toggle one inline mark, named as data.
+ * Toggle one inline mark over the selection, given by its name.
  *
- * The single choke point every mark toggle funnels through — the four keyboard
- * toggles below, and the host's `setMark`. A node whose text lives in a
- * structured attachment registers ONE handler here and gets bold, italic,
- * strike and code at once; without it, the toggle resolves a flat selection
- * range, finds none, and silently does nothing.
+ * Every mark toggle goes through this action: {@link TOGGLE_STRONG} and the
+ * other built-in toggles, and `setMark(name)` with no options. So a node that
+ * keeps its text in a block attachment, like a table cell, can handle this one
+ * action and get bold, italic, strike and code at once. Without such a handler,
+ * the toggle finds no plain text selection there and does nothing.
  *
- * The mark is a name, never a class, so core stays mark-agnostic: an unknown or
- * disallowed name no-ops in `toggleFormat` exactly as it did before.
+ * An unknown or disallowed mark name does nothing.
  */
+// The mark is a name, never a class, so core stays mark-agnostic.
 export const TOGGLE_MARK = stateAction<{ name: string }>(
   "toggle-mark",
   (state, { name }) => {
@@ -44,12 +44,15 @@ export const TOGGLE_EMPHASIS = stateAction("toggle-emphasis", (state) =>
   state.actionBus.dispatchState(TOGGLE_MARK, state, { name: "emphasis" }),
 );
 
-/** Toggle the `strike` (strike-through) mark over the selection. */
+/**
+ * Toggle the `strike` (strike-through) mark over the selection
+ * (Ctrl/Cmd+Shift+X).
+ */
 export const TOGGLE_STRIKE = stateAction("toggle-strike", (state) =>
   state.actionBus.dispatchState(TOGGLE_MARK, state, { name: "strike" }),
 );
 
-/** Toggle the `code` mark over the selection. */
+/** Toggle the `code` mark over the selection (Ctrl/Cmd+E). */
 export const TOGGLE_CODE = stateAction("toggle-code", (state) =>
   state.actionBus.dispatchState(TOGGLE_MARK, state, { name: "code" }),
 );

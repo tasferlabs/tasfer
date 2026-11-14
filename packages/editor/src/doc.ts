@@ -53,9 +53,9 @@ import { invariant } from "@shared/invariant";
 /** An applied batch of operations, delivered to `Doc.on("update")` listeners. */
 export interface DocUpdate {
   /**
-   * The freshly applied operations. For `applyUpdate` batches this contains
-   * only the ops that were NOT already known (version-vector filtered), in
-   * HLC order — re-delivering a known batch produces no update at all.
+   * The edits just applied. For `applyUpdate`, only the ones the doc did not
+   * have yet, sorted by their clock. A batch the doc already has fires no
+   * update at all.
    */
   ops: Operation[];
   /**
@@ -68,6 +68,11 @@ export interface DocUpdate {
   local: boolean;
 }
 
+/**
+ * Options for {@link createDoc}: the starting content (Markdown, blocks, or
+ * bytes saved earlier), the document's identity, and the schema it uses. Every
+ * field is optional.
+ */
 export interface CreateDocOptions<
   D extends SchemaDefinition = BaseSchemaDefinition,
 > {
@@ -82,23 +87,22 @@ export interface CreateDocOptions<
    */
   bytes?: Uint8Array;
   /**
-   * Operations to load into the log. Combine with `blocks` to restore the
-   * app-style "snapshot + ops since snapshot" shape — ops already reflected
-   * in the snapshot are skipped via their version-vector entries only when
-   * restoring from `bytes`; with plain `blocks` pass only the tail ops.
-   * Pass `ops: []` (and no content) for a doc that will be filled entirely
-   * by sync — it then starts truly empty, without the editable starter
-   * paragraph an empty doc otherwise gets.
+   * Edits to apply on top of the starting content. Every op here is applied. So
+   * with `blocks`, pass only the edits made after those blocks were saved.
+   * Ignored when `bytes` is given.
+   *
+   * Pass `ops: []` with no other content for a document that sync will fill. It
+   * then starts truly empty, without the blank starter paragraph.
    */
   ops?: Operation[];
   /**
-   * The highest clock counter and op-id counter already used in this page's
-   * op log, for a doc created from snapshot `blocks` whose log is `load()`ed
-   * later. Blocks record neither: clocks never appear in them, and the ids
-   * spent on operations themselves (deletes, marks, …) leave no trace. Without
-   * this, an edit made before `load()` can reuse an existing op id — peers
-   * then drop it as already known — and sort before the edits it follows.
-   * Ignored when restoring from `bytes`, which carries both.
+   * Use this when you create a doc from saved `blocks` and call `load()` with
+   * the saved edits later. Give the highest clock value and the highest edit id
+   * counter in that saved history. Blocks do not record either.
+   *
+   * Without it, an edit made before `load()` can reuse an old id. Other devices
+   * then drop that edit as one they already have, and it can sort before edits
+   * it came after. Ignored when `bytes` is given, since bytes carry both.
    */
   frontier?: { clock: number; idCounter: number };
   /** Page id stamped on operations. Defaults to the persisted id or "". */
@@ -106,14 +110,20 @@ export interface CreateDocOptions<
   /** Stable peer identity. A random one is generated when omitted. */
   peerId?: string;
   /**
-   * The block/mark types this document is made of. Controls how the reducer
-   * validates fields and materializes block types. Defaults to the built-in
-   * set; pass `someSchema.data` (or any `DataSchema`) to support custom block
-   * types. Must match the schema the markdown/blocks were authored with.
+   * The block and mark types this document is made of. It decides which fields
+   * each block may hold. Defaults to the built-in set. For custom block types,
+   * pass `schema.data` from your {@link Schema} (or any `DataSchema`). It must
+   * match the schema the `markdown` or `blocks` were written with.
    */
   schema?: DataSchema<D>;
 }
 
+/**
+ * A document on its own, independent of any editor: its content plus the
+ * history of changes that lets copies on different devices merge to the same
+ * result. Create one with {@link createDoc}, show it in an editor, and connect
+ * sync and storage to it.
+ */
 export interface Doc<D extends SchemaDefinition = BaseSchemaDefinition> {
   /** @internal Phantom carrier preserving the schema type across APIs. */
   readonly __schemaType?: D;
@@ -123,45 +133,42 @@ export interface Doc<D extends SchemaDefinition = BaseSchemaDefinition> {
   readonly pageId: string;
 
   /**
-   * The raw, fully-merged CRDT block array — **including tombstones**
-   * (`deleted: true`) — with no text extraction or type sugar. This is the
-   * canonical storage/sync state, stable across peers.
+   * Every block as stored, **including deleted ones** (`deleted: true`). This
+   * is what gets saved and synced, and every device ends up with the same
+   * blocks once synced. The array is the doc's own, so do not change it.
    *
-   * For a filtered, presentation-ready read (tombstones removed, `.text`
-   * materialized, heading sugar applied, range-addressable), use an attached
-   * editor's `query.blocks(range)` instead.
+   * To read what the user sees (deleted blocks removed, `.text` filled in), use
+   * an attached editor's `query.blocks(range)`.
    */
   getRawBlocks(): Block[];
   /** Markdown projection of the current document. */
   getMarkdown(): string;
 
   /**
-   * Apply operations from outside (a provider, persistence, another host).
-   * Already-known ops are filtered via the version vector, so re-delivery is
-   * a safe no-op. Advances the local clock/id counter past everything
-   * applied, updates the document state, and notifies `on("update")`
-   * listeners with the fresh ops and the given `origin`.
+   * Applies edits that came from outside: a sync provider, storage, or another
+   * app. Edits the doc already has are skipped, so sending the same batch twice
+   * is safe. Then `on("update")` listeners get the new edits and `origin`
+   * (default `"remote"`). If nothing is new, no update fires. New local edits
+   * are always ordered after the ones applied here.
    */
   applyUpdate(ops: Operation[], origin?: unknown): void;
 
   /**
-   * Register operations that are ALREADY reflected in the doc's current blocks
-   * — the async tail of the "snapshot + ops" restore shape: a doc is created
-   * from persisted snapshot blocks, then the persisted op log (which produced
-   * those blocks) is loaded afterwards so the version vector, op log, and
-   * clock/id counter catch up to what the blocks represent.
+   * Adds saved edits that the doc's blocks already contain. Use it after you
+   * create a doc from saved `blocks`, to load the saved edit history behind
+   * them. The doc then knows those edits, and new edits are ordered after them.
    *
-   * Unlike {@link applyUpdate}, this emits NO update and does not re-render any
-   * attached editor (the editor already shows these blocks). The ops are
-   * appended to the log, the version vector advances, and the binding's
-   * clock/id counter advance past them so subsequent local ops stay causally
-   * ahead.
+   * It fires no update and does not redraw the editor, because the blocks
+   * already show these edits.
    *
-   * Only safe for ops already folded into the seeded blocks. It uses the
-   * incremental `appendOp` path, which lacks the dependency-reordering rebuild
-   * that {@link applyUpdate}'s `mergeOps` provides — so do NOT route peer ops
-   * through `load`; use {@link applyUpdate} for anything arriving from sync.
+   * Only pass edits that are already in the blocks. An edit passed here that is
+   * not in them never shows up, and later copies of it from sync are skipped as
+   * already known. For edits that arrive from sync, use {@link applyUpdate}.
    */
+  // load registers the ops' log/version-vector metadata in bulk
+  // (registerAppliedOps) without replaying the reducer or the
+  // dependency-reordering rebuild that applyUpdate's mergeOps does, and
+  // advances the binding's clock/id counter past them.
   load(ops: Operation[]): void;
 
   /** Subscribe to applied updates (local and remote). Returns unsubscribe. */
@@ -207,15 +214,14 @@ export interface Doc<D extends SchemaDefinition = BaseSchemaDefinition> {
 }
 
 /**
- * Format version of the `encodeState()`/`createDoc(bytes)` persisted blob.
- *
- * Unlike the op log (which is forward-compatible — unknown ops/blocks/marks
- * are preserved), this top-level envelope is the one piece of data a Doc
- * *writes locally and owns*, so reading a version it doesn't recognize is the
- * one place we reject rather than tolerate (see the "Releasing Updates And
- * Compatibility" note at /docs/internals/compatibility). Bump only if the
- * envelope's shape changes incompatibly.
+ * The format version of the bytes `encodeState()` writes and `createDoc(bytes)`
+ * reads. `createDoc` throws on any other version.
  */
+// Unlike the op log (forward-compatible: unknown ops/blocks/marks are
+// preserved), this envelope is the one piece of data a Doc writes locally and
+// owns, so it is the one place we reject an unknown version. See "Releasing
+// Updates And Compatibility" at /docs/internals/compatibility. Bump only if the
+// envelope's shape changes incompatibly.
 export const PERSISTED_DOC_VERSION = 1;
 
 /** Persisted wire shape for encodeState()/createDoc(bytes). */
@@ -247,15 +253,21 @@ function decodePersisted(bytes: Uint8Array): PersistedDocV1 {
 }
 
 /**
- * Create a CRDT document.
+ * Creates a document. Pass bytes you saved with `doc.encodeState()`, or an
+ * options object (see {@link CreateDocOptions}). With nothing, you get an empty
+ * document with one blank paragraph.
  *
- * Accepts persisted bytes directly (`createDoc(savedBytes)`) or an options
- * object — see {@link CreateDocOptions}.
+ * ```ts
+ * const doc = createDoc({ markdown: "# Notes" });
+ * const editor = createEditor({ element, doc });
+ * doc.on("update", (update) => sendToPeers(update.ops));
+ * onPeerEdits((ops) => doc.applyUpdate(ops));
+ * saveFile(doc.encodeState());
+ * // later, from a saved document
+ * const restored = createDoc(savedBytes);
+ * ```
  *
- * @throws {InvariantError} when restoring from `bytes` (either form) and the
- *   blob's format version isn't one this build can read — e.g. it was written
- *   by a newer app version. The non-`bytes` forms (markdown/blocks/ops) never
- *   throw it.
+ * @throws {InvariantError} when `bytes` (in either form) use a format this build cannot read, for example one written by a newer app version. Markdown, blocks and ops never throw this.
  */
 export function createDoc<D extends SchemaDefinition = BaseSchemaDefinition>(
   input?: CreateDocOptions<D> | Uint8Array,

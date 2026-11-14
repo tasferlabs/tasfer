@@ -23,10 +23,10 @@ import { StrikeMark } from "./StrikeMark";
 import { StrongMark } from "./StrongMark";
 
 /**
- * The built-in marks. Each is constructed fresh here (the built-in marks are
- * stateless, holding only style/paint logic), so importing this module has no
- * side effects.
+ * Returns new instances of the built-in marks: strong, emphasis, strike, code
+ * and link. Math is not included. Its extension adds it.
  */
+// Constructed fresh on each call so importing this module has no side effects.
 export function defaultMarks(): Mark[] {
   return [
     new StrongMark(),

@@ -73,7 +73,11 @@ import type {
 /** Which side of the reference row/column a new one lands on. */
 export type TableInsertSide = "before" | "after";
 
-/** A structural edit batch and where the caret belongs once it has applied. */
+/**
+ * What the table command functions return: the edits to make, and where the
+ * caret goes afterwards. Apply it by passing its `edits` and `caret` to
+ * {@link commitTableEdits}.
+ */
 export interface TableCommand {
   readonly edits: readonly StructuredEdit[];
   /** `undefined` leaves the caret where it is — the grid did not move under it. */
@@ -97,13 +101,14 @@ function orderKeyAt(
 }
 
 /**
- * Add a row.
+ * Build the edits that add an empty row before or after row `rowIndex`. Nothing
+ * is applied yet: pass its `edits` and `caret` to {@link commitTableEdits}. The
+ * caret goes to the new row's first cell.
  *
- * `side: "before"` on the header row is refused rather than clamped: the row
- * above the header would silently BECOME the header — GFM writes the first row
- * as the column titles and has no syntax for anything above it — and an
- * "insert above" gesture that renames every column is not what was asked for.
- * Hosts read the `undefined` as "this command is unavailable here".
+ * Returns `undefined` for an empty table, and for `side: "before"` on the
+ * header row. A row above the header would become the new header, because
+ * Markdown tables treat the first row as the column titles. Hosts can read
+ * `undefined` as "not available here".
  */
 export function insertRow(
   document: StructuredDocument,
@@ -158,12 +163,16 @@ export function insertRow(
 }
 
 /**
- * Remove a row, tombstoning the row node alone.
+ * Build the edit that removes row `rowIndex`. Nothing is applied yet: pass its
+ * `edits` and `caret` to {@link commitTableEdits}. The caret moves to the next
+ * row, or to the one above if this was the last row.
  *
- * Its cells stay in the store: a deleted parent is not traversable, so they are
- * already invisible, and leaving them is what makes undo a single un-tombstone
- * that brings the row's text back with it.
+ * Returns `undefined` when the table has only one row or the row does not
+ * exist. One undo brings the row back with its text.
  */
+// Only the row node is tombstoned. Its cells stay in the store: a deleted
+// parent is not traversable, so they are already invisible, and leaving them
+// makes undo a single un-tombstone.
 export function deleteRow(
   document: StructuredDocument,
   rowIndex: number,
@@ -183,7 +192,12 @@ export function deleteRow(
   };
 }
 
-/** Add a column, and the cell it needs in every existing row. */
+/**
+ * Build the edits that add an empty column before or after column
+ * `columnIndex`, with a new cell in every row. Nothing is applied yet: pass its
+ * `edits` and `caret` to {@link commitTableEdits}. The caret goes to the new
+ * column's header cell. Returns `undefined` for an empty table.
+ */
 export function insertColumn(
   document: StructuredDocument,
   identities: IdentityAllocator,
@@ -249,13 +263,15 @@ export function insertColumn(
 }
 
 /**
- * Remove a column.
+ * Build the edit that removes column `columnIndex`. Nothing is applied yet:
+ * pass its `edits` and `caret` to {@link commitTableEdits}. The caret moves to
+ * the header cell of the column next to it.
  *
- * Only the column node is tombstoned. Cells naming it are left alone: a cell
- * whose column is gone resolves to no position and simply stops being read, so
- * the single delete both hides the column everywhere and restores it — text and
- * all — when undone.
+ * Returns `undefined` when the table has only one column or the column does not
+ * exist. One undo brings the column back with its text.
  */
+// Only the column node is tombstoned. Cells naming it are left alone: a cell
+// whose column is gone resolves to no position and stops being read.
 export function deleteColumn(
   document: StructuredDocument,
   columnIndex: number,
@@ -275,21 +291,21 @@ export function deleteColumn(
 }
 
 /**
- * Move a column so that it ends up at `targetIndex`.
+ * Build the edit that moves column `columnIndex` so it ends up at
+ * `targetIndex`. Nothing is applied yet: pass its `edits` and `caret` to
+ * {@link commitTableEdits}.
  *
- * `targetIndex` is where the column sits AFTER the move, counted in the grid
- * as it is now — so `moveColumn(document, 0, 2)` on `A B C` gives `B C A`, and
- * moving a column onto its own index is a no-op (`undefined`, like any other
- * refused command). Hosts read the shape with `tableShapeAt`, so "move left"
- * is `columnIndex - 1` and "move right" is `columnIndex + 1`.
+ * `targetIndex` is where the column sits after the move, counted in the grid as
+ * it is now. So `moveColumn(document, 0, 2)` on `A B C` gives `B C A`. A target
+ * past either end is clamped to the first or last column. For "move left" pass
+ * `columnIndex - 1`, and for "move right" `columnIndex + 1`.
  *
- * One `node_move` of the column node and nothing else: a cell names its column
- * by id rather than by position, so the cells come along by construction.
- * The move only re-keys the column among its siblings, which is why two peers
- * moving two different columns at once still converge — each order key is a
- * fraction between the neighbours it was computed against, and neither edit
- * touches the other's node.
+ * Returns `undefined` when the column does not exist or would not move. The
+ * cells move with their column, and the caret stays in its cell.
  */
+// One node_move of the column node and nothing else: a cell names its column by
+// id, so cells come along. The move only re-keys the column among its siblings,
+// which is why two peers moving two different columns at once still converge.
 export function moveColumn(
   document: StructuredDocument,
   columnIndex: number,
@@ -343,12 +359,11 @@ export function setColumnAlign(
 }
 
 /**
- * Set explicit widths, as fractions of the grid, on one or more columns.
- *
- * A fraction rather than a pixel count because the grid is re-fitted to whatever
- * width the page has: the same document opens on a phone and a desktop, and a
- * stored pixel width would mean one of them is wrong. `null` returns a column to
- * automatic sizing.
+ * Build the edits that set the width of one or more columns, as a fraction of
+ * the table's width. Use `null` to return a column to automatic width.
+ * Fractions, not pixels, keep the layout right on both a phone and a desktop.
+ * Columns that do not exist are skipped. Returns `undefined` when none are
+ * left.
  */
 export function setColumnWidths(
   document: StructuredDocument,
@@ -377,8 +392,12 @@ export function setColumnWidths(
 }
 
 /**
- * Set how wide the whole table is drawn, in page widths, or `null` to return it
- * to its automatic width. See `tableWidth` for why page widths.
+ * Build the edit that sets how wide the whole table is drawn, in page widths:
+ * `1.5` is half again as wide as the page. Pass `null` to go back to the
+ * automatic width. A width of 1 or less, or above {@link MAX_TABLE_WIDTH}, is
+ * drawn at the automatic width. Page widths keep the table right on both a
+ * phone and a desktop (see {@link tableWidth}). Returns `undefined` when the
+ * document has no table in it.
  */
 export function setTableWidth(
   document: StructuredDocument,
@@ -409,8 +428,9 @@ export function emptyTableSeed(rows: number, columns: number): TableSeed {
   };
 }
 
-/** The default shape a new table is created with: a header and two body rows. */
+/** How many rows a new table starts with: a header and two body rows. */
 export const NEW_TABLE_ROWS = 3;
+/** How many columns a new table starts with. */
 export const NEW_TABLE_COLUMNS = 3;
 
 // ── Action bus ───────────────────────────────────────────────────────────────
@@ -418,29 +438,42 @@ export const NEW_TABLE_COLUMNS = 3;
 /** Target a command at an explicit cell, or (by default) at the caret's own. */
 export interface TableTargetPayload {
   /**
-   * The table to act on. Omitted, the command takes the one the caret is in —
-   * which is what a menu anchored to the caret wants. An on-canvas control
-   * names its own block instead: the pointer can be over a table the caret is
-   * nowhere near, and "the caret's table" would then edit the wrong grid.
+   * The id of the table block to act on. Leave it out to act on the table the
+   * caret is in, as a menu next to the caret would. A control drawn on the
+   * canvas should pass its own block, since the pointer can be over a different
+   * table than the caret.
    */
   readonly blockId?: string;
   readonly rowIndex?: number;
   readonly columnIndex?: number;
 }
 
+/**
+ * Add an empty row above (`side: "before"`) or below (`side: "after"`) the
+ * target row. Nothing happens when asked to add a row above the header row.
+ */
 export const TABLE_INSERT_ROW = stateAction<
   TableTargetPayload & { readonly side: TableInsertSide }
 >("table-insert-row", (state) => ({ state, ops: [] }));
 
+/** Delete the target row. Nothing happens when it is the table's only row. */
 export const TABLE_DELETE_ROW = stateAction<TableTargetPayload>(
   "table-delete-row",
   (state) => ({ state, ops: [] }),
 );
 
+/**
+ * Add an empty column before (`side: "before"`) or after (`side: "after"`)
+ * the target column.
+ */
 export const TABLE_INSERT_COLUMN = stateAction<
   TableTargetPayload & { readonly side: TableInsertSide }
 >("table-insert-column", (state) => ({ state, ops: [] }));
 
+/**
+ * Delete the target column. Nothing happens when it is the table's only
+ * column.
+ */
 export const TABLE_DELETE_COLUMN = stateAction<TableTargetPayload>(
   "table-delete-column",
   (state) => ({ state, ops: [] }),
@@ -455,13 +488,16 @@ export const TABLE_MOVE_COLUMN = stateAction<
   TableTargetPayload & { readonly to: number }
 >("table-move-column", (state) => ({ state, ops: [] }));
 
+/**
+ * Align the target column's text left, center or right. Pass `align: null` to
+ * clear the setting.
+ */
 export const TABLE_SET_COLUMN_ALIGN = stateAction<
   TableTargetPayload & { readonly align: TableAlign | null }
 >("table-set-column-align", (state) => ({ state, ops: [] }));
 
 /**
- * Select the target row whole — what the host's "Select row" dispatches, ready
- * to be copied, cut, cleared or formatted as one. No operations: selecting
+ * Select the whole target row, ready to copy, cut, clear or format as one. It
  * changes no content.
  */
 export const TABLE_SELECT_ROW = stateAction<TableTargetPayload>(
@@ -544,12 +580,11 @@ export interface TableShape {
 }
 
 /**
- * Read a table's shape at a nested caret.
- *
- * Takes the document and the point rather than editor state, because that pair
- * is what a host already holds — `query.content(blockId, contentId)` and
- * `state.contentSelection.focus` — and it keeps this readable from a React
- * render, which has no business touching the engine's internal state.
+ * Read the shape of the table around a caret: its size, the caret's row and
+ * column, and that column's alignment. Pass the table's document, from
+ * `query.content(blockId, contentId)`, and the caret point, from
+ * `state.contentSelection.focus`. It is safe to call during a React render.
+ * Returns `undefined` when the point is not in one of the table's cells.
  */
 export function tableShapeAt(
   document: StructuredDocument,
@@ -668,7 +703,10 @@ function convertBlockToTable(
   return { state: next, ops, handled: true };
 }
 
-/** Register the structural commands and table creation on one editor's bus. */
+/**
+ * Add the `TABLE_*` actions, such as {@link TABLE_INSERT_ROW}, to one editor's
+ * action bus. It also lets a text block be turned into a new, empty table.
+ */
 export function registerTableCommands(bus: ActionBus): void {
   const run =
     <P extends TableTargetPayload>(

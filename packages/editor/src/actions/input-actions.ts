@@ -61,13 +61,13 @@ interface CompositionTextPayload {
 }
 
 /**
- * Begin an IME composition: delete any active (non-collapsed) selection just as
- * normal typing would, then record the composition state (caret start position
- * and the initial composed text). Emits the CRDT text/format ops from the
- * selection delete (none when there is no selection to delete).
+ * Start an IME composition, the typing used by input methods and phone
+ * keyboards. Selected text is deleted first, like normal typing, unless a
+ * feature such as a formula handles the input itself. Then the editor remembers
+ * where the composition starts. That deletion is the only document edit.
  *
- * The caller passes the composition event's `data`; the focus / readonly /
- * suspended / no-cursor guards stay in the handler.
+ * Pass the composition event's `data`. This action does not check focus or
+ * read-only mode. The editor checks those before it dispatches.
  */
 export const COMPOSITION_START = stateAction<CompositionTextPayload>(
   "composition-start",
@@ -152,14 +152,12 @@ interface CompositionUpdatePayload {
 }
 
 /**
- * Track an in-progress IME composition without inserting anything — the actual
- * text lands on composition end. Keeps the caret active (non-blinking) and
- * advances the in-composition cursor offset: if the offset was at the end of the
- * old text, it follows to the end of the new text; otherwise it stays where the
- * user put it (via arrow keys), clamped to the new length. Pure — emits no ops.
- *
- * Assumes `state.ui.composition` is already set; the handler routes a missing
- * composition back through {@link COMPOSITION_START}.
+ * Track the text while an IME composition is in progress. Nothing is inserted
+ * yet. The text lands on {@link COMPOSITION_END}. The caret stops blinking. If
+ * the caret was at the end of the composed text, it moves to the new end.
+ * Otherwise it stays where the user put it with the arrow keys. It does not
+ * change the document. Without an active composition (see
+ * {@link COMPOSITION_START}) it does nothing.
  */
 export const COMPOSITION_UPDATE = stateAction<CompositionUpdatePayload>(
   "composition-update",
@@ -220,15 +218,14 @@ export const COMPOSITION_UPDATE = stateAction<CompositionUpdatePayload>(
 );
 
 /**
- * Finish an IME composition: insert the final composed text at the caret and
- * clear the composition state. A recomposition (`replaces` > 0, an IME that
- * reopened the word before the caret) replaces those characters instead of
- * adding to them — an empty commit then deletes them. Emits the CRDT text/format ops from the insert
- * (none when there is nothing composed). The handler keeps the scroll-to-cursor
- * follow-up after committing, since that touches the viewport, not the state.
- *
- * The caller passes the composition event's `data`.
+ * Finish an IME composition: insert the final text at the caret and clear the
+ * composition. When the keyboard reopened a word before the caret (`replaces` >
+ * 0), the new text replaces those characters instead of adding to them. An
+ * empty final text then deletes them. With no final text and no reopened word,
+ * it only clears the composition. Pass the composition event's `data`.
  */
+// The handler keeps the scroll-to-cursor follow-up after committing, since that
+// touches the viewport, not the state.
 export const COMPOSITION_END = stateAction<CompositionTextPayload>(
   "composition-end",
   (state, { data, replaces }) => {
@@ -371,22 +368,24 @@ function commitRecomposition(
 // ─── Clipboard (copy / cut / paste) ──────────────────────────────────────────
 
 /**
- * Copy the current selection to the system clipboard (Ctrl/Cmd+C). Copy
- * produces no state/ops — it only builds a clipboard payload, written
- * synchronously in the handler (`copyHandler` in `entries/editor.ts`) — so this
- * is a plain {@link action} signal hosts can observe (e.g. analytics) or
- * override (a native shell routing the copy through its own clipboard bridge),
- * mirroring {@link OPEN_LINK}.
+ * Fired after the editor copies the selection to the clipboard (Ctrl/Cmd+C).
+ * The copy has already happened when this runs, so a handler cannot stop or
+ * replace it. Use it to react to a copy, for example for analytics or a native
+ * app's own clipboard. It fires only when the editor has focus and something is
+ * selected. It does not change the document. Like {@link OPEN_LINK}, it is a
+ * plain {@link action}.
  */
+// The clipboard write must stay synchronous inside the ClipboardEvent, in
+// copyHandler (entries/editor.ts).
 export const COPY = action("copy");
 
 /**
- * Cut the current selection to the system clipboard (Ctrl/Cmd+X). The clipboard
- * write is synchronous in the handler (`cutHandler` in `entries/editor.ts`);
- * this action is the document side — it deletes the selection, wrapping the pure
- * `deleteSelectedText` transform and emitting the resulting delete ops, so the
- * deletion is observable/overridable.
+ * Delete the selection as part of a cut (Ctrl/Cmd+X). The editor writes the
+ * selection to the clipboard first, then dispatches this action to delete it.
+ * So handlers can watch or override the delete, but not the clipboard write.
  */
+// The clipboard write is synchronous in cutHandler (entries/editor.ts); the
+// default deletes through deleteSelectionThroughOwner.
 export const CUT = stateAction("cut", (state) => {
   const result = deleteSelectionThroughOwner(state);
   return { state: result.state, ops: result.ops };
@@ -410,14 +409,17 @@ interface PastePayload {
 }
 
 /**
- * Insert clipboard content at the caret (Ctrl/Cmd+V) — HTML → image file →
- * plain-text fallback, emitting the resulting CRDT ops. The actual paste is run
- * by the handler via {@link runPaste} (so it can recover the
- * `pastedImageBlockIndex` a {@link StateResult} can't carry); this action just
- * relays that pre-computed result, so observers/overrides see PASTE without the
- * paste running twice. A no-op (input state, no ops) when the paste yielded
- * nothing. The visibleBlocks refresh and scroll-to-cursor stay in the handler.
+ * Paste clipboard content at the caret (Ctrl/Cmd+V). The editor tries HTML
+ * first, then an image file, then plain text.
+ *
+ * The editor runs the paste once, before it dispatches this action, and passes
+ * the result as `precomputed`. The default handler just applies that result, so
+ * the paste never runs twice. Handlers can watch or override the paste here.
+ * When the clipboard gave nothing to paste, the state stays the same.
  */
+// runPaste runs the paste so the handler can keep pastedImageBlockIndex, which
+// a StateResult cannot carry. The visibleBlocks refresh and scroll-to-cursor
+// stay in the handler.
 export const PASTE = stateAction<PastePayload>(
   "paste",
   (_state, { precomputed }) => precomputed,

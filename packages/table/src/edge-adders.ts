@@ -54,13 +54,13 @@ export interface TableEdgeBox {
 export interface TableEdgeStrip extends TableEdgeBox {
   readonly edge: TableEdge;
   /**
-   * The catchment, which is deliberately larger than the band and starts at the
-   * grid's own border: a 12px target is a fussy thing to hit, and the space
-   * between the grid and the strip is dead pixels the pointer crosses on its
-   * way. It never reaches back OVER the grid, so a click aimed at the last
-   * column's text is never taken. The right one starts a few pixels out, past
-   * the grab band of the grid's right edge, which widens the table.
+   * The area that catches the pointer. It is larger than the band and starts at
+   * the grid's border, but never covers the grid. The right one starts a few
+   * pixels out, so dragging the grid's right edge still widens the table.
    */
+  // A 12px band is fussy to hit, and the gap between grid and band is dead
+  // space the pointer crosses anyway, so the catchment starts at the grid
+  // border.
   readonly hit: TableEdgeBox;
 }
 
@@ -97,12 +97,13 @@ export function withinEdgeBox(box: TableEdgeBox, p: Point): boolean {
 }
 
 /**
- * The strips a table at `origin` offers, given the page's right gutter.
- * `layout` is the layout as shown — scrolled, for a table wider than the page.
+ * The "add column" and "add row" strips along the right and bottom edges of a
+ * table drawn at `origin`. `gutterRight` is the page's right gutter. `layout`
+ * is the layout as shown, so scrolled for a table wider than the page.
  *
- * An edge with too little room around it is left out rather than drawn cramped
- * — the bottom margin and the gutter are both theme values a host can shrink,
- * and half a band with a clipped plus in it is worse than no affordance.
+ * Returns an empty list for a table with no rows or columns. An edge with too
+ * little room is left out. The right strip only appears once the grid's right
+ * edge is scrolled into view.
  */
 export function tableEdgeStrips(
   layout: TableLayout,

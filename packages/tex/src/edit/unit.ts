@@ -277,16 +277,11 @@ function resolve(
 }
 
 /**
- * Whether `offset` sits *inside* a multi-part construct (a fraction, root,
- * script, brace group, …) rather than at the top level of the formula. True
- * means a caret there is within one of the construct's slots, so the formula
- * cannot be cleanly broken in two at this point — splitting would divide the
- * construct into invalid LaTeX (`\frac{a` / `b}`). The top-level positions
- * *between* sibling tokens return false, as do positions inside a plain leaf
- * (a command name the caret can't rest within anyway).
- *
- * This is the structural counterpart the editor's inline-math split asks before
- * turning a typed space into a chip boundary: only top-level spaces split a chip.
+ * Whether `offset` is inside a fraction, root, script, brace group or other
+ * multi-part construct. If it is, splitting the formula there would leave
+ * invalid LaTeX, like `\frac{a` and `b}`. Returns false at the top level
+ * between items, inside a plain command name, and at the very start or end. The
+ * editor checks this before a typed space splits an inline formula in two.
  */
 export function isInsideConstruct(latex: string, offset: number): boolean {
   if (offset <= 0 || offset >= latex.length) return false;
@@ -297,34 +292,23 @@ export function isInsideConstruct(latex: string, offset: number): boolean {
 }
 
 /**
- * Where a script (`script`, `^` or `_`) typed at `offset` should actually be
- * inserted so it attaches to the WHOLE enclosing construct instead of nesting
- * inside the slot the caret happens to sit in. Two constructs redirect:
+ * Where a `^` or `_` typed at `offset` should really go, so it attaches to the
+ * whole construct instead of nesting inside the slot the caret is in. Returns
+ * the offset just after that construct, or `null` to insert at `offset` as
+ * usual.
  *
- *  - **A non-stretchy accent** (`\dot{x}`, `\vec{v}`) decorates one symbol — it
- *    reads as a single construct — so a script typed at the end of its base slot
- *    (`\dot{x|}`, where live editing lands the caret after filling the
- *    materialized `\dot{}`) means "script the accented atom" (`\dot{x}^{2}`), not
- *    "expand the base under the accent" (`\dot{x^{2}}`). Stretchy accents
- *    (`\widehat`, `\widetilde`) never redirect: their whole point is to span
- *    arbitrary content, so a script typed inside stays inside.
+ * It redirects in two cases:
  *
- *  - **A super/subscript** whose complementary slot is still free. After typing a
- *    subscript the caret rests at the end of its slot (`x_{n|}`); the natural next
- *    gesture — a `^` to add the matching superscript — must attach to the SAME
- *    base (`x_{n}^{2}`, one construct with both scripts), not nest into the
- *    subscript's content (`x_{n^{2}}`). So a script typed at the end of a
- *    supsub's braced, non-empty script slot redirects past the whole supsub —
- *    but ONLY when the supsub lacks the script being added (typing `^` while a
- *    superscript already exists can't add a second, so it falls through and
- *    stays inside the slot). An EMPTY script slot (`x^{|}`, where typing `^`
- *    leaves the caret) pairs the same way with its own supsub, but never
- *    escalates further.
+ * - At the end of a plain accent's base, `\dot{x|}`: typing `^` gives
+ *   `\dot{x}^{2}`, not `\dot{x^{2}}`. Stretchy accents like `\widehat` never
+ *   redirect.
+ * - At the end of a braced script slot, when the other script is still free:
+ *   `x_{n|}` plus `^` gives `x_{n}^{2}`, not `x_{n^{2}}`. If that script
+ *   already exists, it stays inside. An empty slot (`x^{|}`) pairs the same way
+ *   but goes no further out.
  *
- * Returns the source offset just past the outermost such construct — nested
- * constructs escalate, so `\hat{\dot{x|}}` resolves to after the whole `\hat{…}`
- * — or `null` when the caret isn't at a redirecting construct's slot end. Pure;
- * the editor consults this before inserting a script char.
+ * Nested constructs redirect outward, so `\hat{\dot{x|}}` returns the offset
+ * after the whole `\hat{…}`.
  */
 export function scriptAttachOffset(
   latex: string,
@@ -546,23 +530,22 @@ function levelsAt(root: Node, offset: number): SelectionLevel[] {
 }
 
 /**
- * Snap a range SELECTION's endpoints so it never partially covers a connected
- * construct — while staying LEVEL-AWARE: a selection lives at the deepest nesting
- * level the two endpoints share, and only constructs *below* that level are
- * atomic. Selecting within a fraction's numerator stays inside the numerator
- * (its own tokens are selectable); dragging from the numerator to the denominator
- * escalates to the whole `\frac`; at the top level a fraction is one unit.
+ * Adjust a selection so it never covers only part of a fraction, root or other
+ * construct. The selection works at the deepest level both ends share. Inside a
+ * numerator you can select single symbols. Drag from the numerator into the
+ * denominator and the whole `\frac` is selected. At the top level a fraction is
+ * one unit.
  *
- * The two endpoints snap by different rules once the shared level is found:
- * - the `focus` (the endpoint just moved) that descends into a deeper construct
- *   snaps to that construct's edge in its DIRECTION OF TRAVEL (`focusEdge`) — far
- *   edge to take it in, near edge to drop it (this is what makes "select less"
- *   work);
- * - the `anchor` (fixed pivot) that descends deeper widens OUTWARD, to the far
- *   edge of its construct away from the focus, so the whole of it is covered.
+ * When an end sits deeper than that shared level:
  *
- * Offsets that already sit at the shared level are left untouched. Returns the
- * possibly-adjusted pair; a collapsed range (equal offsets) passes through.
+ * - `focus` (the end that just moved) snaps to the `focusEdge` side of that
+ *   construct. Pass the side the focus is moving toward: the far side takes the
+ *   construct in, the near side leaves it out.
+ * - `anchor` (the fixed end) widens to cover that construct, on the side away
+ *   from the focus.
+ *
+ * Ends already at the shared level do not move. Returns the adjusted pair. A
+ * collapsed range (`anchor === focus`) comes back unchanged.
  */
 export function resolveSelectionRange(
   latex: string,
@@ -609,13 +592,14 @@ export function resolveSelectionRange(
 }
 
 /**
- * Every range expand-selection may take around the source range `[from, to)`,
- * in no particular order: the unit beside a collapsed caret, then for each
- * nesting level the caret sits in, the slot's content (a numerator, a cell) and
- * the construct owning it (the whole `\frac`), up to the whole formula. The
- * caller takes the smallest one that strictly contains the current range, so
- * each press climbs exactly one level. Ranges that do not contain `[from, to)`
- * are harmless — they are never the next rung.
+ * All the ranges that expand-selection can grow to from `[from, to)`, in no set
+ * order. They include the unit next to a collapsed caret, the content of each
+ * slot the range sits in (a numerator, a matrix cell), the construct that owns
+ * that slot (the whole `\frac`), and the whole formula.
+ *
+ * Pick the smallest range that strictly contains the current one, so each press
+ * grows by one level. Some returned ranges may not contain `[from, to)`. Skip
+ * those.
  */
 export function enclosingSelectionRanges(
   latex: string,
@@ -648,12 +632,11 @@ export function enclosingSelectionRanges(
 }
 
 /**
- * The structural unit a double-click / double-tap at source `offset` selects: the
- * construct under the pointer, whole (see {@link resolveSelection}). The pointer
- * hit-test resolves a click to a glyph EDGE, so the glyph actually under the
- * cursor may be on either side; we resolve each side and prefer the one that is a
- * construct, so a boundary between a `\frac` and a neighbouring `+` selects the
- * fraction, not the operator. `null` for an empty formula.
+ * The unit a double-click or double-tap at source `offset` selects. A symbol
+ * inside a construct selects the closest construct around it, whole. A symbol
+ * at the top level selects just itself. A click lands on the edge between two
+ * glyphs, so both sides are checked and a construct wins: between a `\frac` and
+ * a `+`, the fraction is selected. Returns `null` for an empty formula.
  */
 export function unitAt(latex: string, offset: number): MathUnit | null {
   // Level-aware, like the caret: {@link resolveSelection} escalates a leaf to the

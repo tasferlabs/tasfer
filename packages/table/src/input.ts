@@ -322,24 +322,24 @@ function insertIntoCell(
 /** What a host can turn on in the cell-input rule. */
 export interface TableInputOptions {
   /**
-   * Run the engine's inline markdown shortcuts inside cells, so `**bold**`,
-   * `*italic*`, `~~strike~~` and `` `code` `` auto-format as they are typed,
-   * and a typed delimiter wraps a selection in its mark — exactly as in a
-   * paragraph, Backspace (and the first undo) taking the format back.
+   * Turn on the inline markdown shortcuts inside cells, as in a paragraph.
+   * Typing `**bold**`, `*italic*`, `~~strike~~` or `` `code` `` formats the
+   * text, and typing a delimiter over a selection wraps it. Backspace or the
+   * first undo takes the format back.
    *
-   * Off by default: a cell is one line of a grid, and a table of glob patterns
-   * or shell snippets wants `*` and `` ` `` to stay literal.
+   * Off by default, so a table of glob patterns or shell snippets keeps `*` and
+   * `` ` `` as typed.
    */
   readonly markdownShortcuts?: boolean;
 }
 
 /**
- * Live authoring rule: the caret is in a table cell, so this feature — not the
- * engine's flat text path — owns whatever is being inserted.
+ * Make the input rule that sends typing into the table cell with the caret.
+ * `tableExtension` installs one for you, so you only need this to build your
+ * own bundle.
  *
- * The id is fixed across every configuration: installing two of these would be
- * two rules claiming the same caret, and reusing the id makes the second
- * replace the first the way the facet list documents.
+ * Every rule it makes has the same id, `table.cell.input`. Installing a second
+ * one replaces the first.
  */
 export function createTableInputRule(
   options: TableInputOptions = {},
@@ -366,7 +366,12 @@ export function createTableInputRule(
 /** The cell-input rule with every option left at its default. */
 export const tableInputRule: FeatureInputRule = createTableInputRule();
 
-/** Register the key-driven cell edits on one editor instance's bus. */
+/**
+ * Register the keys that edit a table cell on this editor's action bus: the
+ * delete keys, Enter (move to the cell below, or add a row when on the last
+ * row), Shift+Enter (leave the table), the mark toggles, and taking back a
+ * markdown shortcut. The table node registers these for you.
+ */
 export function registerTableInputActions(bus: ActionBus): void {
   /**
    * A delete key in a cell: the paragraph's own handler for `action`, run on

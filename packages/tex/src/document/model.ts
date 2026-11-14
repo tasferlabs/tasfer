@@ -11,20 +11,25 @@
 /** Stable identity of an item in a {@link MathDocument}. */
 export type MathItemId = string;
 
-/** Versioned top-level value persisted by a host. */
+/**
+ * A whole formula, in the form a host saves. `version` is always `1` for now.
+ */
 export interface MathDocument {
   readonly version: 1;
   readonly root: MathRoot;
 }
 
-/** A formula root. Kept distinct from rows so future root metadata is additive. */
+/** The top of a formula. Its `body` row holds the formula's content. */
 export interface MathRoot {
   readonly type: "root";
   readonly id: MathItemId;
   readonly body: MathRow;
 }
 
-/** An ordered, always-present editing slot. Empty rows are valid caret targets. */
+/**
+ * An ordered list of formula pieces, like a fraction's top or a superscript. A
+ * row can be empty, and the caret can still go in it.
+ */
 export interface MathRow {
   readonly type: "row";
   readonly id: MathItemId;
@@ -95,9 +100,9 @@ export interface MathScripts {
 }
 
 /**
- * An accent over a persistent base slot (`\hat{x}`, `\vec{v}`, `\widehat{ab}`).
- * `command` excludes the leading backslash; whether the accent stretches is a
- * property of that command, so it is derived at layout time, never stored.
+ * An accent over a base (`\hat{x}`, `\vec{v}`, `\widehat{ab}`). `command` has
+ * no leading backslash. Whether the accent stretches comes from the command, so
+ * it is not stored.
  */
 export interface MathAccent {
   readonly type: "accent";
@@ -107,12 +112,11 @@ export interface MathAccent {
 }
 
 /**
- * A command wrapping ONE editable body — an over/under rule (`\overline{x}`),
- * a frame (`\boxed{y}`), a font or alphabet (`\mathbb{R}`), an atom-class
- * override (`\mathbin{…}`), a phantom, or `\not`. What the command draws is a
- * property of the command itself, so it is derived when the source is read
- * back; the tree stores only the command and its slot. Unlike an accent the
- * argument is an ordinary body, not a base the command decorates.
+ * A command around one editable body: a line over or under it (`\overline{x}`),
+ * a frame (`\boxed{y}`), a font (`\mathbb{R}`), a spacing-class change
+ * (`\mathbin{…}`), a phantom, or `\not`. Only the command and its body are
+ * stored. What it draws comes from the command. Unlike an accent, the body is
+ * ordinary formula content, not a base being decorated.
  */
 export interface MathWrapper {
   readonly type: "wrapper";
@@ -142,14 +146,17 @@ export interface MathDelimited {
   readonly body: MathRow;
 }
 
-/** One identity-bearing row inside a matrix-like environment. */
+/** One row of a matrix, with its own id. */
 export interface MathMatrixRow {
   readonly type: "matrix-row";
   readonly id: MathItemId;
   readonly cells: readonly MathMatrixCell[];
 }
 
-/** One identity-bearing matrix cell. Its body remains present when empty. */
+/**
+ * One matrix cell, with its own id. Its `body` row is always there, even when
+ * the cell is empty.
+ */
 export interface MathMatrixCell {
   readonly type: "matrix-cell";
   readonly id: MathItemId;
@@ -165,7 +172,9 @@ export interface MathMatrix {
   readonly rows: readonly MathMatrixRow[];
 }
 
-/** Canonical editable variants supported by a `\\text*` construct. */
+/**
+ * The styles a `\text`-family command can have, such as `\textbf` for `"bold"`.
+ */
 export type MathTextVariant =
   | "normal"
   | "bold"
@@ -173,7 +182,10 @@ export type MathTextVariant =
   | "monospace"
   | "sans-serif";
 
-/** Literal prose in a math formula (`\\text`, `\\textbf`, …). */
+/**
+ * Plain words inside a formula, written with `\text`, `\textbf` and similar
+ * commands. `variant` says which one.
+ */
 export interface MathText {
   readonly type: "text";
   readonly id: MathItemId;
@@ -190,11 +202,10 @@ export interface MathOperator {
 }
 
 /**
- * Exact source for a construct the semantic projection does not understand.
- * Keeping it as a leaf makes import forward-compatible and lossless for that
- * subtree; installing support later can replace it with structured nodes.
- * Editors must treat this leaf atomically: `latex` is interchange payload, not
- * an ordinary character-editing field where half a command may be removed.
+ * LaTeX the formula model does not understand, kept exactly as written so
+ * nothing is lost. A later version that understands it can turn it into real
+ * nodes. Edit it as one piece. Never delete part of `latex`, or you can leave
+ * half a command behind.
  */
 export interface MathRawLatex {
   readonly type: "raw-latex";
@@ -202,6 +213,12 @@ export interface MathRawLatex {
   readonly latex: string;
 }
 
+/**
+ * Any one piece of a formula in a {@link MathDocument}: a symbol, a fraction, a
+ * square root, a matrix, and so on. Check `type` to tell which one it is. The
+ * math package (`@tasfer/math`) also exports this type as `MathDocumentNode`,
+ * to keep it apart from its own `MathNode` block class.
+ */
 export type MathNode =
   | MathRawText
   | MathSymbol

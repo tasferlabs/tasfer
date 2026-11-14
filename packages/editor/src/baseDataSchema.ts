@@ -82,10 +82,10 @@ export function getBaseDataSchema(): DataSchema<BaseSchemaDefinition> {
 }
 
 /**
- * Collect every asset reference owned by the given blocks (deleted blocks
- * skipped), deduplicated in document order. Each block type's `assetRefs` lives
- * on its node; this looks it up through the schema, so a new block type's refs
- * are picked up with no caller changes.
+ * Lists the assets the given blocks use, such as image hashes or URLs. Deleted
+ * blocks and repeats are skipped, and the list keeps document order. Each block
+ * type reports its own assets. Pass your document's schema when it has custom
+ * block types, so their assets are found too. Defaults to the built-in schema.
  */
 export function collectAssetRefs(
   blocks: Block[],

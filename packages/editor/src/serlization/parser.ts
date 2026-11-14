@@ -198,11 +198,23 @@ function generateEmptyTree(): Page {
 }
 
 /**
- * `untypedBlockIds`, when passed, collects the ids of blocks that fell through
- * to the fallback codec — text the source wrote with no block marker at all.
- * It is a side channel on purpose: the distinction describes the *source*, not
- * the block, so it must never ride along on `Block` into a snapshot or op.
+ * Turns the tokens from {@link tokenizePage} into a {@link Page}. Pass the same
+ * schema to both, so custom blocks are read back. The page always has at least
+ * one block, and its `title` is empty. Front matter is not handled here: take
+ * it off first with {@link parseFrontmatter}.
+ *
+ * `untypedBlockIds`, when passed, collects the ids of blocks the source gave no
+ * block type. Those fell back to the default block type.
+ *
+ * ```ts
+ * const { content, metadata } = parseFrontmatter(markdown);
+ * const page = parsePage(tokenizePage(content, schema.data), schema.data);
+ * if (metadata) page.metadata = metadata;
+ * ```
  */
+// untypedBlockIds is a side channel on purpose: the distinction describes the
+// source, not the block, so it must never ride along on Block into a snapshot
+// or op.
 export default function parsePage(
   tokens: Token[],
   schema: DataSchema = getBaseDataSchema(),

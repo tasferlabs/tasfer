@@ -14,6 +14,10 @@ const STRIKE_CODEC: MarkCodec = {
   html: { priority: 3, render: (inner) => `<s>${inner}</s>` },
 };
 
+/**
+ * The built-in `strike` mark: struck-through text, written as `~~text~~` in
+ * Markdown.
+ */
 export class StrikeMark extends Mark {
   readonly type = "strike";
   readonly codec = STRIKE_CODEC;

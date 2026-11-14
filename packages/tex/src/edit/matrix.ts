@@ -15,8 +15,9 @@ import type { Span } from "../parse/ast";
 import { parse } from "../parse/parser";
 
 /**
- * The tabular environment enclosing a source offset, and the `(row, col)` of the
- * cell the offset sits in. `rows`/`cols` are the grid dimensions.
+ * The matrix or other `\begin…\end` grid around a source offset. `env` is the
+ * environment name, such as `pmatrix`. `rows` and `cols` are the grid size.
+ * `row` and `col` are the cell the offset is in, counting from 0.
  */
 export interface MatrixContext {
   readonly env: string;
@@ -38,17 +39,20 @@ export interface MatrixTextEdit {
 }
 
 /**
- * The result of a resize: a set of minimal, non-overlapping edits into the
- * ORIGINAL source plus the caret offset into the EDITED source.
+ * The result of {@link matrixResize}: the edits to make, and where the caret
+ * goes.
  *
- * The edits touch ONLY the appended/removed cells, rows, and column spec — every
- * surviving cell keeps its exact source range, so its characters keep their CRDT
- * identities and a peer's concurrent edit to that cell merges cleanly. (A
- * whole-environment rewrite would tombstone those characters and diverge under
- * concurrent editing.) Apply the edits right-to-left (descending `start`, and for
- * a shared `start` the deletion before the insertion) so each offset stays valid
- * against the original.
+ * `edits` use offsets into the original text, and they do not overlap. Apply
+ * them from the end of the text to the start: highest `start` first, and at the
+ * same `start` the delete before the insert. Then each offset stays valid.
+ * `caret` is an offset into the text after all edits.
+ *
+ * Only the added or removed cells and rows change, plus the column spec such as
+ * `{lcr}`. Every other cell keeps its exact text, so another person's edit to
+ * that cell at the same time still merges cleanly.
  */
+// A whole-environment rewrite would delete and re-create the kept characters
+// and diverge under concurrent editing; that is why the edits are minimal.
 export interface MatrixEditResult {
   readonly edits: readonly MatrixTextEdit[];
   readonly caret: number;
@@ -141,15 +145,15 @@ export function matrixContextAt(
 }
 
 /**
- * The tabular environment a source *range* addresses, or null when the range
- * touches none. A range selection has no single caret offset, and its endpoints
- * routinely sit just outside the construct it sweeps — a drag across a whole
- * matrix anchors before `\begin` and focuses on the exclusive span end, so both
- * endpoint probes via {@link matrixContextAt} miss. Resolution: the deepest
- * array containing the whole range (a selection inside one cell, or exactly the
- * construct), else the first array the range overlaps (a sweep across it). The
- * reported cell is where the range enters the grid. Endpoints may come in
- * either order; a collapsed range belongs to {@link matrixContextAt} instead.
+ * Returns the matrix or other grid that the selection from `start` to `end`
+ * touches, or `null` when it touches none. The ends may come in either order.
+ *
+ * It picks the innermost grid that holds the whole range. If no grid does, it
+ * picks the first grid the range overlaps, such as a drag across a whole matrix
+ * that starts before `\begin`. `row` and `col` are the cell where the range
+ * enters the grid.
+ *
+ * For a caret with no selection, use {@link matrixContextAt}.
  */
 export function matrixContextInRange(
   latex: string,
@@ -214,15 +218,15 @@ function colSpecBraces(
 }
 
 /**
- * Resize the tabular construct enclosing `offset` to `nextRows` × `nextCols`,
- * as a set of minimal source edits (or null when `offset` is not in one).
+ * Resizes the matrix or other grid around `offset` to `nextRows` × `nextCols`.
+ * Returns the edits to make and where the caret goes. Returns `null` when
+ * `offset` is not in a grid, or when a row of the grid has no cells.
  *
- * Growing appends empty `{}` cells at the right of each row / empty rows at the
- * bottom; shrinking removes the trailing columns/rows and their content. Every
- * surviving cell keeps its exact source span, so only the added/removed structure
- * is touched — see {@link MatrixEditResult}. The grid never falls below 1×1
- * (removing it entirely is a plain text delete). The caret lands in the cell
- * nearest its original one, clamped into the new bounds.
+ * Growing adds empty `{}` cells at the end of each row and empty rows at the
+ * bottom. Shrinking removes the last columns or rows and their content. The
+ * size never goes below 1 × 1. Cells that stay are not touched (see
+ * {@link MatrixEditResult}). The caret goes to the remaining cell nearest the
+ * one it was in.
  */
 export function matrixResize(
   latex: string,

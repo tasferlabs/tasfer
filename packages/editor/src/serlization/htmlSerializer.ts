@@ -47,30 +47,33 @@ const STYLES = `
   @media print { html { margin: 0; padding: 0; } body { margin: 0; padding: 0 0.3in; max-width: none; } img.full-bleed { width: calc(100% + 0.6in); margin: 1em -0.3in; } body > *:first-child { margin-top: 0; } a { color: inherit; text-decoration: none; } }
 `;
 
+/**
+ * Options for {@link serializeToHTML}: the page title, replacement URLs for
+ * images, extra CSS, the schema in use, and how formulas and similar content
+ * are rendered.
+ */
 export interface HtmlSerializeOptions {
   title?: string;
   /** Asset url → replacement url (e.g. data URIs for self-contained export). */
   imageUrlMap?: Map<string, string>;
   /**
-   * Extra CSS appended to the document `<style>` (e.g. `@font-face` rules that
-   * inline the math fonts as data URLs, so rendered math survives being loaded
-   * into an isolated print context that never loaded the app's fonts). Ignored
-   * by {@link serializeToHTMLFragment} — only the full-document shell has a
-   * `<style>` to carry it.
+   * Extra CSS added to the page's `<style>`. For example, `@font-face` rules
+   * with the math fonts inlined, so formulas still look right when the page is
+   * printed or opened somewhere else.
    */
   extraCss?: string;
   /** Block/mark types in play. Defaults to the built-in set. */
   schema?: DataSchema;
   /**
-   * Render feature-owned replacements such as math or diagrams. Omitted, a
-   * feature codec emits its source text instead (math → `$$…$$`).
+   * Turns content from optional features, such as math, into HTML. For math,
+   * pass `mathReplacementRenderer` from `@tasfer/math`. Without it, a formula
+   * is written as its LaTeX source inside a `<code>` element.
    */
   renderReplacement?: ReplacementRenderer;
   /**
-   * Emit editable source instead of rendered replacements (math → `$$…$$`
-   * rather than an SVG). Set by the clipboard path so copied math pastes as
-   * LaTeX into external apps; left off for file export (which wants the
-   * rendered formula). See {@link OutputCtx.preferSource}.
+   * Write source text instead of rendered content: math becomes `$$…$$`, not an
+   * SVG. Turn it on for copy and paste, so formulas paste as LaTeX into other
+   * apps. Leave it off for file export.
    */
   preferSource?: boolean;
 }
@@ -206,6 +209,19 @@ export function serializeToHTMLFragment(
   return parts.join("\n");
 }
 
+/**
+ * Turns blocks into a complete, standalone HTML page, with a title and built-in
+ * styles. Use it to export or print a document. The title is "Document" unless
+ * you pass `title`. Deleted blocks are left out. Blocks whose type the schema
+ * does not know are left out too, so pass the schema your document uses.
+ *
+ * ```ts
+ * const html = serializeToHTML(page.blocks, {
+ *   title: "Meeting notes",
+ *   schema: appSchema.data,
+ * });
+ * ```
+ */
 export function serializeToHTML(
   blocks: Block[],
   options: HtmlSerializeOptions = {},

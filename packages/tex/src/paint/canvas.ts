@@ -9,6 +9,10 @@ import type { Box } from "../layout/box";
 import { fontFamily } from "../fonts/fonts";
 import type { MathLayout } from "../index";
 
+/**
+ * Options for {@link paintMath}. Without a `color` the formula is drawn in
+ * black.
+ */
 export interface PaintOptions {
   /** Base text color (CSS string). */
   color?: string;

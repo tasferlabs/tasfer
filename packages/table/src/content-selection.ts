@@ -204,7 +204,10 @@ function cellSliceParagraph(
   } as Block;
 }
 
-/** The table kind's clipboard adapters, for hand-assembled interactive schemas. */
+/**
+ * The table's copy and paste handlers. `tableExtension` already includes them.
+ * Use this only when you build an editor schema by hand.
+ */
 export const tableContentSelectionKind = {
   kind: TABLE_STRUCTURED_KIND,
   contentSelection: serializeTableContentSelection,

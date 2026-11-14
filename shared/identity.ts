@@ -1,29 +1,33 @@
 /**
- * Generic identity allocation contract shared by persisted editor features.
+ * Hands out ids for saved editor content, one per `nextId()` call.
  *
- * An allocator owns one collision domain. Every returned identity MUST use the
- * `<origin>:<non-negative decimal counter>` shape, be fresh, and have a counter
- * strictly greater than the allocator's previous result. Before editing an
- * existing character RGA, the allocator MUST be advanced so its next counter
- * is greater than every node/character identity already observed in that
- * document. The editor's CRDT binding maintains that invariant on load/replay.
- *
- * Live collaborative code should therefore use the allocator owned by its CRDT
- * binding. Parsers, imports, and tests may use the deterministic scoped
- * implementation below when their scope is stable and unique in the target
- * document.
+ * Each id must look like `<origin>:<counter>`, where the counter is a whole
+ * number of 0 or more. Each id must be new, with a counter bigger than the last
+ * one. Before editing text that already exists, the allocator must move past
+ * every id already in that document, or new ids can clash with old ones. The
+ * editor's own allocator does this when it loads a page, so live editing should
+ * use that one. Imports, parsers and tests can use
+ * {@link createDeterministicIdentityAllocator} when their scope is unique in
+ * the document.
  */
 export interface IdentityAllocator {
   nextId(): string;
 }
 
-/** Parsed wire identity returned by a conforming allocator. */
+/**
+ * An id split into its two parts: `origin`, the part before the colon, and
+ * `counter`, the number after it. {@link parseAllocatedIdentity} returns it.
+ */
 export interface AllocatedIdentity {
   readonly origin: string;
   readonly counter: number;
 }
 
-/** Validate and parse the allocator's canonical compound identity shape. */
+/**
+ * Split an id like `scope:12` into its origin and counter. Returns null when
+ * `value` is not a string of that shape: a non-empty origin, a colon, then a
+ * whole number with no leading zeros that fits in a safe integer.
+ */
 export function parseAllocatedIdentity(
   value: unknown,
 ): AllocatedIdentity | null {
@@ -38,14 +42,14 @@ export function parseAllocatedIdentity(
 }
 
 /**
- * Create a deterministic allocator for an import/test scope.
+ * Create an id maker that hands out `<scope>:0`, `<scope>:1`, and so on. The
+ * same scope always gives the same ids, so two devices that import the same
+ * input build the same document. Use it for imports and tests only. Live edits
+ * must use the editor's own allocator, or ids can clash. When a test edits text
+ * that already exists, pass a `startCounter` above every id already in it.
  *
- * The emitted `<scope>:<counter>` shape is also a valid editor character-RGA
- * identity. It is deliberately not random: equal inputs with the same scope
- * can construct equal initial trees on different peers. Do not create one per
- * live edit; live edits must use the page's CRDT-owned allocator instead. When
- * a test edits an existing RGA, pass a `startCounter` above every identity in
- * the fixture, matching the binding's load-time advancement.
+ * Throws if `scope` is empty or contains `:`, or if `startCounter` is not a
+ * whole number of 0 or more.
  */
 export function createDeterministicIdentityAllocator(
   scope: string,

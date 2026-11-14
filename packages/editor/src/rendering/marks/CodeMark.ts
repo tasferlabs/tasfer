@@ -16,6 +16,10 @@ const CODE_CODEC: MarkCodec = {
   html: { priority: 0, render: (inner) => `<code>${inner}</code>` },
 };
 
+/**
+ * The built-in `code` mark: inline code, drawn as a colored chip and written as
+ * `` `text` `` in Markdown.
+ */
 export class CodeMark extends Mark {
   readonly type = "code";
   readonly codec = CODE_CODEC;

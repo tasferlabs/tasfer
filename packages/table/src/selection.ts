@@ -69,11 +69,12 @@ export function cellLength(
 }
 
 /**
- * Address a cell caret as a stable {@link ContentTextPoint}.
+ * Turn a cell caret into a {@link ContentTextPoint} that stays in place when
+ * the text around it changes. An offset past the end of the cell is clamped to
+ * its length. Returns `undefined` when the cell is not in `document`.
  *
- * `affinity` is `forward` by default: a caret typed into is the leading edge of
- * what comes next, which is also what keeps a caret at a wrap boundary on the
- * line the user is typing on.
+ * `affinity` is `forward` by default. That keeps a caret at a line wrap on the
+ * line being typed.
  */
 export function tableCaretToContentPoint(
   document: StructuredDocument,
@@ -96,7 +97,10 @@ export function tableCaretToContentPoint(
   };
 }
 
-/** Resolve a nested point back to the cell and offset it addresses. */
+/**
+ * Turn a content point back into a cell caret: the cell and the offset in it.
+ * Returns `undefined` when the point is not text in a cell of this table.
+ */
 export function tableCaretFromContentPoint(
   document: StructuredDocument,
   point: {
@@ -127,14 +131,9 @@ export function tableCaretToContentSelection(
 }
 
 /**
- * A two-ended selection between two cell carets.
- *
- * Both ends are addressed the same way a caret is, so a range produced by a
- * drag, by Shift+Arrow or by a double-click is one and the same shape — which
- * is what lets the selection band, the mark toggles and the deletes all read it
- * through {@link tableCaretFromContentPoint} without caring which gesture made
- * it. The anchor takes `backward` affinity so it stays glued to the character
- * the range starts AFTER while the focus moves.
+ * A selection from `anchor` to `focus`, two carets in this table. Returns
+ * `undefined` when either cell is not in `document`. The anchor sticks to the
+ * character before it, so it stays put while the focus moves.
  */
 export function tableRangeToContentSelection(
   document: StructuredDocument,
@@ -154,7 +153,11 @@ export function tableRangeToContentSelection(
     : undefined;
 }
 
-/** The cell containing `local`, or the nearest one when the point is outside. */
+/**
+ * The cell containing `local`, or the nearest one when the point is outside.
+ * The cell can be a hole (`cellId` is `null`). Returns `undefined` for a table
+ * with no rows.
+ */
 export function cellFromPoint(
   layout: TableLayout,
   local: { readonly x: number; readonly y: number },
@@ -256,7 +259,11 @@ export function cellOffsetFromPoint(
   );
 }
 
-/** Where a pointer lands inside the table, as a collapsed nested selection. */
+/**
+ * Where a pointer at block-local `local` lands, as a caret in a cell. A point
+ * outside the grid lands in the nearest cell. Returns `null` when it lands on a
+ * hole or the table has no rows.
+ */
 export function tableSelectionFromPoint(
   layout: TableLayout,
   local: { readonly x: number; readonly y: number },
@@ -310,10 +317,9 @@ export function cellPosition(
 }
 
 /**
- * The cell `delta` columns away in the same row, skipping holes, or
- * `undefined` at the row's edge. What a selection that already covers whole
- * cells grows sideways by: the rectangle it covers widens by a column rather
- * than wrapping round onto the next row.
+ * The next cell to the left (`delta: -1`) or right (`1`) in the same row,
+ * skipping holes. Returns `undefined` at the row's edge, or when the cell is
+ * not in the table. It never wraps onto the next row.
  */
 export function rowNeighbourCell(
   document: StructuredDocument,
@@ -344,13 +350,11 @@ export function cellAt(
 }
 
 /**
- * A block of the grid, as inclusive row and column bounds.
+ * A rectangle of cells, as inclusive row and column bounds.
  *
- * A selection that spans cells covers a RECTANGLE, the way a spreadsheet's
- * does: dragging from a header cell straight down takes that column, not every
- * cell read between the two ends. It is what lets a whole row or a whole column
- * be one selection — and what copy, paste, delete and the mark toggles all act
- * on, so the band that paints it and the edit that follows cannot disagree.
+ * A selection across cells covers a rectangle, as in a spreadsheet. Dragging
+ * down from a header cell selects that column, not every cell in between. Copy,
+ * paste, delete and the mark toggles all act on this rectangle.
  */
 export interface TableCellRect {
   readonly top: number;
@@ -396,7 +400,11 @@ export function cellsInRect(
   return ids;
 }
 
-/** The cells a cross-cell selection between two carets covers. */
+/**
+ * The ids of the cells in the rectangle between the two carets' cells, row by
+ * row, left to right. Holes are skipped. Empty when either cell is not in the
+ * table.
+ */
 export function coveredCellIds(
   document: StructuredDocument,
   anchor: TableCaret,
@@ -434,16 +442,15 @@ export function tableLineRange(
 }
 
 /**
- * Step a cell caret through the table's text.
+ * Move a cell caret one step through the table's text.
  *
- * `backward`/`forward` are logical: they walk the text in storage order and
- * cross into the previous/next cell at a cell's edges, so arrow order and Tab
- * order stay the same walk. The action layer maps the LEFT and RIGHT keys onto
- * them, swapping the two in a right-to-left cell.
+ * `backward` and `forward` follow the text's stored order, and cross into the
+ * previous or next cell at a cell's edge. Tab walks the cells in the same
+ * order. In a right-to-left cell, swap them for the Left and Right keys.
  *
- * Returns `undefined` when there is nowhere to go — the very start or end of
- * the table, or a caret already at the requested edge — so the caller can let
- * the key fall through and leave the table instead of dead-ending in it.
+ * Returns `undefined` when there is nowhere to go: at the very start or end of
+ * the table, or when the caret is already at the edge asked for. The caller can
+ * then let the key move the caret out of the table.
  */
 export function stepTableCaret(
   document: StructuredDocument,
@@ -501,12 +508,12 @@ export function stepTableCaret(
 }
 
 /**
- * The word around `caret`, as a pair of carets in the same cell.
+ * The word at `caret`, as two carets in the same cell. This is what a
+ * double-click selects. Words end where they do in a paragraph.
  *
- * What a double-click selects. The boundaries come from the engine's own word
- * walk, so a cell and a paragraph agree on where a word ends; a caret that is
- * not on a word (a click in the trailing space of a cell) collapses onto itself
- * rather than reaching across to the previous one.
+ * A caret just after a word, on the space after it or at the end of the cell,
+ * takes that word. Returns `undefined` when there is no word there, or when the
+ * cell is not in `document`.
  */
 export function cellWordRange(
   document: StructuredDocument,
@@ -585,17 +592,15 @@ function offsetNearestX(
 }
 
 /**
- * Move a cell caret one visual row.
+ * Move a cell caret up or down one line. In a cell with wrapped text, the caret
+ * moves line by line first. From a cell's top or bottom line it goes to the
+ * cell above or below. The caret keeps its horizontal position.
  *
- * A tall cell is walked line by line first; only a cell's own top and bottom
- * lines hand the caret to the row above or below, so a wrapped cell behaves
- * like the paragraph it is. The caret keeps its horizontal position across the
- * move. Returns `undefined` at the table's top and bottom edges, where the
- * caller escapes to the surrounding document.
+ * Returns `undefined` at the table's top or bottom edge, so the caller can move
+ * the caret out of the table.
  *
- * `unit: "cell"` skips the inner line walk and lands in the neighbouring row
- * outright — what a selection that already covers whole cells extends by, where
- * the lines inside a covered cell are not stops of their own.
+ * With `unit: "cell"`, it skips the lines and goes straight to the next row.
+ * Use it to grow a selection that already covers whole cells.
  */
 export function moveTableCaretVertically(
   layout: TableLayout,
@@ -626,10 +631,11 @@ export function moveTableCaretVertically(
 }
 
 /**
- * The caret a table takes when the document caret arrives from `direction`:
- * the first row's leading cell entering downward, the last row's leading cell
- * entering upward. `x` is the horizontal position the caret arrives at, so it
- * lands under the column the user was already in.
+ * Where the caret lands when it moves into the table from the text around it.
+ * Moving `down` lands on the first line of the first row. Moving `up` lands on
+ * the last line of the last row. `x` is the caret's block-local horizontal
+ * position, so it lands in the cell under it, at the nearest offset. Returns
+ * `undefined` when the table has no rows, or that row has no cells.
  */
 export function tableEntryCaret(
   layout: TableLayout,

@@ -36,7 +36,11 @@ import type { StructuredKindSpec } from "@tasfer/editor/sync/schema";
 import type { StructuredDocument } from "@tasfer/editor/sync/structured-content";
 import { printMathDocument } from "@tasfer/tex/data";
 
-/** Losslessly encode the editable subset of a math range for the clipboard. */
+/**
+ * Turns a selection inside a formula into clipboard text. Plain text and
+ * Markdown both get the selected LaTeX. Returns undefined when the selection
+ * cannot be copied as LaTeX.
+ */
 export function serializeMathContentSelection({
   document,
   selection,
@@ -61,10 +65,11 @@ export function serializeMathContentSelection({
 }
 
 /**
- * Keep every committed nested math range construct-atomic. Core routes each
- * non-collapsed selection through this adapter, so a drag, shift+click, or
- * API range that would rest inside a construct the anchor is not in snaps to
- * cover that construct whole (see {@link snapMathContentSelection}).
+ * Keeps a selection inside a formula from cutting a fraction, root or other
+ * construct in half. If a drag, shift+click or API range would end inside a
+ * construct its start is not in, the selection grows to cover that construct
+ * whole (see {@link snapMathContentSelection}). The editor calls it for every
+ * selection that is not just a caret.
  */
 export function resolveMathContentSelection({
   document,
@@ -157,7 +162,11 @@ export function mathContentEdgeRange({
   };
 }
 
-/** The math kind's selection adapters, for hand-assembled interactive schemas. */
+/**
+ * How math handles selection and copy. {@link mathExtension} adds it for you.
+ * Add it to `structuredKinds` only when you build an interactive schema by
+ * hand.
+ */
 export const mathContentSelectionKind = {
   kind: MATH_STRUCTURED_KIND,
   contentSelection: serializeMathContentSelection,

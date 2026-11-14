@@ -56,26 +56,24 @@ export interface TableContext {
   readonly document: StructuredDocument;
   /** The moving end of the selection. */
   readonly caret: TableCaret;
-  /** The fixed end; equal to {@link caret} when the selection is collapsed. */
+  /**
+   * The fixed end of the selection. It equals {@link TableContext.caret} when
+   * nothing is selected, only a caret.
+   */
   readonly anchor: TableCaret;
   /**
-   * The selection inside a cell's formula, when the caret is in one — the
-   * formula's own tree, which the paragraph code edits (see {@link runInCell}).
-   * {@link caret} and {@link anchor} then both sit on the formula's start in
-   * its cell, which is where the grid's own moves start from.
+   * The selection inside a cell's formula, when the caret is in one.
+   * {@link TableContext.caret} and {@link TableContext.anchor} then both sit on
+   * the start of the formula in its cell, so grid moves start from there.
    */
   readonly content?: ContentSelection;
 }
 
 /**
- * A table a command acts on, without assuming the caret is in it.
- *
- * {@link activeTableContext} is the caret's answer to "which table", and it is
- * the right one for typing and for the structural menu, which are both anchored
- * to the cell the caret sits in. An on-canvas control is anchored to the
- * POINTER instead — the edge "add" strips act on the table under the mouse,
- * which may be a different table, or one no caret is in at all. Both resolve to
- * this, so a command written against it does not care which way in was used.
+ * A table a command acts on. Unlike {@link TableContext}, the caret does not
+ * have to be in it: a control on the canvas acts on the table under the
+ * pointer. Get one from {@link activeTableContext} (the caret's table) or
+ * {@link tableTargetForBlock} (a table by block id).
  */
 export type TableTarget = Pick<
   TableContext,
@@ -107,12 +105,11 @@ export function tableTargetForBlock(
 }
 
 /**
- * Resolve the active table, or `undefined` when the caret is elsewhere.
- *
- * An anchor that is not a text point (a gap between nodes, which a table never
- * produces) collapses onto the focus rather than failing the whole lookup — the
- * caret is still unambiguously inside a cell.
+ * The table the caret is in, and where the caret sits in it. Returns
+ * `undefined` when the caret is not in a table.
  */
+// An anchor that is not a text point (a gap between nodes, which a table never
+// produces) collapses onto the focus rather than failing the whole lookup.
 export function activeTableContext(
   state: EditorState,
 ): TableContext | undefined {
@@ -205,18 +202,18 @@ export function tableContentEdit(
 }
 
 /**
- * Apply `edits` to the page as operations, then park the caret at `caret`.
+ * Apply table `edits` to the page, then put the caret at `caret`. Pass
+ * `undefined` to leave the selection where it is. Returns the new state and the
+ * operations to save and send.
  *
- * Every table mutation goes through here, so a structural command and a typed
- * character reach the CRDT by exactly the same route — which is what makes them
- * merge, undo and sync alike. A `caret` of `undefined` leaves the selection
- * where it is (the edits did not move it).
- *
- * `attachments` are new documents for the table block to hold beside the
- * table's own — what a pasted cell formula points at. They are written first,
- * so no mark ever references an attachment the log has not created yet, and
- * an undo (which replays in reverse) removes the mark before its attachment.
+ * `attachments` are extra documents the table block should hold, such as the
+ * formula a pasted cell points to. They are written before the edits.
  */
+// Every table mutation goes through here, so a structural command and a typed
+// character reach the CRDT the same way and merge, undo and sync alike.
+// Attachments are written first so no mark references an attachment the log has
+// not created yet, and an undo (replayed in reverse) removes the mark before
+// its attachment.
 export function commitTableEdits(
   state: EditorState,
   context: Pick<TableContext, "block" | "document">,

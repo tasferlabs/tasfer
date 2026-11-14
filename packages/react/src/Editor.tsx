@@ -9,24 +9,25 @@ import { useEditor, type UseEditorOptions } from "./useEditor";
 
 /**
  * Props for the {@link Editor} component: every {@link CreateEditorOptions}
- * field except `element` (the component renders and owns the host `<div>`), plus
- * styling hooks, an `onChange` edit callback, and a one-shot ready callback.
- *
- * A type alias rather than an `interface extends UseEditorOptions` because the
- * content sources make `UseEditorOptions` a discriminated union, which an
- * interface can't extend — intersecting preserves the union's exclusivity.
+ * field except `element`, because the component renders its own `<div>`. It
+ * adds `className`, `style`, an `onChange` callback for edits, and an `onReady`
+ * callback that runs once.
  */
+// A type alias rather than an `interface extends UseEditorOptions` because the
+// content sources make `UseEditorOptions` a discriminated union, which an
+// interface can't extend; intersecting preserves the union's exclusivity.
 export type EditorProps<D extends SchemaDefinition = BaseSchemaDefinition> =
   UseEditorOptions<D> & {
     /**
-     * Notify-only callback fired with the document's serialized markdown after
-     * every change — local edits, paste, undo, or a remote sync. It is sugar over
-     * `editor.on("change", …)` and never pushes content back into the editor, so
-     * it can't fight the caret. The document is owned by the CRDT, not by a prop:
-     * to *replace* content at runtime, call `editor.setMarkdown(...)` (or any
-     * `editor.change(...)`) on the handle from `onReady`. For finer control — the
-     * {@link import("@tasfer/editor").ChangeTransaction}, or ignoring remote
-     * edits via `tx.isRemote` — subscribe through `onReady` instead.
+     * Called with the document as Markdown after every change: typing, paste,
+     * undo, or an edit from another person. It only reports changes. It never
+     * puts content back into the editor. Each call turns the whole document
+     * into Markdown.
+     *
+     * To replace the content, call `editor.setMarkdown(...)` on the handle from
+     * `onReady`. To read each {@link ChangeTransaction}, or to skip edits from
+     * other people with `tx.isRemote`, call `editor.on("change", …)` from
+     * `onReady` instead.
      */
     onChange?: (markdown: string) => void;
     /** Class name forwarded to the host `<div>`. */
@@ -38,29 +39,24 @@ export type EditorProps<D extends SchemaDefinition = BaseSchemaDefinition> =
      */
     style?: CSSProperties;
     /**
-     * Called once with the {@link TasferEditor} as soon as it has mounted. Use it
-     * to grab the imperative handle (focus, change, event subscriptions, …).
+     * Called once with the {@link TasferEditor} as soon as it has mounted. Use
+     * it to focus the editor, change it, or listen to its events.
      */
     onReady?: (editor: TasferEditor<D>) => void;
   };
 
 /**
- * A thin React wrapper over {@link useEditor} that renders the host element and
- * mounts the canvas editor into it.
+ * A React component that renders a `<div>` and mounts the editor in it. It is
+ * built on {@link useEditor}.
  *
- * Editor options are read once at mount (see {@link useEditor}); change the
- * editor at runtime through the handle delivered by `onReady`, not by re-passing
- * props. `onChange` is the one live prop, but it's notify-only — it reports
- * edits and never drives content. The host `<div>` must be sized — pass a height
- * via `style` or `className`.
+ * Options are read once, when it mounts. Changing them later does nothing. To
+ * change the editor afterwards, use the editor you get from `onReady`.
+ * `onChange` is the one prop that can change, and it only reports edits. Give
+ * the component a height with `style` or `className`, or it shows nothing.
  *
  * @example
- * <Editor
- *   markdown="# Hello"
- *   onChange={save}
- *   style={{ height: "100vh" }}
- *   onReady={(editor) => editor.focus("end")}
- * />
+ * <Editor markdown="# Hello" onChange={save} style={{ height: "100vh" }}
+ * onReady={(editor) => editor.focus("end")} />
  */
 export function Editor<D extends SchemaDefinition = BaseSchemaDefinition>(
   props: EditorProps<D>,

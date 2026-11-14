@@ -35,10 +35,9 @@ import {
 } from "@tasfer/tex";
 
 /**
- * Source boundary after jumping one adjacent visible math unit. Canonical
- * LaTeX may contain an invisible whitespace separator after a control word
- * (`\pi r`); skip only that whitespace instead of mistaking it for the edge of
- * the formula.
+ * The offset in the LaTeX source one visible item to the left or right of
+ * `sourceOffset`. It skips the hidden space LaTeX needs after a command, as in
+ * `\pi r`. Returns `null` at the edge of the formula.
  */
 export function mathUnitBoundaryOffset(
   source: string,
@@ -62,7 +61,10 @@ export function mathUnitBoundaryOffset(
   }
 }
 
-/** Convert a generic collapsed selection endpoint to the math editor currency. */
+/**
+ * Turn an editor selection point into a math caret. Returns `null` when the
+ * point is not in this formula or not at a spot the math editor can edit.
+ */
 export function contentPointToMathTreeCaret(
   document: StructuredDocument,
   point: ContentPoint,
@@ -100,7 +102,11 @@ export function contentPointToMathTreeCaret(
   };
 }
 
-/** Convert the pure math editor's result back to a generic core selection. */
+/**
+ * Turn a math caret back into a collapsed editor selection in block `blockId`.
+ * Returns `null` when the text or character the caret points at no longer
+ * exists.
+ */
 export function mathTreeCaretToContentSelection(
   blockId: string,
   contentId: string,
@@ -148,9 +154,10 @@ export function mathTreeCaretToContentSelection(
 }
 
 /**
- * Move an identity-bearing tree caret to the visually nearest editable stop on
- * the row above/below it. Layout/source offsets are transient geometry only;
- * the returned editor caret remains addressed entirely by CRDT identities.
+ * Move the caret to the nearest editable spot above or below it, like the Up
+ * and Down arrows. For example, from a numerator down into the denominator.
+ * Pass `layout` to reuse one you already have. Returns `null` when there is
+ * nothing in that direction.
  */
 export function moveMathTreeCaretVertically(
   document: StructuredDocument,
@@ -190,7 +197,11 @@ export function moveMathTreeCaretVertically(
   return null;
 }
 
-/** Convert a generic point to @tasfer/tex's stable layout address. */
+/**
+ * Turn an editor selection point into a caret position in the `@tasfer/tex`
+ * layout. Returns `null` when the point is not in this formula, or when what it
+ * points at is gone or is not editable text.
+ */
 export function contentPointToMathDocumentPosition(
   document: StructuredDocument,
   point: ContentPoint,
@@ -235,7 +246,11 @@ export function contentPointToMathDocumentPosition(
   };
 }
 
-/** Convert an identity-keyed layout stop to a generic core point. */
+/**
+ * The reverse of {@link contentPointToMathDocumentPosition}: turn a
+ * `@tasfer/tex` layout position into an editor selection point in block
+ * `blockId`. Returns `null` when the position does not exist in the document.
+ */
 export function mathDocumentPositionToContentPoint(
   blockId: string,
   contentId: string,
@@ -288,8 +303,8 @@ export function mathDocumentPositionToContentPoint(
 }
 
 /**
- * Resolve a transient canonical-source caret to the nearest position supported
- * by the tree editor (row gaps and character-editable leaf fields).
+ * The editable math caret closest to an offset in the formula's LaTeX source.
+ * Returns `null` when no caret can be found.
  */
 export function mathTreeCaretFromSourceOffset(
   blockId: string,
@@ -325,7 +340,11 @@ export function mathTreeCaretFromSourceOffset(
   return null;
 }
 
-/** Current canonical-source bridge offset for one stable content point. */
+/**
+ * The offset in the formula's LaTeX source for this selection point. It changes
+ * as the formula is edited, so do not store it. Returns `null` when the point
+ * is not in the formula.
+ */
 export function mathSourceOffsetFromContentPoint(
   document: StructuredDocument,
   point: ContentPoint,
@@ -339,7 +358,11 @@ export function mathSourceOffsetFromContentPoint(
   );
 }
 
-/** Resolve a nested range to transient canonical-source offsets for painting. */
+/**
+ * The `from` and `to` offsets in the LaTeX source that a selection covers, for
+ * drawing the highlight. Returns `null` when the selection is collapsed or not
+ * in this formula.
+ */
 export function mathSourceRangeFromContentSelection(
   document: StructuredDocument,
   selection: ContentSelection,
@@ -375,16 +398,16 @@ export function mathSourceRangeFromContentSelection(
 }
 
 /**
- * Extend a nested selection to a new focus caret without ever partially
- * covering a construct. Both endpoints are bridged to canonical source offsets
- * and snapped by tex's level-aware range rules: a selection whose endpoints
- * share a slot (one cell, one numerator) is left exactly as it is, while a
- * focus that crossed into a different slot takes that construct whole — and
- * the anchor, if it sits inside a construct of its own, widens outward to
- * cover it. `travel` is the focus's direction of movement, which decides
- * whether the construct it entered is taken in or dropped ("select less").
- * Falls back to the unsnapped extension when a bridge offset cannot be
- * resolved, and returns null only when the focus caret itself is invalid.
+ * Extend a selection to a new focus caret, like Shift+arrow does. The selection
+ * never covers only part of a construct. If both ends are in the same slot,
+ * such as one matrix cell, it stays as is. If the focus moves into another
+ * slot, it takes in that whole construct. An anchor inside a construct widens
+ * to cover that construct too.
+ *
+ * `travel` is the direction the focus moved, so moving back can drop a
+ * construct again. A widened result keeps the original ends in `unsnapped` for
+ * that. If the selection cannot be widened, you get the plain extension.
+ * Returns `null` only when the focus caret is invalid.
  */
 export function extendMathTreeContentSelection(
   blockId: string,
@@ -425,16 +448,16 @@ export function extendMathTreeContentSelection(
 }
 
 /**
- * Snap a nested math range so it never partially covers a construct, biased
- * away from the anchor: a focus resting inside a construct the anchor is not
- * in takes it whole. This is the gesture-agnostic rule the selection-resolver
- * facet applies to every committed range (drags, shift+click, the public
- * API). Shift+arrows pre-snap in {@link extendMathTreeContentSelection} with
- * their true direction of travel — which this bias cannot know — so "select
- * less" can drop a construct; their output is already clean when it arrives
- * here. Returns undefined when the range needs no adjustment (or cannot be
- * bridged to source offsets).
+ * Widen a selection so it never covers only part of a construct. A focus inside
+ * a construct the anchor is not in takes the whole construct. The editor
+ * applies this to every selection: drags, Shift+click and API calls.
+ * Shift+arrows use {@link extendMathTreeContentSelection} instead. Returns
+ * `undefined` when the selection needs no change, is collapsed, or cannot be
+ * widened.
  */
+// Shift+arrows pre-snap with their true direction of travel, which this
+// anchor-away bias cannot know, so "select less" can drop a construct; their
+// output is already clean when it arrives here.
 export function snapMathContentSelection(
   document: StructuredDocument,
   selection: ContentSelection,
@@ -508,7 +531,10 @@ function snapMathSelectionPoints(
   return { ...selection, anchor, focus };
 }
 
-/** Promote a transient source offset to a collapsed stable content selection. */
+/**
+ * A collapsed editor selection at an offset in the formula's LaTeX source. It
+ * lands on the nearest editable spot. Returns `null` when none is found.
+ */
 export function mathContentSelectionFromSourceOffset(
   blockId: string,
   contentId: string,

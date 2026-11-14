@@ -1,6 +1,9 @@
 import { balanceBraces, escapeStrayCloseBraces } from "@tasfer/tex/data";
 
-/** Make imported source brace-safe without changing already-valid LaTeX. */
+/**
+ * Fixes broken braces in imported LaTeX. A stray `}` becomes `\}`, and missing
+ * `}` are added at the end. LaTeX with balanced braces comes back unchanged.
+ */
 export function normalizeMathSource(latex: string): string {
   const escaped = escapeStrayCloseBraces(latex);
   const balanced = balanceBraces(escaped);

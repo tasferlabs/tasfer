@@ -52,12 +52,11 @@ export interface ViewportPayload {
 // ─── Caret moves (collapse selection, no ops) ────────────────────────────────
 
 /**
- * Move the caret one position to the left, collapsing any active selection
- * first. Emits no ops — a pure cursor move. This is the atomic left-arrow
- * primitive; the surrounding ArrowLeft special cases (selection collapse,
- * visual-block selection) remain in the handler for now and will be migrated
- * into their own actions over time.
+ * Move the caret one position to the left (ArrowLeft), collapsing any active
+ * selection first. Pure cursor move, no ops.
  */
+// The ArrowLeft special cases (selection collapse, visual-block selection)
+// still live in the key handler; move them into their own actions over time.
 export const MOVE_CURSOR_LEFT = stateAction("move-cursor-left", (state) => ({
   state: moveCursorLeft(clearSelection(state)),
   ops: [],
@@ -73,9 +72,10 @@ export const MOVE_CURSOR_RIGHT = stateAction("move-cursor-right", (state) => ({
 }));
 
 /**
- * Move between feature-owned nested slots with Tab/Shift+Tab. The default is a
- * no-op so ordinary blocks still let the browser move focus; a structured node
- * claims it through its per-instance action registration.
+ * Tab and Shift+Tab inside a block that has parts of its own, like moving
+ * between table cells. Pass `backward: true` for Shift+Tab. By default it does
+ * nothing, so other blocks keep their usual Tab, such as indenting a list or
+ * moving focus. A node with parts handles it in its `registerActions`.
  */
 export const MOVE_CONTENT_TAB = stateAction<{ backward: boolean }>(
   "move-content-tab",

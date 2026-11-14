@@ -35,12 +35,32 @@ import {
 // specialize AtomicNode through its generic without joining this root union.
 export type VisualBlock = Image | Line;
 
+/**
+ * Base class for blocks that hold no text, such as a divider, an image or an
+ * embed. Extend it for a custom block and supply two things: how tall the block
+ * is (`intrinsicHeight`) and how to draw it (`draw`). Selection highlighting
+ * and the rest of the layout work are handled for you.
+ *
+ * ```ts
+ * class CalloutNode extends AtomicNode {
+ *   readonly type = "callout";
+ *   protected intrinsicHeight() {
+ *     return 48;
+ *   }
+ *   protected draw(box, c) {
+ *     c.ctx.fillStyle = "rgba(29,185,132,0.10)";
+ *     c.ctx.fillRect(box.x, box.y, box.width, 48);
+ *   }
+ * }
+ * const schema = baseSchema.extend({ nodes: [new CalloutNode()] });
+ * ```
+ */
 export abstract class AtomicNode<
   B extends NodeBlock = NodeBlock,
 > extends Node<B> {
   /**
-   * Vertical flow the block consumes, including its own trailing padding.
-   * This is what the height pass returns and the document layout advances by.
+   * How tall the block is in px at the width in `c.maxWidth`, including its own
+   * space below. The next block starts this far below this one's top.
    */
   protected abstract intrinsicHeight(c: NodeLayoutCtx): number;
 
@@ -52,29 +72,28 @@ export abstract class AtomicNode<
   protected abstract draw(box: BlockBounds, c: NodePaintCtx): void;
 
   /**
-   * Optional on-top chrome drawn AFTER the selection overlay (e.g. image resize
-   * handles, which must stay visible over a selection tint). Default no-op.
+   * Optional: draw things that must sit on top of the selection highlight, such
+   * as an image's resize handles. Does nothing by default.
    */
   protected drawChrome(_box: BlockBounds, _c: NodePaintCtx): void {}
 
   /**
-   * The rectangle actually painted + selected, which may differ from the flow
-   * box: narrower/centered (constrained image), wider (full-bleed), or shorter
-   * (height excludes trailing padding). Default: the full flow box.
+   * The rectangle that is drawn and highlighted when selected. It can differ
+   * from the space the block takes up: narrower and centered (a sized image),
+   * wider (full width), or shorter (without the space below). Defaults to the
+   * block's full space.
    */
   protected paintBox(c: NodePaintCtx): BlockBounds {
     return this.bounds(c, this.intrinsicHeight(c));
   }
 
   /**
-   * Hit-test the block's interactive box without a canvas. `origin` is the
-   * block's content origin in the caller's coordinate space; `point` the
-   * pointer position in the same space. Returns the interactive box when the
-   * point is inside it, else null. Subclasses override when the interactive
-   * box differs from the flow box (e.g. a centered/contained image).
-   *
-   * This is the single dispatch point the event layer uses to map a pointer
-   * to an atomic block — new node types are hit-testable automatically.
+   * Returns the block's clickable box when `point` is inside it, or `null` when
+   * it is not. `origin` is the block's top-left corner and `point` is the
+   * pointer, both in the same coordinates. It needs no canvas. The editor uses
+   * it to find which block a click lands on, so a new block type is clickable
+   * with no extra work. Override it when the clickable box is smaller than the
+   * block's full space, such as a centered image.
    */
   hitTestBox(
     c: NodeLayoutCtx,

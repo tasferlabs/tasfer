@@ -59,13 +59,14 @@ export const DEFAULT_FONT_STYLES: FontStyles = {
 export const CODE_FONT_FAMILY = "monospace";
 
 /**
- * Neutral, opinion-free default palette. The editor ships these so it renders
- * sensibly with zero configuration; a host re-themes by passing `tokens` (see
- * {@link ThemeTokens}). These were formerly read from `--editor-*` /
- * `--primary` / `--muted` … CSS variables off `document.documentElement`; the
- * engine no longer touches the DOM — a host that drives appearance from CSS
- * variables converts them to tokens on its own side and passes them in.
+ * The default colors. The editor uses them for any color your theme does not
+ * set. To change them, pass `tokens` in your theme (see {@link ThemeTokens}).
+ *
+ * The editor never reads CSS variables. If your app keeps its colors in CSS
+ * variables, read them yourself and pass them in as tokens.
  */
+// These were formerly read from `--editor-*` / `--primary` / `--muted` CSS
+// variables off `document.documentElement`.
 export const DEFAULT_TOKENS: ThemeTokens = {
   text: "#1f2328",
   heading: "#0d1117",
@@ -148,9 +149,13 @@ function deepMerge<T>(base: T, override: DeepPartial<T> | undefined): T {
 }
 
 /**
- * Merge two themes (e.g. for `setTheme`): later wins, deep-merging `styles` and
- * shallow-merging `tokens` / `fonts.families` / `strings`. `fontFamily` from the
- * patch wins when present (including an explicit `null`).
+ * Combines two themes. This is how `setTheme` applies a patch. Values in
+ * `patch` win.
+ *
+ * `styles` merges deeply. `tokens`, `strings` and `fonts.families` merge one
+ * level deep. `nodeStrings` merges per node type. `fonts.defaultFamily` from
+ * `patch` wins when it is set. `fontFamily` from `patch` wins whenever the key
+ * is there, even when it is `null`. Neither input is changed.
  */
 export function mergeTheme(base: EditorTheme, patch: EditorTheme): EditorTheme {
   return {
@@ -211,16 +216,17 @@ export function resolveNodeStrings(
 }
 
 /**
- * Resolve a host {@link EditorTheme} into the full {@link EditorStyles} the
- * renderer/layout/hit-test paths read. Layers, in order: neutral token defaults
- * → `theme.tokens` → structural defaults built from those tokens →
- * `theme.styles` deep-partial overrides. No DOM access, no globals — pure.
+ * Turns an {@link EditorTheme} into the full {@link EditorStyles} the editor
+ * draws with. It applies these in order: the default tokens, `theme.tokens`,
+ * the default styles built from those tokens, then `theme.styles`. It does not
+ * read the DOM.
  *
- * The two genuinely view-dependent values (mobile horizontal padding and the
- * window-focus selection color) are NOT decided here; `getEditorStyles` applies
- * them per render. This function fills the resolved fields with their
- * focused / desktop variants.
+ * Two values depend on the screen, so they are not decided here: the smaller
+ * side padding on phones, and the dimmed selection color when the window loses
+ * focus. This function returns the desktop padding and the focused color.
  */
+// `getEditorStyles` applies the mobile padding and the unfocused selection
+// color per render.
 export function resolveTheme(theme: EditorTheme = {}): EditorStyles {
   const t: ThemeTokens = { ...DEFAULT_TOKENS, ...theme.tokens };
   const strings: EditorStrings = { ...DEFAULT_STRINGS, ...theme.strings };

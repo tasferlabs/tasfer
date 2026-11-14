@@ -93,14 +93,16 @@ export {
 export { UnknownNode } from "./UnknownNode";
 
 /**
- * The built-in nodes. Each is constructed fresh here (the built-in nodes are
- * stateless, holding only layout/paint logic), so importing this module has no
- * side effects and no module-init ordering hazards.
+ * Returns the built-in nodes, made new on each call: paragraph and headings
+ * (`TextNode`), bullet, numbered and todo lists (`ListNode`), quote, image and
+ * the divider line.
  *
- * `TextNode` backs headings + paragraph; `ListNode` (a subclass) backs the
- * bullet/numbered/todo family. Optional feature nodes (notably math) are not in
- * this list: hosts install them through feature extensions.
+ * Opt-in nodes such as math, code blocks and tables are not in this list. Add
+ * them through their extensions.
  */
+// Built-in nodes are stateless (layout/paint logic only), so building them
+// inside this function keeps the module import free of side effects and
+// module-init ordering hazards.
 export function defaultNodes(): Node[] {
   return [
     new LineNode(),
@@ -111,7 +113,10 @@ export function defaultNodes(): Node[] {
   ];
 }
 
-/** Build a registry from an explicit list of nodes (host opt-in). */
+/**
+ * Builds a node registry from the nodes you list. Only those block types get a
+ * node. If two nodes claim the same block type, the later one wins.
+ */
 export function createNodeRegistry(nodes: readonly Node[]): NodeRegistry {
   const registry = new NodeRegistry();
   for (const node of nodes) {

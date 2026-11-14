@@ -23,15 +23,28 @@ import type { DataSchema } from "@tasfer/editor/sync/schema";
 // eslint-disable-next-line local/no-global-mutable-state -- write-once immutable compatibility schema shared by schema-optional APIs.
 let cachedCompatibilityDataSchema: DataSchema | null = null;
 
+/**
+ * The base data schema with math added. Pass it to the parsing and
+ * serializing functions that take an optional schema when your documents may
+ * contain math; without a schema they no longer understand math. Every call
+ * returns the same schema.
+ */
 export function getCompatibilityDataSchema(): DataSchema {
   return (cachedCompatibilityDataSchema ??=
     getBaseDataSchema().extend(mathDataExtension()));
 }
 
 /**
- * The math replacement renderer the HTML serializer used to reach for on its
- * own. Pass it as `renderReplacement` to render display/inline math as inline
- * SVG on export; omit it and math serializes as its `$$…$$` source instead.
+ * Draws math as inline SVG in HTML export. Pass it as `renderReplacement`.
+ * Without it, a block equation exports as `<code>` holding its LaTeX, and
+ * inline math as `<code>$…$</code>`. Throws for any type other than `"math"`.
+ *
+ * ```ts
+ * const html = serializeToHTML(blocks, {
+ *   schema: getCompatibilityDataSchema(),
+ *   renderReplacement: mathReplacementRenderer,
+ * });
+ * ```
  */
 export function mathReplacementRenderer(
   ...[type, source, displayMode]: Parameters<ReplacementRenderer>

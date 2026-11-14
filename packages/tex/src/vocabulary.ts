@@ -26,6 +26,10 @@ import {
   STRETCHY_ACCENTS,
 } from "./parse/parser";
 
+/**
+ * A command that renders as a single symbol, such as `\degree` for °. One
+ * entry of {@link symbolCommands}.
+ */
 export interface SymbolCommand {
   /** Command word without the backslash, e.g. `degree`. */
   readonly name: string;
@@ -33,6 +37,10 @@ export interface SymbolCommand {
   readonly char: string;
 }
 
+/**
+ * A named operator the engine can render, such as `\arcsin` or `\liminf`. One
+ * entry of {@link operatorCommands}.
+ */
 export interface OperatorCommand {
   /** Command word without the backslash, e.g. `liminf`. */
   readonly name: string;
@@ -40,6 +48,11 @@ export interface OperatorCommand {
   readonly limits: boolean;
 }
 
+/**
+ * Every command that renders as a single symbol, sorted by name. Use it to
+ * build autocomplete or a symbol picker. Accent and spacing commands are left
+ * out.
+ */
 export const symbolCommands: readonly SymbolCommand[] = Object.entries(
   mathSymbols,
 )
@@ -52,6 +65,12 @@ export const symbolCommands: readonly SymbolCommand[] = Object.entries(
   .map(([key, info]) => ({ name: key.slice(1), char: info.char }))
   .sort((a, b) => (a.name < b.name ? -1 : 1));
 
+/**
+ * Every named operator the engine draws (`arcsin`, `liminf`, …), without the
+ * backslash and sorted by name. `limits` is true for ones like `\lim`, whose
+ * subscript goes underneath in display style, so a picker can offer a slot for
+ * it.
+ */
 export const operatorCommands: readonly OperatorCommand[] = Object.entries(
   MATH_OPERATORS,
 )
@@ -59,10 +78,10 @@ export const operatorCommands: readonly OperatorCommand[] = Object.entries(
   .sort((a, b) => (a.name < b.name ? -1 : 1));
 
 /**
- * Accent control words (`hat`, `vec`, `widehat`) without the backslash. Unlike
- * the two tiers above these DO take a base, so they are listed separately: a
- * host inserting one needs a `{}` slot, and the structured document model
- * validates a stored accent command against this vocabulary.
+ * Accent commands (`hat`, `vec`, `widehat`) without the backslash, sorted.
+ * Unlike {@link symbolCommands} and {@link operatorCommands}, these sit over a
+ * base, so insert them with a `{}` slot. Stored math documents only accept
+ * accents from this list.
  */
 export const accentCommands: readonly string[] = [...ACCENTS].sort();
 
@@ -77,10 +96,10 @@ export function isStretchyAccentCommand(name: string): boolean {
 }
 
 /**
- * Control words taking exactly one braced body: over/under rules, frames,
- * fonts and alphabets, atom-class overrides, phantoms, and `\not`. Like the
- * accents these are constructs, not glyphs — a host inserting one needs a `{}`
- * slot, and the structured model validates a stored command against this list.
+ * Commands, without the backslash and sorted, that wrap exactly one braced
+ * body: over and under lines, frames, fonts and alphabets, spacing-class
+ * commands like `\mathbin`, phantoms, and `\not`. Insert them with a `{}` slot.
+ * Stored math documents only accept wrappers from this list.
  */
 export const wrapperCommands: readonly string[] = [
   ...OVER_UNDER,

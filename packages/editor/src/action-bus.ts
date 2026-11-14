@@ -27,22 +27,26 @@ import type { DocPoint } from "./positions";
 import type { EditorState, Operation } from "./state-types";
 
 /**
- * A typed action identifier. Carries no state (the `_p` field is phantom —
- * type-only, never read at runtime), so it's safe to declare as a module-level
- * constant and share across instances, exactly like a `defineNode` spec.
+ * An action, with the type of its payload. It holds no state, so declare it
+ * once at module level and share it between editors. Make one with
+ * {@link action} or {@link stateAction}.
  */
+// The `_p` field is phantom: type-only, never read at runtime.
 export interface Action<P = void> {
-  /** Human-readable name, for debugging only — identity is by reference. */
+  /**
+   * A readable name, only for debugging. Two actions with the same name are
+   * still different actions.
+   */
   readonly name: string;
   /** @internal Phantom marker threading the payload type through the API. */
   readonly _p?: P;
 }
 
 /**
- * A mutation action's handler. Receives the editor's {@link ChangeApi} plus the
- * payload, so an observer can contribute edits to the SAME transaction as the
- * default. Return `true` to override — claim the action and skip the default
- * mutation; return `false`/`void` to observe (queued edits still commit).
+ * A handler for a mutation action. It gets the editor's {@link ChangeApi} and
+ * the payload, so its edits land in the same undo step as the default. Return
+ * `true` to claim the action and skip the default edit. Return `false` or
+ * nothing to just watch. Edits it made still apply either way.
  */
 export type MutationHandler<P = void> = (
   c: ChangeApi,
@@ -53,23 +57,32 @@ export type MutationHandler<P = void> = (
 export type Mutator<P = void> = MutationHandler<P>;
 
 /**
- * A action whose default behavior is a document mutation. Unlike a plain
- * {@link Action}, dispatching it runs the default plus every observer inside
- * ONE `change()` — one undo entry, one broadcast, one `on("change")`. It is
- * still a `Action<P>`, so it also flows through `run`/schema shortcuts.
+ * An action whose default behavior edits the document. Unlike a plain
+ * {@link Action}, dispatching it runs every handler and the default inside one
+ * `change()`. That makes one undo step, one update sent to other people, and
+ * one `change` event. A handler that returns `true` skips the default. It is
+ * still an {@link Action}, so a schema shortcut can point at it.
  */
 export interface MutationAction<P = void> extends Action<P> {
   readonly mutate: Mutator<P>;
 }
 
 /**
- * Declare a action. `name` is for debugging only — identity is by reference, so
- * two actions never alias by it. Pass a `mutate` function to make it a
- * {@link MutationAction}: its default behavior is a document mutation that
- * `editor.dispatch` runs (with every observer) inside one undoable transaction.
- * Either form is safe as a shared module-level constant — a `mutate` must be
- * pure with respect to editor instances (it only touches the {@link ChangeApi}
- * it's handed).
+ * Declare an action. `name` is only for debugging. Two actions with the same
+ * name are still different actions.
+ *
+ * Pass a `mutate` function to make a {@link MutationAction}, an action that
+ * edits the document. `editor.dispatch` runs it and every handler as one undo
+ * step. `mutate` must only use the {@link ChangeApi} it gets. Then the action
+ * is safe to declare once and share between editors.
+ *
+ * ```ts
+ * const INSERT_DATE = action<{ date: string }>("insert-date", (c, { date }) => {
+ *   c.insertText(date);
+ * });
+ *
+ * editor.dispatch(INSERT_DATE, { date: "2026-11-14" });
+ * ```
  */
 export function action<P = void>(name: string): Action<P>;
 export function action<P = void>(
@@ -83,15 +96,20 @@ export function action<P = void>(
   return mutate ? { name, mutate } : { name };
 }
 
-/** Narrow a action to a mutation action (dispatch/run use this to pick a path). */
+/**
+ * Returns `true` when `c` is a {@link MutationAction}, an action made with a
+ * `mutate` function.
+ */
+// editor.dispatch and schema shortcuts use this to pick the mutation path.
 export function isMutationAction<P>(c: Action<P>): c is MutationAction<P> {
   return typeof (c as Partial<MutationAction<P>>).mutate === "function";
 }
 
 /**
- * The `{ state, ops }` pair every editor action produces — the lower-level
- * currency a {@link StateAction} trades in. `ops` is the CRDT operations the
- * transform emitted (empty for a pure cursor/selection move).
+ * The `{ state, ops }` pair every editor action returns, and what a
+ * {@link StateAction} works with. `state` is the new editor state. `ops` is the
+ * list of document edits it made. It is empty when only the caret or selection
+ * moved.
  */
 export interface StateResult {
   state: EditorState;
@@ -99,12 +117,10 @@ export interface StateResult {
 }
 
 /**
- * A state action's default behavior: a pure transform over the whole
- * {@link EditorState}. This is the *low-level* action shape — the same
- * `(state) => { state, ops }` currency the event pipeline already speaks, so it
- * can express things a {@link MutationAction}'s {@link ChangeApi} can't, like a
- * cursor/selection move that emits no ops. A {@link MutationAction} is sugar
- * layered above this for the document-mutation case.
+ * A state action's default behavior. It takes the whole {@link EditorState} and
+ * the payload, and returns a {@link StateResult}. It must not change the state
+ * it gets. It can do things a {@link MutationAction}'s {@link ChangeApi}
+ * cannot, like moving the caret or selection without editing the document.
  */
 export type StateMutator<P = void> = (
   state: EditorState,
@@ -112,11 +128,11 @@ export type StateMutator<P = void> = (
 ) => StateResult;
 
 /**
- * A state action's observer/override handler. Receives the current working
- * state (already threaded through higher-priority handlers) plus the payload.
- * Return a {@link StateResult} to contribute changes; add `handled: true` to
- * claim the action and skip the default transform; return `void` to observe
- * without changing anything (and pass through to lower-priority handlers).
+ * A handler for a state action. It gets the payload and the current state, with
+ * changes from higher-priority handlers already in it. Return a
+ * {@link StateResult} to make changes. Add `handled: true` to claim the action:
+ * lower-priority handlers and the default then do not run. Return nothing to
+ * just watch.
  */
 export type StateHandler<P = void> = (
   state: EditorState,
@@ -124,10 +140,11 @@ export type StateHandler<P = void> = (
 ) => (StateResult & { handled?: boolean }) | void;
 
 /**
- * A action whose default behavior is a pure {@link StateMutator}. Dispatched
- * through {@link ActionBus.dispatchState} — the event pipeline threads its
- * `{ state, ops }` forward and commits it, rather than the live editor's
- * `change()`. Still a `Action<P>`, so it shares the same handler registry.
+ * An action whose default behavior is a {@link StateMutator}. Unlike a
+ * {@link MutationAction}, it can move the caret or selection without editing
+ * the document. It runs through {@link ActionBus.dispatchState}, or
+ * `editor.dispatch` on a live editor. It is still an {@link Action} and shares
+ * the same handler list.
  */
 export interface StateAction<P = void> extends Action<P> {
   readonly transform: StateMutator<P>;
@@ -150,9 +167,21 @@ export interface StateActionOptions {
 }
 
 /**
- * Declare a state action (see {@link StateAction}). `name` is for debugging
- * only — identity is by reference. The `transform` must be pure with respect to
- * editor instances (it only reads/derives from the `state` it's handed).
+ * Declare a state action (see {@link StateAction}). `name` is only for
+ * debugging. `transform` gets the editor state and the payload, and returns the
+ * new state plus the edits it made. It must only use the `state` it gets, so
+ * the action is safe to share between editors. See {@link StateActionOptions}
+ * for `options`.
+ *
+ * ```ts
+ * // A hook that does nothing by default. Nodes add handlers for it.
+ * const BLOCK_TOUCHED = stateAction<{ blockIndex: number }>(
+ *   "block-touched",
+ *   (state) => ({ state, ops: [] }),
+ * );
+ *
+ * editor.dispatch(BLOCK_TOUCHED, { blockIndex: 0 });
+ * ```
  */
 export function stateAction<P = void>(
   name: string,
@@ -177,15 +206,19 @@ export type StateForwarder = <P>(
   payload: P,
 ) => (StateResult & { handled?: boolean }) | void;
 
-/** Narrow a action to a state action (dispatch picks the pure-transform path). */
+/**
+ * Returns `true` when `c` is a {@link StateAction}, an action made with
+ * {@link stateAction}.
+ */
+// editor.dispatch uses this to pick the state-transform path.
 export function isStateAction<P>(c: Action<P>): c is StateAction<P> {
   return typeof (c as Partial<StateAction<P>>).transform === "function";
 }
 
 /**
- * A action handler. Return `true` to mark the action handled and stop
- * propagation (the editor's lower-priority default is skipped); return
- * `false`/`void` to observe and pass through to lower-priority handlers.
+ * A handler for an action. Return `true` to claim the action. Then
+ * lower-priority handlers and the editor's default do not run. Return `false`
+ * or nothing to just watch, and the action moves on to lower-priority handlers.
  */
 export type ActionHandler<P = void> = (payload: P) => boolean | void;
 
@@ -199,6 +232,12 @@ export type DispatchArgs<P> = [P] extends [void] ? [] : [payload: P];
  */
 export const DEFAULT_ACTION_PRIORITY = -Infinity;
 
+/**
+ * The message board one editor uses for its actions. Handlers register for an
+ * action; dispatching the action runs them from highest priority to lowest
+ * until one claims it. Each editor has its own bus, and a custom node or mark
+ * receives it in `registerActions` to listen for, or override, an action.
+ */
 export interface ActionBus {
   /**
    * Register `handler` for `action`. Higher `priority` runs first (default
@@ -210,12 +249,10 @@ export interface ActionBus {
     priority?: number,
   ): () => void;
   /**
-   * Register a {@link StateHandler} for a {@link StateAction} — the typed
-   * sibling of {@link register} for the {@link dispatchState} path (the handler
-   * receives the threaded `state` plus the payload and returns a
-   * {@link StateResult}). Same priority / claim semantics; returns an
-   * unsubscribe function. Prefer this over casting a state handler through
-   * {@link register}.
+   * Register a {@link StateHandler} for a {@link StateAction}. It works like
+   * {@link register}, with the same priority and claim rules. The difference is
+   * the handler: it gets the current state and the payload, and can return a
+   * {@link StateResult}. Returns an unsubscribe function.
    */
   registerState<P>(
     action: StateAction<P>,
@@ -234,34 +271,40 @@ export interface ActionBus {
    */
   notify<P>(action: Action<P>, ...args: DispatchArgs<P>): void;
   /**
-   * Run a {@link StateAction}: thread `state` through its observers (high→low
-   * priority) and, unless one claims it (`handled: true`), its default
-   * transform — accumulating every emitted op — and return the resulting
-   * `{ state, ops }`. This is the pure-functional sibling of {@link dispatch}:
-   * the event pipeline calls it with the working state and commits the result.
+   * Run a {@link StateAction} on `state`. Its handlers run from highest
+   * priority to lowest. Each one gets the state as the handlers before it left
+   * it. If none claims it (`handled: true`) and the action is
+   * {@link StateActionOptions | forwardable}, forwarders run next. Then the
+   * default runs, unless something claimed the action.
    *
-   * `claimed` reports whether a handler claimed the action (`handled: true`), so
-   * the default transform was skipped. Callers that drive platform-specific
-   * fallbacks use it (e.g. the touch tap path runs its own caret placement only
-   * when no node/mark claimed the tap).
+   * Returns the final `state`, every edit made along the way in `ops`, and
+   * `claimed`. `claimed` is `true` when a handler or forwarder claimed the
+   * action, so the default did not run.
+   *
+   * It does not apply anything to an editor. To run a state action on a live
+   * editor, use `editor.dispatch`.
    */
+  // The event pipeline calls this with the working state and commits the
+  // result. The touch tap path reads `claimed` to run its own caret placement
+  // only when no node or mark claimed the tap.
   dispatchState<P>(
     action: StateAction<P>,
     state: EditorState,
     ...args: DispatchArgs<P>
   ): StateResult & { claimed: boolean };
   /**
-   * Register `forwarder` for every {@link StateActionOptions.forwardable
-   * forwardable} state action. It runs after that action's own handlers have
-   * all passed and before its default transform, high→low `priority` among
-   * forwarders, with the same claim semantics as a handler. Returns an
-   * unsubscribe function.
+   * Register `forwarder` for every {@link StateActionOptions | forwardable}
+   * state action. It runs after the action's own handlers all pass, and before
+   * its default. Forwarders run from highest `priority` to lowest. Like a
+   * handler, a forwarder can claim the action. Returns an unsubscribe function.
    */
+  // Keep `{@link StateActionOptions.forwardable forwardable}` on one source
+  // line so the generator does not pick up the `*` from the next line.
   registerForwarder(forwarder: StateForwarder, priority?: number): () => void;
   /**
-   * Registered handlers for `action`, high→low priority. For drivers that
-   * invoke handlers with a non-standard signature — mutation actions thread a
-   * {@link ChangeApi} through one transaction instead of going via `dispatch`.
+   * The handlers registered for `action`, highest priority first. Use it when
+   * you call the handlers yourself with other arguments. The editor does this
+   * for mutation actions, which pass a {@link ChangeApi} to each handler.
    */
   handlersFor<P>(action: Action<P>): readonly ActionHandler<P>[];
 }
@@ -396,12 +439,10 @@ export function createActionBus(): ActionBus {
 export type Disposer = () => void;
 
 /**
- * Combine several teardown functions into one (Lexical's `mergeRegister`).
- * `editor.registerAction` / `subscribe` / `doc.on` each return a `Disposer`;
- * collecting them by hand and remembering to call every one on unmount is
- * error-prone — a dropped disposer leaks a handler that fires for the rest of
- * the instance's life (and, on a re-run effect, stacks duplicates). Pass them
- * all here and store the single returned `Disposer`:
+ * Combine several teardown functions into one. `editor.registerAction`,
+ * `editor.subscribe` and `doc.on` each return a {@link Disposer}. Pass them all
+ * here and keep the one function it returns. Then cleanup is a single call, and
+ * no handler is left running by mistake.
  *
  * ```ts
  * const dispose = mergeRegister(
@@ -412,10 +453,11 @@ export type Disposer = () => void;
  * // later (effect cleanup): dispose();
  * ```
  *
- * Disposers run in registration order and each runs at most once — calling the
- * returned function twice is a no-op (the list is cleared after the first call),
- * matching `@lexical/utils`.
+ * The disposers run in the order you passed them. Calling the returned function
+ * a second time does nothing.
  */
+// Mirrors Lexical's mergeRegister from @lexical/utils; the list is cleared
+// after the first call so captured closures can be collected.
 export function mergeRegister(...disposers: Disposer[]): Disposer {
   return () => {
     for (const dispose of disposers) dispose();
@@ -440,11 +482,10 @@ export function mergeRegister(...disposers: Disposer[]): Disposer {
 export const OPEN_LINK = action<{ url: string }>("open-link");
 
 /**
- * Raw finger geometry a touch cursor-drag emits. The caret's own pixel location
- * is NOT here — a host loupe anchors its body to the caret via
- * `editor.view.coordsAtPos("caret")`. This carries only what the caret can't
- * give: the finger's `touchX` (to aim the loupe's pointer at the finger) and
- * `touchRadiusY` (to clear the fingertip when placing the loupe above the line).
+ * Where the finger is during a touch caret drag. It does not include the
+ * caret's position. Get that from `editor.view.coordsAtPos("caret")`. Use
+ * `touchX` to point a magnifier at the finger, and `touchRadiusY` to place the
+ * magnifier above the fingertip.
  */
 export interface CursorDragInfo {
   /** Finger contact X (canvas/viewport coords). */
@@ -470,10 +511,11 @@ export const CURSOR_DRAG_BOUNDARY = action("cursor-drag-boundary");
 export const CURSOR_DRAG_END = action("cursor-drag-end");
 
 /**
- * A held region drag (selection handle, image resize, scrollbar, …) promoted
- * to an active drag. `intensity` is the region's declared interaction salience
- * (see `RegionDragSpec.activationIntensity`); a host maps it to haptics, sound,
- * etc. Observe-only.
+ * A touch hold turned into a drag: a selection handle, an image resize, a
+ * scrollbar, and so on. It only fires for drag areas that need a hold and set
+ * an `activationIntensity`. `regionId` names the drag area. `intensity` is
+ * `"light"`, `"medium"` or `"heavy"`. A host turns it into a haptic or a sound.
+ * Observe-only.
  */
 export const REGION_DRAG_START = action<{
   regionId: string;
@@ -481,26 +523,23 @@ export const REGION_DRAG_START = action<{
 }>("region-drag-start");
 
 /**
- * An in-progress region drag crossed a discrete detent — a snap point or
- * milestone the user should feel, like an image resize snapping to full-width /
- * padding-width or a slider passing a tick. The cursor-drag caret has its own
- * boundary signal ({@link CURSOR_DRAG_BOUNDARY}); this is its content-agnostic
- * sibling for non-caret region drags, so a node never reaches for a
- * cursor-specific action. A host maps it to a light haptic. Observe-only.
+ * A drag passed a snap point the user should feel. For example, an image resize
+ * snapped to full width, or a slider passed a tick. A host can play a light
+ * haptic. Caret drags use {@link CURSOR_DRAG_BOUNDARY} instead. Observe-only.
  */
 export const DRAG_DETENT = action("drag-detent");
 
 /**
- * Local text was just inserted into a block by a keystroke — the host-facing
- * "input" signal (a higher-level sibling of the CRDT `text_insert` op). Flat
- * text reports `blockIndex`/`textIndex`; a structured feature also reports its
- * stable `contentPoint`. Observe-only.
+ * A key press on this device just typed text into a block. `text` is what was
+ * typed. `blockIndex` and `textIndex` say where it landed. Inside structured
+ * content, such as a formula, `textIndex` is 0 and `contentPoint` gives the
+ * exact spot. `inputSource` says whether the key came from a physical keyboard
+ * or the editor's text input, like an on-screen keyboard. A space does not fire
+ * it. Observe-only.
  *
- * This is the edge-trigger menus/typeaheads build on: a slash plugin opens its
- * menu when it sees a `/` inserted here (edge-triggered, so the menu doesn't
- * spuriously reopen on later keystrokes just because a stale `/` still sits in
- * the text), then tracks the filter from editor state while open. The engine
- * knows nothing about the menu.
+ * Use it to open a menu when the user types a character, like `/` for a slash
+ * menu. It fires once per key press, so the menu does not reopen later just
+ * because an old `/` is still in the text.
  */
 export const TEXT_INPUT = action<{
   text: string;
@@ -513,20 +552,20 @@ export const TEXT_INPUT = action<{
 }>("text-input");
 
 /**
- * Post-insert normalization — dispatched by the insert pipeline *after* the
- * typed op is applied and the caret settled at `textIndex` in `blockIndex`, and
- * crucially *inside the same edit transform*, so any ops an observer emits join
- * the one CRDT change / undo entry / broadcast. A node/mark observes this (in
- * `registerActions`) to materialize an incomplete construct it just completed
- * (`\frac` → `\frac{}{}`, dropping the caret in the first slot) and/or arm
- * caret-anchored scratch — the *effect* half of the caret/edit seam, the
- * counterpart to the pure *query* hooks on its `CaretModel`. Default is
- * identity; observers thread `{ state, ops }` like any {@link StateAction}.
+ * Runs right after typed text is inserted, with the caret at `textIndex` in
+ * `blockIndex`. It runs inside the same edit, so anything a handler changes
+ * joins the same undo step.
  *
- * This is the engine's analogue of a post-edit normalization pass (ProseMirror's
- * `appendTransaction`, Lexical's node transforms): the core stays type-agnostic
- * — it only dispatches; the node/mark decides what, if anything, to fill in.
+ * A node or mark observes it in `registerActions` to finish what the user just
+ * typed. For example, math turns `\frac` into `\frac{}{}` and puts the caret in
+ * the first slot. By default it does nothing. Handlers return `{ state, ops }`
+ * like any {@link StateAction}.
  */
+// This is the effect half of the caret/edit seam, the counterpart to the pure
+// query hooks on CaretModel; observers may also arm caret-anchored scratch
+// here. It plays the role of a post-edit normalization pass (ProseMirror's
+// appendTransaction, Lexical's node transforms): core only dispatches, the
+// node/mark decides what to fill in.
 export const TEXT_INPUTTED = stateAction<{
   blockIndex: number;
   textIndex: number;
@@ -577,30 +616,28 @@ export interface ImagePasteEvent {
 }
 
 /**
- * An image file was pasted from the clipboard (e.g. a screenshot) and a fresh
- * image block was inserted to hold it. The block is identified by stable
- * `blockId` (not a positional index) so a handler's async upload resolves the
- * right block even if remote edits shift indices while the upload is in flight.
- * A host observes this at priority `0` to upload the file and rewrite the
- * block's url; a custom image node can register higher and return `true` to
- * claim the paste and handle the upload itself. Observe-only by default (the
- * engine has already inserted the block).
+ * An image was pasted, like a screenshot. The editor has already inserted an
+ * image block for it. Observe it to upload `file` and set the block's url. The
+ * block is named by `blockId`, so you still find the right block if other edits
+ * move it while the upload runs.
+ *
+ * A custom image node can register at a higher priority and return `true` to
+ * handle the upload itself. The editor has no default handler.
  */
 export const IMAGE_PASTE = action<ImagePasteEvent>("image-paste");
 
 /**
- * The viewport is about to scroll from user input (wheel, touch-drag, or
- * momentum) — dispatched at the scroll funnel *before* the offset is applied,
- * so a node the pointer is over (e.g. a drawing board) can return `true` to
- * claim the scroll and keep the page from moving, handling the delta itself. If
- * unclaimed, the editor applies the scroll. `scrollY` is the proposed new
- * (clamped) offset; `deltaY` is the change from the current offset. Hosts that
- * only need to track the offset (e.g. to position floating UI) observe at
+ * The page is about to scroll from user input: a wheel, a touch drag, or
+ * momentum. It fires before the page moves. A node under the pointer, like a
+ * drawing board, can return `true` to keep the page still and use the scroll
+ * itself. Otherwise the editor scrolls. `scrollY` is the new scroll offset,
+ * already kept in bounds. `deltaY` is how far it moves from the current offset.
+ * To just track the offset, for example to place floating UI, observe at
  * priority `0`.
  *
- * Programmatic scrolls (`scrollToPosition`, anchor correction, document clear)
- * are dispatched after the viewport changes with `source: "programmatic"`.
- * Their handler return values are ignored, so only user input is claimable.
+ * Scrolls made by code (`scrollToPosition`, keeping the view steady, clearing
+ * the document) fire after the page moved, with `source: "programmatic"`. Their
+ * return value is ignored, so only user scrolls can be stopped.
  */
 export const SCROLL = action<{
   scrollY: number;
@@ -609,22 +646,24 @@ export const SCROLL = action<{
 }>("scroll");
 
 /**
- * The editor wants a context menu shown — emitted on desktop right-click and on
- * touch long-press / cursor-hold. `x`/`y` are canvas coordinates (the host adds
- * its container rect to position the menu); `hasSelection` lets the host build
- * the item set without re-deriving it; `point` is the document point the menu
- * is about — under the pointer for a right-click, the caret (or a held range's
- * focus) for the keyboard chord and touch — when one resolved, so a host can
- * read `query.block(point)` / `query.marks(point)` without a second hit test.
- * Inside a structured attachment only the block is named (no flat offset); it
- * is absent over a non-textual block with no caret. The engine itself is
- * headless about the menu: a host observes this, renders its own menu, and
- * returns `true` to claim it. The engine tracks that a host menu is capturing
- * the pointer (off this action and {@link CLOSE_CONTEXT_MENU}) so the touch FSM
- * routes the subsequent drag/release to the menu (see
- * {@link CONTEXT_MENU_POINTER_MOVE} / {@link CONTEXT_MENU_RELEASE}) instead of
- * scrolling/selecting — the host never writes that flag, it just dispatches
- * {@link CLOSE_CONTEXT_MENU} to dismiss.
+ * The editor wants a context menu. It fires on right-click, on the keyboard
+ * shortcut, and on a touch long-press. The editor draws no menu itself. Observe
+ * this, show your own menu, and return `true`.
+ *
+ * - `x` and `y` are canvas coordinates. Add your container's position to place
+ *   the menu.
+ * - `hasSelection` says whether a range is selected.
+ * - `point` is the spot the menu is about, when one was found. For a
+ *   right-click it is the spot under the pointer. For the keyboard and touch it
+ *   is the caret, or the moving end of a selection. Pass it to
+ *   `query.block(point)` or `query.marks(point)`. Inside structured content it
+ *   names only the block. Over a block with no text and no caret it is missing.
+ *
+ * While your menu is open, the editor ignores key presses, so your menu handles
+ * arrows, Enter and Escape. On touch, the finger's moves and lift go to
+ * {@link CONTEXT_MENU_POINTER_MOVE} and {@link CONTEXT_MENU_RELEASE} instead of
+ * scrolling or selecting. Dispatch {@link CLOSE_CONTEXT_MENU} when you close
+ * the menu.
  */
 export const OPEN_CONTEXT_MENU = action<{
   x: number;
@@ -649,9 +688,9 @@ export const CONTEXT_MENU_POINTER_MOVE = action<{
 }>("context-menu-pointer-move");
 
 /**
- * The touch lifted while a host context menu was capturing the pointer — the
- * drag-and-release commit. The host runs whichever item the release landed on
- * (if any) and closes its menu. Payload is the release client point. Observe-only.
+ * The finger lifted while a host context menu held the pointer. The payload is
+ * where it lifted, in viewport client coordinates. Run the menu item under that
+ * point, if there is one. Observe-only.
  */
 export const CONTEXT_MENU_RELEASE = action<{
   clientX: number;
@@ -659,7 +698,12 @@ export const CONTEXT_MENU_RELEASE = action<{
 }>("context-menu-release");
 
 /**
- * The editor cancelled the context menu (scrolling, a tap elsewhere, a new
- * selection…). The host closes its menu and clears its capture flag. Observe-only.
+ * The context menu should close. The editor sends it when the menu is
+ * cancelled: a scroll, a click or tap elsewhere, a new selection. Observe it to
+ * hide your menu.
+ *
+ * Dispatch it yourself when your menu closes for any other reason, like picking
+ * an item or pressing Escape. Until it fires, the editor treats your menu as
+ * open. It ignores key presses and sends touch drags to the menu.
  */
 export const CLOSE_CONTEXT_MENU = action("close-context-menu");

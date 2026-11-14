@@ -7,8 +7,12 @@ import {
 } from "@tasfer/tex";
 
 /**
- * Raw words and arithmetic are valid TeX too, so only recognize source carrying
- * syntax that is unambiguously intended for a LaTeX parser.
+ * Returns `true` when pasted text is clearly LaTeX, for example text with a
+ * `\command` or `x_{1}`.
+ *
+ * Plain words, simple sums, URLs, file names, text over several lines, text
+ * with `$` and text with unbalanced braces return `false`. They may be valid
+ * TeX, but they are not meant as math.
  */
 export function isUnambiguousLatexPaste(text: string): boolean {
   const latex = text.trim();
@@ -50,6 +54,11 @@ export function isUnambiguousLatexPaste(text: string): boolean {
   return (base?.length ?? 0) <= 2 || /[=+\-*/<>]/.test(latex);
 }
 
+/**
+ * Paste rule that turns pasted text into an inline formula when the text is
+ * clearly LaTeX (see {@link isUnambiguousLatexPaste}). {@link mathExtension}
+ * already includes it.
+ */
 export const mathPasteRule: FeaturePasteRule = {
   id: "math.paste.raw-latex",
   priority: 100,

@@ -47,9 +47,11 @@ export interface ContentEdge {
 }
 
 /**
- * One state of the compiled matcher. `matchType` walks an edge; `validEnd` says
- * whether a document may stop here. States are shared and never mutated after
- * compilation, so a matcher is safe to hold on an immutable schema.
+ * One step of a compiled `content` rule, the rule you pass to
+ * `schema.restrict({ content })`. `matchType` returns the next step after one
+ * block of that type, or `null` if that block is not allowed here. `validEnd`
+ * says whether the document may end here. Steps never change after they are
+ * built, so you can keep and share them.
  */
 export class ContentMatch {
   readonly validEnd: boolean;
@@ -87,12 +89,13 @@ export class ContentMatch {
   }
 
   /**
-   * The shortest run of block types that must be inserted here for `after` to
-   * become legal — and, when `toEnd`, for the document to be able to stop after
-   * it. `[]` means nothing is missing; `null` means no run can rescue it.
+   * A list of block types to insert here so that `after` fits the rule. With
+   * `toEnd`, the document must also be able to end after `after`. Returns `[]`
+   * when nothing is missing, and `null` when no insert can fix it. It returns
+   * the first list it finds, which is not always the shortest.
    *
-   * `fillBefore(after, true)` from the start state is also the satisfiability
-   * check: an expression no document can ever satisfy returns null.
+   * On the start step, `fillBefore([], true)` tells you whether any document
+   * can match the rule at all. `null` means none can.
    */
   fillBefore(after: readonly string[], toEnd = false): string[] | null {
     const seen = new Set<ContentMatch>([this]);

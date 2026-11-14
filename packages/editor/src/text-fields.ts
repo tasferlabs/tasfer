@@ -27,9 +27,9 @@ export interface TextFieldMark {
 }
 
 /**
- * One prose field inside a block's structured content, addressed the way a
- * `ContentTextPoint` addresses it. Offsets are visible UTF-16 offsets into
- * `text`.
+ * One prose field inside a block's structured content, such as a table cell.
+ * `editor.query.textFields` returns these. Its ids address the field the way a
+ * `ContentTextPoint` does. Mark offsets are visible UTF-16 offsets into `text`.
  */
 export interface TextFieldInfo {
   readonly blockId: string;

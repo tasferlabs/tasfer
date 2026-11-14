@@ -54,10 +54,19 @@ import { printMathDocument as printMathDocumentValue } from "@tasfer/tex/data";
 
 export { normalizeMathSource } from "./source";
 
+/**
+ * The attributes stored on a math block. `displayMode` is always `true` for a
+ * block equation.
+ */
 export type MathBlockAttrs = {
   readonly displayMode: boolean;
 };
 
+/**
+ * What {@link mathDataExtension} returns: the math block, the inline math mark
+ * and the math content kind, with no canvas code. Add it to a data schema in
+ * workers, servers and Markdown tools.
+ */
 export type MathDataExtension = {
   readonly blocks: readonly [BlockSpecCore<"math", MathBlockAttrs>];
   readonly marks: readonly [MarkSpec<"math", MathMarkAttrs>];
@@ -68,7 +77,11 @@ type MathTextBlock = Pick<Block, "id" | "structuredContent"> & {
   readonly charRuns: CharRun[];
 };
 
-/** Serialization facet shared by the headless spec and interactive MathNode. */
+/**
+ * How a math block is read from Markdown and written as Markdown (`$$…$$`),
+ * HTML and plain text. An empty block writes nothing. Used by both the
+ * data-only math block and {@link MathNode}.
+ */
 export const mathBlockNodeCodec: NodeCodec = {
   markdown: {
     tokens: [MATH_BLOCK],
@@ -123,13 +136,20 @@ export const mathBlockNodeCodec: NodeCodec = {
   },
 };
 
-/** Full block codec consumed by DataSchema. */
+/**
+ * {@link mathBlockNodeCodec} plus the block type it handles, ready for a data
+ * schema. {@link mathDataExtension} already uses it.
+ */
 export const mathBlockCodec: BlockCodec = {
   types: ["math"],
   ...mathBlockNodeCodec,
 };
 
-/** Serialization facet shared by the headless mark spec and MathMark. */
+/**
+ * How inline math is read from Markdown and written as Markdown (`$…$`), plain
+ * text and HTML. An empty formula writes nothing. Used by both the data-only
+ * math mark and {@link MathMark}.
+ */
 export const mathMarkCodec: MarkCodec = {
   type: "math",
   // An empty formula (a box left without content) writes nothing: `$$` would
@@ -155,8 +175,8 @@ export const mathMarkCodec: MarkCodec = {
 };
 
 /**
- * `$$…$$` display-math recognizer, carried on the math BLOCK spec — the codec
- * that claims its MATH_BLOCK token rides the same spec.
+ * Finds `$$…$$` block equations when Markdown is read.
+ * {@link mathDataExtension} puts it on the math block.
  */
 export const mathDisplaySyntaxRule = {
   id: "math.display-dollar-fence",
@@ -203,8 +223,9 @@ export const mathDisplaySyntaxRule = {
 } as const satisfies SyntaxRule;
 
 /**
- * `$…$` inline-math recognizer, carried on the math MARK spec — the mark codec
- * claims the INLINE_MATH_START/END tokens it emits.
+ * Finds `$…$` inline math when Markdown is read. The formula must sit on one
+ * line and must not be empty. {@link mathDataExtension} puts it on the math
+ * mark.
  */
 export const mathInlineSyntaxRule = {
   id: "math.inline-dollar-delimiter",
@@ -241,7 +262,12 @@ function mathStructuredContentSource(
   return math ? printMathDocumentValue(math) : undefined;
 }
 
-/** Re-address a display equation when snapshot restore mints a new block id. */
+/**
+ * Copies a formula's math document with fresh ids, for example when a snapshot
+ * is restored under new block ids. A block equation's copy follows the new
+ * block id, and an inline formula's copy gets a new id. Returns undefined when
+ * the copy is not a valid math document.
+ */
 export function cloneMathStructuredContent({
   document,
   targetBlockId,
@@ -258,17 +284,25 @@ export function cloneMathStructuredContent({
 }
 
 /**
- * Build the persistence/serialization facet of math. Everything registers on
- * the spec that owns it: the block spec carries the display syntax rule, the
- * mark spec carries the inline rule and the structured-mark behavior, and the
- * shared structured KIND (display blocks and inline supplemental attachments
- * both use it) carries the snapshot clone adapter.
+ * Math with no canvas code: the math block, the inline math mark, how they read
+ * and write Markdown, HTML and text, and the math content kind. Add it to a
+ * data schema in workers, servers and Markdown tools. It leaves out typing
+ * rules and selection handling. For an interactive editor, use
+ * {@link mathExtension}.
  *
- * Live input rules and the clipboard selection serializer intentionally belong
- * to the full interactive extension, so importing this worker-safe entry
- * cannot reach the editor selection stack, the tex layout engine, the canvas,
- * or the rendering graph.
+ * ```ts
+ * import { baseDataSchema } from "@tasfer/editor";
+ * import { mathDataExtension } from "@tasfer/math/data";
+ *
+ * const dataSchema = baseDataSchema.extend(mathDataExtension());
+ * ```
  */
+// Each piece registers on the spec that owns it: the block spec carries the
+// display syntax rule, the mark spec carries the inline rule and
+// structured-mark behavior, and the shared structured kind carries the snapshot
+// clone adapter. Live input rules and the clipboard selection serializer belong
+// to the interactive extension so this worker-safe entry never reaches the
+// selection stack, the tex layout engine, the canvas, or the rendering graph.
 export function mathDataExtension(): MathDataExtension {
   return {
     blocks: [

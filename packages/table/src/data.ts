@@ -60,6 +60,11 @@ export { TABLE_STRUCTURED_KIND } from "./structured";
 /** A table block carries no attributes of its own; everything is in the tree. */
 export type TableBlockAttrs = Record<never, never>;
 
+/**
+ * What {@link tableDataExtension} returns: the table block and its content
+ * kind, with no canvas code. Add it to a data schema in workers, the CLI and
+ * Markdown tools.
+ */
 export type TableDataExtension = {
   readonly blocks: readonly [BlockSpecCore<"table", TableBlockAttrs>];
   readonly structuredKinds: readonly [StructuredKindSpec];
@@ -112,7 +117,11 @@ function seedAttachments(seed: TableSeed): StructuredContentMap {
   return attachments;
 }
 
-/** Markdown/HTML/text round-trip for a table block. Canvas-free. */
+/**
+ * Reads and writes a table block as GFM Markdown, and writes it as HTML and
+ * plain text. The plain text is a GFM table too, so a copied table pastes back
+ * as one. It does not need a canvas.
+ */
 export const tableBlockNodeCodec: NodeCodec = {
   markdown: {
     tokens: [TABLE_BLOCK],
@@ -193,7 +202,10 @@ export const tableBlockCodec: BlockCodec = {
   ...tableBlockNodeCodec,
 };
 
-/** The `table` type's data registration — descriptor, round-trip, syntax. */
+/**
+ * The `table` block for a data schema: its block type, its Markdown, HTML and
+ * text codec, and the rule that finds GFM tables in Markdown.
+ */
 export const tableBlockSpec: BlockSpecCore<"table", TableBlockAttrs> = {
   type: "table",
   descriptor: BLOCK_REGISTRY.table,
@@ -202,10 +214,11 @@ export const tableBlockSpec: BlockSpecCore<"table", TableBlockAttrs> = {
 };
 
 /**
- * Adapters for the `table` document kind. The clone adapter is not optional
- * here: a table stores column identities inside cell attrs, which the generic
- * copy cannot know to rewrite.
+ * How the editor handles a table's content: it copies a table with fresh ids,
+ * prints it as a GFM table, and lists every cell's text, header row first.
  */
+// The clone adapter is required: a table stores column ids inside cell attrs,
+// which the generic copy cannot rewrite.
 export const tableStructuredKind: StructuredKindSpec = {
   kind: TABLE_STRUCTURED_KIND,
   clone: (ctx) => {
@@ -234,7 +247,18 @@ export const tableStructuredKind: StructuredKindSpec = {
     ),
 };
 
-/** Build a fresh, instance-safe table data bundle. */
+/**
+ * The table feature without any canvas code. Use it in workers, the CLI and
+ * Markdown tools, where nothing is drawn. Tables still load, save and sync.
+ * Each call returns a new bundle.
+ *
+ * ```ts
+ * import { baseDataSchema } from "@tasfer/editor";
+ * import { tableDataExtension } from "@tasfer/table/data";
+ *
+ * const schema = baseDataSchema.extend(tableDataExtension());
+ * ```
+ */
 export function tableDataExtension(): TableDataExtension {
   return {
     blocks: [tableBlockSpec],

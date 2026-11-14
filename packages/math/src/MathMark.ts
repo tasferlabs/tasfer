@@ -427,6 +427,11 @@ const inlineMathReplacement: MarkReplacement = {
   },
 };
 
+/**
+ * The inline math mark: draws a formula inside a line of text and handles the
+ * caret and typing inside it. {@link mathExtension} installs it for you; create
+ * one yourself only when you put a schema together by hand.
+ */
 export class MathMark extends Mark {
   constructor() {
     super();

@@ -24,14 +24,17 @@ import {
 /** Options for importing a LaTeX string into a structured document. */
 export interface ParseMathDocumentOptions {
   /**
-   * Identity allocator for the imported tree. Defaults to deterministic ids
-   * scoped to this standalone value. A collaborative host should inject the
-   * allocator owned by its document/CRDT for authoritative live identities.
+   * Gives each imported item its id. By default the ids come from a fixed
+   * sequence, so parsing the same LaTeX twice gives the same ids. In a shared
+   * document, pass the document's own allocator so the ids are unique across
+   * the document. Parsing throws if the allocator returns an invalid id or an
+   * id that is already used, such as `rootId`.
    */
   readonly identityAllocator?: IdentityAllocator;
   /**
-   * Optional externally-owned root identity. Structured-content adapters use
-   * this to make an attachment id and its root id the same stable identity.
+   * An id to use for the root item, instead of making a new one. Hosts use it
+   * to give the formula's root the same id as the attachment that holds it.
+   * Throws if it is an empty string.
    */
   readonly rootId?: MathItemId;
 }
@@ -42,7 +45,21 @@ export interface ProjectMathAstOptions extends ParseMathDocumentOptions {
   readonly source: string;
 }
 
-/** Parse LaTeX into the stable, editable {@link MathDocument} representation. */
+/**
+ * Turns a LaTeX string into a {@link MathDocument}: a tree of math items, each
+ * with its own id, that you can store and edit. Bad LaTeX does not throw. Parts
+ * it does not understand are kept as raw LaTeX, so nothing is lost.
+ *
+ * Throws if `rootId` is empty, or if the identity allocator returns an invalid
+ * or repeated id.
+ *
+ * ```ts
+ * import { parseMathDocument, printMathDocument } from "@tasfer/tex/data";
+ *
+ * const doc = parseMathDocument("\\frac{a}{b}");
+ * const latex = printMathDocument(doc);
+ * ```
+ */
 export function parseMathDocument(
   latex: string,
   options: ParseMathDocumentOptions = {},

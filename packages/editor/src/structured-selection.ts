@@ -25,11 +25,13 @@ import {
 export type ContentSelectionAffinity = "backward" | "forward";
 
 /**
- * An identity-bearing caret stop in one structured node text field.
+ * A caret spot in one text field of a structured node, like a part of a
+ * formula.
  *
- * `afterCharId` is the character immediately before the caret (`null` is field
- * start). The CRDT identity keeps the stop stable when another peer inserts
- * before it. `affinity` disambiguates visually equivalent visual boundaries.
+ * `afterCharId` is the id of the character just before the caret. `null` means
+ * the start of the field. It points at a character, not a number, so the caret
+ * stays in place when someone else types earlier in the field. `affinity` says
+ * which side owns the caret when two spots look the same on screen.
  */
 export interface ContentTextPoint {
   readonly kind: "text";
@@ -42,10 +44,10 @@ export interface ContentTextPoint {
 }
 
 /**
- * A caret stop between children in one named parent slot.
+ * A caret spot between the children of one parent node, in one named slot.
  *
- * `afterNodeId: null` is the start of the slot. Keeping this address structural
- * lets an empty row/slot own a caret without inventing a text node.
+ * `afterNodeId` is the child just before the caret. `null` means the start of
+ * the slot. This lets an empty slot, like an empty row, hold a caret.
  */
 export interface ContentGapPoint {
   readonly kind: "gap";
@@ -61,37 +63,43 @@ export interface ContentGapPoint {
 export type ContentPoint = ContentTextPoint | ContentGapPoint;
 
 /**
- * An anchor/focus range inside one structured attachment.
+ * A selected range inside one piece of structured content, like a formula. It
+ * runs from `anchor` (where it started) to `focus` (where it ends).
  *
- * Extensions decide which cross-node ranges they can edit losslessly. Core
- * only requires both endpoints to belong to the same block and attachment; it
- * must not discard a valid range merely because its endpoints use different
- * node-local address shapes.
+ * Both ends must be in the same block and the same structured content. The two
+ * ends can be different point kinds. The extension that owns the content
+ * decides which ranges it can edit.
  */
+// Core must not discard a valid range merely because its endpoints use
+// different node-local address shapes.
 export interface ContentSelection {
   readonly anchor: ContentPoint;
   readonly focus: ContentPoint;
   /**
-   * Initial unit selected by a multi-click gesture. While dragging, the owning
-   * structured kind keeps this whole boundary selected and extends from its
-   * opposite edge, matching prose word/line selection.
+   * The unit picked by a double or triple click. While you keep dragging, the
+   * whole unit stays selected and the range grows from its far edge. This
+   * matches word and line selection in normal text.
    */
   readonly initialBoundary?: {
     readonly start: ContentPoint;
     readonly end: ContentPoint;
   };
   /**
-   * Unsnapped endpoints used only to continue an active selection gesture.
+   * The ends where the user placed them, before the extension widened the
+   * range. Used only while a selection gesture is still going.
    *
-   * A structured kind may widen the visible range to whole constructs. Keeping
-   * the endpoints that produced that range lets a reversing Shift+Arrow shrink
-   * the selection again instead of restarting from the widened edge.
+   * An extension may grow a range to cover whole pieces. Keeping the original
+   * ends lets Shift+Arrow in the other direction shrink the range again,
+   * instead of starting over from the widened edge.
    */
   readonly unsnapped?: {
     readonly anchor: ContentPoint;
     readonly focus: ContentPoint;
   };
-  /** Interaction timestamp used by caret blink/landing animation. */
+  /**
+   * When the selection last changed, as a `Date.now()` time in milliseconds.
+   * The caret blink and landing animation use it.
+   */
   readonly lastUpdate?: number;
 }
 
@@ -159,7 +167,11 @@ export function contentPointsEqual(
   return false;
 }
 
-/** Exact value equality for a nested selection (anchor direction included). */
+/**
+ * Whether two nested selections are exactly the same. It compares every field:
+ * the direction, `unsnapped`, `initialBoundary` and `lastUpdate`. So the same
+ * range with a different `lastUpdate` time is not equal.
+ */
 export function contentSelectionsEqual(
   left: ContentSelection | null | undefined,
   right: ContentSelection | null | undefined,
@@ -204,7 +216,11 @@ function contentSelectionBoundaryEqual(
   );
 }
 
-/** A range is collapsed when both endpoints occupy the same logical gap. */
+/**
+ * Whether the range is just a caret, with both ends at the same spot in the
+ * same text field or slot. `affinity` is ignored. A text end and a gap end
+ * never count as the same spot.
+ */
 export function isContentSelectionCollapsed(
   selection: ContentSelection,
 ): boolean {
@@ -225,13 +241,14 @@ export function isContentSelectionCollapsed(
 }
 
 /**
- * Resolve and clamp one point against the current materialized page.
+ * Checks one text point against the current page.
  *
- * Missing/deleted blocks, attachments, nodes, ancestors, or text fields return
- * `null`. A selected descendant of a tombstoned parent is therefore cleaned up
- * even though the descendant's own tombstone remains unset. If the anchor
- * character was tombstoned, the point deterministically falls back to the
- * nearest preceding visible character; inserts elsewhere never rebase it.
+ * Returns `null` when the point is malformed, or when its block, structured
+ * content, node, a parent of that node, or text field is gone. It also returns
+ * `null` when the character before the caret is not in the field. If that
+ * character was deleted, the caret moves back to the nearest character still
+ * there, or to the start of the field. Text typed elsewhere never moves it.
+ * Returns the same object when nothing changed.
  */
 export function normalizeContentTextPoint(
   page: Page,
@@ -273,7 +290,10 @@ export function normalizeContentTextPoint(
   return { ...point, afterCharId: previousVisibleId };
 }
 
-/** Resolve a stable nested text point to its current visible UTF-16 offset. */
+/**
+ * Returns where a text point sits in its field's visible text right now, in
+ * UTF-16 units. Returns `null` when the point's content is gone.
+ */
 export function resolveContentTextPointOffset(
   page: Page,
   point: ContentTextPoint,
@@ -290,11 +310,14 @@ export function resolveContentTextPointOffset(
 }
 
 /**
- * Resolve a structural gap against the current materialized page.
+ * Checks one gap point against the current page.
  *
- * A live parent and non-empty slot name are required. A tombstoned predecessor
- * falls back to the nearest preceding visible sibling. A missing identity or a
- * node moved to another slot invalidates the point rather than jumping it.
+ * Returns `null` when the point is malformed, the slot name is empty, or its
+ * block, structured content or parent node is gone. It also returns `null` when
+ * the child before the caret is not in that slot, for example because it moved
+ * to another slot. If that child was deleted, the caret moves back to the
+ * nearest child still there, or to the start of the slot. Returns the same
+ * object when nothing changed.
  */
 export function normalizeContentGapPoint(
   page: Page,
@@ -348,9 +371,15 @@ export function normalizeContentPoint(
 }
 
 /**
- * Normalize an anchor/focus range. Both endpoints must remain in one block and
- * attachment. The owning extension is responsible for ordering the points and
- * for explicitly rejecting structural ranges it cannot edit losslessly.
+ * Checks a range against the current page.
+ *
+ * Returns `null` when `selection` is `null` or `undefined`, when either end is
+ * gone, or when the two ends are not in the same block and the same structured
+ * content. `unsnapped` and `initialBoundary` are dropped when they no longer
+ * fit. Returns the same object when nothing changed.
+ *
+ * It does not put the ends in order or check that the range can be edited. The
+ * extension that owns the content does that.
  */
 export function normalizeContentSelection(
   page: Page,
@@ -416,7 +445,11 @@ export function normalizeContentSelection(
   };
 }
 
-/** Make a detached plain-data copy suitable for snapshots or presence payloads. */
+/**
+ * Returns a copy of the selection that shares no objects with the original.
+ * Returns `null` for `null` or `undefined`. Use it to save a selection or send
+ * it to other people.
+ */
 export function cloneContentSelection(
   selection: ContentSelection | null | undefined,
 ): ContentSelection | null {
@@ -445,7 +478,10 @@ export function cloneContentSelection(
     : null;
 }
 
-/** Capture a detached nested selection for undo or a presence snapshot. */
+/**
+ * Returns a copy of the current nested selection, or `null` when there is none.
+ * Use it to save the selection for undo, or to show it to other people.
+ */
 export function captureContentSelection(
   state: EditorState,
 ): ContentSelection | null {
@@ -461,8 +497,10 @@ export function restoreContentSelection(
 }
 
 /**
- * Revalidate the active nested selection after a page replacement/edit.
- * Returns the original state when no cleanup or clamping is needed.
+ * Checks the nested selection against the current page, for example after an
+ * edit. If its content is gone, the selection is cleared. If a character or
+ * child it points at was deleted, the caret moves back to the nearest one still
+ * there. Returns the same state when nothing needs fixing.
  */
 export function reconcileContentSelectionState(
   state: EditorState,
@@ -481,8 +519,14 @@ export function reconcileContentSelectionState(
 }
 
 /**
- * Set or clear the nested selection. Entering structured content clears the
- * ordinary block cursor/range so the editor never exposes two active carets.
+ * Sets the nested selection, or clears it with `null`. A selection whose
+ * content is gone becomes `null`.
+ *
+ * The extension that owns the content may widen a range, for example so part of
+ * a formula piece is never selected on its own. Setting a nested selection
+ * clears the normal cursor and selection, so there is only ever one caret.
+ * Clearing it with `null` leaves the normal cursor as it is. Returns the same
+ * state when nothing changed.
  */
 export function updateContentSelection(
   state: EditorState,

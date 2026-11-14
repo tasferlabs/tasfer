@@ -289,7 +289,10 @@ export function applyMathTreeCommandToDocument(
     : insertMathSemanticLatex(document, caret, text, identities);
 }
 
-/** The uncommitted `\`+letters command-entry run ending at a raw-text caret. */
+/**
+ * A `\query` (or `/query`) the user is still typing, as found by
+ * {@link trailingMathCommandRun}.
+ */
 export interface TrailingMathCommandRun {
   /** Text typed after the trigger so far — empty right after it is inserted. */
   readonly query: string;
@@ -300,11 +303,12 @@ export interface TrailingMathCommandRun {
 }
 
 /**
- * Read the exact `\query` command-entry run ending at one raw-text caret.
- * Host chrome (the `\` autocomplete menu) must read the query from the field
- * content this way: the canonical source projection is not a faithful echo of
- * what was typed (a pending lone `\` projects as `\backslash`), so slicing
- * projected source around a bridged offset misreads the run.
+ * Finds the `\query` the user is typing right before `caret`, for a `\`
+ * autocomplete menu. Pass `trigger: "/"` to find a `/query` instead. Returns
+ * undefined when the caret is not in typed text or no such run ends there.
+ *
+ * Read the query this way, not from the formula's LaTeX. The LaTeX can differ
+ * from what was typed: a lone `\` shows up as `\backslash`.
  */
 export function trailingMathCommandRun(
   document: StructuredDocument,

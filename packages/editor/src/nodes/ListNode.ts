@@ -76,9 +76,8 @@ export const OUTDENT_LIST_ITEM = stateAction("outdent-list-item", (state) => {
 });
 
 /**
- * Toggle a todo list item's checked state (tapping its checkbox). The handler
- * resolves the tapped block's index from the `todo-checkbox` hit region and
- * passes it in; emits the resulting `block_set` op.
+ * Checks or unchecks a todo item, for example when its checkbox is tapped. Pass
+ * the item's block index. The change is saved like any other edit.
  */
 export const TOGGLE_TODO_CHECKED = stateAction<{ blockIndex: number }>(
   "toggle-todo-checked",
@@ -190,6 +189,11 @@ function markerSlotX(
   return isRTL ? markerX + markerWidth - inset - width : markerX + inset;
 }
 
+/**
+ * The built-in node for the three list block types: `bullet_list`,
+ * `numbered_list` and `todo_list`. A list item is a text block with an indent
+ * and a marker (bullet, number or checkbox) in front of it.
+ */
 export class ListNode extends TextNode {
   // Representative type; registered under every LIST_BLOCK_TYPES key.
   readonly type: TextualBlock["type"] = "bullet_list";
@@ -326,11 +330,16 @@ export class ListNode extends TextNode {
   }
 
   /**
-   * The todo checkbox is an interactive sub-region. Geometry mirrors
-   * paintMarker (same gutter slot, ascent-aligned, RTL-aware) with a small
-   * padding for easier clicking; the toggle behavior is bound to the
-   * "todo-checkbox" id in the event layer.
+   * The clickable area of a todo item's checkbox, with the id `todo-checkbox`.
+   * It sits where the checkbox is drawn, also in right-to-left text. It reaches
+   * a little past the box so it is easy to hit: 4px for a mouse and 12px for
+   * touch. On the side facing the text it stops at the text, so taps there
+   * still place the caret. Clicking it checks or unchecks the item. Other list
+   * types have no regions.
    */
+  // Geometry mirrors paintMarker (same gutter slot, ascent-aligned). The
+  // padding on the text side is clamped to the gutter so it never steals caret
+  // taps. The toggle is bound to the "todo-checkbox" id in the event layer.
   regions(c: NodeRegionCtx): readonly NodeHitRegion[] {
     const block = c.block;
     if (block.type !== "todo_list" || !isListBlock(block)) return [];
