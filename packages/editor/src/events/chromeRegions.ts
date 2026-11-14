@@ -12,11 +12,16 @@
 import { CURSOR_DRAG_BOUNDARY, CURSOR_DRAG_END } from "../action-bus";
 import { MOVE_BLOCKS } from "../actions/edit-actions";
 import {
+  resolveStructuredMarkRanges,
+  structuredMarkRunForContentPoint,
+} from "../actions/structured-marks";
+import {
   BLOCK_DRAG_HANDLE_HIT_WIDTH,
   EDGE_SCROLL_THRESHOLD,
   MOVEMENT_THRESHOLD,
   SCROLLBAR_HOLD_DURATION,
   SCROLLBAR_TOUCH_BUFFER,
+  SELECTION_HANDLE_LINE_SLOP,
 } from "../constants";
 import { getOutOfViewIndicatorAtPoint } from "../rendering/renderer";
 import {
@@ -32,12 +37,16 @@ import {
   dropIndexAtPoint,
   getBlockIndexAtPoint,
   getContentPointDocumentCoords,
+  getContentSelectionFromViewport,
+  getCursorDocumentCoords,
+  getInlineRunBox,
   getTextPositionFromViewport,
   scrollToMakeCursorVisible,
   scrollToMakeSpanVisible,
   selectedBlockIds,
   snapSelectionToConstructs,
 } from "../selection";
+import { flatEndForInside } from "../selection-inside";
 import type {
   EditorState,
   ViewportState,
@@ -49,7 +58,12 @@ import {
   updateContentSelection,
 } from "../structured-selection";
 import { getEditorStyles } from "../styles";
-import { getAtomicBlockAtPoint, getSelectionHandleAtPoint } from "./eventUtils";
+import {
+  getAtomicBlockAtPoint,
+  getSelectionHandleAtPoint,
+  getTouchSelectionHandlePositions,
+} from "./eventUtils";
+import { crossWidenedPiece } from "./handleCrossing";
 import {
   type InteractionSession,
   startAutoScroll,
@@ -57,7 +71,11 @@ import {
   withScrollbarInteraction,
   withStoppedMomentum,
 } from "./interaction-session";
-import { extendDragSelectionToPoint } from "./mouseEvents";
+import {
+  dragFocusIntoRunAtPoint,
+  extendDragSelectionToPoint,
+  isPointerOnRunOf,
+} from "./mouseEvents";
 import type { RegionCtx, RegionPoint } from "./regions";
 import { type Region, RegionRegistry } from "./regions";
 import { revealCaretSideways } from "./sidewaysScroll";
@@ -192,7 +210,8 @@ function endHandleLoupe(state: EditorState, session: InteractionSession): void {
 /**
  * Move the held handle of a range inside a node's content (text selected in a
  * table cell) to the finger: the focus follows through the node's own
- * hit-test, within the same attachment, the anchor stays. Ticks
+ * hit-test, within the same attachment, the anchor stays; a piece the range
+ * takes whole is crossed with the finger (see crossWidenedPiece). Ticks
  * {@link CURSOR_DRAG_BOUNDARY} when the focus moves. Unchanged state when the
  * finger is over nothing the range can extend to.
  */
@@ -205,7 +224,7 @@ export function dragContentHandleToPoint(
   { signalBoundary = true }: { signalBoundary?: boolean } = {},
 ): EditorState {
   const previous = state.document.contentSelection?.focus;
-  const next = extendDragSelectionToPoint(
+  const extended = extendDragSelectionToPoint(
     state,
     x,
     y,
@@ -213,7 +232,11 @@ export function dragContentHandleToPoint(
     visibility,
     "touch",
   );
-  if (!next) return state;
+  if (!extended) return state;
+  // Over a piece the range takes whole (a √), follow the finger across it
+  // and count the piece only past its middle — see crossWidenedPiece. The
+  // tick below then fires at the middle, when the range really changes.
+  const next = crossWidenedPiece(extended, x, viewport, visibility);
   const focus = next.document.contentSelection?.focus;
   if (
     signalBoundary &&
@@ -222,6 +245,261 @@ export function dragContentHandleToPoint(
     state.actionBus.dispatch(CURSOR_DRAG_BOUNDARY);
   }
   return next;
+}
+
+/**
+ * Bring back the range inside an inline formula when the held handle returns
+ * over it after leaving. Outside, the selection is flat and keeps the stop
+ * inside the formula its fixed end rests on (`SelectionState.inside`); the
+ * range inside picks its fixed end up from there, and the moving end follows
+ * the finger.
+ *
+ * The finger counts as back once it is on the formula's own line and an
+ * ordinary move of a range inside the formula, from the fixed end, stays
+ * inside. Near the line is not enough (see isPointerOnRunOf).
+ *
+ * `x`/`y` are the point on the handle's text row, in viewport space. Null when
+ * the fixed end is not inside a formula or the point is not over that formula.
+ */
+function returnToLeftRunAtPoint(
+  state: EditorState,
+  x: number,
+  y: number,
+  viewport: ViewportState,
+  visibility?: VisibleBlockRange,
+): EditorState | null {
+  const fixed = state.document.selection?.inside?.anchor;
+  if (!fixed || state.document.contentSelection) return null;
+  // On the formula's own line, not just near it: the handle is held on the
+  // line it is on until the finger has clearly left that line.
+  if (!isPointerOnRunOf(state, fixed, x, y, viewport, visibility)) return null;
+  const caret = updateContentSelection(state, {
+    anchor: fixed,
+    focus: fixed,
+    lastUpdate: Date.now(),
+  });
+  if (!caret.document.contentSelection) return null;
+  const extended = extendDragSelectionToPoint(
+    caret,
+    x,
+    y,
+    viewport,
+    visibility,
+    "touch",
+  );
+  if (!extended?.document.contentSelection) return null;
+  return crossWidenedPiece(extended, x, viewport, visibility);
+}
+
+/**
+ * The row point's `y`, held on the line the held handle is on until the
+ * finger has clearly left that line.
+ *
+ * A finger sliding a handle along a line never moves dead level, and a line
+ * is only a few millimetres tall: read raw, a small drift up or down already
+ * lands on the neighbouring line and the selection jumps a whole line. So the
+ * point counts as on the handle's line until it is past the line by half the
+ * line's height ({@link SELECTION_HANDLE_LINE_SLOP} at the least). Changing
+ * lines then takes about one line of finger travel in either direction, and
+ * the point arrives in the middle of the new line, not on its edge.
+ *
+ * `y` and the result are in viewport space.
+ */
+function stickToHeldLine(
+  state: EditorState,
+  y: number,
+  viewport: ViewportState,
+  visibility?: VisibleBlockRange,
+): number {
+  const selection = state.document.selection;
+  if (!selection) return y;
+  // The handle's own geometry is the line it is drawn on; a range that has
+  // closed up for a moment draws none, so read the caret there instead.
+  const held =
+    getTouchSelectionHandlePositions(state, viewport, visibility)?.focus ??
+    getCursorDocumentCoords(
+      selection.focus,
+      state,
+      viewport,
+      undefined,
+      visibility,
+    );
+  if (!held) return y;
+  const top = held.y - viewport.scrollY;
+  const bottom = top + held.height;
+  const slop = Math.max(held.height / 2, SELECTION_HANDLE_LINE_SLOP);
+  if (y <= top - slop || y >= bottom + slop) return y;
+  return Math.min(Math.max(y, top + 1), bottom - 1);
+}
+
+/**
+ * The finger's offset from the held (focus) handle's text row — see
+ * {@link InteractionSession.handleDragGrabOffset}. `p` is in viewport space.
+ */
+function handleGrabOffset(
+  state: EditorState,
+  p: { x: number; y: number },
+  viewport: ViewportState,
+  visibility?: VisibleBlockRange,
+): { dx: number; dy: number } | null {
+  const focus = getTouchSelectionHandlePositions(
+    state,
+    viewport,
+    visibility,
+  )?.focus;
+  if (!focus) return null;
+  return {
+    dx: p.x - focus.x,
+    dy: p.y - (focus.y - viewport.scrollY + focus.height / 2),
+  };
+}
+
+/**
+ * Turn a flat selection that covers exactly one inline formula — what a
+ * double-tap on it selects — into a range INSIDE that formula once the held
+ * handle is dragged in over it. The flat text holds the whole formula as one
+ * character, so without this the handle could only take the formula whole or
+ * drop it, never a part of it. The fixed end stays at the formula's edge on
+ * its side; the moving end follows the finger. Dragging back out past the
+ * formula's edge returns to a flat selection (see
+ * {@link extendDragSelectionToPoint}).
+ *
+ * `x`/`y` are the point on the handle's text row, in viewport space. Null when
+ * the selection is not one whole formula or the point is not over it.
+ */
+function enterSelectedRunAtPoint(
+  state: EditorState,
+  x: number,
+  y: number,
+  viewport: ViewportState,
+  visibility?: VisibleBlockRange,
+): EditorState | null {
+  const sel = state.document.selection;
+  if (!sel || sel.isCollapsed || sel.anchor.blockIndex !== sel.focus.blockIndex)
+    return null;
+  const block = state.document.page.blocks[sel.anchor.blockIndex];
+  if (!block || block.deleted) return null;
+  const start = Math.min(sel.anchor.textIndex, sel.focus.textIndex);
+  const end = Math.max(sel.anchor.textIndex, sel.focus.textIndex);
+  const coversOneRun = resolveStructuredMarkRanges(block, state.schema).some(
+    (run) => run.startIndex === start && run.endIndex === end,
+  );
+  if (!coversOneRun) return null;
+
+  const insideRun = (point: ContentPoint | undefined) => {
+    if (!point) return false;
+    const run = structuredMarkRunForContentPoint(state, point);
+    return (
+      !!run &&
+      run.blockIndex === sel.anchor.blockIndex &&
+      run.startIndex === start
+    );
+  };
+  const focus = getContentSelectionFromViewport(
+    x,
+    y,
+    state,
+    viewport,
+    "touch",
+    undefined,
+    visibility,
+    { drag: true },
+  )?.focus;
+  if (!insideRun(focus)) return null;
+
+  // The formula's own stop at each flat edge, found by a hit just inside that
+  // edge — inside meaning towards the other edge, so it reads the same in a
+  // right-to-left line. The anchor's edge is the range's fixed end.
+  const anchorEdge = getCursorDocumentCoords(
+    sel.anchor,
+    state,
+    viewport,
+    undefined,
+    visibility,
+  );
+  const focusEdge = getCursorDocumentCoords(
+    sel.focus,
+    state,
+    viewport,
+    undefined,
+    visibility,
+  );
+  if (!anchorEdge || !focusEdge) return null;
+  const inward = Math.sign(focusEdge.x - anchorEdge.x) || 1;
+  // Aim at the middle of the formula's own box: the flat caret starts at the
+  // text's ascent, so on a line a tall formula makes taller its middle sits
+  // low and can miss the formula's rows.
+  const box = getInlineRunBox(
+    state,
+    { blockIndex: sel.anchor.blockIndex, startIndex: start, endIndex: end },
+    viewport,
+    undefined,
+    visibility,
+  );
+  const edgePoint = (
+    edge: { x: number; y: number; height: number },
+    dir: number,
+  ) =>
+    getContentSelectionFromViewport(
+      edge.x + dir,
+      (box ? (box.top + box.bottom) / 2 : edge.y + edge.height / 2) -
+        viewport.scrollY,
+      state,
+      viewport,
+      "touch",
+      undefined,
+      visibility,
+      { drag: true },
+    )?.focus;
+  const anchor = edgePoint(anchorEdge, inward);
+  const farEnd = edgePoint(focusEdge, -inward);
+  // Both edges must land in this formula: without the far one there is no
+  // telling whether the finger has dropped anything yet.
+  if (!focus || !insideRun(anchor) || !insideRun(farEnd)) return null;
+  if (!anchor || !farEnd) return null;
+  if (anchor.contentId !== focus.contentId) return null;
+  if (farEnd.contentId !== focus.contentId) return null;
+
+  const raw = updateContentSelection(state, {
+    anchor,
+    focus,
+    lastUpdate: Date.now(),
+  });
+  const rawContent = raw.document.contentSelection;
+  if (!rawContent || contentPointsEqual(rawContent.anchor, rawContent.focus))
+    return null;
+  // A piece the range takes whole (a √ at the formula's edge) counts only
+  // once the finger is past its middle, as on every later move — see
+  // crossWidenedPiece. Without it, entering over such a piece kept the
+  // whole formula until the finger had left the piece entirely.
+  const next = crossWidenedPiece(raw, x, viewport, visibility);
+  const content = next.document.contentSelection;
+  if (!content) return null;
+  // Still the whole formula: stay a flat selection until the finger has
+  // actually dropped part of it.
+  const whole = updateContentSelection(state, {
+    anchor,
+    focus: farEnd,
+    lastUpdate: Date.now(),
+  }).document.contentSelection;
+  if (!whole || contentPointsEqual(content.focus, whole.focus)) return null;
+  // Remember the flat edge the range is fixed at, so leaving the formula on
+  // either side keeps that end fixed (see extendSelectionOutOfStructuredMark).
+  const drag = next.ui.selectionHandleDrag;
+  if (!drag) return next;
+  return {
+    ...next,
+    ui: {
+      ...next.ui,
+      selectionHandleDrag: {
+        ...drag,
+        fixedEdge: {
+          blockIndex: sel.anchor.blockIndex,
+          textIndex: sel.anchor.textIndex,
+        },
+      },
+    },
+  };
 }
 
 /** Touch selection handles (anchor/focus) — drag to adjust the selection. */
@@ -274,7 +552,8 @@ const selectionHandleRegion: Region = {
           lastUpdate: Date.now(),
         });
         if (swapped.document.contentSelection) state = swapped;
-      } else if (grabbedAnchorHandle && sel) {
+      }
+      if (grabbedAnchorHandle && sel) {
         state = {
           ...state,
           document: {
@@ -285,11 +564,28 @@ const selectionHandleRegion: Region = {
               isForward: !sel.isForward,
               isCollapsed: sel.isCollapsed,
               lastUpdate: Date.now(),
+              // The stops inside formulas swap ends with the flat ones.
+              ...(sel.inside
+                ? {
+                    inside: {
+                      ...(sel.inside.focus ? { anchor: sel.inside.focus } : {}),
+                      ...(sel.inside.anchor
+                        ? { focus: sel.inside.anchor }
+                        : {}),
+                    },
+                  }
+                : {}),
             },
             cursor: { position: sel.anchor, lastUpdate: Date.now() },
           },
         };
       }
+      ctx.session.handleDragGrabOffset = handleGrabOffset(
+        state,
+        p,
+        ctx.viewport,
+        ctx.visibility,
+      );
 
       return {
         state: withScrollbarInteraction(
@@ -325,6 +621,47 @@ const selectionHandleRegion: Region = {
         stopAutoScroll(session);
       }
 
+      // The point on the held handle's text row: the finger minus where it
+      // grabbed the ball, so every hit-test reads the handle's line, not the
+      // point under the ball — which sits above or below the line, where a
+      // flat hit lands on the paragraph's start or the next block, and a
+      // nested one (rows only) misses.
+      const rowX = p.x - (session.handleDragGrabOffset?.dx ?? 0);
+      const rawRowY = p.y - (session.handleDragGrabOffset?.dy ?? 0);
+      // In flat text the handle stays on its line until the finger has clearly
+      // left it (see stickToHeldLine). A range inside a formula keeps the raw
+      // point: its own move holds it to the formula's box.
+      const rowY = state.document.selection
+        ? stickToHeldLine(state, rawRowY, viewport, ctx.visibility)
+        : rawRowY;
+
+      // A handle dragged in over a wholly selected inline formula continues as
+      // a range inside it (see enterSelectedRunAtPoint).
+      // One that left a formula it held a part of and is back over it picks
+      // that part up again (see returnToLeftRunAtPoint).
+      const entered =
+        state.ui.selectionHandleDrag && state.document.selection
+          ? (returnToLeftRunAtPoint(
+              state,
+              rowX,
+              rowY,
+              viewport,
+              ctx.visibility,
+            ) ??
+            enterSelectedRunAtPoint(
+              state,
+              rowX,
+              rowY,
+              viewport,
+              ctx.visibility,
+            ))
+          : null;
+      if (entered) {
+        session.handleDragPrevHit = null;
+        session.handleDragPrevRawFocus = null;
+        state.actionBus.dispatch(CURSOR_DRAG_BOUNDARY);
+      }
+
       // Finger-drag resolution, exactly like the single-caret magnifier drag:
       // over a formula the focus follows the finger to its nearest caret stop
       // through stacked constructs, instead of the tap path's leap out to a
@@ -342,32 +679,67 @@ const selectionHandleRegion: Region = {
       // anchor must be the raw hit, not the snapped focus: a focus widened to a
       // construct's edge sits on the OUTER baseline row, which would disarm the
       // hysteresis exactly where it's needed.
-      const newPosition = state.document.contentSelection
-        ? null
-        : getTextPositionFromViewport(
-            p.x,
-            p.y,
-            state,
-            viewport,
-            undefined,
-            ctx.visibility,
-            { drag: true, prev: session.handleDragPrevHit },
-          );
+      const newPosition =
+        state.document.contentSelection || entered
+          ? null
+          : getTextPositionFromViewport(
+              rowX,
+              rowY,
+              state,
+              viewport,
+              undefined,
+              ctx.visibility,
+              { drag: true, prev: session.handleDragPrevHit },
+            );
       if (newPosition) session.handleDragPrevHit = newPosition;
 
-      let next =
-        state.ui.selectionHandleDrag && state.document.contentSelection
-          ? dragContentHandleToPoint(state, p.x, p.y, viewport, ctx.visibility)
+      let next = entered
+        ? entered
+        : state.ui.selectionHandleDrag && state.document.contentSelection
+          ? dragContentHandleToPoint(
+              state,
+              rowX,
+              rowY,
+              viewport,
+              ctx.visibility,
+            )
           : state;
-      if (
+      // The held handle dragged in over a formula the fixed end is not in
+      // stops inside it, taking the part on the fixed end's side.
+      const into =
+        newPosition && state.document.selection && state.ui.selectionHandleDrag
+          ? dragFocusIntoRunAtPoint(
+              state,
+              rowX,
+              rowY,
+              viewport,
+              ctx.visibility,
+              "touch",
+            )
+          : null;
+      if (into) {
+        const before = state.document.selection?.inside?.focus;
+        const after = into.document.selection?.inside?.focus;
+        if (!before || !after || !contentPointsEqual(before, after)) {
+          state.actionBus.dispatch(CURSOR_DRAG_BOUNDARY);
+        }
+        session.handleDragPrevRawFocus = null;
+        next = into;
+      } else if (
         newPosition &&
         state.document.selection &&
         state.ui.selectionHandleDrag
       ) {
         // The dragged handle is always the focus (set up in onStart); the anchor
         // is the opposite, fixed endpoint.
-        const { anchor: rawAnchor, focus: prevFocus } =
-          state.document.selection;
+        const { focus: prevFocus } = state.document.selection;
+        // A fixed end that stops inside a formula keeps that stop, and its
+        // flat end follows the side the finger is on (see flatEndForInside).
+        const fixedInside = state.document.selection.inside?.anchor;
+        const insideAnchor = fixedInside
+          ? flatEndForInside(state, fixedInside, newPosition)
+          : null;
+        const rawAnchor = insideAnchor ?? state.document.selection.anchor;
 
         // Snap the raw hit-test focus so the drag never leaves a math construct
         // half-covered: descending out through a construct escalates level by
@@ -390,12 +762,14 @@ const selectionHandleRegion: Region = {
         // reference is pinned to where it entered, so the take-in/drop decision is
         // latched until the finger actually crosses out one side.
         const prevRawFocus = session.handleDragPrevRawFocus ?? undefined;
-        const { anchor, focus: newFocus } = snapSelectionToConstructs(
+        const snapped = snapSelectionToConstructs(
           state,
           rawAnchor,
           newPosition,
           prevRawFocus,
         );
+        const anchor = insideAnchor ?? snapped.anchor;
+        const newFocus = snapped.focus;
         const focusSettled =
           newFocus.blockIndex === newPosition.blockIndex &&
           newFocus.textIndex === newPosition.textIndex;
@@ -434,6 +808,9 @@ const selectionHandleRegion: Region = {
               isForward,
               isCollapsed,
               lastUpdate: Date.now(),
+              ...(fixedInside && insideAnchor
+                ? { inside: { anchor: fixedInside } }
+                : {}),
             },
             cursor: {
               position: newFocus,

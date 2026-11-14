@@ -549,7 +549,8 @@ export function updateContentSelection(
   if (
     ui.activeMarksMode.type === "explicit" &&
     contentSelection &&
-    (!previousFocus || !contentPointsEqual(previousFocus, contentSelection.focus))
+    (!previousFocus ||
+      !contentPointsEqual(previousFocus, contentSelection.focus))
   ) {
     ui = { ...ui, activeMarksMode: { type: "inherit" } };
   }
@@ -598,4 +599,20 @@ function areCompatibleContentPoints(
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
+}
+
+/**
+ * The nested range to highlight. Normally the range itself; while a touch
+ * handle crosses a piece the range takes whole (a √ in a formula — see
+ * `HandleCrossing`), the range only up to the piece's near edge, since the
+ * crossing fill draws the rest up to the finger.
+ */
+export function shownContentSelection(
+  state: EditorState,
+): ContentSelection | null {
+  const selection = state.document.contentSelection;
+  const crossing = state.ui.selectionHandleDrag?.crossing;
+  if (!selection || !crossing?.counted) return selection;
+  if (crossing.near.blockId !== selection.focus.blockId) return selection;
+  return { ...selection, focus: crossing.near };
 }

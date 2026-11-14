@@ -194,6 +194,16 @@ export interface InteractionSession {
    */
   handleDragPrevHit: Position | null;
   /**
+   * How far the finger sat from the dragged handle's text row when it grabbed
+   * the handle. The ball hangs below (or above) the text, and a nested
+   * hit-test (part of an inline formula, text in a table cell) only answers
+   * for points on its rows, so every move subtracts this offset to aim at the
+   * row the handle hugs — the range then follows the finger's motion instead
+   * of ignoring it, and a flat drag stays on the handle's line instead of
+   * landing on the paragraph's start or the next block. Null between drags.
+   */
+  handleDragGrabOffset: { dx: number; dy: number } | null;
+  /**
    * Caret a press that landed INSIDE the selection resolved to, held until the
    * release. The press itself must leave the selection alone: the browser may
    * be about to turn it into an HTML5 drag, and collapsing on the way down
@@ -263,6 +273,7 @@ export function createInteractionSession(
     handleDragLoupe: null,
     handleDragPrevRawFocus: null,
     handleDragPrevHit: null,
+    handleDragGrabOffset: null,
     pressedOnSelection: null,
     pressedOnSelectionContent: null,
     textDragArmed: false,

@@ -323,6 +323,49 @@ export type DragHandlePosition = "left" | "right" | "bottom" | null;
 export interface SelectionHandleDragState {
   readonly startX: number;
   readonly startY: number;
+  /**
+   * Set while the held handle crosses a piece the range takes whole or not
+   * at all (a root inside a formula). See {@link HandleCrossing}.
+   */
+  readonly crossing?: HandleCrossing | null;
+  /**
+   * The flat edge of an inline mark run (a formula) that stayed fixed when
+   * the held handle moved from a selection of the whole run to a range inside
+   * it. The range inside only knows a point just inside that edge, so when
+   * the handle leaves the run again, the flat selection picks its fixed end
+   * up from here. Without it the fixed end was guessed from the way the
+   * finger left, and a handle that crossed the fixed end swapped the two.
+   */
+  readonly fixedEdge?: Position | null;
+}
+
+/**
+ * A handle crossing a piece of a node's content that a range takes whole or
+ * not at all — a √ inside a formula. The range has no stop inside the piece,
+ * so without this the handle and the highlight stand still while the finger
+ * crosses it. While it is set, the handle is drawn at the finger and the
+ * covered part of the piece is filled up to it: faintly before the middle,
+ * fully once the range takes the whole piece.
+ *
+ * `x`, `nearX`, `y` and `height` are in DOCUMENT space.
+ */
+export interface HandleCrossing {
+  /** The finger's x, held inside the piece. */
+  readonly x: number;
+  /** The piece's edge on the fixed end's side, where the fill starts. */
+  readonly nearX: number;
+  /** Top and height of the line the piece sits on. */
+  readonly y: number;
+  readonly height: number;
+  /** Past the middle: the range now takes the whole piece. */
+  readonly counted: boolean;
+  /** The range's end at the near edge: the highlight stops here, the fill takes over. */
+  readonly near: ContentPoint;
+  /**
+   * How strongly the node fills its own highlight, when not the theme's
+   * `selection.opacity`: the fill matches it so the two read as one band.
+   */
+  readonly opacity?: number;
 }
 
 /**
@@ -913,12 +956,31 @@ export interface CursorState {
   readonly lastUpdate: number;
 }
 
+/**
+ * Where the ends of a text selection stop INSIDE an inline mark run (a
+ * formula) instead of at its edge.
+ *
+ * The flat text holds a formula as one character, so `anchor`/`focus` can
+ * only take it whole or leave it out. A selection that starts in the middle
+ * of a formula and runs out into the text keeps that middle here: the flat
+ * range still covers the formula's character, and this says how much of the
+ * formula that end really takes. Read it through `selectionInsideParts`, which
+ * also checks that the stop still belongs to the run at that end — never off
+ * the selection directly.
+ */
+export interface SelectionInside {
+  readonly anchor?: ContentPoint;
+  readonly focus?: ContentPoint;
+}
+
 export interface SelectionState {
   readonly anchor: Position;
   readonly focus: Position;
   readonly isForward: boolean;
   readonly isCollapsed: boolean;
   readonly lastUpdate?: number;
+  /** Stops inside the formulas at the selection's ends; see {@link SelectionInside}. */
+  readonly inside?: SelectionInside;
   /**
    * Tracks initial selection boundaries from double/triple-click gestures.
    *
@@ -954,6 +1016,11 @@ export interface PartialSelectionState {
     readonly start: Position;
     readonly end: Position;
   } | null;
+  /**
+   * Stops inside the formulas at the selection's ends. Dropped unless given,
+   * so a selection set by code that knows nothing of them is a plain one.
+   */
+  readonly inside?: SelectionInside | null;
 }
 
 export interface Position {
@@ -983,6 +1050,8 @@ export interface CRDTCursorState {
 export interface CRDTSelectionState {
   readonly anchor: CRDTPosition;
   readonly focus: CRDTPosition;
+  /** Stops inside the formulas at the selection's ends; already id-based. */
+  readonly inside?: SelectionInside;
 }
 
 export interface ViewportState {

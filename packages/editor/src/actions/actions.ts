@@ -13,9 +13,14 @@ import {
   clearSelection,
   moveCursorToPosition,
   startSelection,
+  updateCursor,
   updateSelection,
   updateSelectionFocus,
 } from "../selection";
+import {
+  flatRangeOutsideParts,
+  selectionInsideParts,
+} from "../selection-inside";
 import {
   type Block,
   type CharRun,
@@ -49,6 +54,7 @@ import {
   transformTypedInput,
   updateMode,
 } from "../state-utils";
+import { updateContentSelection } from "../structured-selection";
 import { findBlock, findBlockIndex } from "../sync/block-lookup";
 import {
   canHaveFormats,
@@ -88,15 +94,15 @@ import {
 } from "../sync/reducer";
 import type { DataSchema } from "../sync/schema";
 import {
-  isInViewWindow,
-  nextBlockInWindow,
-  previousBlockInWindow,
-} from "../view-window";
-import {
   canMorphCarryAttachments,
   carryStructuredContent,
   hasStructuredBlockAuthority,
 } from "../sync/structured-content";
+import {
+  isInViewWindow,
+  nextBlockInWindow,
+  previousBlockInWindow,
+} from "../view-window";
 import {
   findWordBoundary,
   findWordDeleteBoundaryLeft,
@@ -1160,6 +1166,57 @@ function replacementParagraphOrderKey(page: Page, beforeIndex: number): string {
  * Returns new state + CRDT operations for the deletion.
  */
 export function deleteSelectedText(state: EditorState): ActionResult {
+  // A formula the selection takes only part of loses that part and stays;
+  // what is left is a plain flat range (possibly empty) for the code below.
+  const inside = deleteSelectionInsideParts(state);
+  if (inside.ops.length === 0) return deleteFlatSelectedText(inside.state);
+  const rest = deleteFlatSelectedText(inside.state);
+  return { state: rest.state, ops: [...inside.ops, ...rest.ops] };
+}
+
+/**
+ * Delete the selected part of each formula the flat selection starts or ends
+ * inside (see `selectionInsideParts`), through the formula's own editing, and
+ * leave the rest of the selection — the text between those formulas — as an
+ * ordinary flat selection with the caret on its focus. Unchanged state when
+ * the selection holds no such part.
+ *
+ * A formula keeps its one flat character whatever is cut out of it, so the
+ * flat positions of the rest stay valid across the cut.
+ */
+export function deleteSelectionInsideParts(state: EditorState): ActionResult {
+  const selection = state.document.selection;
+  const parts = selectionInsideParts(state);
+  if (!selection || parts.length === 0) return { state, ops: [] };
+  const rest = flatRangeOutsideParts(selection, parts);
+  const junction: Position = rest
+    ? rest.focus
+    : {
+        blockIndex: parts[0].run.blockIndex,
+        textIndex:
+          parts[0].side === "start"
+            ? parts[0].run.endIndex
+            : parts[0].run.startIndex,
+      };
+
+  const ops: Operation[] = [];
+  let next = state;
+  for (const part of parts) {
+    const held = updateContentSelection(next, part.selection);
+    if (!held.document.contentSelection) continue;
+    const cut = insertText(held, "");
+    next = cut.state;
+    ops.push(...cut.ops);
+  }
+  next = updateCursor(updateContentSelection(next, null), junction);
+  next = updateSelection(
+    next,
+    rest ? { anchor: rest.anchor, focus: rest.focus } : null,
+  );
+  return { state: next, ops };
+}
+
+function deleteFlatSelectedText(state: EditorState): ActionResult {
   // Note: Cache will naturally miss due to content length change
   // Only clear for multi-block operations below
   state = expandSelectionAroundStructuredMarks(state);
@@ -1792,7 +1849,11 @@ export function insertText(
     // Auto-surround: a typed wrap trigger encloses the selection (brackets/
     // quotes literally; a markdown delimiter applies its mark) instead of
     // replacing it. A successful wrap is the whole edit for this keystroke.
-    if (options?.wrapSelection) {
+    // A selection that takes only part of a formula has no flat range a wrap
+    // could enclose without swallowing the rest of the formula, so there the
+    // trigger is typed over the selection like any other character.
+    const insideParts = selectionInsideParts(state);
+    if (options?.wrapSelection && insideParts.length === 0) {
       const wrapped = wrapSelectionOnInput(state, input, {
         marks: options.inlineMarkdown !== false,
       });
@@ -1800,7 +1861,20 @@ export function insertText(
     }
     // Typing over a selection takes the formatting of the text it replaces
     // (the first selected character), read before the deletion removes it.
-    const range = getSelectionRange(state);
+    // Past a formula the selection only takes part of, that is the first
+    // character of the text beyond it.
+    const outside =
+      insideParts.length > 0
+        ? flatRangeOutsideParts(state.document.selection, insideParts)
+        : null;
+    const range =
+      insideParts.length === 0
+        ? getSelectionRange(state)
+        : outside
+          ? outside.isForward
+            ? { start: outside.anchor, end: outside.focus }
+            : { start: outside.focus, end: outside.anchor }
+          : null;
     const firstReplaced = range
       ? state.document.page.blocks[range.start.blockIndex]
       : undefined;
@@ -4125,6 +4199,32 @@ export function toggleFormat(
   // every path that funnels through here (ChangeApi.setMark's toggle branch and
   // the built-in TOGGLE_* actions). No-op for an unrestricted schema.
   if (!state.schema.isMarkAllowed(formatType)) return { state, ops: [] };
+
+  // A selection that takes only part of a formula formats the text outside
+  // that formula: a mark on the formula's one flat character would cover the
+  // unselected rest of it too. For the same reason it cannot become a formula
+  // itself (a structured mark would swallow the whole one). The selection the
+  // user made is kept.
+  const insideParts = selectionInsideParts(state);
+  if (insideParts.length > 0 && state.document.selection) {
+    const selection = state.document.selection;
+    const outside = flatRangeOutsideParts(selection, insideParts);
+    if (!outside || state.schema.structuredMark(formatType) !== undefined) {
+      return { state, ops: [] };
+    }
+    const toggled = toggleFormat(
+      updateSelection(state, { anchor: outside.anchor, focus: outside.focus }),
+      formatType,
+    );
+    return {
+      state: updateSelection(toggled.state, {
+        anchor: selection.anchor,
+        focus: selection.focus,
+        inside: selection.inside,
+      }),
+      ops: toggled.ops,
+    };
+  }
 
   const range = getSelectionRange(state);
 

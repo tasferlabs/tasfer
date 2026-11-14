@@ -41,6 +41,7 @@ import {
   moveToNextWord,
   moveToPreviousWord,
 } from "./actions";
+import { continueSelectionInsideAnchorRun } from "./structured-marks";
 
 /** Payload for the vertical/page moves — they need the viewport to resolve the
  * target visual line. */
@@ -239,6 +240,17 @@ function extensionBase(state: EditorState, caret: Position): EditorState {
   return selection && !stale ? state : startSelection(state, caret);
 }
 
+/**
+ * Move the selection's focus for a Shift+key. A selection whose fixed end
+ * stops inside a formula goes back to a range inside it once the focus rests
+ * on that formula's edge (see `continueSelectionInsideAnchorRun`).
+ */
+function extendFocusTo(state: EditorState, position: Position): EditorState {
+  return continueSelectionInsideAnchorRun(
+    updateSelectionFocus(state, position),
+  );
+}
+
 /** Extend the selection one position to the left (Shift+ArrowLeft). */
 export const EXTEND_SELECTION_LEFT = stateAction(
   "extend-selection-left",
@@ -248,7 +260,7 @@ export const EXTEND_SELECTION_LEFT = stateAction(
     const moved = moveCursorLeft(base);
     if (moved.document.cursor) {
       return {
-        state: updateSelectionFocus(moved, moved.document.cursor.position),
+        state: extendFocusTo(moved, moved.document.cursor.position),
         ops: [],
       };
     }
@@ -265,7 +277,7 @@ export const EXTEND_SELECTION_RIGHT = stateAction(
     const moved = moveCursorRight(base);
     if (moved.document.cursor) {
       return {
-        state: updateSelectionFocus(moved, moved.document.cursor.position),
+        state: extendFocusTo(moved, moved.document.cursor.position),
         ops: [],
       };
     }
@@ -282,7 +294,7 @@ export const EXTEND_SELECTION_UP = stateAction<ViewportPayload>(
     const moved = moveCursorUp(base, viewport);
     if (moved.document.cursor) {
       return {
-        state: updateSelectionFocus(moved, moved.document.cursor.position),
+        state: extendFocusTo(moved, moved.document.cursor.position),
         ops: [],
       };
     }
@@ -299,7 +311,7 @@ export const EXTEND_SELECTION_DOWN = stateAction<ViewportPayload>(
     const moved = moveCursorDown(base, viewport);
     if (moved.document.cursor) {
       return {
-        state: updateSelectionFocus(moved, moved.document.cursor.position),
+        state: extendFocusTo(moved, moved.document.cursor.position),
         ops: [],
       };
     }
@@ -316,7 +328,7 @@ export const EXTEND_SELECTION_PAGE_UP = stateAction<ViewportPayload>(
     const moved = moveCursorPageUp(base, viewport);
     if (moved.document.cursor) {
       return {
-        state: updateSelectionFocus(moved, moved.document.cursor.position),
+        state: extendFocusTo(moved, moved.document.cursor.position),
         ops: [],
       };
     }
@@ -333,7 +345,7 @@ export const EXTEND_SELECTION_PAGE_DOWN = stateAction<ViewportPayload>(
     const moved = moveCursorPageDown(base, viewport);
     if (moved.document.cursor) {
       return {
-        state: updateSelectionFocus(moved, moved.document.cursor.position),
+        state: extendFocusTo(moved, moved.document.cursor.position),
         ops: [],
       };
     }
@@ -350,7 +362,7 @@ export const EXTEND_SELECTION_WORD_LEFT = stateAction(
     const moved = moveToPreviousWord(base);
     if (moved.document.cursor) {
       return {
-        state: updateSelectionFocus(moved, moved.document.cursor.position),
+        state: extendFocusTo(moved, moved.document.cursor.position),
         ops: [],
       };
     }
@@ -367,7 +379,7 @@ export const EXTEND_SELECTION_WORD_RIGHT = stateAction(
     const moved = moveToNextWord(base);
     if (moved.document.cursor) {
       return {
-        state: updateSelectionFocus(moved, moved.document.cursor.position),
+        state: extendFocusTo(moved, moved.document.cursor.position),
         ops: [],
       };
     }
@@ -389,7 +401,7 @@ export const EXTEND_SELECTION_HOME = stateAction<{ isCtrl: boolean }>(
       : moveToLineStart(base);
     if (moved.document.cursor) {
       return {
-        state: updateSelectionFocus(moved, moved.document.cursor.position),
+        state: extendFocusTo(moved, moved.document.cursor.position),
         ops: [],
       };
     }
@@ -430,7 +442,7 @@ export const EXTEND_SELECTION_END = stateAction<{ isCtrl: boolean }>(
 
     if (moved.document.cursor) {
       return {
-        state: updateSelectionFocus(moved, moved.document.cursor.position),
+        state: extendFocusTo(moved, moved.document.cursor.position),
         ops: [],
       };
     }

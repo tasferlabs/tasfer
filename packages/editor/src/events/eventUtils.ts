@@ -12,6 +12,7 @@ import {
   isNodeSelection,
   scrollToMakeCursorVisible,
 } from "../selection";
+import { selectionInsideParts } from "../selection-inside";
 import type {
   EditorState,
   ViewportState,
@@ -145,10 +146,11 @@ export function isWithinClickDistance(
   return Math.sqrt(dx * dx + dy * dy) <= threshold;
 }
 /**
- * Helper function to get selection handle positions for touch detection.
- * Returns the positions of both anchor and focus handles.
+ * Where the touch selection handles stand, in DOCUMENT space — the same
+ * geometry they are painted and grabbed at. Covers a flat range and a range
+ * inside a node's content alike.
  */
-function getSelectionHandlePositions(
+export function getTouchSelectionHandlePositions(
   state: EditorState,
   viewport: ViewportState,
   visibility?: VisibleBlockRange,
@@ -194,7 +196,7 @@ function getSelectionHandlePositions(
     return null;
   }
 
-  return {
+  const positions = {
     anchor: {
       x: anchorCoords.x,
       y: anchorCoords.y,
@@ -208,6 +210,23 @@ function getSelectionHandlePositions(
       isTop: !isForward,
     },
   };
+  // An end that stops inside a formula hangs its handle off the part of the
+  // formula it takes, at the stop — not off the formula's flat edge.
+  for (const part of selectionInsideParts(state)) {
+    const geometry = getContentSelectionDocumentGeometry(
+      {
+        ...state,
+        document: { ...state.document, contentSelection: part.selection },
+      },
+      viewport,
+      styles,
+      visibility,
+    );
+    if (geometry) {
+      positions[part.end] = contentSelectionHandlePositions(geometry).anchor;
+    }
+  }
+  return positions;
 }
 /**
  * Detect if a touch point is on a selection handle.
@@ -221,7 +240,7 @@ export function getSelectionHandleAtPoint(
   viewport: ViewportState,
   visibility?: VisibleBlockRange,
 ): "anchor" | "focus" | null {
-  const handlePositions = getSelectionHandlePositions(
+  const handlePositions = getTouchSelectionHandlePositions(
     state,
     viewport,
     visibility,

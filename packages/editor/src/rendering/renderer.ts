@@ -1,3 +1,4 @@
+import { undrawnCompositionCaret } from "../composition";
 import {
   BLOCK_DRAG_HANDLE_GRIP_HEIGHT,
   BLOCK_DRAG_HANDLE_GRIP_WIDTH,
@@ -7,7 +8,6 @@ import type {
   IndicatorHitArea,
   InteractionSession,
 } from "../events/interaction-session";
-import { undrawnCompositionCaret } from "../composition";
 import { currentFontFamily, getFontStack } from "../fonts";
 import { caretMarkEdgeSide, contentCaretMarkEdge } from "../mark-edge";
 import {
@@ -22,10 +22,12 @@ import {
   isNodeSelection,
   selectionHighlightEdge,
 } from "../selection";
+import { selectionInsideParts } from "../selection-inside";
 import type { Block, Char, MarkSpan } from "../serlization/loadPage";
 import type {
   EditorState,
   EditorStyles,
+  HandleCrossing,
   NodeOverlay,
   Position,
   RenderedBlock,
@@ -1716,6 +1718,16 @@ function getSelectionHandlePositionsForRender(
   focus: { x: number; y: number; height: number; isTop: boolean } | null;
 } | null {
   const selection = state.document.selection;
+  const crossing = state.ui.selectionHandleDrag?.crossing;
+  if (crossing && state.document.contentSelection) {
+    return crossingHandlePositions(
+      crossing,
+      state,
+      viewport,
+      styles,
+      heightIndex,
+    );
+  }
   if (!selection || selection.isCollapsed || isNodeSelection(selection)) {
     return getContentSelectionHandlePositionsForRender(
       state,
@@ -1754,7 +1766,7 @@ function getSelectionHandlePositionsForRender(
     return null;
   }
 
-  return {
+  const positions = {
     anchor: {
       x: anchorCoords.x,
       y: anchorCoords.y,
@@ -1768,13 +1780,86 @@ function getSelectionHandlePositionsForRender(
       isTop: !isForward,
     },
   };
+  // An end that stops inside a formula hangs its handle off the part of the
+  // formula it takes, at the stop — not off the formula's flat edge.
+  for (const part of selectionInsideParts(state)) {
+    const inside = getContentSelectionHandlePositionsForRender(
+      {
+        ...state,
+        document: { ...state.document, contentSelection: part.selection },
+      },
+      viewport,
+      styles,
+      heightIndex,
+    );
+    if (inside) positions[part.end] = inside.anchor;
+  }
+  return positions;
 }
 
 /**
- * Render selection handles for mobile text selection.
- * Draws teardrop-shaped handles at the anchor and focus positions.
- * Only renders on touch devices when there's an active selection.
+ * Handles while the held one crosses a piece of a formula (see
+ * {@link HandleCrossing}): the fixed one where it always is, the held one
+ * under the finger on the piece's line. Also covers the moment the range is
+ * empty because the finger is back at the fixed end's side of the piece.
  */
+function crossingHandlePositions(
+  crossing: HandleCrossing,
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles,
+  heightIndex?: BlockHeightIndex,
+) {
+  const range = getContentSelectionHandlePositionsForRender(
+    state,
+    viewport,
+    styles,
+    heightIndex,
+  );
+  // A formula lays its content out left to right, even in a right-to-left
+  // paragraph, so the finger's side of the near edge says which end it is.
+  const isForward = crossing.x >= crossing.nearX;
+  const y = crossing.y - viewport.scrollY;
+  const anchor = range?.anchor ?? {
+    x: crossing.nearX,
+    y,
+    height: crossing.height,
+    isTop: isForward,
+  };
+  return {
+    anchor: { ...anchor, isTop: isForward },
+    focus: { x: crossing.x, y, height: crossing.height, isTop: !isForward },
+  };
+}
+
+/**
+ * Fill the part of a crossed piece between its near edge and the finger:
+ * faint before the middle, the selection's own strength once the piece
+ * counts. The node paints the rest of the range without the piece, so the
+ * highlight always ends at the held handle.
+ */
+function renderHandleCrossing(
+  ctx: CanvasRenderingContext2D,
+  state: EditorState,
+  viewport: ViewportState,
+  styles: EditorStyles,
+) {
+  const crossing = state.ui.selectionHandleDrag?.crossing;
+  if (!crossing) return;
+  const { backgroundColor } = styles.selection;
+  const opacity = crossing.opacity ?? styles.selection.opacity;
+  ctx.save();
+  ctx.globalAlpha = crossing.counted ? opacity : opacity / 2;
+  ctx.fillStyle = backgroundColor;
+  ctx.fillRect(
+    Math.min(crossing.nearX, crossing.x),
+    crossing.y - viewport.scrollY,
+    Math.abs(crossing.x - crossing.nearX),
+    crossing.height,
+  );
+  ctx.restore();
+}
+
 /**
  * Paint the block-reorder affordances: the left-gutter grip on the hovered
  * block, and — while a reorder drag is active — the insertion line at the drop
@@ -2007,6 +2092,11 @@ function mapToViewport(
   return coords ? { ...coords, y: coords.y - viewport.scrollY } : null;
 }
 
+/**
+ * Render selection handles for mobile text selection.
+ * Draws teardrop-shaped handles at the anchor and focus positions.
+ * Only renders on touch devices when there's an active selection.
+ */
 export function renderSelectionHandles(
   ctx: CanvasRenderingContext2D,
   state: EditorState,
@@ -2019,11 +2109,14 @@ export function renderSelectionHandles(
     return;
   }
 
+  renderHandleCrossing(ctx, state, viewport, styles);
+
   const selection = state.document.selection;
   const content = state.document.contentSelection;
   const hasRange =
     (selection && !selection.isCollapsed) ||
-    (content && !isContentSelectionCollapsed(content));
+    (content && !isContentSelectionCollapsed(content)) ||
+    !!state.ui.selectionHandleDrag?.crossing;
   if (!hasRange) {
     return;
   }
