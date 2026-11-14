@@ -537,6 +537,21 @@ describe("a handle taken from a formula to the line above", () => {
     }
   });
 
+  it("is inside the formula above on the very move that takes it there", () => {
+    const start = selectInsideLast(2, 7);
+    const line = getTouchSelectionHandlePositions(start, viewport)!.anchor!
+      .height;
+    const drag = grab(start, "anchor");
+
+    // One move, and the finger then holds still: the handle must already be
+    // at the finger, not parked on the formula's edge until the next move.
+    const up = drag(10, -line - 4);
+    expect(up.document.selection?.inside?.focus?.blockId).toBe(
+      up.document.page.blocks[1]!.id,
+    );
+    expect(selectionInsideParts(up).map((part) => part.end)).toContain("focus");
+  });
+
   it("goes back into the formula once the finger is on its line again", () => {
     const start = selectInsideLast(2, 7);
     const line = getTouchSelectionHandlePositions(start, viewport)!.anchor!

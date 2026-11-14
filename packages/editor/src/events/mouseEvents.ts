@@ -731,10 +731,25 @@ export function extendDragSelectionToPoint(
         flatPosition.textIndex < run.startIndex ||
         flatPosition.textIndex > run.endIndex);
     if (pointerLeftMark) {
-      return extendSelectionOutOfStructuredMark(
+      const left = extendSelectionOutOfStructuredMark(
         state,
         flatPosition,
         state.ui.selectionHandleDrag?.fixedEdge,
+      );
+      // Leaving one formula can land straight on another (the line above is a
+      // formula too). Stop inside that one on this same move: left for the
+      // next move, the moving end sat on the new formula's edge until the
+      // pointer moved again, which a finger that pauses there never does.
+      if (!left || left.document.selection?.initialBoundary) return left;
+      return (
+        dragFocusIntoRunAtPoint(
+          left,
+          canvasX,
+          y,
+          viewport,
+          visibility,
+          pointerType,
+        ) ?? left
       );
     }
     const hit = getContentSelectionFromViewport(
