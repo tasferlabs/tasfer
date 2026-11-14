@@ -74,6 +74,7 @@ import {
 import {
   dragFocusIntoRunAtPoint,
   extendDragSelectionToPoint,
+  isPointerOnRunOf,
 } from "./mouseEvents";
 import type { RegionCtx, RegionPoint } from "./regions";
 import { type Region, RegionRegistry } from "./regions";
@@ -253,8 +254,9 @@ export function dragContentHandleToPoint(
  * range inside picks its fixed end up from there, and the moving end follows
  * the finger.
  *
- * The finger counts as back by the same test it left by: an ordinary move of
- * a range inside the formula, from the fixed end, that stays inside.
+ * The finger counts as back once it is on the formula's own line and an
+ * ordinary move of a range inside the formula, from the fixed end, stays
+ * inside. Near the line is not enough (see isPointerOnRunOf).
  *
  * `x`/`y` are the point on the handle's text row, in viewport space. Null when
  * the fixed end is not inside a formula or the point is not over that formula.
@@ -268,6 +270,9 @@ function returnToLeftRunAtPoint(
 ): EditorState | null {
   const fixed = state.document.selection?.inside?.anchor;
   if (!fixed || state.document.contentSelection) return null;
+  // On the formula's own line, not just near it: the handle is held on the
+  // line it is on until the finger has clearly left that line.
+  if (!isPointerOnRunOf(state, fixed, x, y, viewport, visibility)) return null;
   const caret = updateContentSelection(state, {
     anchor: fixed,
     focus: fixed,

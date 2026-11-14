@@ -623,6 +623,43 @@ function structuredMarkLineBand(
 }
 
 /**
+ * Whether the pointer is on the inline formula that holds `point`: the flat
+ * position under it is one of the formula's two edges.
+ *
+ * This is the test for coming BACK to a formula a drag has left. A range
+ * inside a formula is given some room above and below before it lets go (see
+ * {@link extendDragSelectionToPoint}); coming back gets none. With the same
+ * room both ways, a pointer on the lower half of the line above counted as
+ * back on the formula, so a handle held on that line dropped down to it at
+ * the slightest wobble.
+ */
+export function isPointerOnRunOf(
+  state: EditorState,
+  point: ContentPoint,
+  canvasX: number,
+  canvasY: number,
+  viewport: ViewportState,
+  visibility?: VisibleBlockRange,
+): boolean {
+  const run = structuredMarkRunForContentPoint(state, point);
+  if (!run) return false;
+  const flat = getTextPositionFromViewport(
+    canvasX,
+    canvasY,
+    state,
+    viewport,
+    undefined,
+    visibility,
+  );
+  return (
+    !!flat &&
+    flat.blockIndex === run.blockIndex &&
+    flat.textIndex >= run.startIndex &&
+    flat.textIndex <= run.endIndex
+  );
+}
+
+/**
  * Extend the in-progress drag selection to the pointer, in whichever selection
  * model owns the drag. An active nested `contentSelection` (a caret or range
  * inside structured content, e.g. tree math) extends within its own content
@@ -731,10 +768,15 @@ export function extendDragSelectionToPoint(
   // A flat selection whose fixed end stops inside a formula (the drag left
   // that formula earlier) goes back to a range inside it once the pointer is
   // over the formula again: the fixed end where it was, the moving end under
-  // the pointer. "Over it" is the same test the drag left by, so the two
-  // never disagree about which side of the edge the pointer is on.
+  // the pointer. Sideways, "over it" is the same test the drag left by, so
+  // the two never disagree about which side of the edge the pointer is on.
+  // Up and down it is stricter: the pointer has to be on the formula's own
+  // line, not just near it (see isPointerOnRunOf).
   const fixedInside = state.document.selection?.inside?.anchor;
-  if (fixedInside) {
+  if (
+    fixedInside &&
+    isPointerOnRunOf(state, fixedInside, canvasX, canvasY, viewport, visibility)
+  ) {
     const caret = updateContentSelection(state, {
       anchor: fixedInside,
       focus: fixedInside,

@@ -493,6 +493,65 @@ describe("a handle that leaves a formula and comes back", () => {
   });
 });
 
+describe("a handle taken from a formula to the line above", () => {
+  // Three formulas on three lines; the range starts inside the last one.
+  const md = "$r=a+b+c+d$\n$v=c+d+e+f$\n$a=g+h+i+j$";
+
+  function selectInsideLast(from: number, to: number) {
+    const state = moveCursorToPosition(load(md), 2, 1);
+    const block = state.document.page.blocks[2];
+    if (!isTextualBlock(block)) throw new Error("expected a textual block");
+    const run = resolveStructuredInlineMathRuns(block)[0];
+    if (!run?.contentId || !run.document) throw new Error("expected a chip");
+    const at = (offset: number) =>
+      mathContentSelectionFromSourceOffset(
+        block.id,
+        run.contentId!,
+        run.document!,
+        offset,
+      )!;
+    return updateContentSelection(state, {
+      anchor: at(from).anchor,
+      focus: at(to).focus,
+      lastUpdate: 0,
+    });
+  }
+
+  it("stays on that line while the finger wobbles along it", () => {
+    const start = selectInsideLast(2, 7);
+    const line = getTouchSelectionHandlePositions(start, viewport)!.anchor!
+      .height;
+    const drag = grab(start, "anchor");
+
+    // Up onto the middle formula's line.
+    const up = drag(10, -line - 4);
+    expect(up.document.contentSelection).toBeNull();
+    expect(up.document.selection?.focus.blockIndex).toBe(1);
+
+    // Sliding along it, the finger sinks towards the line it came from. The
+    // handle used to drop back down there as soon as it was past the middle.
+    for (const dy of [-line + 2, -line + 6, -line + 10, -line + 4]) {
+      const state = drag(30, dy);
+      expect(state.document.contentSelection).toBeNull();
+      expect(state.document.selection?.focus.blockIndex).toBe(1);
+    }
+  });
+
+  it("goes back into the formula once the finger is on its line again", () => {
+    const start = selectInsideLast(2, 7);
+    const line = getTouchSelectionHandlePositions(start, viewport)!.anchor!
+      .height;
+    const drag = grab(start, "anchor");
+
+    drag(10, -line - 4);
+    const back = drag(10, 0);
+    expect(back.document.selection).toBeNull();
+    expect(back.document.contentSelection?.focus.blockId).toBe(
+      back.document.page.blocks[2]!.id,
+    );
+  });
+});
+
 describe("a handle that takes part of a formula out into the text", () => {
   // `a+b+c+d` is source 0..7 and sits at flat 3..4 of "hi ￼ yo".
   const md = "hi $a+b+c+d$ yo\n\nnext line";
