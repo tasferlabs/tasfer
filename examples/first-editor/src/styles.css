@@ -1,0 +1,48 @@
+body {
+  margin: 0 auto;
+  max-width: 760px;
+  padding: 16px;
+  font-family: system-ui, sans-serif;
+}
+
+header {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+#status,
+.status {
+  margin-left: auto;
+  font-size: 13px;
+  color: #666;
+}
+
+#toolbar,
+.toolbar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+button {
+  min-width: 34px;
+  padding: 4px 8px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+}
+
+button.is-active {
+  background: #222;
+  border-color: #222;
+  color: #fff;
+}
+
+#editor,
+.editor {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+}
