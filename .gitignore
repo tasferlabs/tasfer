@@ -9,6 +9,10 @@ dist
 cdn
 out
 
+# Playwright end-to-end test output
+test-results
+playwright-report
+
 # Environment
 .env
 .env.*
