@@ -23,6 +23,8 @@
     "spell:catalog": "node scripts/gen-spell-catalog.mjs",
     "build": "tsc && vite build",
     "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
     "preview": "vite preview",
     "cap:sync": "npm run build && npm run gen:mobile-icons && npm run gen:android-strings && npm run gen:ios-strings && npx cap sync",
     "cap:sync:android": "npm run build && npm run gen:mobile-icons && npm run gen:android-strings && npx cap sync android",
@@ -32,6 +34,7 @@
   },
   "devDependencies": {
     "@capacitor/cli": "^8.4.2",
+    "@playwright/test": "^1.65.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/lodash-es": "^4.17.12",
     "@types/luxon": "^3.7.1",
