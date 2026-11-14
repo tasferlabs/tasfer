@@ -1974,6 +1974,7 @@ export class MathNode extends TextNode<MathBlock> {
       start: { x: first.x, y: first.y, height: first.height },
       end: { x: last.x + last.width, y: last.y, height: last.height },
       isForward: anchor === null || focus === null || anchor <= focus,
+      opacity: c.styles.blocks.math.selectionOpacity,
     };
   }
 

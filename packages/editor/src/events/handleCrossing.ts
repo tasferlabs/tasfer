@@ -13,7 +13,10 @@
  * node's resolver leaves behind, so nothing here knows about maths.
  */
 
-import { getContentPointDocumentCoords } from "../selection";
+import {
+  getContentPointDocumentCoords,
+  getContentSelectionDocumentGeometry,
+} from "../selection";
 import type {
   EditorState,
   HandleCrossing,
@@ -115,6 +118,14 @@ function resolveCrossing(
     Math.max(nearAt.x, farAt.x),
   );
   const counted = Math.abs(finger - nearAt.x) * 2 >= width;
+  // The widened range is never empty here, so its node can say how strongly
+  // it fills its highlight.
+  const opacity = getContentSelectionDocumentGeometry(
+    state,
+    viewport,
+    undefined,
+    visibility,
+  )?.opacity;
   const crossing: HandleCrossing = {
     x: finger,
     nearX: nearAt.x,
@@ -122,6 +133,7 @@ function resolveCrossing(
     height: nearAt.height,
     counted,
     near,
+    ...(opacity === undefined ? {} : { opacity }),
   };
   if (counted) return { state, crossing };
   return {

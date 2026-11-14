@@ -361,6 +361,11 @@ export interface HandleCrossing {
   readonly counted: boolean;
   /** The range's end at the near edge: the highlight stops here, the fill takes over. */
   readonly near: ContentPoint;
+  /**
+   * How strongly the node fills its own highlight, when not the theme's
+   * `selection.opacity`: the fill matches it so the two read as one band.
+   */
+  readonly opacity?: number;
 }
 
 /**

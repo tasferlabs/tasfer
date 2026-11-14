@@ -1846,7 +1846,8 @@ function renderHandleCrossing(
 ) {
   const crossing = state.ui.selectionHandleDrag?.crossing;
   if (!crossing) return;
-  const { backgroundColor, opacity } = styles.selection;
+  const { backgroundColor } = styles.selection;
+  const opacity = crossing.opacity ?? styles.selection.opacity;
   ctx.save();
   ctx.globalAlpha = crossing.counted ? opacity : opacity / 2;
   ctx.fillStyle = backgroundColor;

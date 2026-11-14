@@ -278,6 +278,16 @@ describe("a handle crossing a root in a block equation", () => {
     expect(range(after)).toEqual({ from: 0, to: 12 });
     expect(after.ui.selectionHandleDrag?.crossing?.counted).toBe(true);
   });
+
+  it("shades the crossed part as strongly as the equation's own highlight", () => {
+    const { select } = load(md);
+    const drag = grab(select(0, 1), "focus");
+    const crossing = drag(24).ui.selectionHandleDrag?.crossing;
+
+    expect(crossing?.opacity).toBe(
+      getEditorStyles(drag(24)).blocks.math.selectionOpacity,
+    );
+  });
 });
 
 describe("a handle dragged across a fraction's rows", () => {
