@@ -130,7 +130,10 @@ import { useTranslation } from "react-i18next";
 import { ContextMenu, type ContextMenuItem } from "../editor/ContextMenu";
 import { TableTools } from "../editor/TableTools";
 import { TableToolsContext, useTableTools } from "../editor/tableContext";
-import { tableContextForCaret } from "../editor/tableContext";
+import {
+  selectionSpansTableCells,
+  tableContextForCaret,
+} from "../editor/tableContext";
 import {
   TABLE_DELETE_COLUMN,
   TABLE_DELETE_ROW,
@@ -2045,8 +2048,7 @@ function PageEditor({
           break;
         case "toggle-math":
           // With a selection the chosen text becomes the chip's LaTeX; with an
-          // empty caret this arms a pending math format so the next typed text
-          // forms the chip.
+          // empty caret this puts an empty formula box there, caret inside.
           editor.change((change) => change.setMark("math"));
           editor.focus();
           break;
@@ -3990,6 +3992,11 @@ function PageEditor({
     // A selection whose every character carries the math mark is an inline-math
     // run; formatting doesn't apply there either, mirroring the mobile toolbar.
     const selectionIsInlineMath = marks?.has("math") ?? false;
+    // Math becomes one formula from one piece of text, so it is offered in a
+    // table cell but not over a selection that runs across cells.
+    const spansCells =
+      mountedRef.current !== null &&
+      selectionSpansTableCells(mountedRef.current.editor);
     if (
       hasSelection &&
       !isTouchOnlyDevice() &&
@@ -4043,14 +4050,10 @@ function PageEditor({
           },
           // A togglable mark: over a selection this wraps it as an inline math
           // chip (the chip's visible chars are its LaTeX), mirroring the mobile
-          // toolbar's "toggle-math".
-          //
-          // Not offered inside a table cell. A math mark's content lives in a
-          // separate attachment, and a cell has no route to one — the toggle is
-          // refused in the engine (`toggleTableMark`), so the entry would be
-          // dead. The mobile toolbar drops it from a cell's drawer for the same
-          // reason.
-          ...(tableMenuCtx === null
+          // toolbar's "toggle-math". In a table cell it works inside the one
+          // cell; a selection across cells has no single text to become the
+          // formula, so the entry is not offered there.
+          ...(!spansCells
             ? [
                 {
                   id: "format-math",

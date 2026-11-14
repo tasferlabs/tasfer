@@ -1105,7 +1105,6 @@ function buildLayout(
   // the block switcher would be refused. The table's own control takes that
   // slot instead — the one structural affordance a table has on touch, in the
   // position the structural control already occupies.
-  const inTableCell = controls.tableMenu != null;
   return {
     context: "format",
     left: [
@@ -1126,14 +1125,8 @@ function buildLayout(
     },
     // The link control lives in the overflow drawer ("extra") alongside the
     // rarer marks: it edits an existing link or creates one from the selection.
-    //
-    // Inline math is the one mark a cell is NOT offered. A math mark's content
-    // lives in a separate attachment, and a cell has no route to one — the
-    // toggle is refused in the engine (`toggleTableMark`), so the button would
-    // be dead. Drop it rather than show a control that does nothing.
-    more: inTableCell
-      ? [strikethrough, inlineCode, link]
-      : [strikethrough, inlineCode, inlineMath, link],
+    // A table cell gets the same marks, inline math included.
+    more: [strikethrough, inlineCode, inlineMath, link],
     right,
   };
 }
