@@ -454,6 +454,19 @@ export abstract class Mark {
    * is observed as the `TEXT_INPUTTED` action in {@link registerActions}.
    */
   readonly caret?: CaretModel;
+
+  /**
+   * Optional: which way the local caret's edge flag points when the caret sits
+   * on an edge of this mark's run — `"left"` or `"right"` toward the side typing
+   * goes to, or `null` when the caret is not on one of this mark's edges.
+   *
+   * Flat marks (bold, italic, …) get this flag from the engine already. A mark
+   * that owns its own caret stops (an inline formula, entered and left through
+   * its own navigation) answers here instead, so its two stops at one screen
+   * spot — inside and outside — are told apart the same way. Asked once per
+   * registered mark each time the caret paints; keep it cheap.
+   */
+  caretEdgeFlag?(state: EditorState): "left" | "right" | null;
 }
 
 // ---------------------------------------------------------------------------

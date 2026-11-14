@@ -1792,6 +1792,7 @@ function PageEditor({
     linkActive: false,
     canCreateLink: false,
     canRepositionImage: false,
+    caretTouchesMark: false,
     repositioningImage: false,
   });
 
@@ -3379,6 +3380,10 @@ function PageEditor({
         const edgeOffset = inlineMathChip
           ? caretOffset - inlineMathChip.from
           : caretOffset;
+        // An inline formula's edge steps out to the prose beside it (the outside
+        // stop of that edge, as a hardware arrow does); only a block equation's
+        // edge has nowhere to go.
+        const isBlockEquation = rawBlockType === "math";
         // The grid the caret rests in (if any). `matrixContextForCaret` covers
         // every selection shape the desktop context menu resolves — a caret in
         // a cell, a whole-construct selection, a sweep across the parentheses —
@@ -3386,11 +3391,32 @@ function PageEditor({
         math = {
           query: active ? active.query : null,
           trigger: active ? active.trigger : null,
-          canCaretLeft: !mathSourceAtEdge(edgeLatex, edgeOffset, "left"),
-          canCaretRight: !mathSourceAtEdge(edgeLatex, edgeOffset, "right"),
+          canCaretLeft:
+            !isBlockEquation ||
+            !mathSourceAtEdge(edgeLatex, edgeOffset, "left"),
+          canCaretRight:
+            !isBlockEquation ||
+            !mathSourceAtEdge(edgeLatex, edgeOffset, "right"),
           matrix: matrixContextForCaret(mounted.editor),
         };
       }
+
+      // A collapsed caret inside marked text, or on its edge (the run ending at
+      // the caret counts — its end is a caret stop too). A run covers
+      // `from <= offset < to`, so the character before the caret is probed for
+      // the run that ends here. A caret in a table cell reads its own marks.
+      const caretTouchesMark =
+        snapshot.selection.empty &&
+        (mounted.editor.query.marks().length > 0 ||
+          (activeBlock != null &&
+            caretOffset !== null &&
+            treeMath === null &&
+            !snapshot.contentSelection &&
+            caretOffset > 0 &&
+            mounted.editor.query.marks({
+              block: activeBlock.id,
+              offset: caretOffset - 1,
+            }).length > 0));
 
       // Structural context for the list/code contextual rows. The fields are
       // read off the current block; they default to inert values off-context so
@@ -3463,6 +3489,7 @@ function PageEditor({
         linkActive,
         canCreateLink,
         canRepositionImage,
+        caretTouchesMark,
         repositioningImage,
       });
     });

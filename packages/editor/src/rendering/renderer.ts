@@ -1329,6 +1329,12 @@ function drawCaret(
  * right in an RTL one.
  */
 function markEdgeFlagFor(state: EditorState): "left" | "right" | null {
+  // A mark that owns its own caret stops (an inline formula) says where its
+  // edge flag points.
+  for (const mark of state.marks.markList()) {
+    const flag = mark.caretEdgeFlag?.(state);
+    if (flag) return flag;
+  }
   // A caret in a node's structured prose (a table cell) reads the field's own
   // marks and direction.
   const content = contentCaretMarkEdge(state);

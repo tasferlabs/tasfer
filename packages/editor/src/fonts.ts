@@ -1295,8 +1295,16 @@ export function wrapText(
   }
 
   // Add the remaining text. A trailing line can be textless yet real — the last
-  // slice of a formula that ended the block owns no character.
-  if (currentLine || currentLead || currentSlices.length > 0) {
+  // slice of a formula that ended the block owns no character, and a space that
+  // overflowed the last line broke it, so the caret after that space needs the
+  // empty line below to stand on.
+  const endedOnWrapSpace = lines.at(-1)?.consumedSpace === true;
+  if (
+    currentLine ||
+    currentLead ||
+    currentSlices.length > 0 ||
+    endedOnWrapSpace
+  ) {
     pushLine(currentLine, false);
   }
 

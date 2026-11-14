@@ -1171,6 +1171,64 @@ export function exitActiveInlineMathTreeHorizontally(
 }
 
 /**
+ * Which way the caret's edge flag points on a formula's edge — the same flag a
+ * bold run's edge shows, so the inside and outside stops at one screen spot
+ * can be told apart. Null when the caret is not on a formula's edge.
+ *
+ * Inside the formula (a nested caret that the next arrow would carry out) the
+ * flag points into the formula. A flat caret on the edge points to where a
+ * typed letter goes: out to the prose after an arrow exit (an explicit typing
+ * set without the formula's mark), otherwise into the formula it touches (see
+ * `editableInlineMathContext`). The formula itself always renders LTR; the
+ * prose beside it follows the block's direction.
+ */
+export function inlineMathCaretEdgeFlag(
+  state: EditorState,
+): "left" | "right" | null {
+  if (state.ui.composition?.isComposing) return null;
+  const selection = state.document.contentSelection;
+  if (selection) {
+    if (!isContentSelectionCollapsed(selection)) return null;
+    const context = activeInlineMathContext(state);
+    if (!context) return null;
+    const atLeft = !moveMathTreeCaret(
+      context.document,
+      context.caret,
+      "arrow-left",
+    ).handled;
+    const atRight = !moveMathTreeCaret(
+      context.document,
+      context.caret,
+      "arrow-right",
+    ).handled;
+    // An empty formula is both edges at once: no side to show.
+    if (atLeft === atRight) return null;
+    return atLeft ? "right" : "left";
+  }
+  const position = collapsedFlatCursorPosition(state);
+  if (!position) return null;
+  const block = state.document.page.blocks[position.blockIndex];
+  if (!block || block.deleted || !isTextualBlock(block)) return null;
+  const runs = resolveStructuredInlineMathRuns(block).filter(
+    (run) => !!run.document,
+  );
+  const endsHere = runs.some((run) => run.endIndex === position.textIndex);
+  const startsHere = runs.some((run) => run.startIndex === position.textIndex);
+  if (!endsHere && !startsHere) return null;
+  const marksMode = state.ui.activeMarksMode;
+  const outside =
+    marksMode.type === "explicit" &&
+    !marksMode.formats.some((mark) => state.schema.structuredMark(mark.type));
+  // Between two touching formulas there is no prose side to point at.
+  if (outside && endsHere && startsHere) return null;
+  // Logical "before" = the text behind the caret; typing after a formula
+  // continues it, so the run ending here wins when both touch the caret.
+  const pointsBefore = outside ? !endsHere : endsHere;
+  const rtl = getBlockDirection(block, state.marks) === "rtl";
+  return pointsBefore !== rtl ? "left" : "right";
+}
+
+/**
  * Continue host-document navigation when vertical movement runs out of stacked
  * rows inside an inline chip.
  *
