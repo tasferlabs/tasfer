@@ -12,11 +12,11 @@
  *
  * This module resolves per-character embedding levels and groups the line into
  * directional runs in visual (left-to-right) order. It implements the core
- * rules (W1–W7, N1–N2, I1–I2, L2) for a single paragraph with no explicit
+ * rules (W1–W7, N0–N2, I1–I2, L2) for a single paragraph with no explicit
  * embedding/isolate controls — which covers ordinary typed prose in Latin,
- * Arabic, Hebrew, digits and punctuation. Paired-bracket resolution (N0) and
- * the deprecated explicit-embedding formatting characters are intentionally
- * omitted.
+ * Arabic, Hebrew, digits and punctuation, plus the left-to-right and
+ * right-to-left marks (LRM/RLM). The explicit embedding and isolate controls
+ * (LRE/RLE/LRO/RLO/PDF, LRI/RLI/FSI/PDI) are not handled.
  */
 
 export type BidiDir = "ltr" | "rtl";
@@ -49,7 +49,24 @@ export interface BidiRun {
 }
 
 const RE_MARK = /\p{M}/u;
+
+// Paired brackets (Unicode BidiBrackets.txt), opening → closing. Rule N0 lets a
+// matched pair take the direction of the text it encloses, so "(بين قوسين)"
+// keeps both parentheses with the Arabic even at the edge of an LTR line.
+const BRACKET_PAIRS =
+  "()[]{}༺༻༼༽᚛᚜⁅⁆⁽⁾₍₎⌈⌉⌊⌋〈〉❨❩❪❫❬❭❮❯❰❱❲❳❴❵⟅⟆⟦⟧⟨⟩⟪⟫⟬⟭⟮⟯⦃⦄⦅⦆⦇⦈⦉⦊⦋⦌⦍⦎⦏⦐⦑⦒⦓⦔⦕⦖⦗⦘⧘⧙⧚⧛⧼⧽⸢⸣⸤⸥⸦⸧⸨⸩〈〉《》「」『』【】〔〕〖〗〘〙〚〛﹙﹚﹛﹜﹝﹞（）［］｛｝｟｠｢｣";
+const OPENING_TO_CLOSING = new Map<string, string>();
+const CLOSING_BRACKETS = new Set<string>();
+for (let i = 0; i < BRACKET_PAIRS.length; i += 2) {
+  OPENING_TO_CLOSING.set(BRACKET_PAIRS[i], BRACKET_PAIRS[i + 1]);
+  CLOSING_BRACKETS.add(BRACKET_PAIRS[i + 1]);
+}
+// U+2329/U+232A are canonically equivalent to U+3008/U+3009 and pair with them.
+function canonicalBracket(ch: string): string {
+  return ch === "〈" ? "〈" : ch === "〉" ? "〉" : ch;
+}
 const RE_LETTER = /\p{L}/u;
+const RE_CURRENCY = /\p{Sc}/u;
 
 // Strong right-to-left Arabic-family letters (bidi class AL).
 function isArabicLetter(cp: number): boolean {
@@ -87,10 +104,9 @@ function bidiType(ch: string): BidiType {
 
   if (isArabicNumber(cp)) return "AN";
   if (cp >= 0x30 && cp <= 0x39) return "EN"; // ASCII digits
-  if (isArabicLetter(cp)) return "AL";
-  if (isHebrewLetter(cp)) return "R";
 
-  // Weak/neutral punctuation relevant to typed text.
+  // Weak/neutral punctuation relevant to typed text. Checked before the script
+  // ranges below, which also contain a few punctuation marks (، ٪).
   if (ch === "+" || ch === "-" || ch === "−") return "ES";
   if (
     ch === "#" ||
@@ -113,6 +129,24 @@ function bidiType(ch: string): BidiType {
   )
     return "CS";
 
+  // Arabic-block characters that are not Arabic letters.
+  if ((cp >= 0x0600 && cp <= 0x0605) || cp === 0x06dd) return "AN"; // number signs
+  if (cp === 0x066b || cp === 0x066c) return "AN"; // Arabic decimal/thousands separators
+  if (cp === 0x0609 || cp === 0x060a) return "ET"; // Arabic per mille / per ten thousand
+  if (cp === 0x06de || cp === 0x06e9 || cp === 0xfd3e || cp === 0xfd3f)
+    return "ON"; // ۞ ۩ and the ornate parentheses ﴾ ﴿
+
+  if (isArabicLetter(cp)) return "AL";
+  if (isHebrewLetter(cp)) return "R";
+
+  // Other currency signs (€, ₪, ₹ …) are European-number terminators.
+  if (RE_CURRENCY.test(ch)) return "ET";
+
+  // Invisible direction marks: LRM is a strong L, RLM a strong R. (ALM,
+  // U+061C, already falls in the Arabic block above.)
+  if (cp === 0x200e) return "L";
+  if (cp === 0x200f) return "R";
+
   if (ch === "\t") return "S";
   if (ch === "\n") return "B";
   if (ch === " " || /\s/.test(ch)) return "WS";
@@ -120,6 +154,89 @@ function bidiType(ch: string): BidiType {
   if (RE_LETTER.test(ch)) return "L";
 
   return "ON";
+}
+
+/**
+ * Rule N0 (with BD16 pairing): each matched bracket pair becomes the paragraph
+ * direction when it encloses text of that direction; otherwise, when it
+ * encloses only opposite-direction text, it follows the strong direction just
+ * before the opening bracket. Pairs with no strong text inside are left for
+ * N1/N2. Mutates `types` in place.
+ */
+function resolveBracketPairs(
+  text: string,
+  types: BidiType[],
+  originalTypes: readonly BidiType[],
+  sor: "L" | "R",
+  baseLevel: number,
+): void {
+  const n = text.length;
+
+  // BD16: pair brackets with a bounded stack, in order of the opening bracket.
+  const pairs: Array<[number, number]> = [];
+  const stack: Array<{ closing: string; pos: number }> = [];
+  for (let i = 0; i < n; i++) {
+    if (types[i] !== "ON") continue;
+    const ch = canonicalBracket(text[i]);
+    const closing = OPENING_TO_CLOSING.get(ch);
+    if (closing !== undefined) {
+      if (stack.length === 63) break; // BD16: stop pairing on overflow.
+      stack.push({ closing, pos: i });
+    } else if (CLOSING_BRACKETS.has(ch)) {
+      for (let s = stack.length - 1; s >= 0; s--) {
+        if (stack[s].closing === ch) {
+          pairs.push([stack[s].pos, i]);
+          stack.length = s;
+          break;
+        }
+      }
+    }
+  }
+  if (pairs.length === 0) return;
+  pairs.sort((a, b) => a[0] - b[0]);
+
+  const embedding: "L" | "R" = baseLevel % 2 === 0 ? "L" : "R";
+  // EN and AN count as R inside N0, like in N1.
+  const strongOf = (t: BidiType): "L" | "R" | null =>
+    t === "L" ? "L" : t === "R" || t === "EN" || t === "AN" ? "R" : null;
+
+  for (const [open, close] of pairs) {
+    let foundEmbedding = false;
+    let foundOpposite = false;
+    for (let k = open + 1; k < close; k++) {
+      const s = strongOf(types[k]);
+      if (s === embedding) {
+        foundEmbedding = true;
+        break;
+      }
+      if (s !== null) foundOpposite = true;
+    }
+
+    let resolved: "L" | "R" | null = null;
+    if (foundEmbedding) {
+      resolved = embedding;
+    } else if (foundOpposite) {
+      let before: "L" | "R" = sor;
+      for (let k = open - 1; k >= 0; k--) {
+        const s = strongOf(types[k]);
+        if (s !== null) {
+          before = s;
+          break;
+        }
+      }
+      resolved = before !== embedding ? before : embedding;
+    }
+    if (resolved === null) continue;
+
+    types[open] = resolved;
+    types[close] = resolved;
+    // Marks that followed a bracket take the bracket's new direction.
+    for (const pos of [open, close]) {
+      for (let k = pos + 1; k < n && originalTypes[k] === "NSM"; k++) {
+        types[k] = resolved;
+      }
+    }
+  }
 }
 
 /** Resolve embedding levels for every character of `text` under `baseDir`. */
@@ -133,6 +250,7 @@ export function resolveBidiLevels(text: string, baseDir: BidiDir): number[] {
 
   const types: BidiType[] = new Array(n);
   for (let i = 0; i < n; i++) types[i] = bidiType(text[i]);
+  const originalTypes = types.slice();
 
   // --- W1: NSM takes the type of the previous character (sor at the start). ---
   for (let i = 0; i < n; i++) {
@@ -194,6 +312,9 @@ export function resolveBidiLevels(text: string, baseDir: BidiDir): number[] {
       else if (t === "EN" && lastStrong === "L") types[i] = "L";
     }
   }
+
+  // --- N0: paired brackets take the direction of the text they enclose. ---
+  resolveBracketPairs(text, types, originalTypes, sor, baseLevel);
 
   // --- N1/N2: resolve neutrals (and BN, treated as neutral). EN and AN count
   //     as R for the purpose of bounding neutral sequences. ---
