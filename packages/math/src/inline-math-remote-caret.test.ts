@@ -18,10 +18,9 @@
 import { resolveStructuredInlineMathRuns } from "./inline-structured";
 import { mathExtension } from "./math-extension";
 import { mathContentSelectionFromSourceOffset } from "./tree-selection";
-import { createNodeRegistry } from "@tasfer/editor";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import type { InteractionSession } from "@tasfer/editor/events/interaction-session";
 import { setDecorationLayer } from "@tasfer/editor/rendering/decorations";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
 import { renderCursorLayer } from "@tasfer/editor/rendering/renderer";
 import { baseSchema } from "@tasfer/editor/schema";
 import { loadPage } from "@tasfer/editor/serlization/loadPage";

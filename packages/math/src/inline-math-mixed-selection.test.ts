@@ -13,6 +13,7 @@ import {
   mathContentSelectionFromSourceOffset,
   mathSourceRangeFromContentSelection,
 } from "./tree-selection";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import {
   deleteSelectedText,
   deleteSelectionThroughOwner,
@@ -21,8 +22,6 @@ import {
 } from "@tasfer/editor/actions/actions";
 import { buildClipboardPayload } from "@tasfer/editor/actions/clipboard";
 import { extendSelectionOutOfStructuredMark } from "@tasfer/editor/actions/structured-marks";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import { moveCursorToPosition } from "@tasfer/editor/selection";
 import { selectionInsideParts } from "@tasfer/editor/selection-inside";

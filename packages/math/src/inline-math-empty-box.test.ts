@@ -7,11 +7,14 @@
  */
 import { getStructuredMathMarkSource } from "./inline-structured";
 import { mathExtension } from "./math-extension";
+import {
+  createMarkRegistry,
+  createNodeRegistry,
+  TOGGLE_MARK,
+} from "@tasfer/editor";
 import { insertText } from "@tasfer/editor/actions/actions";
 import { DELETE_BACKWARD } from "@tasfer/editor/actions/edit-actions";
 import { resolveMarkRuns } from "@tasfer/editor/mark-runs";
-import { createMarkRegistry, TOGGLE_MARK } from "@tasfer/editor/rendering/marks";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import {
   moveCursorToPosition,

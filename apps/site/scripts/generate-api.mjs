@@ -8,7 +8,8 @@
  *   src/views/DocsPage/reference/data/<pkg>.json   every export of one package
  *
  * Every public entry point of every published package is read (the `exports`
- * map of its package.json, minus the `./*` deep-import wildcard). For each
+ * map of its package.json, minus the `./*` deep-import wildcard and entries
+ * marked `@deprecated`). For each
  * export it records the signature as written, the doc comment, and the members
  * of a class, interface or object type. Exports tagged `@internal` are left out.
  *
@@ -107,20 +108,45 @@ function packagesVersion() {
 
 const isVersion = (v) => typeof v === "string" && /^\d+\.\d+\.\d+$/.test(v);
 
-/** The entry points a package documents: its `exports` keys, minus wildcards. */
+/**
+ * The entry points a package documents: its `exports` keys, minus wildcards and
+ * minus entries whose source file opens with a `@deprecated` doc comment (kept
+ * only so old imports resolve; everything in them is exported elsewhere).
+ */
 function entriesOf(dir, pkg) {
   return Object.keys(pkg.exports ?? {})
     .filter((key) => !key.includes("*") && key !== "./package.json")
     .map((key) => {
-      const rel = key === "." ? "index" : key.slice(2);
-      const file = [".ts", ".tsx", "/index.ts", "/index.tsx"]
-        .map((suffix) => join(dir, "src", rel + suffix))
-        .find(existsSync);
+      const file = sourceOfEntry(dir, pkg.exports[key]) ?? sourceByName(dir, key);
       if (!file) {
         throw new Error(`generate-api: no source file for ${pkg.name} entry "${key}".`);
       }
       return { id: key === "." ? pkg.name : pkg.name + key.slice(1), file };
-    });
+    })
+    .filter((entry) => !isDeprecatedEntry(entry.file));
+}
+
+/** `./dist/a/b.mjs` → `src/a/b.ts`: the build mirrors `src/` file for file. */
+function sourceOfEntry(dir, target) {
+  const built = target?.import?.default ?? target?.default;
+  if (typeof built !== "string") return undefined;
+  const match = /^\.\/dist\/(.+)\.m?js$/.exec(built);
+  if (!match) return undefined;
+  return [".ts", ".tsx"].map((ext) => join(dir, "src", match[1] + ext)).find(existsSync);
+}
+
+/** `./a/b` → `src/a/b.ts` or `src/a/b/index.ts`. */
+function sourceByName(dir, key) {
+  const rel = key === "." ? "index" : key.slice(2);
+  return [".ts", ".tsx", "/index.ts", "/index.tsx"]
+    .map((suffix) => join(dir, "src", rel + suffix))
+    .find(existsSync);
+}
+
+/** Whether the file's leading doc comment carries `@deprecated`. */
+function isDeprecatedEntry(file) {
+  const head = /^\s*\/\*\*([\s\S]*?)\*\//.exec(readFileSync(file, "utf8"));
+  return Boolean(head && /@deprecated\b/.test(head[1]));
 }
 
 /* ── doc comments ───────────────────────────────────────────────────────── */

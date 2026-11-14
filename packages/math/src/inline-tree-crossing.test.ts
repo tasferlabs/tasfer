@@ -12,6 +12,7 @@
  */
 import { enterInlineMathTreeAtPosition } from "./inline-tree-state";
 import { mathExtension } from "./math-extension";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import {
   deleteSelectedText,
   deleteSelectionThroughOwner,
@@ -24,8 +25,6 @@ import {
 import { TEXT_CLICK } from "@tasfer/editor/actions/pointer-actions";
 import { extendSelectionOutOfStructuredMark } from "@tasfer/editor/actions/structured-marks";
 import { resolveMarkRuns } from "@tasfer/editor/mark-runs";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import { moveCursorToPosition } from "@tasfer/editor/selection";
 import { selectionInsideParts } from "@tasfer/editor/selection-inside";

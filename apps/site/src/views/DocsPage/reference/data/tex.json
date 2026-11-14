@@ -1424,29 +1424,6 @@
      ]
     },
     {
-     "name": "fontFamily",
-     "kind": "function",
-     "sigs": [
-      "function fontFamily(variant: FontVariant): string"
-     ],
-     "summary": "CSS font-family name for a face variant.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "CSS font-family name for a face variant."
-        }
-       ]
-      }
-     ],
-     "src": "packages/tex/src/fonts/fonts.ts",
-     "from": [
-      "@tasfer/tex"
-     ]
-    },
-    {
      "name": "hitTest",
      "kind": "function",
      "sigs": [
@@ -1777,53 +1754,6 @@
      "from": [
       "@tasfer/tex",
       "@tasfer/tex/data"
-     ]
-    },
-    {
-     "name": "isInsideConstruct",
-     "kind": "function",
-     "sigs": [
-      "function isInsideConstruct(latex: string, offset: number): boolean"
-     ],
-     "summary": "Whether `offset` is inside a fraction, root, script, brace group or other multi-part construct.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Whether "
-        },
-        {
-         "type": "inlineCode",
-         "value": "offset"
-        },
-        {
-         "type": "text",
-         "value": " is inside a fraction, root, script, brace group or other\nmulti-part construct. If it is, splitting the formula there would leave\ninvalid LaTeX, like "
-        },
-        {
-         "type": "inlineCode",
-         "value": "\\frac{a"
-        },
-        {
-         "type": "text",
-         "value": " and "
-        },
-        {
-         "type": "inlineCode",
-         "value": "b}"
-        },
-        {
-         "type": "text",
-         "value": ". Returns false at the top level\nbetween items, inside a plain command name, and at the very start or end. The\neditor checks this before a typed space splits an inline formula in two."
-        }
-       ]
-      }
-     ],
-     "src": "packages/tex/src/edit/unit.ts",
-     "from": [
-      "@tasfer/tex"
      ]
     },
     {

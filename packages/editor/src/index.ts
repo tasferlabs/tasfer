@@ -25,7 +25,10 @@ export {
   AtomicNode,
   type CaretModel,
   type CaretMotion,
+  type CodeBlock,
   createNodeRegistry,
+  defaultNodes,
+  getContentWithComposition,
   hitRegion,
   ImageNode,
   LineNode,
@@ -39,6 +42,9 @@ export {
   type NodeContentHitOptions,
   type NodeContentSelectionGeometry,
   type NodeHitRegion,
+  type NodeLayout,
+  type NodeLayoutCtx,
+  type NodePaintCtx,
   type NodePointerType,
   type NodeRect,
   type NodeRegionCtx,
@@ -46,8 +52,11 @@ export {
   type NodeScrollCtx,
   paintTextRun,
   type PaintTextRunArgs,
+  type Point,
+  type QuoteBlock,
   QuoteNode,
   TextNode,
+  type TextNodeLayout,
   type TextSpan,
 } from "./rendering/nodes";
 
@@ -84,13 +93,21 @@ export {
 // explicitly instead of relying on the default `baseSchema`.
 export {
   CodeMark,
+  createDefaultMarkRegistry,
+  createMarkRegistry,
+  defaultMarks,
   EmphasisMark,
   LinkMark,
   Mark,
   type MarkChipStyle,
   type MarkOverlayCtx,
+  MarkRegistry,
   type MarkReplacement,
+  type MarkReplacementCaret,
   type MarkReplacementContentCtx,
+  type MarkReplacementDims,
+  type MarkReplacementEdit,
+  type MarkReplacementPaintCtx,
   type MarkReplacementSourceCtx,
   type MarkStyle,
   type MarkStyleCtx,
@@ -536,7 +553,18 @@ export { normalizeLinkUrl, openLinkUrl, safeLinkHref } from "./url-safety";
 // Serialization — project a document to Markdown / HTML, parse Markdown back
 // into blocks, and collect the asset urls a block tree references.
 export { collectAssetRefs } from "./baseDataSchema";
-export type { ReplacementRenderer } from "./serlization/codecs";
+export type {
+  BlockCodec,
+  HtmlCodec,
+  InputCtx,
+  MarkdownCodec,
+  NodeCodec,
+  OutputCtx,
+  ParsedTag,
+  ReplacementRenderer,
+  SerialFormat,
+  TextCodec,
+} from "./serlization/codecs";
 export type { HtmlSerializeOptions } from "./serlization/htmlSerializer";
 export { serializeToHTML } from "./serlization/htmlSerializer";
 export { parseFrontmatter } from "./serlization/loadPage";

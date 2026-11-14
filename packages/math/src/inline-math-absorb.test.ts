@@ -10,11 +10,10 @@
  * attachments dying in the same transaction) rather than ignored.
  */
 import { mathExtension } from "./math-extension";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import { toggleFormat } from "@tasfer/editor/actions/actions";
 import { wrapSelectionOnInput } from "@tasfer/editor/actions/wrap-selection";
 import { resolveMarkRuns } from "@tasfer/editor/mark-runs";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import { startSelection, updateSelectionFocus } from "@tasfer/editor/selection";
 import { loadPage } from "@tasfer/editor/serlization/loadPage";

@@ -13,10 +13,10 @@ import {
 } from "./selection";
 import { getTableDocument } from "./structured";
 import { tableExtension } from "./table-extension";
+import { createNodeRegistry } from "@tasfer/editor";
 import { createActionBus } from "@tasfer/editor/action-bus";
 import { dragContentHandleToPoint } from "@tasfer/editor/events/chromeRegions";
 import { getSelectionHandleAtPoint } from "@tasfer/editor/events/eventUtils";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import {
   contentSelectionHandlePositions,

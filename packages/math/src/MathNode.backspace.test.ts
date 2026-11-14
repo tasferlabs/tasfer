@@ -17,14 +17,13 @@ import {
   mathContentIdForBlock,
 } from "./structured";
 import { mathContentSelectionFromSourceOffset } from "./tree-selection";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import {
   DELETE_BACKWARD,
   DELETE_FORWARD,
 } from "@tasfer/editor/actions/edit-actions";
 import { STRUCTURED_MARK_ANCHOR_CHAR } from "@tasfer/editor/feature-facets";
 import type { TextualBlock } from "@tasfer/editor/nodes/TextNode";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import {
   getSelectionHandlePositions,

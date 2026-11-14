@@ -31,7 +31,12 @@ import type { Page } from "@tasfer/editor/serlization/loadPage";
 import { TABLE_DELETE_ROW, TABLE_INSERT_ROW } from "@tasfer/table/commands";
 import { appSchema } from "../editorSchema";
 import { CELL_TEXT_FIELD } from "@tasfer/table/structured";
-import { createNodeRegistry } from "@tasfer/editor";
+import {
+  createMarkRegistry,
+  createNodeRegistry,
+  TOGGLE_MARK,
+  TOGGLE_STRONG,
+} from "@tasfer/editor";
 import { insertText } from "@tasfer/editor/actions/actions";
 import {
   buildClipboardPayload,
@@ -61,11 +66,6 @@ import {
   selectTableBlock,
 } from "@tasfer/table/context";
 import { resolveMarkRunsFromChars } from "@tasfer/editor/mark-runs";
-import {
-  createMarkRegistry,
-  TOGGLE_MARK,
-  TOGGLE_STRONG,
-} from "@tasfer/editor/rendering/marks";
 import type { EditorState } from "@tasfer/editor/state-types";
 import { createInitialState } from "@tasfer/editor/state-utils";
 import { updateContentSelection } from "@tasfer/editor/structured-selection";

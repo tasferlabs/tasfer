@@ -11,11 +11,10 @@ import {
   getStructuredMathSource,
 } from "./structured";
 import { mathContentSelectionFromSourceOffset } from "./tree-selection";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import { insertText } from "@tasfer/editor/actions/actions";
 import { EXIT_BLOCK, SPLIT_BLOCK } from "@tasfer/editor/actions/edit-actions";
 import { handleKeyDown } from "@tasfer/editor/events/keysEvents";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import { moveCursorToPosition, updateFocus } from "@tasfer/editor/selection";
 import { loadPage } from "@tasfer/editor/serlization/loadPage";

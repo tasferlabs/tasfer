@@ -17,7 +17,23 @@
        "children": [
         {
          "type": "text",
-         "value": "Adds code blocks with syntax highlighting to a schema. Without it, code\nblocks still load and save, but they show as a placeholder."
+         "value": "Adds code blocks with syntax highlighting to a schema. Without it, code\nblocks still load, save, sync and export, but they show as a placeholder.\nThe "
+        },
+        {
+         "type": "inlineCode",
+         "value": "code"
+        },
+        {
+         "type": "text",
+         "value": " block type is already in "
+        },
+        {
+         "type": "inlineCode",
+         "value": "baseSchema"
+        },
+        {
+         "type": "text",
+         "value": "; this adds how it looks\nand how typing in it works."
         }
        ]
       },

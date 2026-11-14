@@ -9,6 +9,7 @@
 import { resolveStructuredInlineMathRuns } from "./inline-structured";
 import { mathExtension } from "./math-extension";
 import { mathContentSelectionFromSourceOffset } from "./tree-selection";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import { insertText } from "@tasfer/editor/actions/actions";
 import {
   DELETE_BACKWARD,
@@ -16,8 +17,6 @@ import {
 } from "@tasfer/editor/actions/edit-actions";
 import { STRUCTURED_MARK_ANCHOR_CHAR } from "@tasfer/editor/feature-facets";
 import type { TextualBlock } from "@tasfer/editor/nodes/TextNode";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import { moveCursorToPosition } from "@tasfer/editor/selection";
 import { loadPage } from "@tasfer/editor/serlization/loadPage";

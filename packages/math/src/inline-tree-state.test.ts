@@ -17,6 +17,7 @@ import {
   mathSourceOffsetFromContentPoint,
   mathSourceRangeFromContentSelection,
 } from "./tree-selection";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import { getSelectionRange, insertText } from "@tasfer/editor/actions/actions";
 import {
   buildClipboardPayload,
@@ -59,8 +60,6 @@ import { createFeatureMarkInRange } from "@tasfer/editor/actions/structured-mark
 import { STRUCTURED_MARK_ANCHOR_CHAR } from "@tasfer/editor/feature-facets";
 import { resolveMarkRuns } from "@tasfer/editor/mark-runs";
 import type { TextNode, TextNodeLayout } from "@tasfer/editor/nodes/TextNode";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import {
   moveCursorToPosition,

@@ -36,402 +36,6 @@
      ]
     },
     {
-     "name": "buildTableDocument",
-     "kind": "function",
-     "sigs": [
-      "function buildTableDocument(\n  seed: TableSeed,\n  options: BuildTableOptions,\n): StructuredDocument"
-     ],
-     "summary": "Builds a table document from plain cell content.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Builds a table document from plain cell content. The table gets as many\ncolumns as its widest row or its "
-        },
-        {
-         "type": "inlineCode",
-         "value": "aligns"
-        },
-        {
-         "type": "text",
-         "value": " list. A shorter row is filled out\nwith empty cells. Without "
-        },
-        {
-         "type": "inlineCode",
-         "value": "options.identityAllocator"
-        },
-        {
-         "type": "text",
-         "value": ", ids are made from\n"
-        },
-        {
-         "type": "inlineCode",
-         "value": "options.contentId"
-        },
-        {
-         "type": "text",
-         "value": ", so the same input always gets the same ids. Throws if\nthe built document is not valid."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/structured.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "cellCaretX",
-     "kind": "function",
-     "sigs": [
-      "function cellCaretX(cell: TableCellLayout, offset: number): number"
-     ],
-     "summary": "Block-local x of a caret at `offset` in `cell` — measured by the engine, so it lands on the glyph boundary paint drew, in mixed-direction lines too.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Block-local x of a caret at "
-        },
-        {
-         "type": "inlineCode",
-         "value": "offset"
-        },
-        {
-         "type": "text",
-         "value": " in "
-        },
-        {
-         "type": "inlineCode",
-         "value": "cell"
-        },
-        {
-         "type": "text",
-         "value": " — measured by the engine, so it\nlands on the glyph boundary paint drew, in mixed-direction lines too."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/selection.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "cellColumnId",
-     "kind": "function",
-     "sigs": [
-      "function cellColumnId(cell: StructuredNode): string"
-     ],
-     "summary": "The column a cell belongs to, or `\"\"` for a malformed cell.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "The column a cell belongs to, or "
-        },
-        {
-         "type": "inlineCode",
-         "value": "\"\""
-        },
-        {
-         "type": "text",
-         "value": " for a malformed cell."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/structured.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "cellFromPoint",
-     "kind": "function",
-     "sigs": [
-      "function cellFromPoint(\n  layout: TableLayout,\n  local: { readonly x: number; readonly y: number },\n): TableCellLayout | undefined"
-     ],
-     "summary": "The cell containing `local`, or the nearest one when the point is outside.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "The cell containing "
-        },
-        {
-         "type": "inlineCode",
-         "value": "local"
-        },
-        {
-         "type": "text",
-         "value": ", or the nearest one when the point is outside.\nThe cell can be a hole ("
-        },
-        {
-         "type": "inlineCode",
-         "value": "cellId"
-        },
-        {
-         "type": "text",
-         "value": " is "
-        },
-        {
-         "type": "inlineCode",
-         "value": "null"
-        },
-        {
-         "type": "text",
-         "value": "). Returns "
-        },
-        {
-         "type": "inlineCode",
-         "value": "undefined"
-        },
-        {
-         "type": "text",
-         "value": " for a table\nwith no rows."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/selection.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "cellLength",
-     "kind": "function",
-     "sigs": [
-      "function cellLength(\n  document: StructuredDocument,\n  cellId: string,\n): number"
-     ],
-     "summary": "The visible length of one cell's text.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "The visible length of one cell's text."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/selection.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "cellLineAtOffset",
-     "kind": "function",
-     "sigs": [
-      "function cellLineAtOffset(\n  cell: TableCellLayout,\n  offset: number,\n): number"
-     ],
-     "summary": "The line of a cell a caret at `offset` sits on, or the last line.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "The line of a cell a caret at "
-        },
-        {
-         "type": "inlineCode",
-         "value": "offset"
-        },
-        {
-         "type": "text",
-         "value": " sits on, or the last line."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/selection.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "cellOffsetFromPoint",
-     "kind": "function",
-     "sigs": [
-      "function cellOffsetFromPoint(\n  cell: TableCellLayout,\n  local: { readonly x: number; readonly y: number },\n): number"
-     ],
-     "summary": "The offset in `cell` nearest to a block-local point.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "The offset in "
-        },
-        {
-         "type": "inlineCode",
-         "value": "cell"
-        },
-        {
-         "type": "text",
-         "value": " nearest to a block-local point. A point above the text\n(in the cell's top padding) resolves on the first line, below it on the last.\nNever lands between the halves of an emoji."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/selection.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "cellRangeRects",
-     "kind": "function",
-     "sigs": [
-      "function cellRangeRects(\n  cell: TableCellLayout,\n  from: number,\n  to: number,\n): { x: number; y: number; width: number; height: number; baseline: number }[]"
-     ],
-     "summary": "The highlight over `[from, to)` inside one cell, in block-local coordinates: one rect per line, or per direction run where a line mixes directions.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "The highlight over "
-        },
-        {
-         "type": "inlineCode",
-         "value": "[from, to)"
-        },
-        {
-         "type": "text",
-         "value": " inside one cell, in block-local coordinates:\none rect per line, or per direction run where a line mixes directions."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/selection.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "cellRect",
-     "kind": "function",
-     "sigs": [
-      "function cellRect(\n  document: StructuredDocument,\n  anchorCellId: string,\n  focusCellId: string,\n): TableCellRect | undefined"
-     ],
-     "summary": "The rectangle two cells span, or `undefined` if either is not in the grid.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "The rectangle two cells span, or "
-        },
-        {
-         "type": "inlineCode",
-         "value": "undefined"
-        },
-        {
-         "type": "text",
-         "value": " if either is not in the grid."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/selection.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "cellRuns",
-     "kind": "function",
-     "sigs": [
-      "function cellRuns(\n  document: StructuredDocument,\n  cellId: string,\n): CharRun[] | undefined"
-     ],
-     "summary": "The character runs of one cell's text field, or `undefined` if it has none.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "The character runs of one cell's text field, or "
-        },
-        {
-         "type": "inlineCode",
-         "value": "undefined"
-        },
-        {
-         "type": "text",
-         "value": " if it has none."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/selection.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "cellRunsFromText",
-     "kind": "function",
-     "sigs": [
-      "function cellRunsFromText(\n  text: string,\n  identities: IdentityAllocator,\n): CharRun[]"
-     ],
-     "summary": "Allocate character runs for a literal cell string.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Allocate character runs for a literal cell string."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/structured.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "cellsInRect",
-     "kind": "function",
-     "sigs": [
-      "function cellsInRect(\n  document: StructuredDocument,\n  rect: TableCellRect,\n): string[]"
-     ],
-     "summary": "The cells a rectangle covers, row by row, left to right.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "The cells a rectangle covers, row by row, left to right. A hole (a cell a\nrow does not have) owns no text and is skipped."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/selection.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
      "name": "cellText",
      "kind": "function",
      "sigs": [
@@ -445,108 +49,6 @@
         {
          "type": "text",
          "value": "The visible text of one cell."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/structured.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "cellTextRange",
-     "kind": "function",
-     "sigs": [
-      "function cellTextRange(\n  document: StructuredDocument,\n  caret: TableCaret,\n): TableCellRange | undefined"
-     ],
-     "summary": "The whole of one cell's text, as a pair of carets — what a triple-click takes.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "The whole of one cell's text, as a pair of carets — what a triple-click takes."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/selection.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "cellWordRange",
-     "kind": "function",
-     "sigs": [
-      "function cellWordRange(\n  document: StructuredDocument,\n  caret: TableCaret,\n): TableCellRange | undefined"
-     ],
-     "summary": "The word at `caret`, as two carets in the same cell.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "The word at "
-        },
-        {
-         "type": "inlineCode",
-         "value": "caret"
-        },
-        {
-         "type": "text",
-         "value": ", as two carets in the same cell. This is what a\ndouble-click selects. Words end where they do in a paragraph."
-        }
-       ]
-      },
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "A caret just after a word, on the space after it or at the end of the cell,\ntakes that word. Returns "
-        },
-        {
-         "type": "inlineCode",
-         "value": "undefined"
-        },
-        {
-         "type": "text",
-         "value": " when there is no word there, or when the\ncell is not in "
-        },
-        {
-         "type": "inlineCode",
-         "value": "document"
-        },
-        {
-         "type": "text",
-         "value": "."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/selection.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "cloneTableDocument",
-     "kind": "function",
-     "sigs": [
-      "function cloneTableDocument(\n  document: StructuredDocument,\n  targetContentId: string,\n  identities: IdentityAllocator,\n): StructuredDocument"
-     ],
-     "summary": "Copies a table document under a new content id, with new ids throughout.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Copies a table document under a new content id, with new ids throughout. Use\nit when a snapshot or import gives the table block a new id. Every cell stays\nattached to its column in the copy."
         }
        ]
       }
@@ -583,128 +85,6 @@
       }
      ],
      "src": "packages/table/src/structured.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "columnWidth",
-     "kind": "function",
-     "sigs": [
-      "function columnWidth(column: StructuredNode): number | null"
-     ],
-     "summary": "A column's set width, as a fraction of the table's width (between 0 and 1).",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "A column's set width, as a fraction of the table's width (between 0 and 1).\nReturns "
-        },
-        {
-         "type": "inlineCode",
-         "value": "null"
-        },
-        {
-         "type": "text",
-         "value": " when the column sizes itself to its content. A stored value\noutside that range also returns "
-        },
-        {
-         "type": "inlineCode",
-         "value": "null"
-        },
-        {
-         "type": "text",
-         "value": "."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/structured.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "commitTableEdits",
-     "kind": "function",
-     "sigs": [
-      "function commitTableEdits(\n  state: EditorState,\n  context: Pick<TableContext, \"block\" | \"document\">,\n  edits: readonly StructuredEdit[],\n  caret: TableCaret | undefined,\n  attachments?: StructuredContentMap,\n): Claimed"
-     ],
-     "summary": "Apply table `edits` to the page, then put the caret at `caret`.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Apply table "
-        },
-        {
-         "type": "inlineCode",
-         "value": "edits"
-        },
-        {
-         "type": "text",
-         "value": " to the page, then put the caret at "
-        },
-        {
-         "type": "inlineCode",
-         "value": "caret"
-        },
-        {
-         "type": "text",
-         "value": ". Pass\n"
-        },
-        {
-         "type": "inlineCode",
-         "value": "undefined"
-        },
-        {
-         "type": "text",
-         "value": " to leave the selection where it is. Returns the new state and the\noperations to save and send."
-        }
-       ]
-      },
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "inlineCode",
-         "value": "attachments"
-        },
-        {
-         "type": "text",
-         "value": " are extra documents the table block should hold, such as the\nformula a pasted cell points to. They are written before the edits."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/context.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "coveredCellIds",
-     "kind": "function",
-     "sigs": [
-      "function coveredCellIds(\n  document: StructuredDocument,\n  anchor: TableCaret,\n  focus: TableCaret,\n): string[]"
-     ],
-     "summary": "The ids of the cells in the rectangle between the two carets' cells, row by row, left to right.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "The ids of the cells in the rectangle between the two carets' cells, row by\nrow, left to right. Holes are skipped. Empty when either cell is not in the\ntable."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/selection.ts",
      "from": [
       "@tasfer/table"
      ]
@@ -758,385 +138,6 @@
      ]
     },
     {
-     "name": "decodeTableToken",
-     "kind": "function",
-     "sigs": [
-      "function decodeTableToken(content: string): GfmTable"
-     ],
-     "summary": "Read a `TABLE_BLOCK` token's JSON content back into a `GfmTable`.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Read a "
-        },
-        {
-         "type": "link",
-         "url": "ref:TABLE_BLOCK",
-         "children": [
-          {
-           "type": "inlineCode",
-           "value": "TABLE_BLOCK"
-          }
-         ]
-        },
-        {
-         "type": "text",
-         "value": " token's JSON content back into a "
-        },
-        {
-         "type": "link",
-         "url": "ref:GfmTable",
-         "children": [
-          {
-           "type": "inlineCode",
-           "value": "GfmTable"
-          }
-         ]
-        },
-        {
-         "type": "text",
-         "value": ".\nIt never throws. Broken JSON gives an empty table, an unknown alignment\nbecomes "
-        },
-        {
-         "type": "inlineCode",
-         "value": "null"
-        },
-        {
-         "type": "text",
-         "value": ", and a cell that is not a string becomes empty."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/markdown.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "deleteColumn",
-     "kind": "function",
-     "sigs": [
-      "function deleteColumn(\n  document: StructuredDocument,\n  columnIndex: number,\n): TableCommand | undefined"
-     ],
-     "summary": "Build the edit that removes column `columnIndex`.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Build the edit that removes column "
-        },
-        {
-         "type": "inlineCode",
-         "value": "columnIndex"
-        },
-        {
-         "type": "text",
-         "value": ". Nothing is applied yet:\npass its "
-        },
-        {
-         "type": "inlineCode",
-         "value": "edits"
-        },
-        {
-         "type": "text",
-         "value": " and "
-        },
-        {
-         "type": "inlineCode",
-         "value": "caret"
-        },
-        {
-         "type": "text",
-         "value": " to "
-        },
-        {
-         "type": "link",
-         "url": "ref:commitTableEdits",
-         "children": [
-          {
-           "type": "inlineCode",
-           "value": "commitTableEdits"
-          }
-         ]
-        },
-        {
-         "type": "text",
-         "value": ". The caret moves to\nthe header cell of the column next to it."
-        }
-       ]
-      },
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Returns "
-        },
-        {
-         "type": "inlineCode",
-         "value": "undefined"
-        },
-        {
-         "type": "text",
-         "value": " when the table has only one column or the column does not\nexist. One undo brings the column back with its text."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/commands.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "deleteRow",
-     "kind": "function",
-     "sigs": [
-      "function deleteRow(\n  document: StructuredDocument,\n  rowIndex: number,\n): TableCommand | undefined"
-     ],
-     "summary": "Build the edit that removes row `rowIndex`.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Build the edit that removes row "
-        },
-        {
-         "type": "inlineCode",
-         "value": "rowIndex"
-        },
-        {
-         "type": "text",
-         "value": ". Nothing is applied yet: pass its\n"
-        },
-        {
-         "type": "inlineCode",
-         "value": "edits"
-        },
-        {
-         "type": "text",
-         "value": " and "
-        },
-        {
-         "type": "inlineCode",
-         "value": "caret"
-        },
-        {
-         "type": "text",
-         "value": " to "
-        },
-        {
-         "type": "link",
-         "url": "ref:commitTableEdits",
-         "children": [
-          {
-           "type": "inlineCode",
-           "value": "commitTableEdits"
-          }
-         ]
-        },
-        {
-         "type": "text",
-         "value": ". The caret moves to the next\nrow, or to the one above if this was the last row."
-        }
-       ]
-      },
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Returns "
-        },
-        {
-         "type": "inlineCode",
-         "value": "undefined"
-        },
-        {
-         "type": "text",
-         "value": " when the table has only one row or the row does not\nexist. One undo brings the row back with its text."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/commands.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "emptyTableSeed",
-     "kind": "function",
-     "sigs": [
-      "function emptyTableSeed(rows: number, columns: number): TableSeed"
-     ],
-     "summary": "The blank grid a freshly created table starts as.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "The blank grid a freshly created table starts as."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/commands.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "escapeCell",
-     "kind": "function",
-     "sigs": [
-      "function escapeCell(text: string): string"
-     ],
-     "summary": "Make one cell's text safe inside a GFM row.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Make one cell's text safe inside a GFM row. A "
-        },
-        {
-         "type": "inlineCode",
-         "value": "|"
-        },
-        {
-         "type": "text",
-         "value": " becomes "
-        },
-        {
-         "type": "inlineCode",
-         "value": "\\|"
-        },
-        {
-         "type": "text",
-         "value": ", because it\nwould end the cell. A line break becomes a space, because it would end the\nrow."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/markdown.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "fitColumnWidths",
-     "kind": "function",
-     "sigs": [
-      "function fitColumnWidths(\n  count: number,\n  available: number,\n  fixed: readonly (number | null)[] = [],\n  minWidth = 0,\n): number[]"
-     ],
-     "summary": "Split `available` pixels into `count` column widths.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Split "
-        },
-        {
-         "type": "inlineCode",
-         "value": "available"
-        },
-        {
-         "type": "text",
-         "value": " pixels into "
-        },
-        {
-         "type": "inlineCode",
-         "value": "count"
-        },
-        {
-         "type": "text",
-         "value": " column widths. Returns an empty list\nwhen "
-        },
-        {
-         "type": "inlineCode",
-         "value": "count"
-        },
-        {
-         "type": "text",
-         "value": " is 0 or less."
-        }
-       ]
-      },
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "inlineCode",
-         "value": "fixed"
-        },
-        {
-         "type": "text",
-         "value": " holds each column's width as a fraction of the grid, set by a resize\ndrag, or "
-        },
-        {
-         "type": "inlineCode",
-         "value": "null"
-        },
-        {
-         "type": "text",
-         "value": " for automatic. Automatic columns share what is left evenly.\nThe text in a cell never changes a column's width."
-        }
-       ]
-      },
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "No column goes under "
-        },
-        {
-         "type": "inlineCode",
-         "value": "minWidth"
-        },
-        {
-         "type": "text",
-         "value": ", a fixed one included. When the grid is too\nnarrow for that, the columns share it evenly. With the default theme, a\ntable's grid is wide enough that this does not happen."
-        }
-       ]
-      },
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Widths are whole pixels and always add up to exactly "
-        },
-        {
-         "type": "inlineCode",
-         "value": "available"
-        },
-        {
-         "type": "text",
-         "value": "."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/geometry.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
      "name": "getTableDocument",
      "kind": "function",
      "sigs": [
@@ -1155,169 +156,6 @@
       }
      ],
      "src": "packages/table/src/structured.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "insertColumn",
-     "kind": "function",
-     "sigs": [
-      "function insertColumn(\n  document: StructuredDocument,\n  identities: IdentityAllocator,\n  columnIndex: number,\n  side: TableInsertSide,\n): TableCommand | undefined"
-     ],
-     "summary": "Build the edits that add an empty column before or after column `columnIndex`, with a new cell in every row.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Build the edits that add an empty column before or after column\n"
-        },
-        {
-         "type": "inlineCode",
-         "value": "columnIndex"
-        },
-        {
-         "type": "text",
-         "value": ", with a new cell in every row. Nothing is applied yet: pass its\n"
-        },
-        {
-         "type": "inlineCode",
-         "value": "edits"
-        },
-        {
-         "type": "text",
-         "value": " and "
-        },
-        {
-         "type": "inlineCode",
-         "value": "caret"
-        },
-        {
-         "type": "text",
-         "value": " to "
-        },
-        {
-         "type": "link",
-         "url": "ref:commitTableEdits",
-         "children": [
-          {
-           "type": "inlineCode",
-           "value": "commitTableEdits"
-          }
-         ]
-        },
-        {
-         "type": "text",
-         "value": ". The caret goes to the new\ncolumn's header cell. Returns "
-        },
-        {
-         "type": "inlineCode",
-         "value": "undefined"
-        },
-        {
-         "type": "text",
-         "value": " for an empty table."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/commands.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "insertRow",
-     "kind": "function",
-     "sigs": [
-      "function insertRow(\n  document: StructuredDocument,\n  identities: IdentityAllocator,\n  rowIndex: number,\n  side: TableInsertSide,\n): TableCommand | undefined"
-     ],
-     "summary": "Build the edits that add an empty row before or after row `rowIndex`.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Build the edits that add an empty row before or after row "
-        },
-        {
-         "type": "inlineCode",
-         "value": "rowIndex"
-        },
-        {
-         "type": "text",
-         "value": ". Nothing\nis applied yet: pass its "
-        },
-        {
-         "type": "inlineCode",
-         "value": "edits"
-        },
-        {
-         "type": "text",
-         "value": " and "
-        },
-        {
-         "type": "inlineCode",
-         "value": "caret"
-        },
-        {
-         "type": "text",
-         "value": " to "
-        },
-        {
-         "type": "link",
-         "url": "ref:commitTableEdits",
-         "children": [
-          {
-           "type": "inlineCode",
-           "value": "commitTableEdits"
-          }
-         ]
-        },
-        {
-         "type": "text",
-         "value": ". The\ncaret goes to the new row's first cell."
-        }
-       ]
-      },
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Returns "
-        },
-        {
-         "type": "inlineCode",
-         "value": "undefined"
-        },
-        {
-         "type": "text",
-         "value": " for an empty table, and for "
-        },
-        {
-         "type": "inlineCode",
-         "value": "side: \"before\""
-        },
-        {
-         "type": "text",
-         "value": " on the\nheader row. A row above the header would become the new header, because\nMarkdown tables treat the first row as the column titles. Hosts can read\n"
-        },
-        {
-         "type": "inlineCode",
-         "value": "undefined"
-        },
-        {
-         "type": "text",
-         "value": " as \"not available here\"."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/commands.ts",
      "from": [
       "@tasfer/table"
      ]
@@ -1362,340 +200,26 @@
          "value": " to show text that is still being typed with\nan IME."
         }
        ]
-      }
-     ],
-     "src": "packages/table/src/geometry.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "matchGfmTable",
-     "kind": "function",
-     "sigs": [
-      "function matchGfmTable(\n  source: string,\n  offset: number,\n): { table: GfmTable; length: number } | undefined"
-     ],
-     "summary": "Read a GFM table that starts at `offset` in `source`.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Read a GFM table that starts at "
-        },
-        {
-         "type": "inlineCode",
-         "value": "offset"
-        },
-        {
-         "type": "text",
-         "value": " in "
-        },
-        {
-         "type": "inlineCode",
-         "value": "source"
-        },
-        {
-         "type": "text",
-         "value": ". Returns the table and\n"
-        },
-        {
-         "type": "inlineCode",
-         "value": "length"
-        },
-        {
-         "type": "text",
-         "value": ", the number of characters it covers. Returns "
-        },
-        {
-         "type": "inlineCode",
-         "value": "undefined"
-        },
-        {
-         "type": "text",
-         "value": " when no\ntable starts there."
-        }
-       ]
       },
       {
        "type": "paragraph",
        "children": [
         {
          "type": "text",
-         "value": "The table ends at the first blank line or at the end of the source. As in\nGFM, a plain line right under a table is one more row, not a paragraph."
+         "value": "What a cell holds never changes a column's width. Only a saved width from a\nresize drag does. Cell text wraps inside its column, and each row is as\ntall as its tallest cell. No column gets narrower than "
+        },
+        {
+         "type": "inlineCode",
+         "value": "minColumnWidth"
+        },
+        {
+         "type": "text",
+         "value": "\nwhile there is room."
         }
        ]
       }
      ],
-     "src": "packages/table/src/markdown.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "moveColumn",
-     "kind": "function",
-     "sigs": [
-      "function moveColumn(\n  document: StructuredDocument,\n  columnIndex: number,\n  targetIndex: number,\n): TableCommand | undefined"
-     ],
-     "summary": "Build the edit that moves column `columnIndex` so it ends up at `targetIndex`.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Build the edit that moves column "
-        },
-        {
-         "type": "inlineCode",
-         "value": "columnIndex"
-        },
-        {
-         "type": "text",
-         "value": " so it ends up at\n"
-        },
-        {
-         "type": "inlineCode",
-         "value": "targetIndex"
-        },
-        {
-         "type": "text",
-         "value": ". Nothing is applied yet: pass its "
-        },
-        {
-         "type": "inlineCode",
-         "value": "edits"
-        },
-        {
-         "type": "text",
-         "value": " and "
-        },
-        {
-         "type": "inlineCode",
-         "value": "caret"
-        },
-        {
-         "type": "text",
-         "value": " to\n"
-        },
-        {
-         "type": "link",
-         "url": "ref:commitTableEdits",
-         "children": [
-          {
-           "type": "inlineCode",
-           "value": "commitTableEdits"
-          }
-         ]
-        },
-        {
-         "type": "text",
-         "value": "."
-        }
-       ]
-      },
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "inlineCode",
-         "value": "targetIndex"
-        },
-        {
-         "type": "text",
-         "value": " is where the column sits after the move, counted in the grid as\nit is now. So "
-        },
-        {
-         "type": "inlineCode",
-         "value": "moveColumn(document, 0, 2)"
-        },
-        {
-         "type": "text",
-         "value": " on "
-        },
-        {
-         "type": "inlineCode",
-         "value": "A B C"
-        },
-        {
-         "type": "text",
-         "value": " gives "
-        },
-        {
-         "type": "inlineCode",
-         "value": "B C A"
-        },
-        {
-         "type": "text",
-         "value": ". A target\npast either end is clamped to the first or last column. For \"move left\" pass\n"
-        },
-        {
-         "type": "inlineCode",
-         "value": "columnIndex - 1"
-        },
-        {
-         "type": "text",
-         "value": ", and for \"move right\" "
-        },
-        {
-         "type": "inlineCode",
-         "value": "columnIndex + 1"
-        },
-        {
-         "type": "text",
-         "value": "."
-        }
-       ]
-      },
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Returns "
-        },
-        {
-         "type": "inlineCode",
-         "value": "undefined"
-        },
-        {
-         "type": "text",
-         "value": " when the column does not exist or would not move. The\ncells move with their column, and the caret stays in its cell."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/commands.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "moveTableCaretVertically",
-     "kind": "function",
-     "sigs": [
-      "function moveTableCaretVertically(\n  layout: TableLayout,\n  caret: TableCaret,\n  direction: \"up\" | \"down\",\n  unit: \"line\" | \"cell\" = \"line\",\n): TableCaret | undefined"
-     ],
-     "summary": "Move a cell caret up or down one line.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Move a cell caret up or down one line. In a cell with wrapped text, the caret\nmoves line by line first. From a cell's top or bottom line it goes to the\ncell above or below. The caret keeps its horizontal position."
-        }
-       ]
-      },
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Returns "
-        },
-        {
-         "type": "inlineCode",
-         "value": "undefined"
-        },
-        {
-         "type": "text",
-         "value": " at the table's top or bottom edge, so the caller can move\nthe caret out of the table."
-        }
-       ]
-      },
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "With "
-        },
-        {
-         "type": "inlineCode",
-         "value": "unit: \"cell\""
-        },
-        {
-         "type": "text",
-         "value": ", it skips the lines and goes straight to the next row.\nUse it to grow a selection that already covers whole cells."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/selection.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "parseClipboardGrid",
-     "kind": "function",
-     "sigs": [
-      "function parseClipboardGrid(text: string): string[][]"
-     ],
-     "summary": "Split spreadsheet text into rows of cells.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Split spreadsheet text into rows of cells."
-        }
-       ]
-      },
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Tabs separate cells and line breaks separate rows — what Excel, Numbers and\nGoogle Sheets put on the clipboard, and what a table here copies as. A cell\nthat holds a tab, a line break or a quote is written in double quotes with\ninner quotes doubled; only a quote at the very start of a cell opens one, so\nordinary text with a "
-        },
-        {
-         "type": "inlineCode",
-         "value": "\""
-        },
-        {
-         "type": "text",
-         "value": " in it stays literal. A line break inside a quoted\ncell becomes a space, because a cell holds one line. The one trailing line\nbreak spreadsheets append is not an empty last row."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/paste.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "printGfmTable",
-     "kind": "function",
-     "sigs": [
-      "function printGfmTable(\n  aligns: readonly (TableAlign | null)[],\n  rows: readonly (readonly string[])[],\n): string"
-     ],
-     "summary": "Print a table as GFM.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Print a table as GFM. "
-        },
-        {
-         "type": "inlineCode",
-         "value": "rows[0]"
-        },
-        {
-         "type": "text",
-         "value": " is emitted as the header, which GFM always\nhas; a table with no columns prints as nothing at all."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/markdown.ts",
+     "src": "packages/table/src/geometry.ts",
      "from": [
       "@tasfer/table"
      ]
@@ -1724,423 +248,18 @@
          "value": ". If the\nroot is not a table, you get no root, no columns and no rows. If a broken\ndocument has two cells for one column in a row, the first one wins."
         }
        ]
+      },
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "A table is not always a full rectangle: a row can lack a cell for some\ncolumn. Read cells through this function rather than by their position in\nthe row."
+        }
+       ]
       }
      ],
      "src": "packages/table/src/structured.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "readTableClipboard",
-     "kind": "function",
-     "sigs": [
-      "function readTableClipboard(\n  text: string,\n  markdown: string | undefined,\n): TableClipboard | undefined"
-     ],
-     "summary": "Decide what a paste means to a table.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Decide what a paste means to a table. "
-        },
-        {
-         "type": "inlineCode",
-         "value": "markdown"
-        },
-        {
-         "type": "text",
-         "value": " is the Markdown of a copy\nmade in Tasfer, when there is one. A whole GFM table there is a grid, and a\nsingle line of Markdown is formatted text for one cell. Otherwise "
-        },
-        {
-         "type": "inlineCode",
-         "value": "text"
-        },
-        {
-         "type": "text",
-         "value": " with\ntabs or line breaks is a grid of plain cells, and anything else is plain text\nfor one cell. A grid of a single cell counts as one cell's text. Returns\n"
-        },
-        {
-         "type": "inlineCode",
-         "value": "undefined"
-        },
-        {
-         "type": "text",
-         "value": " when there is nothing to paste."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/paste.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "registerTableActions",
-     "kind": "function",
-     "sigs": [
-      "function registerTableActions(bus: ActionBus): void"
-     ],
-     "summary": "Register every table caret motion on one editor instance's bus.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Register every table caret motion on one editor instance's bus."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/actions.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "registerTableCommands",
-     "kind": "function",
-     "sigs": [
-      "function registerTableCommands(bus: ActionBus): void"
-     ],
-     "summary": "Add the `TABLE_*` actions, such as `TABLE_INSERT_ROW`, to one editor's action bus.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Add the "
-        },
-        {
-         "type": "inlineCode",
-         "value": "TABLE_*"
-        },
-        {
-         "type": "text",
-         "value": " actions, such as "
-        },
-        {
-         "type": "link",
-         "url": "ref:TABLE_INSERT_ROW",
-         "children": [
-          {
-           "type": "inlineCode",
-           "value": "TABLE_INSERT_ROW"
-          }
-         ]
-        },
-        {
-         "type": "text",
-         "value": ", to one editor's\naction bus. It also lets a text block be turned into a new, empty table."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/commands.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "registerTableInputActions",
-     "kind": "function",
-     "sigs": [
-      "function registerTableInputActions(bus: ActionBus): void"
-     ],
-     "summary": "Register the keys that edit a table cell on this editor's action bus: the delete keys, Enter (move to the cell below, or add a row when on the last row), Shift+Enter (leave the table), the mark toggles, and taking…",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Register the keys that edit a table cell on this editor's action bus: the\ndelete keys, Enter (move to the cell below, or add a row when on the last\nrow), Shift+Enter (leave the table), the mark toggles, and taking back a\nmarkdown shortcut. The table node registers these for you."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/input.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "rowNeighbourCell",
-     "kind": "function",
-     "sigs": [
-      "function rowNeighbourCell(\n  document: StructuredDocument,\n  cellId: string,\n  delta: -1 | 1,\n): string | undefined"
-     ],
-     "summary": "The next cell to the left (`delta: -1`) or right (`1`) in the same row, skipping holes.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "The next cell to the left ("
-        },
-        {
-         "type": "inlineCode",
-         "value": "delta: -1"
-        },
-        {
-         "type": "text",
-         "value": ") or right ("
-        },
-        {
-         "type": "inlineCode",
-         "value": "1"
-        },
-        {
-         "type": "text",
-         "value": ") in the same row,\nskipping holes. Returns "
-        },
-        {
-         "type": "inlineCode",
-         "value": "undefined"
-        },
-        {
-         "type": "text",
-         "value": " at the row's edge, or when the cell is\nnot in the table. It never wraps onto the next row."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/selection.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "serializeTableContentSelection",
-     "kind": "function",
-     "sigs": [
-      "function serializeTableContentSelection({\n  document,\n  selection,\n}: ContentSelectionCtx): ContentSelectionSlice | undefined"
-     ],
-     "summary": "What a selected range inside a table puts on the clipboard.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "What a selected range inside a table puts on the clipboard."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/content-selection.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "setColumnAlign",
-     "kind": "function",
-     "sigs": [
-      "function setColumnAlign(\n  document: StructuredDocument,\n  columnIndex: number,\n  align: TableAlign | null,\n): TableCommand | undefined"
-     ],
-     "summary": "Set (or, with `null`, clear) a column's alignment.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Set (or, with "
-        },
-        {
-         "type": "inlineCode",
-         "value": "null"
-        },
-        {
-         "type": "text",
-         "value": ", clear) a column's alignment."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/commands.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "setColumnWidths",
-     "kind": "function",
-     "sigs": [
-      "function setColumnWidths(\n  document: StructuredDocument,\n  widths: ReadonlyArray<{\n    readonly columnIndex: number;\n    readonly fraction: number | null;\n  }>,\n): TableCommand | undefined"
-     ],
-     "summary": "Build the edits that set the width of one or more columns, as a fraction of the table's width.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Build the edits that set the width of one or more columns, as a fraction of\nthe table's width. Use "
-        },
-        {
-         "type": "inlineCode",
-         "value": "null"
-        },
-        {
-         "type": "text",
-         "value": " to return a column to automatic width.\nFractions, not pixels, keep the layout right on both a phone and a desktop.\nColumns that do not exist are skipped. Returns "
-        },
-        {
-         "type": "inlineCode",
-         "value": "undefined"
-        },
-        {
-         "type": "text",
-         "value": " when none are\nleft."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/commands.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "setTableWidth",
-     "kind": "function",
-     "sigs": [
-      "function setTableWidth(\n  document: StructuredDocument,\n  width: number | null,\n): TableCommand | undefined"
-     ],
-     "summary": "Build the edit that sets how wide the whole table is drawn, in page widths.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Build the edit that sets how wide the whole table is drawn, in page widths:\n"
-        },
-        {
-         "type": "inlineCode",
-         "value": "1.5"
-        },
-        {
-         "type": "text",
-         "value": " is half again as wide as the page. Pass "
-        },
-        {
-         "type": "inlineCode",
-         "value": "null"
-        },
-        {
-         "type": "text",
-         "value": " to go back to the\nautomatic width. A width of 1 or less, or above "
-        },
-        {
-         "type": "link",
-         "url": "ref:MAX_TABLE_WIDTH",
-         "children": [
-          {
-           "type": "inlineCode",
-           "value": "MAX_TABLE_WIDTH"
-          }
-         ]
-        },
-        {
-         "type": "text",
-         "value": ", is\ndrawn at the automatic width. Page widths keep the table right on both a\nphone and a desktop (see "
-        },
-        {
-         "type": "link",
-         "url": "ref:tableWidth",
-         "children": [
-          {
-           "type": "inlineCode",
-           "value": "tableWidth"
-          }
-         ]
-        },
-        {
-         "type": "text",
-         "value": "). Returns "
-        },
-        {
-         "type": "inlineCode",
-         "value": "undefined"
-        },
-        {
-         "type": "text",
-         "value": " when the\ndocument has no table in it."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/commands.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "stepTableCaret",
-     "kind": "function",
-     "sigs": [
-      "function stepTableCaret(\n  document: StructuredDocument,\n  caret: TableCaret,\n  motion: TableCaretStep,\n): TableCaret | undefined"
-     ],
-     "summary": "Move a cell caret one step through the table's text.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Move a cell caret one step through the table's text."
-        }
-       ]
-      },
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "inlineCode",
-         "value": "backward"
-        },
-        {
-         "type": "text",
-         "value": " and "
-        },
-        {
-         "type": "inlineCode",
-         "value": "forward"
-        },
-        {
-         "type": "text",
-         "value": " follow the text's stored order, and cross into the\nprevious or next cell at a cell's edge. Tab walks the cells in the same\norder. In a right-to-left cell, swap them for the Left and Right keys."
-        }
-       ]
-      },
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Returns "
-        },
-        {
-         "type": "inlineCode",
-         "value": "undefined"
-        },
-        {
-         "type": "text",
-         "value": " when there is nowhere to go: at the very start or end of\nthe table, or when the caret is already at the edge asked for. The caller can\nthen let the key move the caret out of the table."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/selection.ts",
      "from": [
       "@tasfer/table"
      ]
@@ -2297,93 +416,6 @@
      ]
     },
     {
-     "name": "tableContentIdForBlock",
-     "kind": "function",
-     "sigs": [
-      "function tableContentIdForBlock(blockId: string): string"
-     ],
-     "summary": "The key a block's table document is stored under in `block.structuredContent`.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "The key a block's table document is stored under in\n"
-        },
-        {
-         "type": "inlineCode",
-         "value": "block.structuredContent"
-        },
-        {
-         "type": "text",
-         "value": ". It is the same every time for the same block id.\nThrows when "
-        },
-        {
-         "type": "inlineCode",
-         "value": "blockId"
-        },
-        {
-         "type": "text",
-         "value": " is empty."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/structured.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "tableContentPaste",
-     "kind": "function",
-     "sigs": [
-      "function tableContentPaste(\n  ctx: ContentSelectionPasteCtx,\n): StateResult | undefined"
-     ],
-     "summary": "Handles a paste while the caret is in a table cell.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Handles a paste while the caret is in a table cell. A copied grid fills the\ncells from the selection's top-left cell, and the table grows when the grid\nruns past its edge. Other text goes in at the caret like typing."
-        }
-       ]
-      },
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Returns "
-        },
-        {
-         "type": "inlineCode",
-         "value": "undefined"
-        },
-        {
-         "type": "text",
-         "value": " when the table does not take the paste: during IME\ntyping, when the caret is not in this table, or when there is nothing to\npaste. "
-        },
-        {
-         "type": "inlineCode",
-         "value": "tableExtension"
-        },
-        {
-         "type": "text",
-         "value": " installs it for you."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/paste.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
      "name": "tableDataExtension",
      "kind": "function",
      "sigs": [
@@ -2401,160 +433,45 @@
        ]
       },
       {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "A table reads and writes as a GitHub-flavored Markdown table, and also\nwrites as an HTML "
+        },
+        {
+         "type": "inlineCode",
+         "value": "<table>"
+        },
+        {
+         "type": "text",
+         "value": " and as plain text. A cell holds inline Markdown\nonly, as in GitHub: "
+        },
+        {
+         "type": "inlineCode",
+         "value": "**bold**"
+        },
+        {
+         "type": "text",
+         "value": " is bold, but "
+        },
+        {
+         "type": "inlineCode",
+         "value": "# not a heading"
+        },
+        {
+         "type": "text",
+         "value": " stays as typed."
+        }
+       ]
+      },
+      {
        "type": "code",
        "value": "import { baseDataSchema } from \"@tasfer/editor\";\nimport { tableDataExtension } from \"@tasfer/table/data\";\n\nconst schema = baseDataSchema.extend(tableDataExtension());",
        "lang": "ts"
       }
      ],
      "src": "packages/table/src/data.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "tableDocumentInit",
-     "kind": "function",
-     "sigs": [
-      "function tableDocumentInit(\n  seed: TableSeed,\n  options: BuildTableOptions,\n): StructuredMutation"
-     ],
-     "summary": "Builds a new table document and wraps it as the edit that creates it.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Builds a new table document and wraps it as the edit that creates it. Takes\nthe same input as "
-        },
-        {
-         "type": "link",
-         "url": "ref:buildTableDocument",
-         "children": [
-          {
-           "type": "inlineCode",
-           "value": "buildTableDocument"
-          }
-         ]
-        },
-        {
-         "type": "text",
-         "value": " and throws in the same case."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/structured.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "tableEdgeStrips",
-     "kind": "function",
-     "sigs": [
-      "function tableEdgeStrips(\n  layout: TableLayout,\n  origin: Point,\n  gutterRight: number,\n): readonly TableEdgeStrip[]"
-     ],
-     "summary": "The \"add column\" and \"add row\" strips along the right and bottom edges of a table drawn at `origin`.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "The \"add column\" and \"add row\" strips along the right and bottom edges of a\ntable drawn at "
-        },
-        {
-         "type": "inlineCode",
-         "value": "origin"
-        },
-        {
-         "type": "text",
-         "value": ". "
-        },
-        {
-         "type": "inlineCode",
-         "value": "gutterRight"
-        },
-        {
-         "type": "text",
-         "value": " is the page's right gutter. "
-        },
-        {
-         "type": "inlineCode",
-         "value": "layout"
-        },
-        {
-         "type": "text",
-         "value": "\nis the layout as shown, so scrolled for a table wider than the page."
-        }
-       ]
-      },
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Returns an empty list for a table with no rows or columns. An edge with too\nlittle room is left out. The right strip only appears once the grid's right\nedge is scrolled into view."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/edge-adders.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "tableEntryCaret",
-     "kind": "function",
-     "sigs": [
-      "function tableEntryCaret(\n  layout: TableLayout,\n  direction: \"up\" | \"down\",\n  x: number,\n): TableCaret | undefined"
-     ],
-     "summary": "Where the caret lands when it moves into the table from the text around it.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Where the caret lands when it moves into the table from the text around it.\nMoving "
-        },
-        {
-         "type": "inlineCode",
-         "value": "down"
-        },
-        {
-         "type": "text",
-         "value": " lands on the first line of the first row. Moving "
-        },
-        {
-         "type": "inlineCode",
-         "value": "up"
-        },
-        {
-         "type": "text",
-         "value": " lands on\nthe last line of the last row. "
-        },
-        {
-         "type": "inlineCode",
-         "value": "x"
-        },
-        {
-         "type": "text",
-         "value": " is the caret's block-local horizontal\nposition, so it lands in the cell under it, at the nearest offset. Returns\n"
-        },
-        {
-         "type": "inlineCode",
-         "value": "undefined"
-        },
-        {
-         "type": "text",
-         "value": " when the table has no rows, or that row has no cells."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/selection.ts",
      "from": [
       "@tasfer/table"
      ]
@@ -2577,198 +494,43 @@
        ]
       },
       {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "It includes everything in "
+        },
+        {
+         "type": "link",
+         "url": "ref:tableDataExtension",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "tableDataExtension"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": ", plus the canvas node\nand the copy and paste handlers. Turning a block into a "
+        },
+        {
+         "type": "inlineCode",
+         "value": "table"
+        },
+        {
+         "type": "text",
+         "value": " block, from\na menu for example, makes an empty 3×3 grid with the caret in the first\nheader cell."
+        }
+       ]
+      },
+      {
        "type": "code",
        "value": "import { baseSchema } from \"@tasfer/editor\";\nimport { tableExtension } from \"@tasfer/table\";\n\nconst schema = baseSchema.use(tableExtension());\n\n// Let **bold**, *italic* and the other shortcuts format text inside cells\nconst withShortcuts = baseSchema.use(tableExtension({ markdownShortcuts: true }));",
        "lang": "ts"
       }
      ],
      "src": "packages/table/src/table-extension.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "tableLineRange",
-     "kind": "function",
-     "sigs": [
-      "function tableLineRange(\n  document: StructuredDocument,\n  axis: \"row\" | \"column\",\n  index: number,\n): TableCellRange | undefined"
-     ],
-     "summary": "The carets that select a whole row (`axis: \"row\"`) or a whole column: from the start of its first cell to the end of its last.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "The carets that select a whole row ("
-        },
-        {
-         "type": "inlineCode",
-         "value": "axis: \"row\""
-        },
-        {
-         "type": "text",
-         "value": ") or a whole column: from\nthe start of its first cell to the end of its last. "
-        },
-        {
-         "type": "inlineCode",
-         "value": "undefined"
-        },
-        {
-         "type": "text",
-         "value": " when the\nindex is outside the grid or the line has no cell at all."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/selection.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "tableRangeToContentSelection",
-     "kind": "function",
-     "sigs": [
-      "function tableRangeToContentSelection(\n  document: StructuredDocument,\n  blockId: string,\n  anchor: TableCaret,\n  focus: TableCaret,\n): ContentSelection | undefined"
-     ],
-     "summary": "A selection from `anchor` to `focus`, two carets in this table.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "A selection from "
-        },
-        {
-         "type": "inlineCode",
-         "value": "anchor"
-        },
-        {
-         "type": "text",
-         "value": " to "
-        },
-        {
-         "type": "inlineCode",
-         "value": "focus"
-        },
-        {
-         "type": "text",
-         "value": ", two carets in this table. Returns\n"
-        },
-        {
-         "type": "inlineCode",
-         "value": "undefined"
-        },
-        {
-         "type": "text",
-         "value": " when either cell is not in "
-        },
-        {
-         "type": "inlineCode",
-         "value": "document"
-        },
-        {
-         "type": "text",
-         "value": ". The anchor sticks to the\ncharacter before it, so it stays put while the focus moves."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/selection.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "tableSeedFromToken",
-     "kind": "function",
-     "sigs": [
-      "function tableSeedFromToken(\n  table: GfmTable,\n  identities: IdentityAllocator,\n  parseInline?: InlineMarkdownParser,\n): TableSeed"
-     ],
-     "summary": "Turn a parsed `GfmTable` into the starting content of a new table: its alignments and every cell's text and marks.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Turn a parsed "
-        },
-        {
-         "type": "link",
-         "url": "ref:GfmTable",
-         "children": [
-          {
-           "type": "inlineCode",
-           "value": "GfmTable"
-          }
-         ]
-        },
-        {
-         "type": "text",
-         "value": " into the starting content of a new table: its\nalignments and every cell's text and marks. Character ids come from\n"
-        },
-        {
-         "type": "inlineCode",
-         "value": "identities"
-        },
-        {
-         "type": "text",
-         "value": ". "
-        },
-        {
-         "type": "inlineCode",
-         "value": "parseInline"
-        },
-        {
-         "type": "text",
-         "value": " decides which inline Markdown counts. Without it,\nonly core Markdown is read."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/markdown.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "tableSelectionFromPoint",
-     "kind": "function",
-     "sigs": [
-      "function tableSelectionFromPoint(\n  layout: TableLayout,\n  local: { readonly x: number; readonly y: number },\n  document: StructuredDocument,\n  blockId: string,\n): ContentSelection | null"
-     ],
-     "summary": "Where a pointer at block-local `local` lands, as a caret in a cell.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Where a pointer at block-local "
-        },
-        {
-         "type": "inlineCode",
-         "value": "local"
-        },
-        {
-         "type": "text",
-         "value": " lands, as a caret in a cell. A point\noutside the grid lands in the nearest cell. Returns "
-        },
-        {
-         "type": "inlineCode",
-         "value": "null"
-        },
-        {
-         "type": "text",
-         "value": " when it lands on a\nhole or the table has no rows."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/selection.ts",
      "from": [
       "@tasfer/table"
      ]
@@ -2821,228 +583,6 @@
      ]
     },
     {
-     "name": "tableTargetForBlock",
-     "kind": "function",
-     "sigs": [
-      "function tableTargetForBlock(\n  state: EditorState,\n  blockId: string,\n): TableTarget | undefined"
-     ],
-     "summary": "The table attached to `blockId`, or `undefined` when that block is not one.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "The table attached to "
-        },
-        {
-         "type": "inlineCode",
-         "value": "blockId"
-        },
-        {
-         "type": "text",
-         "value": ", or "
-        },
-        {
-         "type": "inlineCode",
-         "value": "undefined"
-        },
-        {
-         "type": "text",
-         "value": " when that block is not one."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/context.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "tableToolsOverlay",
-     "kind": "function",
-     "sigs": [
-      "function tableToolsOverlay(\n  layout: TableLayout,\n  c: NodeRegionCtx,\n): NodeOverlay | null"
-     ],
-     "summary": "Where the table's row and column controls go: the box of the cell with the caret.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Where the table's row and column controls go: the box of the cell with the\ncaret. Returns "
-        },
-        {
-         "type": "inlineCode",
-         "value": "null"
-        },
-        {
-         "type": "text",
-         "value": " when no controls should show: in a read-only editor,\nwhen the caret is outside this table, or on a hole (a column this row has no\ncell for)."
-        }
-       ]
-      },
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "inlineCode",
-         "value": "layout"
-        },
-        {
-         "type": "text",
-         "value": " is the layout as shown. For a table wider than the page, both boxes\nare cut to the part in view. A cell scrolled fully out of view shows no\ncontrols."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/overlays.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "tableWidth",
-     "kind": "function",
-     "sigs": [
-      "function tableWidth(root: StructuredNode | undefined): number | null"
-     ],
-     "summary": "How wide someone dragged the whole table, in page widths.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "How wide someone dragged the whole table, in page widths. "
-        },
-        {
-         "type": "inlineCode",
-         "value": "1.5"
-        },
-        {
-         "type": "text",
-         "value": " is half again\nas wide as the page. Returns "
-        },
-        {
-         "type": "inlineCode",
-         "value": "null"
-        },
-        {
-         "type": "text",
-         "value": " when the table has its automatic width,\nwhich comes from the page width and the number of columns. A stored value\noutside "
-        },
-        {
-         "type": "inlineCode",
-         "value": "(1, MAX_TABLE_WIDTH]"
-        },
-        {
-         "type": "text",
-         "value": " also returns "
-        },
-        {
-         "type": "inlineCode",
-         "value": "null"
-        },
-        {
-         "type": "text",
-         "value": ". See\n"
-        },
-        {
-         "type": "link",
-         "url": "ref:MAX_TABLE_WIDTH",
-         "children": [
-          {
-           "type": "inlineCode",
-           "value": "MAX_TABLE_WIDTH"
-          }
-         ]
-        },
-        {
-         "type": "text",
-         "value": "."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/structured.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "validateTableDocument",
-     "kind": "function",
-     "sigs": [
-      "function validateTableDocument(\n  value: StructuredDocument,\n): StructuredDocument | undefined"
-     ],
-     "summary": "Checks that a document is a well-formed table.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Checks that a document is a well-formed table. Returns the checked document,\nor "
-        },
-        {
-         "type": "inlineCode",
-         "value": "undefined"
-        },
-        {
-         "type": "text",
-         "value": " if anything is wrong. A broken table, for example from another\napp version, is rejected whole, so it is never drawn half-built."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/structured.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "withinEdgeBox",
-     "kind": "function",
-     "sigs": [
-      "function withinEdgeBox(box: TableEdgeBox, p: Point): boolean"
-     ],
-     "summary": "Whether `p` is inside `box`.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Whether "
-        },
-        {
-         "type": "inlineCode",
-         "value": "p"
-        },
-        {
-         "type": "text",
-         "value": " is inside "
-        },
-        {
-         "type": "inlineCode",
-         "value": "box"
-        },
-        {
-         "type": "text",
-         "value": "."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/edge-adders.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
      "name": "TableNode",
      "kind": "class",
      "sigs": [
@@ -3070,6 +610,181 @@
         {
          "type": "text",
          "value": " installs it for\nyou; create one yourself only when you put a schema together by hand."
+        }
+       ]
+      },
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "A cell edits like a paragraph that cannot turn into another block: typing,\ndeleting, mark toggles, IME input and links all work the same way. What the\ngrid adds:"
+        }
+       ]
+      },
+      {
+       "type": "list",
+       "children": [
+        {
+         "type": "listItem",
+         "children": [
+          {
+           "type": "paragraph",
+           "children": [
+            {
+             "type": "text",
+             "value": "Arrow keys move inside a cell and cross into the next cell at its edge.\nUp and Down also enter and leave the table at its top and bottom rows."
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "type": "listItem",
+         "children": [
+          {
+           "type": "paragraph",
+           "children": [
+            {
+             "type": "text",
+             "value": "Tab walks the cells row by row. Enter moves down a row, and adds a row\nwhen on the last one. Shift+Enter leaves the table for a new paragraph\nbelow."
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "type": "listItem",
+         "children": [
+          {
+           "type": "paragraph",
+           "children": [
+            {
+             "type": "text",
+             "value": "Delete keys, including the word and line variants, never leave the cell.\nBackspace never joins two cells."
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "type": "listItem",
+         "children": [
+          {
+           "type": "paragraph",
+           "children": [
+            {
+             "type": "text",
+             "value": "Backspace at the very start of the first cell selects the whole table.\nThe next press deletes it."
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "type": "listItem",
+         "children": [
+          {
+           "type": "paragraph",
+           "children": [
+            {
+             "type": "text",
+             "value": "Ctrl/Cmd+A selects the caret's cell, then the whole table, then the whole\ndocument."
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "A selection inside one cell covers characters, as in prose. A selection\nthat spans cells covers the rectangle between its two ends, each cell whole,\nas in a spreadsheet. Copy, cut, delete and mark toggles all act on those\nwhole cells. Once a selection spans cells, Shift+Left/Right grows it one\ncolumn at a time and stops at the row's edge."
+        }
+       ]
+      },
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "Columns split the block's width evenly. When there are so many that each\nwould be narrower than "
+        },
+        {
+         "type": "inlineCode",
+         "value": "overflowColumnWidth"
+        },
+        {
+         "type": "text",
+         "value": " in the table theme, the table\ngets wider than the page and scrolls sideways. A trackpad swipe, Shift +\nwheel, a finger drag or the scrollbar under it scroll it. Moving the caret\ninto a hidden column scrolls it into view. The scroll position belongs to\nthis device only: it is not saved in the document or shared with others."
+        }
+       ]
+      },
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "With a mouse, the table also offers these controls:"
+        }
+       ]
+      },
+      {
+       "type": "list",
+       "children": [
+        {
+         "type": "listItem",
+         "children": [
+          {
+           "type": "paragraph",
+           "children": [
+            {
+             "type": "text",
+             "value": "Drag the edge between two columns to trade width between them. Drag the\ngrid's right edge to make the whole table wider or narrower. On touch, a\nshort hold starts the drag."
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "type": "listItem",
+         "children": [
+          {
+           "type": "paragraph",
+           "children": [
+            {
+             "type": "text",
+             "value": "Click the strip past the right edge, or below the last row, to add a\ncolumn or a row there. The caret lands in the new cell."
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "type": "listItem",
+         "children": [
+          {
+           "type": "paragraph",
+           "children": [
+            {
+             "type": "text",
+             "value": "Drag a column's grip, above its header, to move the column. Click the grip\nwithout dragging to select the column. Escape cancels the drag."
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "Column widths are saved as a share of the table, so a table keeps its\nproportions on a phone and on a desktop. A width drag is one undo step.\nWidths are not written to Markdown."
         }
        ]
       }
@@ -3347,61 +1062,6 @@
      ]
     },
     {
-     "name": "GfmTable",
-     "kind": "interface",
-     "sigs": [
-      "interface GfmTable"
-     ],
-     "summary": "A table as it appears in Markdown source: alignments plus cell sources.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "A table as it appears in Markdown source: alignments plus cell sources."
-        }
-       ]
-      }
-     ],
-     "members": [
-      {
-       "name": "aligns",
-       "kind": "property",
-       "sig": "readonly aligns: readonly (TableAlign | null)[]"
-      },
-      {
-       "name": "rows",
-       "kind": "property",
-       "sig": "readonly rows: readonly (readonly string[])[]",
-       "summary": "Rows of inline-markdown cell sources; `rows[0]` is the header.",
-       "doc": [
-        {
-         "type": "paragraph",
-         "children": [
-          {
-           "type": "text",
-           "value": "Rows of inline-markdown cell sources; "
-          },
-          {
-           "type": "inlineCode",
-           "value": "rows[0]"
-          },
-          {
-           "type": "text",
-           "value": " is the header."
-          }
-         ]
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/markdown.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
      "name": "TableBlock",
      "kind": "interface",
      "sigs": [
@@ -3428,7 +1088,7 @@
         },
         {
          "type": "text",
-         "value": " returns."
+         "value": " returns. Because\nevery cell is its own text, two people editing the same table merge cell by\ncell and letter by letter, not as one big value."
         }
        ]
       }
@@ -3458,7 +1118,7 @@
        "children": [
         {
          "type": "text",
-         "value": "A caret inside one cell: the cell node's id and a visible UTF-16 offset."
+         "value": "A caret inside one cell: the cell node's id and a visible UTF-16 offset.\nBecause it names the cell, someone editing another cell never moves it."
         }
        ]
       }
@@ -3717,147 +1377,6 @@
      ]
     },
     {
-     "name": "TableCellRange",
-     "kind": "interface",
-     "sigs": [
-      "interface TableCellRange"
-     ],
-     "summary": "A selected span, as the two carets that bound it.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "A selected span, as the two carets that bound it."
-        }
-       ]
-      }
-     ],
-     "members": [
-      {
-       "name": "anchor",
-       "kind": "property",
-       "sig": "readonly anchor: TableCaret"
-      },
-      {
-       "name": "focus",
-       "kind": "property",
-       "sig": "readonly focus: TableCaret"
-      }
-     ],
-     "src": "packages/table/src/selection.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "TableCellRect",
-     "kind": "interface",
-     "sigs": [
-      "interface TableCellRect"
-     ],
-     "summary": "A rectangle of cells, as inclusive row and column bounds.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "A rectangle of cells, as inclusive row and column bounds."
-        }
-       ]
-      },
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "A selection across cells covers a rectangle, as in a spreadsheet. Dragging\ndown from a header cell selects that column, not every cell in between. Copy,\npaste, delete and the mark toggles all act on this rectangle."
-        }
-       ]
-      }
-     ],
-     "members": [
-      {
-       "name": "top",
-       "kind": "property",
-       "sig": "readonly top: number"
-      },
-      {
-       "name": "left",
-       "kind": "property",
-       "sig": "readonly left: number"
-      },
-      {
-       "name": "bottom",
-       "kind": "property",
-       "sig": "readonly bottom: number"
-      },
-      {
-       "name": "right",
-       "kind": "property",
-       "sig": "readonly right: number"
-      }
-     ],
-     "src": "packages/table/src/selection.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "TableCellSeed",
-     "kind": "interface",
-     "sigs": [
-      "interface TableCellSeed"
-     ],
-     "summary": "One cell's content before the table is built: its text and its marks.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "One cell's content before the table is built: its text and its marks."
-        }
-       ]
-      }
-     ],
-     "members": [
-      {
-       "name": "charRuns",
-       "kind": "property",
-       "sig": "readonly charRuns: readonly CharRun[]"
-      },
-      {
-       "name": "marks",
-       "kind": "property",
-       "sig": "readonly marks?: readonly MarkRange[]"
-      },
-      {
-       "name": "attachments",
-       "kind": "property",
-       "sig": "readonly attachments?: StructuredContentMap",
-       "summary": "Attachments the cell's marks point at, such as an inline formula.",
-       "doc": [
-        {
-         "type": "paragraph",
-         "children": [
-          {
-           "type": "text",
-           "value": "Attachments the cell's marks point at, such as an inline formula. They are\nnot stored in the table document. The caller puts them on the table block,\nthe way a paragraph keeps its own."
-          }
-         ]
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/structured.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
      "name": "TableColumnLayout",
      "kind": "interface",
      "sigs": [
@@ -3925,87 +1444,6 @@
       }
      ],
      "src": "packages/table/src/geometry.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "TableCommand",
-     "kind": "interface",
-     "sigs": [
-      "interface TableCommand"
-     ],
-     "summary": "What the table command functions return: the edits to make, and where the caret goes afterwards.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "What the table command functions return: the edits to make, and where the\ncaret goes afterwards. Apply it by passing its "
-        },
-        {
-         "type": "inlineCode",
-         "value": "edits"
-        },
-        {
-         "type": "text",
-         "value": " and "
-        },
-        {
-         "type": "inlineCode",
-         "value": "caret"
-        },
-        {
-         "type": "text",
-         "value": " to\n"
-        },
-        {
-         "type": "link",
-         "url": "ref:commitTableEdits",
-         "children": [
-          {
-           "type": "inlineCode",
-           "value": "commitTableEdits"
-          }
-         ]
-        },
-        {
-         "type": "text",
-         "value": "."
-        }
-       ]
-      }
-     ],
-     "members": [
-      {
-       "name": "edits",
-       "kind": "property",
-       "sig": "readonly edits: readonly StructuredEdit[]"
-      },
-      {
-       "name": "caret",
-       "kind": "property",
-       "sig": "readonly caret?: TableCaret",
-       "summary": "`undefined` leaves the caret where it is — the grid did not move under it.",
-       "doc": [
-        {
-         "type": "paragraph",
-         "children": [
-          {
-           "type": "inlineCode",
-           "value": "undefined"
-          },
-          {
-           "type": "text",
-           "value": " leaves the caret where it is — the grid did not move under it."
-          }
-         ]
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/commands.ts",
      "from": [
       "@tasfer/table"
      ]
@@ -4144,98 +1582,6 @@
      ]
     },
     {
-     "name": "TableEdgeBox",
-     "kind": "interface",
-     "sigs": [
-      "interface TableEdgeBox"
-     ],
-     "summary": "An axis-aligned box in canvas coordinates.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "An axis-aligned box in canvas coordinates."
-        }
-       ]
-      }
-     ],
-     "members": [
-      {
-       "name": "x",
-       "kind": "property",
-       "sig": "readonly x: number"
-      },
-      {
-       "name": "y",
-       "kind": "property",
-       "sig": "readonly y: number"
-      },
-      {
-       "name": "width",
-       "kind": "property",
-       "sig": "readonly width: number"
-      },
-      {
-       "name": "height",
-       "kind": "property",
-       "sig": "readonly height: number"
-      }
-     ],
-     "src": "packages/table/src/edge-adders.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "TableEdgeStrip",
-     "kind": "interface",
-     "sigs": [
-      "interface TableEdgeStrip extends TableEdgeBox"
-     ],
-     "summary": "One edge's strip: the band that paints, and the area that catches a pointer.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "One edge's strip: the band that paints, and the area that catches a pointer."
-        }
-       ]
-      }
-     ],
-     "members": [
-      {
-       "name": "edge",
-       "kind": "property",
-       "sig": "readonly edge: TableEdge"
-      },
-      {
-       "name": "hit",
-       "kind": "property",
-       "sig": "readonly hit: TableEdgeBox",
-       "summary": "The area that catches the pointer.",
-       "doc": [
-        {
-         "type": "paragraph",
-         "children": [
-          {
-           "type": "text",
-           "value": "The area that catches the pointer. It is larger than the band and starts at\nthe grid's border, but never covers the grid. The right one starts a few\npixels out, so dragging the grid's right edge still widens the table."
-          }
-         ]
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/edge-adders.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
      "name": "TableInputOptions",
      "kind": "interface",
      "sigs": [
@@ -4306,6 +1652,39 @@
          "children": [
           {
            "type": "text",
+           "value": "With the math extension installed, "
+          },
+          {
+           "type": "inlineCode",
+           "value": "$x$"
+          },
+          {
+           "type": "text",
+           "value": " makes inline math too. A shortcut\nfires on the key that closes it, so pasted text is never formatted. Only\ninline shortcuts work: a line starting with "
+          },
+          {
+           "type": "inlineCode",
+           "value": "#"
+          },
+          {
+           "type": "text",
+           "value": " or "
+          },
+          {
+           "type": "inlineCode",
+           "value": "-"
+          },
+          {
+           "type": "text",
+           "value": " stays as typed,\nbecause a Markdown table cell cannot hold a heading or a list."
+          }
+         ]
+        },
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
            "value": "Off by default, so a table of glob patterns or shell snippets keeps "
           },
           {
@@ -4322,7 +1701,7 @@
           },
           {
            "type": "text",
-           "value": " as typed."
+           "value": " as typed. Brackets and quotes typed over a selection still wrap it\neither way."
           }
          ]
         }
@@ -4666,79 +2045,6 @@
      ]
     },
     {
-     "name": "TableSeed",
-     "kind": "interface",
-     "sigs": [
-      "interface TableSeed"
-     ],
-     "summary": "A whole table's content, before it gets ids.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "A whole table's content, before it gets ids. A Markdown parse produces it,\nand "
-        },
-        {
-         "type": "link",
-         "url": "ref:buildTableDocument",
-         "children": [
-          {
-           "type": "inlineCode",
-           "value": "buildTableDocument"
-          }
-         ]
-        },
-        {
-         "type": "text",
-         "value": " turns it into a table document. "
-        },
-        {
-         "type": "inlineCode",
-         "value": "rows[0]"
-        },
-        {
-         "type": "text",
-         "value": " is\nthe header row. "
-        },
-        {
-         "type": "inlineCode",
-         "value": "aligns[i]"
-        },
-        {
-         "type": "text",
-         "value": " is the alignment of column "
-        },
-        {
-         "type": "inlineCode",
-         "value": "i"
-        },
-        {
-         "type": "text",
-         "value": "."
-        }
-       ]
-      }
-     ],
-     "members": [
-      {
-       "name": "aligns",
-       "kind": "property",
-       "sig": "readonly aligns: readonly (TableAlign | null)[]"
-      },
-      {
-       "name": "rows",
-       "kind": "property",
-       "sig": "readonly rows: readonly (readonly TableCellSeed[])[]"
-      }
-     ],
-     "src": "packages/table/src/structured.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
      "name": "TableShape",
      "kind": "interface",
      "sigs": [
@@ -4752,6 +2058,39 @@
         {
          "type": "text",
          "value": "The shape of a table around one caret, for a host drawing its own controls:\nhow big the grid is, where the caret sits in it, and that column's alignment.\nEverything a row/column panel needs to label and enable itself."
+        }
+       ]
+      },
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "Some commands do nothing in some places. Disable \"delete row\" when "
+        },
+        {
+         "type": "inlineCode",
+         "value": "rows"
+        },
+        {
+         "type": "text",
+         "value": "\nis 1, \"delete column\" when "
+        },
+        {
+         "type": "inlineCode",
+         "value": "columns"
+        },
+        {
+         "type": "text",
+         "value": " is 1, and \"add row above\" when\n"
+        },
+        {
+         "type": "inlineCode",
+         "value": "rowIndex"
+        },
+        {
+         "type": "text",
+         "value": " is 0. A row above the header is not allowed, because Markdown\ntables always use the first row as the column titles."
         }
        ]
       }
@@ -4794,6 +2133,12 @@
      "sigs": [
       "interface TableTargetPayload"
      ],
+     "examples": [
+      {
+       "lang": "ts",
+       "code": "import { TABLE_INSERT_ROW, TABLE_SELECT_COLUMN } from \"@tasfer/table\";\n\n// Add a row below the caret's row.\neditor.dispatch(TABLE_INSERT_ROW, { side: \"after\" });\n// Select the third column of the caret's table.\neditor.dispatch(TABLE_SELECT_COLUMN, { columnIndex: 2 });"
+      }
+     ],
      "summary": "Target a command at an explicit cell, or (by default) at the caret's own.",
      "doc": [
       {
@@ -4802,6 +2147,37 @@
         {
          "type": "text",
          "value": "Target a command at an explicit cell, or (by default) at the caret's own."
+        }
+       ]
+      },
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "Every "
+        },
+        {
+         "type": "inlineCode",
+         "value": "TABLE_*"
+        },
+        {
+         "type": "text",
+         "value": " action takes these fields. A change made by one syncs,\nmerges and undoes just like typing a character. When an action cannot apply,\nsuch as deleting the only row, it changes nothing. Use "
+        },
+        {
+         "type": "link",
+         "url": "ref:tableShapeAt",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "tableShapeAt"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": "\nto disable such a control ahead of time."
         }
        ]
       }
@@ -4827,12 +2203,36 @@
       {
        "name": "rowIndex",
        "kind": "property",
-       "sig": "readonly rowIndex?: number"
+       "sig": "readonly rowIndex?: number",
+       "summary": "The row to act on, counted from 0.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "The row to act on, counted from 0. Row 0 is the header row. Leave it out\nto use the caret's row."
+          }
+         ]
+        }
+       ]
       },
       {
        "name": "columnIndex",
        "kind": "property",
-       "sig": "readonly columnIndex?: number"
+       "sig": "readonly columnIndex?: number",
+       "summary": "The column to act on, counted from 0.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "The column to act on, counted from 0. Leave it out to use the caret's\ncolumn."
+          }
+         ]
+        }
+       ]
       }
      ],
      "src": "packages/table/src/commands.ts",
@@ -4915,6 +2315,37 @@
          "value": "A whole table resolved for reading: columns, rows, and cells by column."
         }
        ]
+      },
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "In the table document, columns and rows are separate lists under the root.\nEach row holds cell nodes. A cell names its column in "
+        },
+        {
+         "type": "inlineCode",
+         "value": "attrs.columnId"
+        },
+        {
+         "type": "text",
+         "value": " and\nkeeps its text in the "
+        },
+        {
+         "type": "link",
+         "url": "ref:CELL_TEXT_FIELD",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "CELL_TEXT_FIELD"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": " field. Because a cell names its\ncolumn, two people can add a row and a column at the same time and still end\nup with the same table."
+        }
+       ]
       }
      ],
      "members": [
@@ -4931,7 +2362,35 @@
       {
        "name": "rows",
        "kind": "property",
-       "sig": "readonly rows: readonly TableRowView[]"
+       "sig": "readonly rows: readonly TableRowView[]",
+       "summary": "The rows, top to bottom.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "The rows, top to bottom. "
+          },
+          {
+           "type": "inlineCode",
+           "value": "rows[0]"
+          },
+          {
+           "type": "text",
+           "value": " is the header row. It looks like any\nother row on the canvas, but Markdown writes it as the column titles and\nHTML as "
+          },
+          {
+           "type": "inlineCode",
+           "value": "<th>"
+          },
+          {
+           "type": "text",
+           "value": " cells."
+          }
+         ]
+        }
+       ]
       }
      ],
      "src": "packages/table/src/structured.ts",
@@ -5008,52 +2467,6 @@
      ]
     },
     {
-     "name": "TableCaretStep",
-     "kind": "type",
-     "sigs": [
-      "type TableCaretStep =\n  | \"backward\"\n  | \"forward\"\n  | \"word-backward\"\n  | \"word-forward\"\n  | \"next-cell\"\n  | \"previous-cell\"\n  | \"cell-start\"\n  | \"cell-end\""
-     ],
-     "summary": "A caret motion that needs only the document — no layout, no measurement.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "A caret motion that needs only the document — no layout, no measurement."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/selection.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "TableClipboard",
-     "kind": "type",
-     "sigs": [
-      "type TableClipboard =\n  /** Rows of cells; `rich` sources are inline Markdown, plain ones literal. */\n  | {\n      readonly kind: \"grid\";\n      readonly rows: readonly (readonly string[])[];\n      readonly rich: boolean;\n    }\n  /** Text for the caret's cell alone. */\n  | {\n      readonly kind: \"inline\";\n      readonly source: string;\n      readonly rich: boolean;\n    }"
-     ],
-     "summary": "What a clipboard means to a table.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "What a clipboard means to a table."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/paste.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
      "name": "TableDataExtension",
      "kind": "type",
      "sigs": [
@@ -5098,29 +2511,6 @@
       }
      ],
      "src": "packages/table/src/data.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "TableEdge",
-     "kind": "type",
-     "sigs": [
-      "type TableEdge = \"right\" | \"bottom\""
-     ],
-     "summary": "Which outer edge a strip sits on, and therefore what it adds.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Which outer edge a strip sits on, and therefore what it adds."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/edge-adders.ts",
      "from": [
       "@tasfer/table"
      ]
@@ -5253,113 +2643,6 @@
      ]
     },
     {
-     "name": "TableTarget",
-     "kind": "type",
-     "sigs": [
-      "type TableTarget = Pick<\n  TableContext,\n  \"block\" | \"blockIndex\" | \"document\"\n> & {\n  readonly caret?: TableCaret;\n}"
-     ],
-     "summary": "A table a command acts on.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "A table a command acts on. Unlike "
-        },
-        {
-         "type": "link",
-         "url": "ref:TableContext",
-         "children": [
-          {
-           "type": "inlineCode",
-           "value": "TableContext"
-          }
-         ]
-        },
-        {
-         "type": "text",
-         "value": ", the caret does not\nhave to be in it: a control on the canvas acts on the table under the\npointer. Get one from "
-        },
-        {
-         "type": "link",
-         "url": "ref:activeTableContext",
-         "children": [
-          {
-           "type": "inlineCode",
-           "value": "activeTableContext"
-          }
-         ]
-        },
-        {
-         "type": "text",
-         "value": " (the caret's table) or\n"
-        },
-        {
-         "type": "link",
-         "url": "ref:tableTargetForBlock",
-         "children": [
-          {
-           "type": "inlineCode",
-           "value": "tableTargetForBlock"
-          }
-         ]
-        },
-        {
-         "type": "text",
-         "value": " (a table by block id)."
-        }
-       ]
-      }
-     ],
-     "members": [
-      {
-       "name": "caret",
-       "kind": "property",
-       "sig": "readonly caret?: TableCaret",
-       "summary": "Where the caret is, when it is in this table at all.",
-       "doc": [
-        {
-         "type": "paragraph",
-         "children": [
-          {
-           "type": "text",
-           "value": "Where the caret is, when it is in this table at all."
-          }
-         ]
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/context.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "CELL_NODE",
-     "kind": "const",
-     "sigs": [
-      "const CELL_NODE: \"cell\""
-     ],
-     "summary": "Node type of a cell inside a table document.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Node type of a cell inside a table document. A cell sits in a row and names\nthe column it belongs to."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/structured.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
      "name": "CELL_TEXT_FIELD",
      "kind": "const",
      "sigs": [
@@ -5378,227 +2661,6 @@
       }
      ],
      "src": "packages/table/src/structured.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "CELLS_SLOT",
-     "kind": "const",
-     "sigs": [
-      "const CELLS_SLOT: \"cells\""
-     ],
-     "summary": "Name of the child list on a row that holds its cells.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Name of the child list on a row that holds its cells."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/structured.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "COLUMN_NODE",
-     "kind": "const",
-     "sigs": [
-      "const COLUMN_NODE: \"column\""
-     ],
-     "summary": "Node type of a column inside a table document.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Node type of a column inside a table document."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/structured.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "COLUMNS_SLOT",
-     "kind": "const",
-     "sigs": [
-      "const COLUMNS_SLOT: \"columns\""
-     ],
-     "summary": "Name of the child list on the table root that holds its columns.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Name of the child list on the table root that holds its columns."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/structured.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "MAX_TABLE_WIDTH",
-     "kind": "const",
-     "sigs": [
-      "const MAX_TABLE_WIDTH: 8"
-     ],
-     "summary": "The widest a table can be dragged, in page widths.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "The widest a table can be dragged, in page widths. A stored width above it is\nignored and the table uses its automatic width."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/structured.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "NEW_TABLE_COLUMNS",
-     "kind": "const",
-     "sigs": [
-      "const NEW_TABLE_COLUMNS: 3"
-     ],
-     "summary": "How many columns a new table starts with.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "How many columns a new table starts with."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/commands.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "NEW_TABLE_ROWS",
-     "kind": "const",
-     "sigs": [
-      "const NEW_TABLE_ROWS: 3"
-     ],
-     "summary": "How many rows a new table starts with: a header and two body rows.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "How many rows a new table starts with: a header and two body rows."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/commands.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "ROW_NODE",
-     "kind": "const",
-     "sigs": [
-      "const ROW_NODE: \"row\""
-     ],
-     "summary": "Node type of a row inside a table document.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Node type of a row inside a table document."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/structured.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "ROWS_SLOT",
-     "kind": "const",
-     "sigs": [
-      "const ROWS_SLOT: \"rows\""
-     ],
-     "summary": "Name of the child list on the table root that holds its rows.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Name of the child list on the table root that holds its rows."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/structured.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "TABLE_BLOCK",
-     "kind": "const",
-     "sigs": [
-      "const TABLE_BLOCK: \"table_block\""
-     ],
-     "summary": "The Markdown token type for a table.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "The Markdown token type for a table. Its content is a "
-        },
-        {
-         "type": "link",
-         "url": "ref:GfmTable",
-         "children": [
-          {
-           "type": "inlineCode",
-           "value": "GfmTable"
-          }
-         ]
-        },
-        {
-         "type": "text",
-         "value": " as\nJSON."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/markdown.ts",
      "from": [
       "@tasfer/table"
      ]
@@ -5733,7 +2795,7 @@
      "sigs": [
       "const TABLE_MOVE_COLUMN: StateAction<TableTargetPayload & { readonly to: number; }>"
      ],
-     "summary": "Move the target column so it ends up at `to` (see `moveColumn`).",
+     "summary": "Move the target column so it ends up at `to`.",
      "doc": [
       {
        "type": "paragraph",
@@ -5748,49 +2810,58 @@
         },
         {
          "type": "text",
-         "value": " (see "
-        },
+         "value": ". The column's cells move with\nit, and the caret stays in its cell."
+        }
+       ]
+      },
+      {
+       "type": "paragraph",
+       "children": [
         {
-         "type": "link",
-         "url": "ref:moveColumn",
-         "children": [
-          {
-           "type": "inlineCode",
-           "value": "moveColumn"
-          }
-         ]
+         "type": "inlineCode",
+         "value": "to"
         },
         {
          "type": "text",
-         "value": "). The\ncolumn-drag band on the canvas dispatches this on release; a menu passes the\ncaret column's index ± 1."
+         "value": " is where the column sits after the move, counted in the grid as it is\nnow. So moving column 0 of "
+        },
+        {
+         "type": "inlineCode",
+         "value": "A B C"
+        },
+        {
+         "type": "text",
+         "value": " to 2 gives "
+        },
+        {
+         "type": "inlineCode",
+         "value": "B C A"
+        },
+        {
+         "type": "text",
+         "value": ". A "
+        },
+        {
+         "type": "inlineCode",
+         "value": "to"
+        },
+        {
+         "type": "text",
+         "value": " past either end\ngoes to the first or last column. For \"move left\" pass the column's index\nminus 1, and for \"move right\" its index plus 1."
         }
        ]
-      }
-     ],
-     "src": "packages/table/src/commands.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "TABLE_NODE",
-     "kind": "const",
-     "sigs": [
-      "const TABLE_NODE: \"table\""
-     ],
-     "summary": "Node type of a table document's root: the table itself.",
-     "doc": [
+      },
       {
        "type": "paragraph",
        "children": [
         {
          "type": "text",
-         "value": "Node type of a table document's root: the table itself."
+         "value": "Dragging a column by its grip on the canvas dispatches this on release."
         }
        ]
       }
      ],
-     "src": "packages/table/src/structured.ts",
+     "src": "packages/table/src/commands.ts",
      "from": [
       "@tasfer/table"
      ]
@@ -5935,83 +3006,6 @@
      ]
     },
     {
-     "name": "tableBlockCodec",
-     "kind": "const",
-     "sigs": [
-      "const tableBlockCodec: BlockCodec"
-     ],
-     "summary": "Full block codec consumed by DataSchema.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Full block codec consumed by DataSchema."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/data.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "tableBlockNodeCodec",
-     "kind": "const",
-     "sigs": [
-      "const tableBlockNodeCodec: NodeCodec"
-     ],
-     "summary": "Reads and writes a table block as GFM Markdown, and writes it as HTML and plain text.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "Reads and writes a table block as GFM Markdown, and writes it as HTML and\nplain text. The plain text is a GFM table too, so a copied table pastes back\nas one. It does not need a canvas."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/data.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "tableBlockSpec",
-     "kind": "const",
-     "sigs": [
-      "const tableBlockSpec: BlockSpecCore<\"table\", TableBlockAttrs>"
-     ],
-     "summary": "The `table` block for a data schema: its block type, its Markdown, HTML and text codec, and the rule that finds GFM tables in Markdown.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "The "
-        },
-        {
-         "type": "inlineCode",
-         "value": "table"
-        },
-        {
-         "type": "text",
-         "value": " block for a data schema: its block type, its Markdown, HTML and\ntext codec, and the rule that finds GFM tables in Markdown."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/data.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
      "name": "tableContentSelectionKind",
      "kind": "const",
      "sigs": [
@@ -6032,95 +3026,62 @@
         },
         {
          "type": "text",
-         "value": " already includes them.\nUse this only when you build an editor schema by hand."
+         "value": " already includes them.\nUse this only when you build an editor schema by hand: add it to the\nschema's "
+        },
+        {
+         "type": "inlineCode",
+         "value": "structuredKinds"
+        },
+        {
+         "type": "text",
+         "value": ". "
+        },
+        {
+         "type": "inlineCode",
+         "value": "tableDataExtension"
+        },
+        {
+         "type": "text",
+         "value": " leaves it out."
+        }
+       ]
+      },
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "Copy inside one cell takes the selected characters. Copy across cells takes\nthe selected rectangle of cells. As plain text, cells are split by tabs and\nrows by line breaks, so a spreadsheet reads it as a grid. As HTML it is a\n"
+        },
+        {
+         "type": "inlineCode",
+         "value": "<table>"
+        },
+        {
+         "type": "text",
+         "value": ", and as Markdown a GFM table. Pasted into prose, copied cells\nbecome a table of their own."
+        }
+       ]
+      },
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "Pasting a grid, from Tasfer or a spreadsheet, puts its top-left cell on the\nselection's top-left cell, or the caret's cell. It overwrites the cells it\ncovers, and the table grows when the grid runs past its last row or column.\nThe pasted cells are left selected. Text with no tab or line break goes in\nat the caret like typing. Formatting survives only text copied in Tasfer.\nText from elsewhere is pasted as typed, so "
+        },
+        {
+         "type": "inlineCode",
+         "value": "*.ts"
+        },
+        {
+         "type": "text",
+         "value": " never turns italic."
         }
        ]
       }
      ],
      "src": "packages/table/src/content-selection.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "tableInputRule",
-     "kind": "const",
-     "sigs": [
-      "const tableInputRule: FeatureInputRule"
-     ],
-     "summary": "The cell-input rule with every option left at its default.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "The cell-input rule with every option left at its default."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/input.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "tableStructuredKind",
-     "kind": "const",
-     "sigs": [
-      "const tableStructuredKind: StructuredKindSpec"
-     ],
-     "summary": "How the editor handles a table's content: it copies a table with fresh ids, prints it as a GFM table, and lists every cell's text, header row first.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "How the editor handles a table's content: it copies a table with fresh ids,\nprints it as a GFM table, and lists every cell's text, header row first."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/data.ts",
-     "from": [
-      "@tasfer/table"
-     ]
-    },
-    {
-     "name": "tableSyntaxRule",
-     "kind": "const",
-     "sigs": [
-      "const tableSyntaxRule: SyntaxRule"
-     ],
-     "summary": "The Markdown rule that finds GFM tables in source text.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "The Markdown rule that finds GFM tables in source text.\n"
-        },
-        {
-         "type": "link",
-         "url": "ref:tableBlockSpec",
-         "children": [
-          {
-           "type": "inlineCode",
-           "value": "tableBlockSpec"
-          }
-         ]
-        },
-        {
-         "type": "text",
-         "value": " already includes it. It only runs at the start of a\nline, and only when the tokenizer is given a schema."
-        }
-       ]
-      }
-     ],
-     "src": "packages/table/src/markdown.ts",
      "from": [
       "@tasfer/table"
      ]

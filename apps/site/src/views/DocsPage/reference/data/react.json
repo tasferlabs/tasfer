@@ -12,8 +12,8 @@
      ],
      "examples": [
       {
-       "lang": "ts",
-       "code": "<Editor markdown=\"# Hello\" onChange={save} style={{ height: \"100vh\" }}\nonReady={(editor) => editor.focus(\"end\")} />"
+       "lang": "tsx",
+       "code": "<Editor\n  markdown=\"# Hello\"\n  onChange={save}\n  style={{ height: \"100vh\" }}\n  onReady={(editor) => {\n    editor.focus();\n    editor.setCaret(\"end\");\n  }}\n/>"
       }
      ],
      "summary": "A React component that renders a `<div>` and mounts the editor in it.",
@@ -70,7 +70,15 @@
         },
         {
          "type": "text",
-         "value": " is the one prop that can change, and it only reports edits. Give\nthe component a height with "
+         "value": " is the one prop that can change, and it only reports edits. There\nis no "
+        },
+        {
+         "type": "inlineCode",
+         "value": "value"
+        },
+        {
+         "type": "text",
+         "value": " prop: the editor owns its content. Give the component a height\nwith "
         },
         {
          "type": "inlineCode",
@@ -104,8 +112,8 @@
      ],
      "examples": [
       {
-       "lang": "ts",
-       "code": "function MyEditor() { const { containerRef, editor } = useEditor({ markdown:\n\"# Hello\" }); useEffect(() => { if (editor) editor.focus(\"end\"); },\n[editor]); return <div ref={containerRef} style={{ height: \"100%\" }} />; }"
+       "lang": "tsx",
+       "code": "function MyEditor() {\n  const { containerRef, editor } = useEditor({ markdown: \"# Hello\" });\n  useEffect(() => {\n    if (editor) {\n      editor.focus();\n      editor.setCaret(\"end\");\n    }\n  }, [editor]);\n  return <div ref={containerRef} style={{ height: \"100%\" }} />;\n}"
       }
      ],
      "summary": "Create a `TasferEditor` and mount it into a `<div>` you render with the returned `containerRef`.",
@@ -188,18 +196,18 @@
      ],
      "examples": [
       {
-       "lang": "ts",
-       "code": "const { editor } = useEditor({ markdown: \"# Title\" }); const markdown =\nuseEditorMarkdown(editor); // \"# Title\", updates as you type"
+       "lang": "tsx",
+       "code": "const { editor } = useEditor({ markdown: \"# Title\" });\nconst markdown = useEditorMarkdown(editor); // \"# Title\", updates as you type"
       }
      ],
-     "summary": "Read the editor's content as Markdown, and re-render whenever the document changes.",
+     "summary": "Read the editor's content as Markdown, and re-render whenever the document changes, including edits from other people.",
      "doc": [
       {
        "type": "paragraph",
        "children": [
         {
          "type": "text",
-         "value": "Read the editor's content as Markdown, and re-render whenever the document\nchanges. Returns "
+         "value": "Read the editor's content as Markdown, and re-render whenever the document\nchanges, including edits from other people. Returns "
         },
         {
          "type": "inlineCode",
@@ -215,7 +223,7 @@
         },
         {
          "type": "text",
-         "value": " is "
+         "value": " is\n"
         },
         {
          "type": "inlineCode",
@@ -223,7 +231,7 @@
         },
         {
          "type": "text",
-         "value": ". The Markdown is rebuilt only\nwhen the document changes, not on every render."
+         "value": ". The Markdown is rebuilt only when the document changes, not on every\nrender."
         }
        ]
       }
@@ -241,8 +249,8 @@
      ],
      "examples": [
       {
-       "lang": "ts",
-       "code": "const { editor } = useEditor({ markdown: \"**bold**\" }); const state =\nuseEditorState(editor); const isBold = state?.activeMarks.has(\"strong\") ??\nfalse;"
+       "lang": "tsx",
+       "code": "function BoldButton({ editor }: { editor: TasferEditor | null }) {\n  const state = useEditorState(editor);\n  return (\n    <button\n      data-active={state?.activeMarks.has(\"strong\") ?? false}\n      onClick={() => editor?.change((c) => c.setMark(\"strong\"))}\n    >\n      Bold\n    </button>\n  );\n}"
       }
      ],
      "summary": "Read the editor's state (`EditorStateValue`) and re-render when it changes.",
@@ -320,14 +328,14 @@
      "sigs": [
       "interface ChangeTransaction"
      ],
-     "summary": "Payload delivered to `on(\"change\", …)` listeners: the batch of CRDT operations that changed the document, and whether they were applied from a remote peer (sync) rather than a local edit.",
+     "summary": "What an `on(\"change\", …)` listener gets: the edits that changed the document, and whether they came from another person.",
      "doc": [
       {
        "type": "paragraph",
        "children": [
         {
          "type": "text",
-         "value": "Payload delivered to "
+         "value": "What an "
         },
         {
          "type": "inlineCode",
@@ -335,7 +343,7 @@
         },
         {
          "type": "text",
-         "value": " listeners: the batch of CRDT\noperations that changed the document, and whether they were applied from a\nremote peer (sync) rather than a local edit. Filter on "
+         "value": " listener gets: the edits that changed the document,\nand whether they came from another person. Check "
         },
         {
          "type": "inlineCode",
@@ -343,7 +351,7 @@
         },
         {
          "type": "text",
-         "value": " to ignore\nyour own echoes; read "
+         "value": " to skip your own\nedits. "
         },
         {
          "type": "inlineCode",
@@ -351,7 +359,21 @@
         },
         {
          "type": "text",
-         "value": " for the size of the change."
+         "value": " tells you how big the change was. One\n"
+        },
+        {
+         "type": "link",
+         "url": "ref:Editor",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "Editor.change"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": " call gives one transaction with all of its edits."
         }
        ]
       }
@@ -426,6 +448,39 @@
          "value": ", show it in an editor, and connect\nsync and storage to it."
         }
        ]
+      },
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "A doc needs no editor and no page element. So it also works on a server, in\na worker or in a test: read it with "
+        },
+        {
+         "type": "inlineCode",
+         "value": "getMarkdown()"
+        },
+        {
+         "type": "text",
+         "value": ", sync it with\n"
+        },
+        {
+         "type": "inlineCode",
+         "value": "applyUpdate"
+        },
+        {
+         "type": "text",
+         "value": ", and save it with "
+        },
+        {
+         "type": "inlineCode",
+         "value": "encodeState()"
+        },
+        {
+         "type": "text",
+         "value": "."
+        }
+       ]
       }
      ],
      "members": [
@@ -467,27 +522,27 @@
        "name": "getRawBlocks",
        "kind": "method",
        "sig": "getRawBlocks(): Block[]",
-       "summary": "The raw, fully-merged CRDT block array — **including tombstones** (`deleted: true`) — with no text extraction or type sugar.",
+       "summary": "Every block as stored, **including deleted ones** (`deleted: true`).",
        "doc": [
         {
          "type": "paragraph",
          "children": [
           {
            "type": "text",
-           "value": "The raw, fully-merged CRDT block array — "
+           "value": "Every block as stored, "
           },
           {
            "type": "strong",
            "children": [
             {
              "type": "text",
-             "value": "including tombstones"
+             "value": "including deleted ones"
             }
            ]
           },
           {
            "type": "text",
-           "value": "\n("
+           "value": " ("
           },
           {
            "type": "inlineCode",
@@ -495,7 +550,7 @@
           },
           {
            "type": "text",
-           "value": ") — with no text extraction or type sugar. This is the\ncanonical storage/sync state, stable across peers."
+           "value": "). This\nis what gets saved and synced, and every device ends up with the same\nblocks once synced. The array is the doc's own, so do not change it."
           }
          ]
         },
@@ -504,7 +559,7 @@
          "children": [
           {
            "type": "text",
-           "value": "For a filtered, presentation-ready read (tombstones removed, "
+           "value": "To read what the user sees (deleted blocks removed, "
           },
           {
            "type": "inlineCode",
@@ -512,7 +567,7 @@
           },
           {
            "type": "text",
-           "value": "\nmaterialized, heading sugar applied, range-addressable), use an attached\neditor's "
+           "value": " filled in), use\nan attached editor's "
           },
           {
            "type": "inlineCode",
@@ -520,7 +575,7 @@
           },
           {
            "type": "text",
-           "value": " instead."
+           "value": "."
           }
          ]
         }
@@ -547,14 +602,14 @@
        "name": "applyUpdate",
        "kind": "method",
        "sig": "applyUpdate(ops: Operation[], origin?: unknown): void",
-       "summary": "Apply operations from outside (a provider, persistence, another host).",
+       "summary": "Applies edits that came from outside: a sync provider, storage, or another app.",
        "doc": [
         {
          "type": "paragraph",
          "children": [
           {
            "type": "text",
-           "value": "Apply operations from outside (a provider, persistence, another host).\nAlready-known ops are filtered via the version vector, so re-delivery is\na safe no-op. Advances the local clock/id counter past everything\napplied, updates the document state, and notifies "
+           "value": "Applies edits that came from outside: a sync provider, storage, or another\napp. Edits the doc already has are skipped, so sending the same batch twice\nis safe. Then "
           },
           {
            "type": "inlineCode",
@@ -562,7 +617,7 @@
           },
           {
            "type": "text",
-           "value": "\nlisteners with the fresh ops and the given "
+           "value": " listeners get the new edits and "
           },
           {
            "type": "inlineCode",
@@ -570,7 +625,15 @@
           },
           {
            "type": "text",
-           "value": "."
+           "value": "\n(default "
+          },
+          {
+           "type": "inlineCode",
+           "value": "\"remote\""
+          },
+          {
+           "type": "text",
+           "value": "). If nothing is new, no update fires. New local edits\nare always ordered after the ones applied here."
           }
          ]
         }
@@ -580,14 +643,22 @@
        "name": "load",
        "kind": "method",
        "sig": "load(ops: Operation[]): void",
-       "summary": "Register operations that are ALREADY reflected in the doc's current blocks — the async tail of the \"snapshot + ops\" restore shape: a doc is created from persisted snapshot blocks, then the persisted op log (which…",
+       "summary": "Adds saved edits that the doc's blocks already contain.",
        "doc": [
         {
          "type": "paragraph",
          "children": [
           {
            "type": "text",
-           "value": "Register operations that are ALREADY reflected in the doc's current blocks\n— the async tail of the \"snapshot + ops\" restore shape: a doc is created\nfrom persisted snapshot blocks, then the persisted op log (which produced\nthose blocks) is loaded afterwards so the version vector, op log, and\nclock/id counter catch up to what the blocks represent."
+           "value": "Adds saved edits that the doc's blocks already contain. Use it after you\ncreate a doc from saved "
+          },
+          {
+           "type": "inlineCode",
+           "value": "blocks"
+          },
+          {
+           "type": "text",
+           "value": ", to load the saved edit history behind\nthem. The doc then knows those edits, and new edits are ordered after them."
           }
          ]
         },
@@ -596,21 +667,7 @@
          "children": [
           {
            "type": "text",
-           "value": "Unlike "
-          },
-          {
-           "type": "link",
-           "url": "ref:applyUpdate",
-           "children": [
-            {
-             "type": "inlineCode",
-             "value": "applyUpdate"
-            }
-           ]
-          },
-          {
-           "type": "text",
-           "value": ", this emits NO update and does not re-render any\nattached editor (the editor already shows these blocks). The ops are\nappended to the log, the version vector advances, and the binding's\nclock/id counter advance past them so subsequent local ops stay causally\nahead."
+           "value": "It fires no update and does not redraw the editor, because the blocks\nalready show these edits."
           }
          ]
         },
@@ -619,15 +676,7 @@
          "children": [
           {
            "type": "text",
-           "value": "Only safe for ops already folded into the seeded blocks. It uses the\nincremental "
-          },
-          {
-           "type": "inlineCode",
-           "value": "appendOp"
-          },
-          {
-           "type": "text",
-           "value": " path, which lacks the dependency-reordering rebuild\nthat "
+           "value": "Only pass edits that are already in the blocks. An edit passed here that is\nnot in them never shows up, and later copies of it from sync are skipped as\nalready known. For edits that arrive from sync, use "
           },
           {
            "type": "link",
@@ -641,37 +690,7 @@
           },
           {
            "type": "text",
-           "value": "'s "
-          },
-          {
-           "type": "inlineCode",
-           "value": "mergeOps"
-          },
-          {
-           "type": "text",
-           "value": " provides — so do NOT route peer ops\nthrough "
-          },
-          {
-           "type": "inlineCode",
-           "value": "load"
-          },
-          {
-           "type": "text",
-           "value": "; use "
-          },
-          {
-           "type": "link",
-           "url": "ref:applyUpdate",
-           "children": [
-            {
-             "type": "inlineCode",
-             "value": "applyUpdate"
-            }
-           ]
-          },
-          {
-           "type": "text",
-           "value": " for anything arriving from sync."
+           "value": "."
           }
          ]
         }
@@ -798,14 +817,14 @@
      "sigs": [
       "interface EditorStateSnapshot"
      ],
-     "summary": "Read-only snapshot of editor state for UI binding (see `Editor.state`).",
+     "summary": "The editor's current state, for binding UI (see `Editor.state`).",
      "doc": [
       {
        "type": "paragraph",
        "children": [
         {
          "type": "text",
-         "value": "Read-only snapshot of editor state for UI binding (see "
+         "value": "The editor's current state, for binding UI (see "
         },
         {
          "type": "link",
@@ -819,7 +838,15 @@
         },
         {
          "type": "text",
-         "value": ").\nA fresh value is built on each read and is never mutated, so it's safe to\ndestructure and hold for the duration of one read."
+         "value": "). Each\nread of "
+        },
+        {
+         "type": "inlineCode",
+         "value": "editor.state"
+        },
+        {
+         "type": "text",
+         "value": " builds a new one, and it never changes after that. So\nread it again when you need fresh values."
         }
        ]
       }
@@ -892,14 +919,22 @@
        "name": "contentSelection",
        "kind": "property",
        "sig": "readonly contentSelection: ContentSelection | null",
-       "summary": "The active identity-bearing caret/range inside a structured attachment.",
+       "summary": "The caret or selection inside a node's own content, such as a table cell, or `null` when there is none.",
        "doc": [
         {
          "type": "paragraph",
          "children": [
           {
            "type": "text",
-           "value": "The active identity-bearing caret/range inside a structured attachment.\nSeparate from "
+           "value": "The caret or selection inside a node's own content, such as a table cell,\nor "
+          },
+          {
+           "type": "inlineCode",
+           "value": "null"
+          },
+          {
+           "type": "text",
+           "value": " when there is none. It is separate from "
           },
           {
            "type": "link",
@@ -913,21 +948,7 @@
           },
           {
            "type": "text",
-           "value": ", so ordinary "
-          },
-          {
-           "type": "link",
-           "url": "ref:DocPoint",
-           "children": [
-            {
-             "type": "inlineCode",
-             "value": "DocPoint"
-            }
-           ]
-          },
-          {
-           "type": "text",
-           "value": " behavior is\nunchanged. This plain-data value can be published directly as presence."
+           "value": ". It is\nplain data, so you can send it to other people as your cursor position."
           }
          ]
         }
@@ -937,14 +958,31 @@
        "name": "activeMarks",
        "kind": "property",
        "sig": "readonly activeMarks: ReadonlySet<Mark[\"type\"]>",
-       "summary": "Inline marks active at the caret / across the selection.",
+       "summary": "Inline marks active at the caret / across the selection, by name.",
        "doc": [
         {
          "type": "paragraph",
          "children": [
           {
            "type": "text",
-           "value": "Inline marks active at the caret / across the selection."
+           "value": "Inline marks active at the caret / across the selection, by name. Use it to\nlight up toolbar buttons such as bold."
+          }
+         ]
+        },
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Where a mark starts or ends, the caret has two stops: with the text before\nit, or with the text after it. Text typed there gets the marks of that\nside, and "
+          },
+          {
+           "type": "inlineCode",
+           "value": "activeMarks"
+          },
+          {
+           "type": "text",
+           "value": " shows them. ArrowLeft and ArrowRight first switch\nsides without moving, then move. After a step, the caret sits with the\ntext it just passed. Any other caret move (a click, Home/End, up/down, a\nword jump) lands on the side before the caret. So typing at the end of a\nbold run stays bold, and typing at its start does not. This works\nthe same for every mark, links included, and inside table cells. Inline\nformulas have their own caret stops and do not follow it."
           }
          ]
         }
@@ -1156,14 +1194,18 @@
        "name": "caretScratchActive",
        "kind": "property",
        "sig": "readonly caretScratchActive: boolean",
-       "summary": "Whether the caret sits in a node/mark's caret-anchored command-entry scratch — e.g. typing a `\\command` inside a math chip, kept literal until confirmed.",
+       "summary": "`true` while the caret is in text that a node or mark is still reading as a command, such as a `\\command` being typed inside a math formula.",
        "doc": [
         {
          "type": "paragraph",
          "children": [
           {
+           "type": "inlineCode",
+           "value": "true"
+          },
+          {
            "type": "text",
-           "value": "Whether the caret sits in a node/mark's caret-anchored command-entry scratch\n— e.g. typing a "
+           "value": " while the caret is in text that a node or mark is still reading as a\ncommand, such as a "
           },
           {
            "type": "inlineCode",
@@ -1171,15 +1213,7 @@
           },
           {
            "type": "text",
-           "value": " inside a math chip, kept literal until confirmed.\nGates host chrome that mirrors that in-progress entry (the inline-math\n"
-          },
-          {
-           "type": "inlineCode",
-           "value": "\\command"
-          },
-          {
-           "type": "text",
-           "value": " palette). Type-agnostic: true whenever any owner armed the slot at\nthe current caret."
+           "value": " being typed inside a math formula. That text\nstays as typed until the command is confirmed. Use it to show a matching\nhelper, like a list of commands."
           }
          ]
         }
@@ -1196,14 +1230,14 @@
      "sigs": [
       "interface TasferEditor<D extends SchemaDefinition = BaseSchemaDefinition> extends EditorApi<D>"
      ],
-     "summary": "The handle returned by `createEditor`: the full `Editor` action surface plus the mount-level conveniences (focus / blur / teardown / portal).",
+     "summary": "The handle `createEditor` returns.",
      "doc": [
       {
        "type": "paragraph",
        "children": [
         {
          "type": "text",
-         "value": "The handle returned by "
+         "value": "The handle "
         },
         {
          "type": "link",
@@ -1217,7 +1251,7 @@
         },
         {
          "type": "text",
-         "value": ": the full "
+         "value": " returns. It has every "
         },
         {
          "type": "link",
@@ -1231,7 +1265,47 @@
         },
         {
          "type": "text",
-         "value": " action\nsurface plus the mount-level conveniences (focus / blur / teardown / portal)."
+         "value": " method,\nplus "
+        },
+        {
+         "type": "inlineCode",
+         "value": "doc"
+        },
+        {
+         "type": "text",
+         "value": ", "
+        },
+        {
+         "type": "inlineCode",
+         "value": "focus"
+        },
+        {
+         "type": "text",
+         "value": ", "
+        },
+        {
+         "type": "inlineCode",
+         "value": "blur"
+        },
+        {
+         "type": "text",
+         "value": ", "
+        },
+        {
+         "type": "inlineCode",
+         "value": "portalContainer"
+        },
+        {
+         "type": "text",
+         "value": " and a full "
+        },
+        {
+         "type": "inlineCode",
+         "value": "destroy"
+        },
+        {
+         "type": "text",
+         "value": "."
         }
        ]
       },
@@ -1240,7 +1314,7 @@
        "children": [
         {
          "type": "text",
-         "value": "Its "
+         "value": "Always call "
         },
         {
          "type": "inlineCode",
@@ -1248,20 +1322,7 @@
         },
         {
          "type": "text",
-         "value": " performs the "
-        },
-        {
-         "type": "emphasis",
-         "children": [
-          {
-           "type": "text",
-           "value": "complete"
-          }
-         ]
-        },
-        {
-         "type": "text",
-         "value": " teardown — canvas layers, global\nlisteners, the portal, and the render loop — so always call it when removing\nthe editor (it supersedes the core "
+         "value": " when you remove the editor. It replaces the plain\n"
         },
         {
          "type": "inlineCode",
@@ -1269,7 +1330,7 @@
         },
         {
          "type": "text",
-         "value": ")."
+         "value": " and also removes the canvas layers, page listeners, the\nportal and the render loop."
         }
        ]
       }
@@ -1279,22 +1340,22 @@
        "name": "doc",
        "kind": "property",
        "sig": "readonly doc: Doc<D>",
-       "summary": "The CRDT document this editor renders and edits — the one passed via `CreateEditorOptions.doc`, or a private one created on mount.",
+       "summary": "The document this editor shows and edits: the `doc` you passed in, or one the editor made for itself.",
        "doc": [
         {
          "type": "paragraph",
          "children": [
           {
            "type": "text",
-           "value": "The CRDT document this editor renders and edits — the one passed via\n"
+           "value": "The document this editor shows and edits: the "
           },
           {
            "type": "inlineCode",
-           "value": "CreateEditorOptions.doc"
+           "value": "doc"
           },
           {
            "type": "text",
-           "value": ", or a private one created on mount. Sync and\npersistence go through it exclusively: "
+           "value": " you passed in, or one\nthe editor made for itself. Sync and saving go only through it:\n"
           },
           {
            "type": "inlineCode",
@@ -1302,7 +1363,7 @@
           },
           {
            "type": "text",
-           "value": " for inbound\nops, "
+           "value": " for incoming edits, "
           },
           {
            "type": "inlineCode",
@@ -1310,7 +1371,7 @@
           },
           {
            "type": "text",
-           "value": " for outbound, "
+           "value": " for\noutgoing ones, and "
           },
           {
            "type": "inlineCode",
@@ -1318,7 +1379,7 @@
           },
           {
            "type": "text",
-           "value": " to persist."
+           "value": " to save. Sync and storage providers\nattach to this doc, not to the editor."
           }
          ]
         }
@@ -1328,14 +1389,18 @@
        "name": "state",
        "kind": "property",
        "sig": "readonly state: EditorStateSnapshot & {\n  readonly doc: Doc<D>;\n}",
-       "summary": "Read-only state snapshot for UI binding: the engine's `EditorStateSnapshot` (selection, active marks, caret block type, undo/redo readiness, focus) plus the attached `doc`.",
+       "summary": "`editor.state` tells you what is selected, which marks are active, the block type at the caret, whether undo and redo are possible, and whether the editor has focus (see `EditorStateSnapshot`).",
        "doc": [
         {
          "type": "paragraph",
          "children": [
           {
+           "type": "inlineCode",
+           "value": "editor.state"
+          },
+          {
            "type": "text",
-           "value": "Read-only state snapshot for UI binding: the engine's\n"
+           "value": " tells you what is selected, which marks are active, the\nblock type at the caret, whether undo and redo are possible, and whether\nthe editor has focus (see "
           },
           {
            "type": "link",
@@ -1349,7 +1414,7 @@
           },
           {
            "type": "text",
-           "value": " (selection, active marks, caret block type,\nundo/redo readiness, focus) plus the attached "
+           "value": "). It also holds the\nattached "
           },
           {
            "type": "inlineCode",
@@ -1357,31 +1422,15 @@
           },
           {
            "type": "text",
-           "value": ". The raw internal\n"
+           "value": ". It is a snapshot: every edit makes a new one. So read\n"
           },
           {
            "type": "inlineCode",
-           "value": "EditorState"
+           "value": "editor.state"
           },
           {
            "type": "text",
-           "value": " is not exposed on this public handle; a first-party host that\nneeds it diffs via the internal "
-          },
-          {
-           "type": "inlineCode",
-           "value": "subscribeRaw"
-          },
-          {
-           "type": "text",
-           "value": " (see\n"
-          },
-          {
-           "type": "inlineCode",
-           "value": "@tasfer/editor/internal"
-          },
-          {
-           "type": "text",
-           "value": ")."
+           "value": " when you need it, and do not keep an old copy."
           }
          ]
         }
@@ -1398,7 +1447,15 @@
          "children": [
           {
            "type": "text",
-           "value": "Container to mount React popovers/overlays into (slash menu, link editor)."
+           "value": "Container to mount React popovers/overlays into (slash menu, link editor).\nIt floats over the canvas. It ignores pointer events, so set\n"
+          },
+          {
+           "type": "inlineCode",
+           "value": "pointer-events: auto"
+          },
+          {
+           "type": "text",
+           "value": " on what you put inside."
           }
          ]
         }
@@ -1408,14 +1465,14 @@
        "name": "focus",
        "kind": "property",
        "sig": "focus: () => void",
-       "summary": "Focus the editor and its hidden input surface so it can receive keyboard and IME input.",
+       "summary": "Gives the editor keyboard focus, so it gets typing and IME input.",
        "doc": [
         {
          "type": "paragraph",
          "children": [
           {
            "type": "text",
-           "value": "Focus the editor and its hidden input surface so it can receive keyboard\nand IME input. Does not create, clear, or reposition the model selection."
+           "value": "Gives the editor keyboard focus, so it gets typing and IME input. If the\neditor is editable and has no caret or selection yet, a caret is placed at\nthe start. An existing caret or selection stays where it is."
           }
          ]
         }
@@ -1425,14 +1482,14 @@
        "name": "blur",
        "kind": "property",
        "sig": "blur: () => void",
-       "summary": "Blur the editor and its hidden input surface, clearing the model selection and dismissing the soft keyboard.",
+       "summary": "Takes focus away from the editor and closes the soft keyboard.",
        "doc": [
         {
          "type": "paragraph",
          "children": [
           {
            "type": "text",
-           "value": "Blur the editor and its hidden input surface, clearing the model selection\nand dismissing the soft keyboard."
+           "value": "Takes focus away from the editor and closes the soft keyboard. A selected\nrange is cleared a moment later, unless focus comes back or a host menu is\nopen."
           }
          ]
         }
@@ -1442,14 +1499,14 @@
        "name": "destroy",
        "kind": "property",
        "sig": "destroy: () => void",
-       "summary": "Full teardown: canvas layers, global listeners, portal, render loop.",
+       "summary": "Removes the editor completely: canvas layers, page listeners, the portal and the render loop.",
        "doc": [
         {
          "type": "paragraph",
          "children": [
           {
            "type": "text",
-           "value": "Full teardown: canvas layers, global listeners, portal, render loop."
+           "value": "Removes the editor completely: canvas layers, page listeners, the portal\nand the render loop. If the editor made its own doc, that doc is destroyed\ntoo. A doc you passed in keeps working."
           }
          ]
         }

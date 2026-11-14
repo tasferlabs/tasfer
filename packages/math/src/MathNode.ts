@@ -74,6 +74,7 @@ import {
   resizeActiveMathTreeMatrix,
   selectActiveMathTree,
 } from "./tree-state";
+import type { MarkRegistry } from "@tasfer/editor";
 import {
   type ActionBus,
   CONTENT_DELETED,
@@ -146,7 +147,6 @@ import {
   rangeDecorationToContentSelection,
   rangeDecorationToSelection,
 } from "@tasfer/editor/rendering/decorations";
-import type { MarkRegistry } from "@tasfer/editor/rendering/marks";
 import type {
   BlockRuntimeState,
   NodeContentCaretCtx,

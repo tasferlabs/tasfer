@@ -273,29 +273,6 @@
      "from": [
       "@tasfer/provider-indexeddb"
      ]
-    },
-    {
-     "name": "COMPACTION_THRESHOLD",
-     "kind": "const",
-     "sigs": [
-      "const COMPACTION_THRESHOLD: 200"
-     ],
-     "summary": "How many saved batches of edits build up before the provider merges them into one entry, so the page loads faster next time.",
-     "doc": [
-      {
-       "type": "paragraph",
-       "children": [
-        {
-         "type": "text",
-         "value": "How many saved batches of edits build up before the provider merges them into\none entry, so the page loads faster next time."
-        }
-       ]
-      }
-     ],
-     "src": "packages/provider-indexeddb/src/provider.ts",
-     "from": [
-      "@tasfer/provider-indexeddb"
-     ]
     }
    ]
   }

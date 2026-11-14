@@ -14,10 +14,9 @@ import {
   resolveStructuredInlineMathRuns,
 } from "./inline-structured";
 import { mathExtension } from "./math-extension";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import { insertText, splitBlock } from "@tasfer/editor/actions/actions";
 import { STRUCTURED_MARK_ANCHOR_CHAR } from "@tasfer/editor/feature-facets";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import { moveCursorToPosition } from "@tasfer/editor/selection";
 import {

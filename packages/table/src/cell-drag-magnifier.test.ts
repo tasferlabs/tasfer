@@ -14,9 +14,9 @@ import {
 } from "./selection";
 import { getTableDocument } from "./structured";
 import { tableExtension } from "./table-extension";
+import { createNodeRegistry } from "@tasfer/editor";
 import { createActionBus } from "@tasfer/editor/action-bus";
 import { dragCaretToPoint } from "@tasfer/editor/events/touchEvents";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import {
   getContentSelectionFromViewport,

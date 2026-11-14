@@ -64,6 +64,7 @@ import {
   mathSourceRangeFromContentSelection,
   mathTreeCaretToContentSelection,
 } from "./tree-selection";
+import { TOGGLE_MARK } from "@tasfer/editor";
 import type { ActionBus } from "@tasfer/editor/action-bus";
 import {
   DELETE_BACKWARD,
@@ -95,7 +96,6 @@ import {
   type ViewportPayload,
 } from "@tasfer/editor/actions/keyboard-actions";
 import { TEXT_CLICK } from "@tasfer/editor/actions/pointer-actions";
-import { TOGGLE_MARK } from "@tasfer/editor/rendering/marks";
 import {
   Mark,
   type MarkReplacement,

@@ -28,9 +28,9 @@ import {
   type TableView,
   tableWidth,
 } from "./structured";
+import type { MarkRegistry } from "@tasfer/editor";
 import type { FontFamily } from "@tasfer/editor/fonts";
 import { getFontMetrics } from "@tasfer/editor/fonts";
-import type { MarkRegistry } from "@tasfer/editor/rendering/marks";
 import type { NodeLayout } from "@tasfer/editor/rendering/nodes/Node";
 import { getTextDirection } from "@tasfer/editor/rtl";
 import type { Char, MarkRange } from "@tasfer/editor/serlization/loadPage";

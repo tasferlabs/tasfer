@@ -10,12 +10,12 @@
  * inline-math chips (the replacement path). If they ever diverge, hit-testing
  * would stop matching `caretRect`, so the caret would land on the wrong glyph.
  */
+import { createDefaultMarkRegistry } from "@tasfer/editor";
 import {
   measureCRDTPositions,
   measureTextUpToIndex,
 } from "@tasfer/editor/fonts";
 import { TextNode, type TextualBlock } from "@tasfer/editor/nodes/TextNode";
-import { createDefaultMarkRegistry } from "@tasfer/editor/rendering/marks";
 import { loadPage } from "@tasfer/editor/serlization/loadPage";
 import { resolveTheme } from "@tasfer/editor/styles";
 import { describe, expect, it } from "vitest";
