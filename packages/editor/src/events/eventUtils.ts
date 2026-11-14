@@ -145,10 +145,11 @@ export function isWithinClickDistance(
   return Math.sqrt(dx * dx + dy * dy) <= threshold;
 }
 /**
- * Helper function to get selection handle positions for touch detection.
- * Returns the positions of both anchor and focus handles.
+ * Where the touch selection handles stand, in DOCUMENT space — the same
+ * geometry they are painted and grabbed at. Covers a flat range and a range
+ * inside a node's content alike.
  */
-function getSelectionHandlePositions(
+export function getTouchSelectionHandlePositions(
   state: EditorState,
   viewport: ViewportState,
   visibility?: VisibleBlockRange,
@@ -221,7 +222,7 @@ export function getSelectionHandleAtPoint(
   viewport: ViewportState,
   visibility?: VisibleBlockRange,
 ): "anchor" | "focus" | null {
-  const handlePositions = getSelectionHandlePositions(
+  const handlePositions = getTouchSelectionHandlePositions(
     state,
     viewport,
     visibility,

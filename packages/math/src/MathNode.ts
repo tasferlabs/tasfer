@@ -191,6 +191,7 @@ import {
 import {
   type ContentSelection,
   isContentSelectionCollapsed,
+  shownContentSelection,
   updateContentSelection,
 } from "@tasfer/editor/structured-selection";
 import { getEditorStyles } from "@tasfer/editor/styles";
@@ -1578,7 +1579,9 @@ export class MathNode extends TextNode<MathBlock> {
       // Selection highlight UNDER the glyphs — the "select-first" construct
       // deletion (and any range selection) draws over the rendered formula via
       // the tex selection rects (x from the math's left edge, y from baseline).
-      const contentSelection = state.document.contentSelection;
+      // While a touch handle crosses a construct, the range stops at its near
+      // edge and the crossing fill covers the rest up to the finger.
+      const contentSelection = shownContentSelection(state);
       const range =
         contentSelection &&
         contentSelection.focus.blockId === c.block.id &&

@@ -628,10 +628,17 @@ export function structuredMarkRunForContentPoint(
  * facing away from `target`, and the focus extends to `target` through the
  * ordinary construct-snapping path. Returns `null` when the nested selection
  * doesn't belong to an inline mark run (e.g. a block-level attachment).
+ *
+ * `fixedEdge` is the run edge the range is known to be fixed at — a touch
+ * handle that came in from a selection of the whole run. It stays the anchor
+ * whichever way the pointer leaves, so a handle dragged past it keeps moving
+ * instead of swapping roles with the other end. Ignored unless it is one of
+ * this run's two edges.
  */
 export function extendSelectionOutOfStructuredMark(
   state: EditorState,
   target: Position,
+  fixedEdge?: Position | null,
 ): EditorState | null {
   const content = state.document.contentSelection;
   if (!content) return null;
@@ -641,9 +648,18 @@ export function extendSelectionOutOfStructuredMark(
     target.blockIndex < run.blockIndex ||
     (target.blockIndex === run.blockIndex &&
       target.textIndex <= run.startIndex);
+  const atRunEdge =
+    !!fixedEdge &&
+    fixedEdge.blockIndex === run.blockIndex &&
+    (fixedEdge.textIndex === run.startIndex ||
+      fixedEdge.textIndex === run.endIndex);
   const anchor: Position = {
     blockIndex: run.blockIndex,
-    textIndex: targetIsBefore ? run.endIndex : run.startIndex,
+    textIndex: atRunEdge
+      ? fixedEdge.textIndex
+      : targetIsBefore
+        ? run.endIndex
+        : run.startIndex,
   };
   let next = updateContentSelection(state, null);
   next = startSelection(updateCursor(next, anchor), anchor);

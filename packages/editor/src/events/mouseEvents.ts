@@ -30,6 +30,7 @@ import {
   getBlockIndexAtPoint,
   getContentPointDocumentCoords,
   getContentSelectionFromViewport,
+  getInlineRunBox,
   getTextPositionFromViewport,
   getWordRangeFromViewport,
   isPointWithinSelectionRects,
@@ -586,6 +587,31 @@ export function handleMouseDown(
     ops,
   };
 }
+
+/**
+ * The top and bottom of the box an inline mark run (a formula) fills on its
+ * text line, in viewport space. Null when the run wraps over more than one
+ * line, so the caller keeps the raw pointer.
+ *
+ * Read off the run's own box, not the flat carets at its edges: those start
+ * at the text's ascent, so on a line a tall formula makes taller (a nested
+ * fraction) they begin below the formula's top row, and clamping to them made
+ * that row unreachable.
+ */
+function structuredMarkLineBand(
+  state: EditorState,
+  run: { blockIndex: number; startIndex: number; endIndex: number },
+  viewport: ViewportState,
+  visibility?: VisibleBlockRange,
+): { top: number; bottom: number } | null {
+  const box = getInlineRunBox(state, run, viewport, undefined, visibility);
+  if (!box) return null;
+  return {
+    top: box.top - viewport.scrollY,
+    bottom: box.bottom - viewport.scrollY,
+  };
+}
+
 /**
  * Extend the in-progress drag selection to the pointer, in whichever selection
  * model owns the drag. An active nested `contentSelection` (a caret or range
@@ -614,21 +640,37 @@ export function extendDragSelectionToPoint(
 ): EditorState | null {
   const contentSelection = state.document.contentSelection;
   if (contentSelection) {
+    const run = structuredMarkRunForContentPoint(
+      state,
+      contentSelection.anchor,
+    );
+    // A pointer that drifts a little above or below the mark's line still
+    // means "on the mark": the line is only one row tall, and a point just
+    // above the first line resolves to the paragraph's start. Without this,
+    // a few pixels of wobble dropped the range and selected back to the start
+    // of the line. Only a clear move — past half a line beyond the mark's
+    // line — leaves it vertically; sideways moves leave on the same line.
+    const band = run
+      ? structuredMarkLineBand(state, run, viewport, visibility)
+      : null;
+    let y = canvasY;
+    if (band) {
+      const slop = (band.bottom - band.top) / 2;
+      if (canvasY > band.top - slop && canvasY < band.bottom + slop) {
+        y = Math.min(Math.max(canvasY, band.top + 1), band.bottom - 1);
+      }
+    }
     // The mark's own hit-test is sticky during a drag (it keeps claiming the
     // pointer for row hysteresis), so the exit test is the FLAT position: once
     // it lands strictly outside the run's projection, the drag has left the
     // chip and crosses into the host text.
     const flatPosition = getTextPositionFromViewport(
       canvasX,
-      canvasY,
+      y,
       state,
       viewport,
       undefined,
       visibility,
-    );
-    const run = structuredMarkRunForContentPoint(
-      state,
-      contentSelection.anchor,
     );
     const pointerLeftMark =
       !!flatPosition &&
@@ -637,11 +679,15 @@ export function extendDragSelectionToPoint(
         flatPosition.textIndex < run.startIndex ||
         flatPosition.textIndex > run.endIndex);
     if (pointerLeftMark) {
-      return extendSelectionOutOfStructuredMark(state, flatPosition);
+      return extendSelectionOutOfStructuredMark(
+        state,
+        flatPosition,
+        state.ui.selectionHandleDrag?.fixedEdge,
+      );
     }
     const hit = getContentSelectionFromViewport(
       canvasX,
-      canvasY,
+      y,
       state,
       viewport,
       pointerType,

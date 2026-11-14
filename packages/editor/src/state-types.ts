@@ -323,6 +323,52 @@ export type DragHandlePosition = "left" | "right" | "bottom" | null;
 export interface SelectionHandleDragState {
   readonly startX: number;
   readonly startY: number;
+  /**
+   * Set while the held handle crosses a piece the range takes whole or not
+   * at all (a root inside a formula). See {@link HandleCrossing}.
+   */
+  readonly crossing?: HandleCrossing | null;
+  /**
+   * The flat edge of an inline mark run (a formula) that stayed fixed when
+   * the held handle moved from a selection of the whole run to a range inside
+   * it. The range inside only knows a point just inside that edge, so when
+   * the handle leaves the run again, the flat selection picks its fixed end
+   * up from here. Without it the fixed end was guessed from the way the
+   * finger left, and a handle that crossed the fixed end swapped the two.
+   */
+  readonly fixedEdge?: Position | null;
+  /**
+   * The fixed end of a range inside an inline mark run (a formula), kept from
+   * the moment the held handle leaves the run. Outside, the selection is flat
+   * and holds the run whole, so the point inside is gone from it; when the
+   * handle comes back over the run, the range inside picks its fixed end up
+   * from here instead of from the run's edge.
+   */
+  readonly fixedInside?: ContentPoint | null;
+}
+
+/**
+ * A handle crossing a piece of a node's content that a range takes whole or
+ * not at all — a √ inside a formula. The range has no stop inside the piece,
+ * so without this the handle and the highlight stand still while the finger
+ * crosses it. While it is set, the handle is drawn at the finger and the
+ * covered part of the piece is filled up to it: faintly before the middle,
+ * fully once the range takes the whole piece.
+ *
+ * `x`, `nearX`, `y` and `height` are in DOCUMENT space.
+ */
+export interface HandleCrossing {
+  /** The finger's x, held inside the piece. */
+  readonly x: number;
+  /** The piece's edge on the fixed end's side, where the fill starts. */
+  readonly nearX: number;
+  /** Top and height of the line the piece sits on. */
+  readonly y: number;
+  readonly height: number;
+  /** Past the middle: the range now takes the whole piece. */
+  readonly counted: boolean;
+  /** The range's end at the near edge: the highlight stops here, the fill takes over. */
+  readonly near: ContentPoint;
 }
 
 /**

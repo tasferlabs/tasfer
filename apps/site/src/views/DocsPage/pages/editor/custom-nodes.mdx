@@ -91,7 +91,7 @@ contentSelectionGeometry(layout, selection, c) {
 }
 ```
 
-With it, phones draw and grab selection handles on a range in your content, dragging a handle moves the range's focus through your `contentSelectionFromPoint`, and a tap or long-press on the band counts as touching the selection. A mouse press on the band can also start a text drag that carries the range out. Without it, a range in your content has no handles, and a tap on it collapses it.
+With it, phones draw and grab selection handles on a range in your content, dragging a handle moves the range's focus through your `contentSelectionFromPoint` (the finger is shifted onto the row the handle hangs from, since the handle's ball sits below or above the text), and a tap or long-press on the band counts as touching the selection. When your content widens a range to take a piece whole (a formula's √), a handle crossing that piece is drawn under the finger with the covered part shaded, and the piece joins the range only once the finger is past its middle. A mouse press on the band can also start a text drag that carries the range out. Without it, a range in your content has no handles, and a tap on it collapses it.
 
 To draw the text itself, use `paintTextRun`: it is the engine's own marked-line renderer, so a node that lays out its own line boxes still resolves marks, batches for Arabic ligatures and paints replacement runs identically to prose.
 
@@ -175,6 +175,8 @@ const nestedHighlight = textContentSelectionRects(text, selection, blockId);
 // The run holding attachment `contentId`, to pass to paintTextRun as `highlighted`.
 const run = replacementRunForContent(text, point.contentId); // { start, end, … }
 ```
+
+On the formula's own row the caret and the highlight fill the text line, like prose. On a row inside it (a numerator, an exponent) they take that row's height, the same for every piece on the row.
 
 For text still being composed through an IME, `foldComposition(chars, offset, preview)` returns the characters with the preview folded in and its `compositionRange`; lay those out (passing the range to `layoutText`) and underline `compositionRects(text)`. Nothing it returns is stored.
 
