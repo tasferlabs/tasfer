@@ -6,8 +6,9 @@
 // text the flat model cannot address — a table cell's own field, say — asks the
 // same question the engine's own prose asks and gets the same answer. Kept
 // separate from `cjk.ts` because Chinese and Japanese are handled specially
-// (each ideograph or kana is its own word, see `isOwnWordChar`); this defines
-// what counts as an ordinary word character.
+// (each ideograph or kana is its own word, see `isOwnWordChar`, and so is each
+// emoji, see `emojiSpanAt`); this defines what counts as an ordinary word
+// character.
 //
 // The character class includes:
 //   \p{L}  letters in every script
@@ -29,7 +30,21 @@
 // views, Chrome and `Intl.Segmenter` all do on double-click. A quote mark at a
 // word's edge ('hello', rock 'n' roll) stays outside it. Use
 // `isWordCharAt` wherever the neighbours are known.
+//
+// A number keeps its dot or comma the same way: "3.14", "1,000", "١٢٫٥" and
+// "١٬٠٠٠" are one word each, because the mark has a digit on both sides
+// (UAX #29 WB11/WB12). A full stop after the number ("3.") is not part of it.
+//
+// An emoji is a word of its own, like a Chinese character: double-click picks
+// the emoji alone, even glued to a word ("hello👋") or to another emoji
+// ("👋🌍"). It is taken whole — a family 👨‍👩‍👧‍👦, a skin tone 👩🏽‍💻, a flag 🇸🇦,
+// ❤️ with its colour selector — never part of one. Where an emoji starts and
+// ends comes from the platform's own character splitting (`Intl.Segmenter`),
+// not from a list kept here. That is what macOS text views and
+// `Intl.Segmenter` words do. A keycap on a digit ("1️⃣") stays part of the
+// number it is written in, as on macOS.
 import { isCJKCharacter } from "./cjk";
+import { emojiClusterAt } from "./code-points";
 
 const WORD_CHAR = /[\p{L}\p{N}\p{M}_\u200c\u200d]/u;
 const LETTER = /\p{L}/u;
@@ -39,9 +54,26 @@ const DIGIT = /\p{N}/u;
 const ATTACHED = /[\p{M}\u200c\u200d]/u;
 // Hangul syllables (U+AC00 to U+D7AF).
 const HANGUL_SYLLABLE = /[\uac00-\ud7af]/;
+// Marks that keep a number whole when a digit sits on both sides: full stop,
+// comma, Arabic comma, Arabic decimal and thousands separators, one-dot leader,
+// fullwidth comma and full stop. Apostrophes are handled with the letters.
+const NUMBER_SEPARATOR = /[.,\u060c\u066b\u066c\u2024\uff0c\uff0e]/;
 
-// A unit that is a word by itself: one Chinese or Japanese character. Null for
-// every other character.
+/**
+ * The emoji covering `text[index]`, whole, or null when there is none there.
+ * A keycap on a digit ("1️⃣") is not counted: it belongs to its number.
+ */
+export function emojiSpanAt(
+  text: string,
+  index: number,
+): { start: number; end: number } | null {
+  const span = emojiClusterAt(text, index);
+  if (!span || WORD_CHAR.test(text[span.start])) return null;
+  return span;
+}
+
+// A unit that is a word by itself: one Chinese or Japanese character, or one
+// whole emoji. Null for every other character.
 function ownWordAt(
   text: string,
   index: number,
@@ -49,7 +81,7 @@ function ownWordAt(
   const char = text[index];
   if (char === undefined) return null;
   if (isOwnWordChar(char)) return { start: index, end: index + 1 };
-  return null;
+  return emojiSpanAt(text, index);
 }
 
 // Chinese and Japanese write without spaces, so each ideograph or kana is its
@@ -69,14 +101,16 @@ export function isWordChar(char: string): boolean {
 
 /**
  * Whether `text[index]` is part of a word, with its neighbours in view: every
- * {@link isWordChar} character, and an apostrophe inside a word ("L'été").
+ * {@link isWordChar} character, an apostrophe inside a word ("L'été"), a dot
+ * or comma inside a number ("3.14"), and any part of an emoji.
  */
 export function isWordCharAt(text: string, index: number): boolean {
   const char = text[index];
   if (char === undefined) return false;
   if (WORD_CHAR.test(char)) return true;
+  if (emojiSpanAt(text, index)) return true;
   const isApostrophe = char === "'" || char === "\u2019";
-  if (!isApostrophe) return false;
+  if (!isApostrophe && !NUMBER_SEPARATOR.test(char)) return false;
   let b = index - 1;
   while (b >= 0 && ATTACHED.test(text[b])) b--;
   const before = text[b];
@@ -84,14 +118,14 @@ export function isWordCharAt(text: string, index: number): boolean {
   if (before === undefined || after === undefined) return false;
   if (isOwnWordChar(before) || isOwnWordChar(after)) return false;
   return (
-    (LETTER.test(before) && LETTER.test(after)) ||
+    (isApostrophe && LETTER.test(before) && LETTER.test(after)) ||
     (DIGIT.test(before) && DIGIT.test(after))
   );
 }
 
 // Helper function to find word boundaries - distinguishes between word characters and non-word characters
 // Uses Unicode property escapes to support all languages
-// A CJK character is a word by itself: one step crosses it whole
+// A CJK character or an emoji is a word by itself: one step crosses it whole
 export function findWordBoundary(
   text: string,
   index: number,
@@ -103,7 +137,7 @@ export function findWordBoundary(
 
     if (i === 0) return 0;
 
-    // A CJK character before the caret is one step
+    // A CJK character or an emoji before the caret is one step
     const own = ownWordAt(text, i - 1);
     if (own) return own.start;
 
@@ -126,7 +160,7 @@ export function findWordBoundary(
 
     if (i === text.length) return text.length;
 
-    // A CJK character after the caret is one step
+    // A CJK character or an emoji after the caret is one step
     const own = ownWordAt(text, i);
     if (own) return own.end;
 
@@ -149,16 +183,16 @@ export function findWordBoundary(
 // Find word boundaries for selection. Word characters are defined by
 // `isWordChar` (letters, numbers, combining marks, joiners, underscore) so
 // vocalized Arabic and joined Persian/Indic words stay whole.
-// A CJK character is a word by itself.
+// A CJK character or an emoji is a word by itself.
 export function findWordStart(text: string, index: number): number {
   let i = index;
 
-  // On a CJK character: that one unit is the word
+  // On a CJK character or an emoji: that one unit is the word
   const own = ownWordAt(text, i);
   if (own) return own.start;
 
   // Move left while we're in word characters (see isWordChar)
-  // Stop at a CJK character
+  // Stop at a CJK character or an emoji
   while (i > 0 && isWordCharAt(text, i - 1) && !ownWordAt(text, i - 1)) {
     i--;
   }
@@ -168,12 +202,12 @@ export function findWordStart(text: string, index: number): number {
 export function findWordEnd(text: string, index: number): number {
   let i = index;
 
-  // On a CJK character: that one unit is the word
+  // On a CJK character or an emoji: that one unit is the word
   const own = ownWordAt(text, i);
   if (own) return own.end;
 
   // Move right while we're in word characters (see isWordChar)
-  // Stop at a CJK character
+  // Stop at a CJK character or an emoji
   while (i < text.length && isWordCharAt(text, i) && !ownWordAt(text, i)) {
     i++;
   }
@@ -193,7 +227,7 @@ export function findWordDeleteBoundaryLeft(
 
   if (i === 0) return 0;
 
-  // A CJK character goes in one press
+  // A CJK character or a whole emoji goes in one press
   const own = ownWordAt(text, i - 1);
   if (own) return own.start;
 
@@ -224,7 +258,7 @@ export function findWordDeleteBoundaryRight(
 
   if (i === text.length) return text.length;
 
-  // A CJK character goes in one press
+  // A CJK character or a whole emoji goes in one press
   const own = ownWordAt(text, i);
   if (own) return own.end;
 
