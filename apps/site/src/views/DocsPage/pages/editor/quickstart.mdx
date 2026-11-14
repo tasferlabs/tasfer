@@ -4,24 +4,24 @@ import { Icons } from "../../docsIcons";
 import { Card, CardGrid, ForFramework, FrameworkTabs, Lede, PropsTable } from "../../docsComponents";
 
 <Lede>
-  Four things make up the whole surface area: the **value** you put in, the
-  **state** you read out, the **commands** you dispatch, and the **events** you
-  listen to. Learn these and you know the editor.
+  The editor has four parts: the **content** you put in, the **state** you
+  read, the **changes** you make, and the **events** you listen to. Learn these
+  and you know the editor.
 </Lede>
 
-<h2 id="value">1 — Value in</h2>
+<h2 id="value">1. Content in</h2>
 
-An editor is created from markdown, a CRDT document, or nothing at all. These three are equivalent starting points:
+You can start an editor from markdown, from a saved document, or empty:
 
 <FrameworkTabs>
 
 ```ts
 import { createEditor, createDoc } from "@tasfer/editor";
 
-// from a markdown string
+// from markdown
 createEditor({ element, markdown: "# Title" });
 
-// from an existing CRDT document (e.g. restored from disk)
+// from a saved document
 const doc = createDoc(savedBytes);
 createEditor({ element, doc });
 
@@ -33,33 +33,33 @@ createEditor({ element });
 import { Editor, useEditor } from "@tasfer/react";
 import { createDoc } from "@tasfer/editor";
 
-// from a markdown string
+// from markdown
 <Editor markdown="# Title" />;
 
-// from an existing CRDT document (e.g. restored from disk)
+// from a saved document
 const doc = createDoc(savedBytes);
 <Editor doc={doc} />;
 
 // empty
 <Editor />;
 
-// …or, for full control over the host element, the hook form:
+// or the hook, when you want to own the element yourself
 const { containerRef, editor } = useEditor({ markdown: "# Title" });
 ```
 
 </FrameworkTabs>
 
-<h2 id="state">2 — State out</h2>
+<h2 id="state">2. State out</h2>
 
 <ForFramework fw="js">
 
-Read what's selected and which marks are active from `editor.state`, an immutable snapshot. It never changes underneath you — each edit produces a new one — so read it fresh where you need it rather than holding on to it.
+`editor.state` tells you what is selected and which marks are active. It is a snapshot: every edit makes a new one. So read `editor.state` when you need it, and do not keep an old copy.
 
 </ForFramework>
 
 <ForFramework fw="react">
 
-Read what's selected and which marks are active with `useEditorState(editor)`. It returns an immutable snapshot and re-renders your component each time that snapshot is replaced, so a toolbar stays in sync without any subscription of your own. It is `null` until the editor exists.
+`useEditorState(editor)` tells you what is selected and which marks are active. Your component re-renders when that changes, so a toolbar stays up to date on its own. It is `null` until the editor exists.
 
 </ForFramework>
 
@@ -68,25 +68,25 @@ Read what's selected and which marks are active with `useEditorState(editor)`. I
 ```ts
 const { selection, activeMarks, doc } = editor.state;
 
-selection.empty;              // true when it's just a caret
-activeMarks.has("strong");    // is bold active at the cursor?
+selection.empty;              // true when nothing is selected
+activeMarks.has("strong");    // is bold on at the caret?
 ```
 
 ```tsx
 import { useEditorState } from "@tasfer/react";
 
-const state = useEditorState(editor);   // null until the editor exists
+const state = useEditorState(editor);
 const active = state?.activeMarks ?? new Set();
 
-state?.selection.empty;   // true when it's just a caret
-active.has("strong");     // is bold active at the cursor?
+state?.selection.empty;   // true when nothing is selected
+active.has("strong");     // is bold on at the caret?
 ```
 
 </FrameworkTabs>
 
-<h2 id="commands">3 — Changes</h2>
+<h2 id="commands">3. Changes</h2>
 
-You never mutate the document directly. You call `change(fn)`, which hands you a `ChangeApi`: each method queues a transactional edit (it applies cleanly to the CRDT or no-ops) and chains. The whole callback commits as **one undoable step**, and `change` returns whether anything changed.
+You do not edit the document directly. You call `change` and make your edits inside it:
 
 ```ts
 editor.change((c) => c.setMark("strong"));
@@ -98,35 +98,33 @@ editor.change((c) =>
 );
 ```
 
+Everything inside one `change` call is one undo step. `change` returns `true` when something changed.
+
 <ForFramework fw="react">
 
-There is no separate React command API: you call `change` on the same handle — the `editor` from `useEditor`, or the one `onReady` gives you — straight out of an `onClick`.
+React has no separate API for this. Call `change` on the `editor` you get from `useEditor` or `onReady`, straight from an `onClick`.
 
 </ForFramework>
 
-The full `ChangeApi`, dry runs (`canChange`), and the action bus are on [Changes & actions](/docs/editor/api-commands).
+Every edit you can make is listed on [Changes & actions](/docs/editor/api-commands).
 
-<h2 id="events">4 — Events</h2>
+<h2 id="events">4. Events</h2>
 
-Subscribe to what the editor does. Every listener returns an unsubscribe function.
-
-<PropsTable cols={["Event", "Fires when", "Payload"]} rows={[
-  { name: "change", type: "ChangeTransaction", desc: "The document changed — typing, paste, undo, or a remote sync. Payload: { isRemote, ops }." },
-  { name: "selectionchange", type: "EditorStateSnapshot", desc: "The caret or selection moved, without a document edit." },
-  { name: "focus / blur", type: "EditorStateSnapshot", desc: "The canvas gained or lost focus." },
+<PropsTable cols={["Event", "Payload", "Fires when"]} rows={[
+  { name: "change", type: "ChangeTransaction", desc: "The document changed: typing, paste, undo, or an edit from another person." },
+  { name: "selectionchange", type: "EditorStateSnapshot", desc: "The caret or selection moved, and the document did not change." },
+  { name: "focus / blur", type: "EditorStateSnapshot", desc: "The editor gained or lost focus." },
 ]} />
-
-Connection status and peer count are **not** editor events — they live on the provider (`provider.on("sync")`), because the provider owns the transport. See [Collaboration](/docs/editor/collaboration).
 
 <ForFramework fw="js">
 
-Call `editor.on` to subscribe, and the function it hands back to stop.
+`editor.on` subscribes, and returns a function that unsubscribes.
 
 </ForFramework>
 
 <ForFramework fw="react">
 
-Subscribe from a `useEffect` keyed on the editor and return `on`'s unsubscribe as the cleanup. For UI that has to re-render on edits, reach for `useEditorState` / `useEditorMarkdown` first — wiring `on` by hand is for side effects, not rendering.
+Subscribe in a `useEffect` and return what `editor.on` gives you as the cleanup. Use this for side effects like saving. To re-render on edits, use `useEditorState` or `useEditorMarkdown`.
 
 </ForFramework>
 
@@ -134,9 +132,10 @@ Subscribe from a `useEffect` keyed on the editor and return `on`'s unsubscribe a
 
 ```ts
 const off = editor.on("change", (tx) => {
-  if (tx.isRemote) return;          // ignore edits that came from a peer
+  if (tx.isRemote) return;          // skip edits from other people
   console.log("local edit:", tx.ops.length, "ops");
 });
+
 // later
 off();
 ```
@@ -144,15 +143,16 @@ off();
 ```tsx
 useEffect(() => {
   if (!editor) return;
-  // editor.on returns its unsubscribe fn — return it to clean up
   return editor.on("change", (tx) => {
-    if (tx.isRemote) return;          // ignore edits that came from a peer
+    if (tx.isRemote) return;          // skip edits from other people
     console.log("local edit:", tx.ops.length, "ops");
   });
 }, [editor]);
 ```
 
 </FrameworkTabs>
+
+Connection status and the number of people online are not editor events. They come from the provider. See [Collaboration](/docs/editor/collaboration).
 
 <h2 id="next">What to read next</h2>
 
@@ -161,12 +161,12 @@ useEffect(() => {
     to="editor/concepts"
     icon={<Icons.Layers />}
     title="Core concepts"
-    desc="Why CRDT-first changes how you think about an editor's document."
+    desc="How the editor stores a document, and why edits from different people never clash."
   />
   <Card
     to="editor/first-editor"
     icon={<Icons.Compass />}
     title="Your first editor"
-    desc="A guided tutorial: toolbar, persistence, and live collaboration."
+    desc="A guided tutorial: toolbar, saving, and live collaboration."
   />
 </CardGrid>

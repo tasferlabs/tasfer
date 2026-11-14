@@ -4,31 +4,40 @@ import { Icons } from "../../docsIcons";
 import { Callout, Card, CardGrid, Lede } from "../../docsComponents";
 
 <Lede>
-  Most editors bolt collaboration on at the end and spend years fighting it.
-  `@tasfer/editor` is built the other way around: **the document is a CRDT from
-  the first keystroke**, and single-player editing is just the case where there
-  is one replica.
+  Most editors add collaboration at the end and then fight it for years.
+  `@tasfer/editor` starts from the other side: **the document is made for many
+  people from the first keystroke**. Editing alone is just the case where you
+  are the only one.
 </Lede>
 
 <h2 id="crdt">The document is a CRDT</h2>
 
-A CRDT — conflict-free replicated data type — is a data structure that any number of replicas can edit independently and merge without a coordinating server and without conflicts. Two people can type in the same paragraph, offline, on opposite sides of the planet, and the merge is deterministic: every replica converges on the same result.
+A CRDT (conflict-free replicated data type) is a way to store a document so that everyone can edit their own copy, and the copies always merge into the same result. No server has to decide who wins.
 
-If that sentence is doing a lot of work, watch Martin Kleppmann's [*CRDTs: The Hard Parts*](https://www.youtube.com/watch?v=PMVBuMK_pJY) — an hour on why merging concurrent edits is harder than it looks, and how these structures solve it. It's the clearest explanation of the model this editor is built on.
+Two people can type in the same paragraph, both offline. When they reconnect, they both see the same text.
 
-In `@tasfer/editor` that structure is not a feature you opt into. It is the canonical representation of your text. Reading markdown out is a *projection* of the CRDT; it is not where your data lives.
+Want the long version? Watch Martin Kleppmann's [*CRDTs: The Hard Parts*](https://www.youtube.com/watch?v=PMVBuMK_pJY). It is one hour on why merging edits is harder than it looks, and it is the best explanation we know.
 
-<Callout kind="note" title="No server in the model.">The CRDT does not know what a server is. Persistence, transport, and presence are all layered on top as optional providers. This is what lets the same editor run fully offline, peer-to-peer, or against your own backend without code changes.</Callout>
+In `@tasfer/editor` this is not a feature you turn on. The CRDT is the document. Markdown is something you read out of it, not the place your data lives.
+
+<Callout kind="note" title="No server needed.">The document does not know what a server is. Saving, syncing and showing who is online are optional providers you add on top. That is why the same editor works offline, peer-to-peer, or with your own backend.</Callout>
 
 <h2 id="canvas">Why a canvas, not contenteditable</h2>
 
-Browser `contenteditable` is a thirty-year-old API that every editor team eventually wrestles to the ground. Tasfer renders the document to a canvas instead and owns every pixel: layout, carets, selection, bidirectional text, and composition. That buys three things:
+`contenteditable` is the browser's built-in way to make text editable. It is thirty years old, and every editor team ends up fighting it.
 
-- **Deterministic layout.** The same document renders identically across browsers — no contenteditable quirks, no `<div>`-vs-`<p>` surprises on Enter.
-- **Real selection control.** The caret, the selection highlight, and remote peers' carets are geometry the engine computes and paints — not DOM ranges bent into shape. Selection follows the document's own layout rules (bidi runs, atomic blocks) instead of the browser's.
-- **Performance at length.** Only visible lines are shaped and painted; a 200-page document scrolls like an empty one.
+Tasfer draws the document on a canvas instead and does everything itself: layout, the caret, selection, right-to-left text, and typing with an IME. You get three things:
 
-The DOM is demoted, not removed. A visually hidden `contenteditable` element sits behind the canvas as the editor's focus target and the single source of native keyboard, IME, and clipboard events, and — unless you set `accessibilityTree: false` — a second hidden tree mirrors the document's semantic structure (headings, lists, code, marks) for screen readers. Neither is a rendering fallback: no text you type is ever laid out by the browser.
+- **The same layout everywhere.** The editor decides where each line goes, not the browser. No surprises like Enter making a `<div>` in one browser and a `<p>` in another.
+- **Full control of selection.** The caret, the highlight and other people's carets are shapes the editor draws itself. Selection follows the document's own rules, for example around right-to-left text and blocks that select as a whole.
+- **Fast on long documents.** Only the lines on screen are drawn, so a long document scrolls like a short one.
+
+The DOM is still there, just hidden:
+
+- A hidden `contenteditable` sits behind the canvas. It takes the focus and receives the keyboard, IME and clipboard.
+- A second hidden tree copies the document's structure (headings, lists, code, marks) for screen readers.
+
+Neither one draws text. The browser never lays out what you type.
 
 <h2 id="next">What to read next</h2>
 
@@ -37,12 +46,12 @@ The DOM is demoted, not removed. A visually hidden `contenteditable` element sit
     to="editor/first-editor"
     icon={<Icons.Compass />}
     title="Your first editor"
-    desc="A guided tutorial: toolbar, persistence, and live collaboration."
+    desc="A guided tutorial: toolbar, saving, and live collaboration."
   />
   <Card
     to="editor/api-commands"
     icon={<Icons.Terminal />}
     title="Changes & actions"
-    desc="The change API and the action bus — how edits and named behaviour are dispatched."
+    desc="How to edit the document from code, and how named actions work."
   />
 </CardGrid>

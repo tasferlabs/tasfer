@@ -1,18 +1,17 @@
 {/* @tasfer/editor docs — Theming the canvas. */}
 
 import { Icons } from "../../docsIcons";
-import { Callout, Card, CardGrid, Lede, PropsTable } from "../../docsComponents";
+import { Card, CardGrid, Lede, PropsTable } from "../../docsComponents";
 
 <Lede>
-  Because the editor paints its own pixels, theming is done through a plain
-  `EditorTheme` object — semantic color **tokens**, a deep-partial **styles**
-  override, and a **fonts** registry — not CSS selectors into a DOM you don't
-  control.
+  The editor draws its own pixels, so you cannot style it with CSS selectors.
+  You give it a plain `theme` object instead: **tokens** for colors, **styles**
+  for sizes and spacing, and **fonts**.
 </Lede>
 
 <h2 id="tokens">The theme object</h2>
 
-Pass a `theme` to `createEditor`. Colors live under `tokens`; every field is optional and merges over the built-in `DEFAULT_TOKENS` palette, so you only set what you change.
+Pass `theme` to `createEditor`. Colors go under `tokens`. Every token is optional, so set only the ones you want to change.
 
 ```ts
 import { createEditor } from "@tasfer/editor";
@@ -20,7 +19,7 @@ import { createEditor } from "@tasfer/editor";
 const editor = createEditor({
   element,
   theme: {
-    // Semantic color tokens — merged over DEFAULT_TOKENS.
+    // colors; anything you leave out keeps its default
     tokens: {
       text: "#1c1c1f",
       heading: "#09090b",
@@ -29,21 +28,25 @@ const editor = createEditor({
       link: "#1db984",
       codeBackground: "#f4f4f5",
     },
-    // The selected font family key + the CSS stacks it can resolve to.
-    // (The host is responsible for actually loading the faces.)
+    // which font to use, and the CSS font stack behind each name.
+    // Loading the font files is your job.
     fontFamily: "serif",
     fonts: { families: { serif: '"Libre Baskerville", Georgia, serif' } },
   },
 });
 ```
 
-<Callout kind="note" title="tokens vs styles.">`tokens` are the semantic colors (text, heading, cursor, selection, link, `codeBackground`, …). For finer control — per-block font sizes, canvas padding, scrollbar geometry — pass a deep-partial `styles` object that overrides any individual leaf of the resolved style tree. `resolveTheme`, `mergeTheme`, and `DEFAULT_TOKENS` are exported for hosts that want to precompute or inspect the result.</Callout>
+**Tokens or styles?** `tokens` are the colors: text, heading, cursor, selection, link, and so on. `styles` is for everything finer, like the font size of one block type, the padding, or the scrollbar. You can override any single value in it.
 
-<Callout kind="note" title="Theme is per-type; blocks can override per-instance.">The `styles.blocks` here is the static, document-wide layer — it styles every block of a type the same way. Its keys are camelCase (`bulletList`, `numberedList`, `todoList`), unlike the underscored block type names. To style one individual block, set its own `style` bag through `setBlock({ style: { … } })` (see [Commands](/docs/editor/api-commands)). The cascade is: node default ◁ this theme ◁ the block's own `style`.</Callout>
+**One block, not all of them.** A theme styles every block of a type the same way. To style one block, give it its own `style` with `setBlock({ style: { … } })` (see [Changes & actions](/docs/editor/api-commands)). The block's own style wins over the theme, and the theme wins over the defaults.
+
+Keys under `styles.blocks` are camelCase (`bulletList`, `numberedList`, `todoList`), while block type names use underscores (`bullet_list`).
+
+`DEFAULT_TOKENS`, `resolveTheme` and `mergeTheme` are exported if you want to read or build a theme yourself.
 
 <h2 id="live">Updating the theme live</h2>
 
-`editor.setTheme(patch)` deep-merges a patch onto the current theme and repaints — the one path for a runtime theme change, e.g. a dark-mode toggle:
+`editor.setTheme(patch)` merges your patch into the current theme and repaints. Use it for a dark-mode toggle:
 
 ```ts
 editor.setTheme({
@@ -53,7 +56,7 @@ editor.setTheme({
 
 <h2 id="css-vars">Driving it from CSS variables</h2>
 
-The engine **never reads the DOM** — there is no `"inherit"` token. To follow CSS custom properties, the host reads them and forwards the values as `tokens`: once at mount, and again whenever your theme class flips.
+The editor **never reads the DOM**, so it cannot pick up CSS variables by itself, and there is no `"inherit"` value. Read the variables yourself and pass them as `tokens`: once on mount, and again when your theme class changes.
 
 ```ts
 function tokensFromCss(el: HTMLElement) {
@@ -67,24 +70,24 @@ function tokensFromCss(el: HTMLElement) {
 
 const editor = createEditor({ element, theme: { tokens: tokensFromCss(element) } });
 
-// Re-read on a dark-mode class flip on <html> and push the new tokens in.
+// dark mode flips a class on <html>, so read the variables again
 new MutationObserver(() => editor.setTheme({ tokens: tokensFromCss(element) }))
   .observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
 ```
 
-<Callout kind="note" title="Matching the Tasfer look.">Tasfer's host feeds its `--editor-*` design tokens straight into `tokens` exactly this way (the tokens that mirror the surrounding UI — `background`, `foreground`, `primary` — read the app's own shadcn variables instead), so dropping the editor into a Tasfer surface needs no palette of its own — it gets the same variables the rest of the UI uses.</Callout>
+The Tasfer app themes its own editor the same way: it reads its CSS variables and passes them in as tokens.
 
-<h2 id="metrics">Metrics live in `styles`</h2>
+<h2 id="metrics">Sizes and spacing</h2>
 
-Sizes and spacing aren't tokens — they're leaves of the `styles` tree, each overridable per instance:
+Sizes and spacing are not tokens. They live in `styles`, and you can override each one:
 
 <PropsTable cols={["Path", "Default", "Description"]} rows={[
-  { name: "styles.blocks.paragraph.fontSize", type: "16", desc: "Base paragraph size in px. Each heading level carries its own fontSize (30 / 24 / 20 — a 1.875/1.5/1.25em prose ratio scale)." },
-  { name: "styles.blocks.paragraph.lineHeight", type: "1.5", desc: "Unitless line-height multiple for the block. Body blocks default to 1.5; headings to a tighter 1.3." },
-  { name: "styles.blocks.heading1.paddingTop", type: "32", desc: "Space above a block's first line in px (≈1em of the heading's own size; 26/20 for heading2/3, 0 for body blocks). Prose rhythm: more space above a heading than below it." },
-  { name: "styles.blocks.code.marginTop / marginBottom", type: "8 / 16", desc: "Outer margins separating a card block's filled surface from adjacent prose (same fields on quote and math). Zeroed on an edge shared with another card, so stacked cards keep tiling flush." },
-  { name: "styles.canvas.paddingTop / paddingBottom", type: "4 / 80", desc: "Vertical canvas padding in px." },
-  { name: "styles.canvas.paddingLeft / paddingRight", type: "40 / 40", desc: "Horizontal canvas padding. The text column is the container width minus these — there is no fixed max-width token." },
+  { name: "styles.blocks.paragraph.fontSize", type: "16", desc: "Paragraph text size in px. Headings have their own: 30, 24 and 20." },
+  { name: "styles.blocks.paragraph.lineHeight", type: "1.5", desc: "Line height as a multiple of the font size. Headings use 1.3." },
+  { name: "styles.blocks.heading1.paddingTop", type: "32", desc: "Space above the block in px. 26 and 20 for heading 2 and 3, 0 for body text." },
+  { name: "styles.blocks.code.marginTop / marginBottom", type: "8 / 16", desc: "Space around a block with a filled background. Quote and math have the same fields. Two such blocks in a row get no gap between them." },
+  { name: "styles.canvas.paddingTop / paddingBottom", type: "4 / 80", desc: "Space above and below the document in px." },
+  { name: "styles.canvas.paddingLeft / paddingRight", type: "40 / 40", desc: "Space left and right of the document in px. 16 on screens narrower than 768px, unless you set it. The text fills the rest of the container; there is no max-width setting." },
 ]} />
 
 ```ts
@@ -101,17 +104,17 @@ createEditor({
 
 <h2 id="caret-selection">Caret, selection & placeholder</h2>
 
-The caret, the selection highlight, remote collaborators' carets, and empty-block placeholders are all leaves of `styles` — tune them per instance without touching the DOM.
+These live in `styles` too:
 
 <PropsTable cols={["Path", "Default", "Description"]} rows={[
-  { name: "styles.cursor.width / blinkInterval", type: "2 / 530", desc: "Local caret bar width (px) and blink period (ms). landingDuration (190ms) animates the caret 'landing' morph — set 0 to disable it." },
-  { name: "styles.selection.cornerRadius", type: "0", desc: "Corner radius (px) of the selection-highlight rects. 0 keeps sharp rectangles; each line rect rounds independently. opacity (0.2) is the fill translucency." },
-  { name: "styles.selection.remoteOpacity", type: "0.2", desc: "Fill opacity for a remote peer's selection when its decoration sets none. Applied consistently by text and image / divider (atomic) block selections." },
-  { name: "styles.remoteCursor.caretWidth", type: "2", desc: "Width (px) of a peer's caret bar, independent of the local cursor. labelGap (2px) is the gap above the caret to the name flag." },
-  { name: "styles.placeholder.showUnfocused", type: "false", desc: "When true, every empty block shows its placeholder — not only the block holding the caret." },
+  { name: "styles.cursor.width / blinkInterval", type: "2 / 530", desc: "Caret width in px and blink time in ms. landingDuration (190 ms) is the small animation when the caret lands; set it to 0 to turn it off." },
+  { name: "styles.selection.cornerRadius", type: "0", desc: "Corner radius of the selection highlight in px. opacity (0.2) is how see-through the fill is." },
+  { name: "styles.selection.remoteOpacity", type: "0.2", desc: "Fill opacity of another person's selection, when their decoration does not set one." },
+  { name: "styles.remoteCursor.caretWidth", type: "2", desc: "Width of another person's caret in px. labelGap (2) is the gap between the caret and the name label." },
+  { name: "styles.placeholder.showUnfocused", type: "false", desc: "When true, every empty block shows its placeholder, not only the one with the caret." },
 ]} />
 
-Placeholder appearance is per block type: each block's resolved text style carries an optional `placeholder` override — `color` (defaults to `styles.placeholder.color`), `fontScale` (a multiple of the block's own font size), and `fontWeight`.
+The placeholder can look different per block type. Each block's style takes a `placeholder` with `color`, `fontScale` (a multiple of the block's font size) and `fontWeight`.
 
 ```ts
 editor.setTheme({
@@ -119,7 +122,7 @@ editor.setTheme({
     selection: { cornerRadius: 4 },
     blocks: {
       heading1: { placeholder: { color: "#b9b9c2" } },
-      quote: { placeholder: { fontScale: 0.8 } }, // a smaller ghost hint
+      quote: { placeholder: { fontScale: 0.8 } }, // a smaller hint
     },
   },
 });
@@ -132,7 +135,7 @@ editor.setTheme({
     to="editor/custom-nodes"
     icon={<Icons.Puzzle />}
     title="Custom nodes & marks"
-    desc="Teach the schema new block types — callouts, mentions, embeds."
+    desc="Add your own blocks and inline styles: callouts, mentions, embeds."
   />
   <Card
     to="editor/api-editor"

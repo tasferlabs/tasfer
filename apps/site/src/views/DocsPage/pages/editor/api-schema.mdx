@@ -57,16 +57,16 @@ import { Card, CardGrid, Lede, PropsTable } from "../../docsComponents";
 Marks are inline formatting carried on runs of text. The CRDT names are `strong`/`emphasis`/`strike` (not bold/italic/strikethrough). The togglable ones flip across the selection with `change((c) => c.setMark(name))`; `link` carries data, so it is applied with an explicit range and attrs — `setMark(name, { attrs, range })` — instead.
 
 <PropsTable
-  cols={["Mark", "Markdown", "Togglable", "Notes"]}
+  cols={["Mark", "Markdown", "Notes"]}
   rows={[
-    { name: "strong", type: "**…**", desc: "Yes · bold." },
-    { name: "emphasis", type: "*…*", desc: "Yes · italic." },
-    { name: "strike", type: "~~…~~", desc: "Yes · strikethrough." },
-    { name: "code", type: "`…`", desc: "Yes · inline code span." },
+    { name: "strong", type: "**…**", desc: "Togglable · bold." },
+    { name: "emphasis", type: "*…*", desc: "Togglable · italic." },
+    { name: "strike", type: "~~…~~", desc: "Togglable · strikethrough." },
+    { name: "code", type: "`…`", desc: "Togglable · inline code span." },
     {
       name: "link",
       type: "[text](url)",
-      desc: "No — carries a url on attrs; applied via setMark(name, { attrs, range }).",
+      desc: "Not togglable — carries a url on attrs; applied via setMark(name, { attrs, range }).",
     },
   ]}
 />
@@ -605,6 +605,14 @@ formats to the characters your insert path adds next — that is what makes
 "Ctrl+B, then type" come out bold inside a cell. Marks active on a nested
 selection are reported by `editor.state.activeMarks` for free.
 
+A structured mark (inline math, say) stores no text in the block's characters.
+It sits on one placeholder character, and its attachment holds the content. The
+same mark can sit in a text field of a structured document (in its
+`markFields`) and point at another attachment on the same block. That is how a
+table cell holds an inline formula. When the engine copies a block (paste,
+snapshot restore) it re-addresses those references and carries the attachments
+onto the clipboard, so a custom node with rich-text fields needs no extra code.
+
 <h3 id="field-as-paragraph">Editing a field with the paragraph's code</h3>
 
 You rarely have to write those handlers yourself. `runFieldAsParagraph` runs
@@ -697,7 +705,8 @@ host allows. The action's text ops are then re-addressed to the field as
 field is stored changes. The attachments the field's structured marks point at
 are lent to the paragraph along with it, and an edit the action makes inside
 one (typing in a formula's tree) is written to your block's copy. When the
-action creates a structured mark (a typed `$x$` formula), the new attachment it
+action creates a structured mark (a typed `$x$` formula, or `setMark("math")`
+over a selection), the new attachment it
 points at is written onto your block, beside the field's document, before the
 mark itself. The
 result is `applied` with `edited` and `moved` flags, which tell you whether the
@@ -1194,6 +1203,126 @@ or bundle in a `FeatureExtension` installed with `use`. See [Custom nodes &
 marks](/docs/editor/custom-nodes) for the class-first authoring style,
 node-owned strings, overlay slots, and how the data round-trips through
 Markdown.
+
+<h2 id="text-helpers">Text inside a custom node</h2>
+
+A node that lays out its own text (a table cell, a caption) can use the same
+text engine paragraphs use. Marks, Arabic, formulas, carets and highlights then
+behave exactly as they do in prose.
+
+<h3 id="paint-text-run">Draw: paintTextRun</h3>
+
+Draws one line of marked text. It resolves marks, batches for Arabic ligatures
+and paints replacement runs (an inline formula) the way a paragraph does.
+
+```ts
+import { paintTextRun } from "@tasfer/editor";
+
+paintTextRun({
+  ctx,
+  chars, // the field's document-order characters
+  formats, // its mark ranges
+  startIndex,
+  endIndex, // the visible range of this line
+  x, // the run's start edge — its RIGHT edge in RTL text
+  baselineY,
+  textStyle,
+  fontFamily,
+  styles,
+  marks,
+  isRTL,
+  requestRedraw,
+  attachments, // optional: your block's structuredContent, so an inline formula paints as itself
+  slices, // optional: layout.lineSlices[line], for a formula that wraps across lines
+  highlighted, // optional: { startIndex, endIndex } of a formula to draw lit (hovered, or holding the caret)
+});
+```
+
+<h3 id="layout-text">Measure: layoutText</h3>
+
+`layoutText` wraps and measures one run of text once. The other functions read
+that layout, so the caret, a click and a highlight all land on the glyphs
+`paintTextRun` draws. That holds for mixed Arabic and English lines, and a
+click never lands between the two halves of an emoji. Coordinates are relative
+to the text box: add your own origin.
+
+```ts
+import {
+  layoutText,
+  lineEdges,
+  textCaretRect,
+  textOffsetAtPoint,
+  textRangeRects,
+} from "@tasfer/editor";
+
+const text = layoutText({
+  chars,
+  formats,
+  width, // the text area lines wrap to
+  textStyle,
+  fontFamily,
+  fonts: styles.fonts,
+  direction, // "ltr" | "rtl"
+  align, // optional: "left" | "center" | "right"; null hugs the reading start
+  marks,
+  structuredContent, // optional: your block's attachments, so an inline formula measures as itself
+});
+
+const caret = textCaretRect(text, offset); // { x, y, height }
+const offsetAtClick = textOffsetAtPoint(text, local.x - boxX, local.y - boxY);
+const highlight = textRangeRects(text, from, to); // one rect per line or bidi run
+
+for (const line of text.lines) {
+  const { left, right } = lineEdges(text, line); // after alignment
+  // paintTextRun({ …, x: boxX + (isRTL ? right : left), … })
+}
+```
+
+<h3 id="formula-caret">A caret inside a formula</h3>
+
+A formula in that text can hold the caret itself (a fraction's numerator, a
+matrix cell). The caret is then a nested selection in the formula's attachment.
+These place it, highlight a range in it and resolve a click into it, with the
+same code a paragraph's formula uses and the same box-relative coordinates:
+
+```ts
+import {
+  replacementRunForContent,
+  textContentCaretRect,
+  textContentSelectionFromPoint,
+  textContentSelectionRects,
+} from "@tasfer/editor";
+
+// A click on the formula lands inside it; null anywhere else, so fall back to
+// textOffsetAtPoint.
+const inside = textContentSelectionFromPoint(
+  text,
+  x - boxX,
+  y - boxY,
+  blockId,
+  {
+    pointerType, // "mouse" | "touch"
+  },
+);
+
+const point = state.document.contentSelection.focus;
+const nestedCaret = textContentCaretRect(text, point, blockId); // { x, y, height } | null
+const nestedHighlight = textContentSelectionRects(text, selection, blockId);
+
+// The run holding attachment `contentId`, to pass to paintTextRun as `highlighted`.
+const run = replacementRunForContent(text, point.contentId); // { start, end, … }
+```
+
+On the formula's own row the caret and the highlight fill the text line, like
+prose. On a row inside it (a numerator, an exponent) they take that row's
+height, the same for every piece on the row.
+
+<h3 id="composition">Text being composed (IME)</h3>
+
+`foldComposition(chars, offset, preview)` returns the characters with the IME
+preview folded in, plus its `compositionRange`. Lay those out (pass the range
+to `layoutText`) and underline `compositionRects(text)`. Nothing it returns is
+stored.
 
 <h2 id="next">What to read next</h2>
 
