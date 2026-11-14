@@ -16,6 +16,8 @@ export function fontFamily(variant: FontVariant): string {
 /**
  * Every font face the engine can draw with. {@link loadFonts} loads all of
  * them unless you pass a shorter `variants` list.
+ *
+ * @group Rendering
  */
 export const ALL_VARIANTS: FontVariant[] = [
   "Main-Regular",
@@ -39,6 +41,8 @@ export const ALL_VARIANTS: FontVariant[] = [
 /**
  * Options for {@link loadFonts}: where the font files are served from and
  * which faces to load. You must give either `baseUrl` or `urlFor`.
+ *
+ * @group Rendering
  */
 export interface LoadFontsOptions {
   /**
@@ -66,6 +70,8 @@ export interface LoadFontsOptions {
  * ready. Formulas painted before that will not use the math fonts, so redraw
  * when it resolves. Rejects if you give neither `baseUrl` nor `urlFor`, or if a
  * face fails to load.
+ *
+ * @group Rendering
  */
 export async function loadFonts(opts: LoadFontsOptions): Promise<void> {
   const set = opts.fontSet ?? document.fonts;

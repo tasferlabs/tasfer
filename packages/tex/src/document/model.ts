@@ -8,18 +8,28 @@
  * supply the identity allocator owned by their document/CRDT.
  */
 
-/** Stable identity of an item in a {@link MathDocument}. */
+/**
+ * Stable identity of an item in a {@link MathDocument}.
+ *
+ * @group Document
+ */
 export type MathItemId = string;
 
 /**
  * A whole formula, in the form a host saves. `version` is always `1` for now.
+ *
+ * @group Document
  */
 export interface MathDocument {
   readonly version: 1;
   readonly root: MathRoot;
 }
 
-/** The top of a formula. Its `body` row holds the formula's content. */
+/**
+ * The top of a formula. Its `body` row holds the formula's content.
+ *
+ * @group Document
+ */
 export interface MathRoot {
   readonly type: "root";
   readonly id: MathItemId;
@@ -29,6 +39,8 @@ export interface MathRoot {
 /**
  * An ordered list of formula pieces, like a fraction's top or a superscript. A
  * row can be empty, and the caret can still go in it.
+ *
+ * @group Document
  */
 export interface MathRow {
   readonly type: "row";
@@ -36,14 +48,22 @@ export interface MathRow {
   readonly children: readonly MathNode[];
 }
 
-/** Plain math-mode source that can be edited as a character run. */
+/**
+ * Plain math-mode source that can be edited as a character run.
+ *
+ * @group Document
+ */
 export interface MathRawText {
   readonly type: "raw-text";
   readonly id: MathItemId;
   readonly text: string;
 }
 
-/** The spacing class carried by a named or otherwise atomic symbol. */
+/**
+ * The spacing class carried by a named or otherwise atomic symbol.
+ *
+ * @group Document
+ */
 export type MathSymbolClass =
   | "mathord"
   | "textord"
@@ -60,6 +80,8 @@ export type MathSymbolClass =
 /**
  * An atomic symbol. `command` excludes the leading backslash; when absent,
  * `value` is printed literally.
+ *
+ * @group Document
  */
 export interface MathSymbol {
   readonly type: "symbol";
@@ -69,7 +91,11 @@ export interface MathSymbol {
   readonly symbolClass: MathSymbolClass;
 }
 
-/** A generalized fraction with persistent numerator and denominator slots. */
+/**
+ * A generalized fraction with persistent numerator and denominator slots.
+ *
+ * @group Document
+ */
 export interface MathFraction {
   readonly type: "fraction";
   readonly id: MathItemId;
@@ -82,7 +108,11 @@ export interface MathFraction {
   readonly rightDelimiter: string | null;
 }
 
-/** A square root, optionally with an index slot. */
+/**
+ * A square root, optionally with an index slot.
+ *
+ * @group Document
+ */
 export interface MathRadical {
   readonly type: "radical";
   readonly id: MathItemId;
@@ -90,7 +120,11 @@ export interface MathRadical {
   readonly radicand: MathRow;
 }
 
-/** A base with persistent optional super- and subscript slots. */
+/**
+ * A base with persistent optional super- and subscript slots.
+ *
+ * @group Document
+ */
 export interface MathScripts {
   readonly type: "scripts";
   readonly id: MathItemId;
@@ -137,7 +171,11 @@ export interface MathStack {
   readonly base: MathRow;
 }
 
-/** A body surrounded by automatically sized delimiters. */
+/**
+ * A body surrounded by automatically sized delimiters.
+ *
+ * @group Document
+ */
 export interface MathDelimited {
   readonly type: "delimited";
   readonly id: MathItemId;
@@ -146,7 +184,11 @@ export interface MathDelimited {
   readonly body: MathRow;
 }
 
-/** One row of a matrix, with its own id. */
+/**
+ * One row of a matrix, with its own id.
+ *
+ * @group Document
+ */
 export interface MathMatrixRow {
   readonly type: "matrix-row";
   readonly id: MathItemId;
@@ -156,6 +198,8 @@ export interface MathMatrixRow {
 /**
  * One matrix cell, with its own id. Its `body` row is always there, even when
  * the cell is empty.
+ *
+ * @group Document
  */
 export interface MathMatrixCell {
   readonly type: "matrix-cell";
@@ -163,7 +207,11 @@ export interface MathMatrixCell {
   readonly body: MathRow;
 }
 
-/** A matrix/array environment with structural rows and cells. */
+/**
+ * A matrix/array environment with structural rows and cells.
+ *
+ * @group Document
+ */
 export interface MathMatrix {
   readonly type: "matrix";
   readonly id: MathItemId;
@@ -174,6 +222,8 @@ export interface MathMatrix {
 
 /**
  * The styles a `\text`-family command can have, such as `\textbf` for `"bold"`.
+ *
+ * @group Document
  */
 export type MathTextVariant =
   | "normal"
@@ -185,6 +235,8 @@ export type MathTextVariant =
 /**
  * Plain words inside a formula, written with `\text`, `\textbf` and similar
  * commands. `variant` says which one.
+ *
+ * @group Document
  */
 export interface MathText {
   readonly type: "text";
@@ -193,7 +245,11 @@ export interface MathText {
   readonly variant: MathTextVariant;
 }
 
-/** A named math operator, optionally taking display-style limits. */
+/**
+ * A named math operator, optionally taking display-style limits.
+ *
+ * @group Document
+ */
 export interface MathOperator {
   readonly type: "operator";
   readonly id: MathItemId;
@@ -206,6 +262,8 @@ export interface MathOperator {
  * nothing is lost. A later version that understands it can turn it into real
  * nodes. Edit it as one piece. Never delete part of `latex`, or you can leave
  * half a command behind.
+ *
+ * @group Document
  */
 export interface MathRawLatex {
   readonly type: "raw-latex";
@@ -218,6 +276,8 @@ export interface MathRawLatex {
  * square root, a matrix, and so on. Check `type` to tell which one it is. The
  * math package (`@tasfer/math`) also exports this type as `MathDocumentNode`,
  * to keep it apart from its own `MathNode` block class.
+ *
+ * @group Document
  */
 export type MathNode =
   | MathRawText

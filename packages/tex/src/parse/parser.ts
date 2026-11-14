@@ -1263,6 +1263,8 @@ function isCommandNamePrefix(name: string): boolean {
  * `char` still makes or could grow into one (`\in` plus `f` gives `\inf`, on
  * the way to `\infty`). Also returns false when `char` is not a letter, or when
  * no command sits right before `offset`.
+ *
+ * @group Source editing
  */
 export function needsCommandSeparator(
   latex: string,
@@ -1294,6 +1296,8 @@ export function needsCommandSeparator(
  * The check reads the whole word, letters after the caret too, so a caret in
  * `\fr|ac` still sees a finished `\frac`. A word that can still grow (`\in` on
  * its way to `\int`) counts as unfinished.
+ *
+ * @group Source editing
  */
 export function pendingCommandRange(
   latex: string,

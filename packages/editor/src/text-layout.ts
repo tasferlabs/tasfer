@@ -61,6 +61,8 @@ export type TextMeasureStyle = Pick<
 /**
  * Horizontal alignment of each line inside the box. `null` is the reading
  * direction's leading edge (left in LTR, right in RTL) — what prose uses.
+ *
+ * @group Text
  */
 export type TextAlign = "left" | "center" | "right" | null;
 
@@ -68,6 +70,8 @@ export type TextAlign = "left" | "center" | "right" | null;
  * Everything {@link layoutText} needs to lay out one box of text: the
  * characters and their marks, the width to wrap to, the text style and fonts,
  * and the reading direction.
+ *
+ * @group Text
  */
 export interface TextLayoutInput {
   /** Document-order characters, tombstones included. */
@@ -105,7 +109,11 @@ export interface LineSlices {
   readonly anchored: ReadonlyMap<number, ReplacementSlice>;
 }
 
-/** One laid-out text box. Line boxes are relative to the box (x is always 0). */
+/**
+ * One laid-out text box. Line boxes are relative to the box (x is always 0).
+ *
+ * @group Text
+ */
 export interface TextLayout {
   readonly lines: readonly RenderedLine[];
   /** Sum of the line heights. */
@@ -147,6 +155,8 @@ export interface TextLayout {
 /**
  * A rectangle inside a laid-out text box, for example one piece of a selection
  * highlight. Returned by {@link textRangeRects} and the other rect helpers.
+ *
+ * @group Text
  */
 export interface TextRect {
   x: number;
@@ -454,6 +464,7 @@ function textAscentOf(layout: TextLayout): number {
  *   const x = boxX + (text.isRTL ? right : left); // paintTextRun's `x`
  * }
  * ```
+ * @group Text
  */
 // Aligning a negative slack would push the first characters out of view, so an
 // overflowing line ignores align.
@@ -507,6 +518,7 @@ function pureBidi(layout: TextLayout, line: RenderedLine) {
  * const caret = textCaretRect(text, offset); // { x, y, height }
  * const offsetAtClick = textOffsetAtPoint(text, x - boxX, y - boxY);
  * ```
+ * @group Text
  */
 export function layoutText(input: TextLayoutInput): TextLayout {
   const {
@@ -678,6 +690,8 @@ export function layoutText(input: TextLayoutInput): TextLayout {
  * An offset where a line soft-wraps belongs to the line it ends. A chip that
  * wraps over several lines is the exception: the offset right after it belongs
  * to its last line.
+ *
+ * @group Text
  */
 export function textLineIndexAt(layout: TextLayout, index: number): number {
   for (const [lineIndex, line] of layout.lines.entries()) {
@@ -694,6 +708,8 @@ export function textLineIndexAt(layout: TextLayout, index: number): number {
  * Caret box for a visible offset. `y` is the top of the text (ascent above the
  * baseline) and `height` the line box height; a renderer that wants a
  * text-height caret draws ascent + descent from `y`.
+ *
+ * @group Text
  */
 export function textCaretRect(
   layout: TextLayout,
@@ -783,6 +799,8 @@ export function textCaretRect(
  * An inline-math chip counts as one character, so a point on it snaps to its
  * nearer edge. For a point inside the chip, use
  * {@link textContentSelectionFromPoint}.
+ *
+ * @group Text
  */
 export function textOffsetAtPoint(
   layout: TextLayout,
@@ -1042,6 +1060,8 @@ export function replacementRangeAtPoint(
  * selection, rather than the painted ones. A selected inline-math chip then
  * reports its whole box, so a tap anywhere on it, padding included, counts as
  * on the selection.
+ *
+ * @group Text
  */
 export function textRangeRects(
   layout: TextLayout,
@@ -1242,6 +1262,8 @@ export function textRangeRects(
  * is the preview's visible range, or `null` when `text` is empty.
  *
  * Pass both to {@link layoutText}, then underline {@link compositionRects}.
+ *
+ * @group Text
  */
 // Tombstones stay in document order: mark ranges anchor to their endpoint ids,
 // and a range whose endpoint char went missing would drop its mark for the
@@ -1287,7 +1309,11 @@ export function foldComposition(
   };
 }
 
-/** Rects under the composition preview of a box, one per line or bidi run. */
+/**
+ * Rects under the composition preview of a box, one per line or bidi run.
+ *
+ * @group Text
+ */
 export function compositionRects(layout: TextLayout): TextRect[] {
   const range = layout.compositionRange;
   return range ? textRangeRects(layout, range.start, range.end) : [];
@@ -1307,6 +1333,8 @@ export function textLength(layout: TextLayout): number {
  * caret or range in that attachment sits in — or `undefined` when this box
  * holds none. To draw that formula lit, pass `{ startIndex: run.start,
  * endIndex: run.end }` as {@link paintTextRun}'s `highlighted`.
+ *
+ * @group Text
  */
 export function replacementRunForContent(
   layout: TextLayout,
@@ -1330,6 +1358,8 @@ function lineBaseline(layout: TextLayout, line: RenderedLine): number {
  * Use it for a caret inside an inline formula, such as in a numerator. On the
  * formula's own row the caret fills the text line, like prose. On a row inside
  * it, such as an exponent, it takes that row's height.
+ *
+ * @group Text
  */
 export function textContentCaretRect(
   layout: TextLayout,
@@ -1371,6 +1401,8 @@ export function textContentCaretRect(
  * the box — the nested twin of {@link textRangeRects}. Empty for a collapsed
  * selection or one no run of this box owns. Its heights follow the same rule
  * as {@link textContentCaretRect}.
+ *
+ * @group Text
  */
 export function textContentSelectionRects(
   layout: TextLayout,
@@ -1410,7 +1442,11 @@ export function textContentSelectionRects(
   return rects;
 }
 
-/** How a pointer is resolving, for {@link textContentSelectionFromPoint}. */
+/**
+ * How a pointer is resolving, for {@link textContentSelectionFromPoint}.
+ *
+ * @group Text
+ */
 export interface TextContentHitOptions {
   readonly pointerType?: "mouse" | "touch";
   /**
@@ -1430,6 +1466,8 @@ export interface TextContentHitOptions {
  * a formula's numerator), with `x`/`y` relative to the box — or `null` off
  * every run that resolves points inside itself, so the caller falls back to a
  * flat offset ({@link textOffsetAtPoint}).
+ *
+ * @group Text
  */
 export function textContentSelectionFromPoint(
   layout: TextLayout,

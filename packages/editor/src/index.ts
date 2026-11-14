@@ -182,6 +182,8 @@ import { getBaseDataSchema as resolveBaseDataSchema } from "./baseDataSchema";
  * The default data schema: every built-in block and mark type, with no drawing
  * code. `createDoc`, the parser and the serializers use it unless you pass
  * another. It never changes; build a variant with `baseDataSchema.extend(...)`.
+ *
+ * @group Schema
  */
 export const baseDataSchema = resolveBaseDataSchema();
 export type {

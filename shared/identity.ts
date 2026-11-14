@@ -9,6 +9,8 @@
  * use that one. Imports, parsers and tests can use
  * {@link createDeterministicIdentityAllocator} when their scope is unique in
  * the document.
+ *
+ * @group Document
  */
 export interface IdentityAllocator {
   nextId(): string;
@@ -17,6 +19,8 @@ export interface IdentityAllocator {
 /**
  * An id split into its two parts: `origin`, the part before the colon, and
  * `counter`, the number after it. {@link parseAllocatedIdentity} returns it.
+ *
+ * @group Document
  */
 export interface AllocatedIdentity {
   readonly origin: string;
@@ -27,6 +31,8 @@ export interface AllocatedIdentity {
  * Split an id like `scope:12` into its origin and counter. Returns null when
  * `value` is not a string of that shape: a non-empty origin, a colon, then a
  * whole number with no leading zeros that fits in a safe integer.
+ *
+ * @group Document
  */
 export function parseAllocatedIdentity(
   value: unknown,
@@ -50,6 +56,8 @@ export function parseAllocatedIdentity(
  *
  * Throws if `scope` is empty or contains `:`, or if `startCounter` is not a
  * whole number of 0 or more.
+ *
+ * @group Document
  */
 export function createDeterministicIdentityAllocator(
   scope: string,

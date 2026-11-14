@@ -95,6 +95,8 @@ import { invariant } from "@shared/invariant";
  * One block type without its drawing code: its fields, defaults and
  * capabilities (`descriptor`), and how it reads and writes Markdown and HTML
  * (`codec`). The full `Schema` adds the canvas node that draws it.
+ *
+ * @group Schema
  */
 export interface BlockSpecCore<
   T extends string = string,
@@ -121,7 +123,11 @@ export interface BlockSpecCore<
   readonly _attrs?: A;
 }
 
-/** A declared inline mark (bold, a custom highlight, …). */
+/**
+ * A declared inline mark (bold, a custom highlight, …).
+ *
+ * @group Schema
+ */
 export interface MarkSpec<
   T extends string = string,
   A extends Record<string, unknown> = Record<string, unknown>,
@@ -165,6 +171,7 @@ export interface MarkSpec<
  *   paste: (ctx) => spreadAcrossCells(ctx), // undefined: plain insert
  * };
  * ```
+ * @group Schema
  */
 // Example of the merge: the worker-safe data bundle contributes `clone`, the
 // interactive bundle contributes `contentSelection`.
@@ -212,7 +219,11 @@ export interface StructuredKindSpec {
   ) => readonly StructuredTextFieldRef[];
 }
 
-/** One character field inside a structured document. */
+/**
+ * One character field inside a structured document.
+ *
+ * @group Schema
+ */
 export interface StructuredTextFieldRef {
   readonly nodeId: string;
   readonly field: string;
@@ -260,6 +271,8 @@ const NO_FEATURES: InstalledFeatureFacets = {
  * structured-content kinds to add to a data schema (the part of a schema with
  * no drawing code). Typing rules, action hooks and theme defaults go through
  * `withFeatures()` instead.
+ *
+ * @group Schema
  */
 export interface DataSchemaExtension {
   readonly blocks?: readonly BlockSpecCore[];
@@ -308,6 +321,8 @@ type MarkEntryDefinition<M> =
  * Works out, for TypeScript, which block and mark names (with their attribute
  * shapes) a {@link DataSchemaExtension} adds. `DataSchema.extend()` uses it to
  * type the schema it returns; you rarely need to write it yourself.
+ *
+ * @group Schema
  */
 export type DataSchemaExtensionDefinition<E extends DataSchemaExtension> = {
   readonly blocks: E["blocks"] extends readonly (infer B)[]
@@ -372,6 +387,8 @@ function assertNoBundleFacets(source: object): void {
  * const dataSchema = baseDataSchema.extend(mathDataExtension());
  * const titleSchema = dataSchema.restrict({ blocks: ["heading1"], marks: [] });
  * ```
+ *
+ * @group Schema
  */
 export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
   private readonly blocks: ReadonlyMap<string, BlockSpecCore>;

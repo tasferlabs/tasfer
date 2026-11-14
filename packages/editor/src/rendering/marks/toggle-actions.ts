@@ -50,6 +50,7 @@ import { toggleFormat } from "../../actions/actions";
  *   100,
  * );
  * ```
+ * @group Built-in actions
  */
 // The mark is a name, never a class, so core stays mark-agnostic.
 export const TOGGLE_MARK = stateAction<{ name: string }>(
@@ -60,12 +61,20 @@ export const TOGGLE_MARK = stateAction<{ name: string }>(
   },
 );
 
-/** Toggle the `strong` (bold) mark over the selection (Ctrl/Cmd+B). */
+/**
+ * Toggle the `strong` (bold) mark over the selection (Ctrl/Cmd+B).
+ *
+ * @group Built-in actions
+ */
 export const TOGGLE_STRONG = stateAction("toggle-strong", (state) =>
   state.actionBus.dispatchState(TOGGLE_MARK, state, { name: "strong" }),
 );
 
-/** Toggle the `emphasis` (italic) mark over the selection (Ctrl/Cmd+I). */
+/**
+ * Toggle the `emphasis` (italic) mark over the selection (Ctrl/Cmd+I).
+ *
+ * @group Built-in actions
+ */
 export const TOGGLE_EMPHASIS = stateAction("toggle-emphasis", (state) =>
   state.actionBus.dispatchState(TOGGLE_MARK, state, { name: "emphasis" }),
 );
@@ -73,12 +82,18 @@ export const TOGGLE_EMPHASIS = stateAction("toggle-emphasis", (state) =>
 /**
  * Toggle the `strike` (strike-through) mark over the selection
  * (Ctrl/Cmd+Shift+X).
+ *
+ * @group Built-in actions
  */
 export const TOGGLE_STRIKE = stateAction("toggle-strike", (state) =>
   state.actionBus.dispatchState(TOGGLE_MARK, state, { name: "strike" }),
 );
 
-/** Toggle the `code` mark over the selection (Ctrl/Cmd+E). */
+/**
+ * Toggle the `code` mark over the selection (Ctrl/Cmd+E).
+ *
+ * @group Built-in actions
+ */
 export const TOGGLE_CODE = stateAction("toggle-code", (state) =>
   state.actionBus.dispatchState(TOGGLE_MARK, state, { name: "code" }),
 );

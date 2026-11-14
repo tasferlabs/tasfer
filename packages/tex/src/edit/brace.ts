@@ -59,6 +59,8 @@ function hasOpenGroupBefore(latex: string, offset: number): boolean {
  *
  * This only reads `latex`. The editor applies the result before it inserts the
  * key.
+ *
+ * @group Source editing
  */
 export function escapeTypedBrace(
   latex: string,
@@ -95,6 +97,8 @@ const RESERVED_LITERAL: Readonly<Record<string, string>> = {
  *
  * This only reads `latex`. The editor applies the result before it inserts the
  * key.
+ *
+ * @group Source editing
  */
 // `^`, `_`, `\` and the braces are the other reserved characters; they go
 // through the script / backslash / brace paths, not this literal escape.
@@ -136,6 +140,8 @@ function environmentDepthAt(latex: string, offset: number): number {
  *
  * A math editor uses this to turn off command handling inside text. There, a
  * typed `\` becomes `\textbackslash{}`.
+ *
+ * @group Source editing
  */
 // Braces nest, so the body scan tracks depth. Lexes rather than scanning chars
 // so an escaped `\{` inside the text never ends the body early. See
@@ -174,6 +180,8 @@ export function inRawTextArg(latex: string, offset: number): boolean {
  *
  * Returns `false` before whitespace, at the end of the text, before a prime
  * `'`, and before another `\` outside a `\begin…\end` environment.
+ *
+ * @group Source editing
  */
 // The prime `'` is left unguarded on purpose: a separator would detach it from
 // its base rather than repair it, and typing `\` flush before `'` is very rare
@@ -206,6 +214,8 @@ export function backslashFusesWith(latex: string, offset: number): boolean {
  * {@link normalizeLatex}, you do not need to move the caret.
  *
  * For extra `}` braces, see {@link escapeStrayCloseBraces}.
+ *
+ * @group Source editing
  */
 // Normal editing never unbalances braces (typed braces are escaped unless they
 // close a real group, and construct insertion adds balanced `{}` pairs), so
@@ -240,6 +250,8 @@ export function balanceBraces(latex: string): {
  *
  * For the opposite problem, a `{` that is never closed, see
  * {@link balanceBraces}.
+ *
+ * @group Source editing
  */
 // Normal typing never makes a stray `}` (a typed `}` is escaped unless it
 // closes a real group), so this only matters for pasted or imported source. The
@@ -285,6 +297,8 @@ function strayCloseBracePositions(latex: string): number[] {
  *
  * An insert can land before the caret. Move the caret right by one for each
  * insert that lands before it.
+ *
+ * @group Source editing
  */
 // Used to heal blocks whose source was saved before import-time escaping
 // existed.

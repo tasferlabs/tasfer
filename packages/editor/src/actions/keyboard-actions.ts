@@ -54,6 +54,8 @@ export interface ViewportPayload {
 /**
  * Move the caret one position to the left (ArrowLeft), collapsing any active
  * selection first. Pure cursor move, no ops.
+ *
+ * @group Built-in actions
  */
 // The ArrowLeft special cases (selection collapse, visual-block selection)
 // still live in the key handler; move them into their own actions over time.
@@ -65,6 +67,8 @@ export const MOVE_CURSOR_LEFT = stateAction("move-cursor-left", (state) => ({
 /**
  * Mirror of {@link MOVE_CURSOR_LEFT}: move the caret one position to the right,
  * collapsing any active selection first. Pure cursor move, no ops.
+ *
+ * @group Built-in actions
  */
 export const MOVE_CURSOR_RIGHT = stateAction("move-cursor-right", (state) => ({
   state: moveCursorRight(clearSelection(state)),
@@ -76,6 +80,8 @@ export const MOVE_CURSOR_RIGHT = stateAction("move-cursor-right", (state) => ({
  * between table cells. Pass `backward: true` for Shift+Tab. By default it does
  * nothing, so other blocks keep their usual Tab, such as indenting a list or
  * moving focus. A node with parts handles it in its `registerActions`.
+ *
+ * @group Built-in actions
  */
 export const MOVE_CONTENT_TAB = stateAction<{ backward: boolean }>(
   "move-content-tab",
@@ -85,6 +91,8 @@ export const MOVE_CONTENT_TAB = stateAction<{ backward: boolean }>(
 /**
  * Move the caret up one visual line (ArrowUp), collapsing any active selection
  * first. Pure cursor move, no ops.
+ *
+ * @group Built-in actions
  */
 export const MOVE_CURSOR_UP = stateAction<ViewportPayload>(
   "move-cursor-up",
@@ -97,6 +105,8 @@ export const MOVE_CURSOR_UP = stateAction<ViewportPayload>(
 /**
  * Move the caret down one visual line (ArrowDown), collapsing any active
  * selection first. Pure cursor move, no ops.
+ *
+ * @group Built-in actions
  */
 export const MOVE_CURSOR_DOWN = stateAction<ViewportPayload>(
   "move-cursor-down",
@@ -109,6 +119,8 @@ export const MOVE_CURSOR_DOWN = stateAction<ViewportPayload>(
 /**
  * Move the caret up one viewport page (PageUp), collapsing any active selection
  * first. Pure cursor move, no ops.
+ *
+ * @group Built-in actions
  */
 export const MOVE_CURSOR_PAGE_UP = stateAction<ViewportPayload>(
   "move-cursor-page-up",
@@ -121,6 +133,8 @@ export const MOVE_CURSOR_PAGE_UP = stateAction<ViewportPayload>(
 /**
  * Move the caret down one viewport page (PageDown), collapsing any active
  * selection first. Pure cursor move, no ops.
+ *
+ * @group Built-in actions
  */
 export const MOVE_CURSOR_PAGE_DOWN = stateAction<ViewportPayload>(
   "move-cursor-page-down",
@@ -135,6 +149,8 @@ export const MOVE_CURSOR_PAGE_DOWN = stateAction<ViewportPayload>(
 /**
  * Jump the caret to the start of the previous word (Ctrl/Cmd+ArrowLeft),
  * collapsing any active selection first. Pure cursor move, no ops.
+ *
+ * @group Built-in actions
  */
 export const MOVE_TO_PREVIOUS_WORD = stateAction(
   "move-to-previous-word",
@@ -147,6 +163,8 @@ export const MOVE_TO_PREVIOUS_WORD = stateAction(
 /**
  * Jump the caret to the start of the next word (Ctrl/Cmd+ArrowRight),
  * collapsing any active selection first. Pure cursor move, no ops.
+ *
+ * @group Built-in actions
  */
 export const MOVE_TO_NEXT_WORD = stateAction("move-to-next-word", (state) => ({
   state: moveToNextWord(clearSelection(state)),
@@ -158,6 +176,8 @@ export const MOVE_TO_NEXT_WORD = stateAction("move-to-next-word", (state) => ({
 /**
  * Move the caret to the start of the current line (Home), collapsing any active
  * selection first. Pure cursor move, no ops.
+ *
+ * @group Built-in actions
  */
 export const MOVE_TO_LINE_START = stateAction(
   "move-to-line-start",
@@ -170,6 +190,8 @@ export const MOVE_TO_LINE_START = stateAction(
 /**
  * Move the caret to the end of the current line (End), collapsing any active
  * selection first. Pure cursor move, no ops.
+ *
+ * @group Built-in actions
  */
 export const MOVE_TO_LINE_END = stateAction("move-to-line-end", (state) => ({
   state: moveToLineEnd(clearSelection(state)),
@@ -179,6 +201,8 @@ export const MOVE_TO_LINE_END = stateAction("move-to-line-end", (state) => ({
 /**
  * Move the caret to the very start of the document (Ctrl/Cmd+Home), collapsing
  * any active selection first. Pure cursor move, no ops.
+ *
+ * @group Built-in actions
  */
 export const MOVE_TO_DOCUMENT_START = stateAction(
   "move-to-document-start",
@@ -192,6 +216,8 @@ export const MOVE_TO_DOCUMENT_START = stateAction(
  * Move the caret to the very end of the document (Ctrl/Cmd+End) — the end of the
  * last visible block — collapsing any active selection first. Pure cursor move,
  * no ops.
+ *
+ * @group Built-in actions
  */
 export const MOVE_TO_DOCUMENT_END = stateAction(
   "move-to-document-end",
@@ -251,7 +277,11 @@ function extendFocusTo(state: EditorState, position: Position): EditorState {
   );
 }
 
-/** Extend the selection one position to the left (Shift+ArrowLeft). */
+/**
+ * Extend the selection one position to the left (Shift+ArrowLeft).
+ *
+ * @group Built-in actions
+ */
 export const EXTEND_SELECTION_LEFT = stateAction(
   "extend-selection-left",
   (state) => {
@@ -268,7 +298,11 @@ export const EXTEND_SELECTION_LEFT = stateAction(
   },
 );
 
-/** Extend the selection one position to the right (Shift+ArrowRight). */
+/**
+ * Extend the selection one position to the right (Shift+ArrowRight).
+ *
+ * @group Built-in actions
+ */
 export const EXTEND_SELECTION_RIGHT = stateAction(
   "extend-selection-right",
   (state) => {
@@ -285,7 +319,11 @@ export const EXTEND_SELECTION_RIGHT = stateAction(
   },
 );
 
-/** Extend the selection up one visual line (Shift+ArrowUp). */
+/**
+ * Extend the selection up one visual line (Shift+ArrowUp).
+ *
+ * @group Built-in actions
+ */
 export const EXTEND_SELECTION_UP = stateAction<ViewportPayload>(
   "extend-selection-up",
   (state, { viewport }) => {
@@ -302,7 +340,11 @@ export const EXTEND_SELECTION_UP = stateAction<ViewportPayload>(
   },
 );
 
-/** Extend the selection down one visual line (Shift+ArrowDown). */
+/**
+ * Extend the selection down one visual line (Shift+ArrowDown).
+ *
+ * @group Built-in actions
+ */
 export const EXTEND_SELECTION_DOWN = stateAction<ViewportPayload>(
   "extend-selection-down",
   (state, { viewport }) => {
@@ -319,7 +361,11 @@ export const EXTEND_SELECTION_DOWN = stateAction<ViewportPayload>(
   },
 );
 
-/** Extend the selection up one viewport page (Shift+PageUp). */
+/**
+ * Extend the selection up one viewport page (Shift+PageUp).
+ *
+ * @group Built-in actions
+ */
 export const EXTEND_SELECTION_PAGE_UP = stateAction<ViewportPayload>(
   "extend-selection-page-up",
   (state, { viewport }) => {
@@ -336,7 +382,11 @@ export const EXTEND_SELECTION_PAGE_UP = stateAction<ViewportPayload>(
   },
 );
 
-/** Extend the selection down one viewport page (Shift+PageDown). */
+/**
+ * Extend the selection down one viewport page (Shift+PageDown).
+ *
+ * @group Built-in actions
+ */
 export const EXTEND_SELECTION_PAGE_DOWN = stateAction<ViewportPayload>(
   "extend-selection-page-down",
   (state, { viewport }) => {
@@ -353,7 +403,11 @@ export const EXTEND_SELECTION_PAGE_DOWN = stateAction<ViewportPayload>(
   },
 );
 
-/** Extend the selection to the previous word boundary (Ctrl/Cmd+Shift+ArrowLeft). */
+/**
+ * Extend the selection to the previous word boundary (Ctrl/Cmd+Shift+ArrowLeft).
+ *
+ * @group Built-in actions
+ */
 export const EXTEND_SELECTION_WORD_LEFT = stateAction(
   "extend-selection-word-left",
   (state) => {
@@ -370,7 +424,11 @@ export const EXTEND_SELECTION_WORD_LEFT = stateAction(
   },
 );
 
-/** Extend the selection to the next word boundary (Ctrl/Cmd+Shift+ArrowRight). */
+/**
+ * Extend the selection to the next word boundary (Ctrl/Cmd+Shift+ArrowRight).
+ *
+ * @group Built-in actions
+ */
 export const EXTEND_SELECTION_WORD_RIGHT = stateAction(
   "extend-selection-word-right",
   (state) => {
@@ -390,6 +448,8 @@ export const EXTEND_SELECTION_WORD_RIGHT = stateAction(
 /**
  * Extend the selection to the line start, or to the document start when
  * `isCtrl` (Shift+Home / Ctrl+Shift+Home).
+ *
+ * @group Built-in actions
  */
 export const EXTEND_SELECTION_HOME = stateAction<{ isCtrl: boolean }>(
   "extend-selection-home",
@@ -412,6 +472,8 @@ export const EXTEND_SELECTION_HOME = stateAction<{ isCtrl: boolean }>(
 /**
  * Extend the selection to the line end, or to the document end when `isCtrl`
  * (Shift+End / Ctrl+Shift+End).
+ *
+ * @group Built-in actions
  */
 export const EXTEND_SELECTION_END = stateAction<{ isCtrl: boolean }>(
   "extend-selection-end",

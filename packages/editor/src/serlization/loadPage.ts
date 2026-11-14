@@ -19,6 +19,8 @@ import tokenizePage from "./tokenizer";
  * plain string, so custom marks and marks from optional packages, like `math`,
  * fit too. Mark data, like a link's `url`, goes in `attrs`. Simple on/off marks
  * have no `attrs`.
+ *
+ * @group Document
  */
 export interface Mark {
   type: string;
@@ -49,6 +51,8 @@ export interface CharRun {
  * A mark on a range of characters. The range is kept as the ids of its first
  * and last character, so it stays in place while others edit. Either end may be
  * a deleted character. The mark still covers the characters left between them.
+ *
+ * @group Document
  */
 export interface MarkRange {
   startCharId: string;
@@ -99,6 +103,8 @@ export function areMarkArraysEqual(
  * Blocks from optional packages and custom types have the same shape, with
  * their own `type` name and their extra fields at the top level. In a custom
  * type's code, read them as a {@link CustomBlock}.
+ *
+ * @group Document
  */
 // The union is closed on purpose: an open member with a non-literal `type`
 // would break every `block.type === "…"` check in the engine. Custom blocks are
@@ -112,6 +118,8 @@ export type Block =
  * fields every block shares, optional text (`charRuns` and `formats`) for
  * custom blocks that hold text, and any other fields the node declares. In a
  * custom type's code, cast the incoming `Block` to `CustomBlock` to read them.
+ *
+ * @group Document
  */
 export interface CustomBlock extends BlockRuntimeState {
   type: string;
@@ -145,6 +153,8 @@ export interface PageMetadata {
 /**
  * A whole document in its loaded form: an `id`, a `title`, its blocks in order,
  * and optional {@link PageMetadata}. This is what {@link parsePage} returns.
+ *
+ * @group Document
  */
 export interface Page {
   id: string;
@@ -161,6 +171,8 @@ const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/;
  * Only `task`, `scheduledAt`, `duration`, `allDay` and `color` are read. Other
  * keys are ignored. `metadata` is left out when there is no front matter or it
  * sets none of these.
+ *
+ * @group Serialization
  */
 export function parseFrontmatter(content: string): {
   content: string;

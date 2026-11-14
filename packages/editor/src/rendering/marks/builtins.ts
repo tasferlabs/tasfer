@@ -25,6 +25,8 @@ import { StrongMark } from "./StrongMark";
 /**
  * Returns new instances of the built-in marks: strong, emphasis, strike, code
  * and link. Math is not included. Its extension adds it.
+ *
+ * @group Marks
  */
 // Constructed fresh on each call so importing this module has no side effects.
 export function defaultMarks(): Mark[] {
@@ -37,14 +39,22 @@ export function defaultMarks(): Mark[] {
   ];
 }
 
-/** Build a registry from an explicit list of marks (host opt-in). */
+/**
+ * Build a registry from an explicit list of marks (host opt-in).
+ *
+ * @group Marks
+ */
 export function createMarkRegistry(marks: readonly Mark[]): MarkRegistry {
   const registry = new MarkRegistry();
   for (const mark of marks) registry.register(mark);
   return registry;
 }
 
-/** Build a registry pre-populated with the built-in marks. */
+/**
+ * Build a registry pre-populated with the built-in marks.
+ *
+ * @group Marks
+ */
 export function createDefaultMarkRegistry(): MarkRegistry {
   return createMarkRegistry(defaultMarks());
 }

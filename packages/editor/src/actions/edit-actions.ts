@@ -86,6 +86,8 @@ import {
  * ```ts
  * editor.dispatch(CONVERT_BLOCK, { type: "quote" });
  * ```
+ *
+ * @group Built-in actions
  */
 export const CONVERT_BLOCK = action<{
   type: string;
@@ -120,6 +122,8 @@ export const INSERT_TAB = stateAction("insert-tab", (state) => {
  * the selection instead of replacing it. Brackets and quotes go around it. A
  * delimiter gives it its mark. To replace the selection with plain text, use
  * {@link ChangeApi.insertText}.
+ *
+ * @group Built-in actions
  */
 export const INSERT_TEXT = stateAction<{ text: string }>(
   "insert-text",
@@ -139,6 +143,8 @@ export const INSERT_TEXT = stateAction<{ text: string }>(
  * Where Backspace hit the start of a block: the current block and the block
  * above it, by id and by index. Use the ids to find the blocks again in the
  * latest state. The indexes are there for convenience.
+ *
+ * @group Actions
  */
 export interface BlockBoundaryContext {
   readonly currentBlockId: string;
@@ -207,6 +213,8 @@ function sameBoundary(
  * blocks, outdents, converts the block, or selects the block above when that
  * block is not text, such as an image. When `boundary` no longer matches the
  * caret, it does nothing.
+ *
+ * @group Built-in actions
  */
 export const JOIN_WITH_PREVIOUS_BLOCK = stateAction<BlockBoundaryContext>(
   "join-with-previous-block",
@@ -286,6 +294,8 @@ function selectPreviousContainedBlockAtBoundary(
  * text that mark. Returns `null` and changes nothing when `boundary` no longer
  * matches the caret, when either block is not a text block, or when the schema
  * does not allow removing the current block.
+ *
+ * @group Actions
  */
 export function joinWithPreviousBlock(
   state: EditorState,
@@ -376,13 +386,19 @@ function withContentDeleted(result: StateResult): StateResult {
  * characters. For example, after `# ` turns a line into a heading, this turns
  * it back into the text `# `. Undo and Backspace try this first. When there is
  * nothing to take back, it makes no edits, and those keys do their usual job.
+ *
+ * @group Built-in actions
  */
 export const REVERT_INPUT_RULE = stateAction(
   "revert-input-rule",
   (state) => revertInputRule(state) ?? { state, ops: [] },
 );
 
-/** Delete backward one position / the selection (Backspace). */
+/**
+ * Delete backward one position / the selection (Backspace).
+ *
+ * @group Built-in actions
+ */
 export const DELETE_BACKWARD = stateAction("delete-backward", (state) => {
   const boundary = backwardBoundaryContext(state);
   const result = boundary
@@ -403,6 +419,8 @@ export const DELETE_BACKWARD = stateAction("delete-backward", (state) => {
  *   registerEmptyBlockBackspaceExit(bus, this.types);
  * }
  * ```
+ *
+ * @group Actions
  */
 export function registerEmptyBlockBackspaceExit(
   bus: ActionBus,
@@ -446,29 +464,49 @@ export function registerEmptyBlockBackspaceExit(
   );
 }
 
-/** Delete backward to the previous word boundary (Ctrl/Cmd+Backspace). */
+/**
+ * Delete backward to the previous word boundary (Ctrl/Cmd+Backspace).
+ *
+ * @group Built-in actions
+ */
 export const DELETE_WORD_BACKWARD = stateAction(
   "delete-word-backward",
   (state) => withContentDeleted(deleteWordBackward(state)),
 );
 
-/** Delete forward one position / the selection (Delete). */
+/**
+ * Delete forward one position / the selection (Delete).
+ *
+ * @group Built-in actions
+ */
 export const DELETE_FORWARD = stateAction("delete-forward", (state) =>
   withContentDeleted(deleteForward(state)),
 );
 
-/** Delete forward to the next word boundary (Ctrl/Cmd+Delete). */
+/**
+ * Delete forward to the next word boundary (Ctrl/Cmd+Delete).
+ *
+ * @group Built-in actions
+ */
 export const DELETE_WORD_FORWARD = stateAction("delete-word-forward", (state) =>
   withContentDeleted(deleteWordForward(state)),
 );
 
-/** Delete back to the line start (⌘+Backspace on macOS). */
+/**
+ * Delete back to the line start (⌘+Backspace on macOS).
+ *
+ * @group Built-in actions
+ */
 export const DELETE_TO_LINE_START = stateAction(
   "delete-to-line-start",
   (state) => withContentDeleted(deleteToLineStart(state)),
 );
 
-/** Delete forward to the line end (⌘+Delete / ⌃K on macOS). */
+/**
+ * Delete forward to the line end (⌘+Delete / ⌃K on macOS).
+ *
+ * @group Built-in actions
+ */
 export const DELETE_TO_LINE_END = stateAction("delete-to-line-end", (state) =>
   withContentDeleted(deleteToLineEnd(state)),
 );
@@ -485,6 +523,8 @@ export const DELETE_TO_LINE_END = stateAction("delete-to-line-end", (state) =>
  * own way: a code block adds a new line, and a table moves down a row. Enter
  * on an empty heading, list item, quote or equation turns it into a paragraph.
  * Selected text is deleted first.
+ *
+ * @group Built-in actions
  */
 export const SPLIT_BLOCK = stateAction("split-block", (state) => {
   const result = splitBlock(state);
@@ -496,6 +536,8 @@ export const SPLIT_BLOCK = stateAction("split-block", (state) => {
  * its own — a code block, an equation, a table — claims this to start a
  * paragraph below from anywhere inside it. Every other block has nothing to
  * leave, so the default is the ordinary Enter split.
+ *
+ * @group Built-in actions
  */
 export const EXIT_BLOCK = stateAction("exit-block", (state) => {
   const result = splitBlock(state);
@@ -546,6 +588,8 @@ export function registerBreakReplacesSelection(bus: ActionBus): void {
  * If the schema does not allow a paragraph there, the first allowed block type
  * is used. Returns `undefined` when no block is allowed there, or when the
  * block at `blockIndex` is missing or deleted.
+ *
+ * @group Actions
  */
 // The shared body behind the Enter exits in dev-docs/enter-key.md, so the order
 // key, schema clamp and caret hand-off live in one place.
@@ -613,6 +657,8 @@ export function insertParagraphBeside(
  * drag-to-reorder gesture can dispatch it and other handlers can watch block
  * moves. Nothing changes when the block is missing or already there, or when
  * `afterBlockId` is the block itself, missing or deleted.
+ *
+ * @group Built-in actions
  */
 export const MOVE_BLOCK = stateAction<{
   blockId: string;
@@ -628,6 +674,8 @@ export const MOVE_BLOCK = stateAction<{
  * when the selection spans several lines. Nothing changes when `afterBlockId`
  * is one of the moved blocks, is missing or deleted, or the blocks are already
  * there.
+ *
+ * @group Built-in actions
  */
 export const MOVE_BLOCKS = stateAction<{
   blockIds: readonly string[];
@@ -646,13 +694,21 @@ export { moveBlock, moveBlocks } from "./actions";
 
 // ─── Selection ───────────────────────────────────────────────────────────────
 
-/** Select the whole document (Ctrl/Cmd+A). Pure selection change, no ops. */
+/**
+ * Select the whole document (Ctrl/Cmd+A). Pure selection change, no ops.
+ *
+ * @group Built-in actions
+ */
 export const SELECT_ALL = stateAction("select-all", (state) => ({
   state: selectAll(state),
   ops: [],
 }));
 
-/** Collapse any active selection to the caret (Escape). Pure, no ops. */
+/**
+ * Collapse any active selection to the caret (Escape). Pure, no ops.
+ *
+ * @group Built-in actions
+ */
 export const CLEAR_SELECTION = stateAction("clear-selection", (state) => ({
   state: clearSelection(state),
   ops: [],
@@ -707,6 +763,8 @@ export function selectVisualBlockAfterMove(newState: EditorState): EditorState {
  * - `kind: "break"`: the helper handled the key or click. Stop, use its
  *   `state`, and add its `ops` to your own.
  * - `kind: "fallthrough"`: nothing applied. Do your normal move.
+ *
+ * @group Actions
  */
 export type EdgeOutcome =
   | { kind: "break"; state: EditorState; ops: Operation[] }
@@ -748,6 +806,8 @@ export function createParagraphAbove(
  * If the schema does not allow a paragraph at the end, the first allowed block
  * type is used. Returns `fallthrough` and changes nothing when no block is
  * allowed there. Otherwise returns `break` with the new block's edit.
+ *
+ * @group Actions
  */
 // Growing the paragraph here keeps one implementation of the schema clamp, the
 // order key and the caret hand-off.
@@ -809,6 +869,8 @@ export function appendTrailingParagraph(
  * and if the schema does not allow a paragraph at the top, the first allowed
  * block type is used. Returns `fallthrough` and changes nothing when no block
  * is allowed there. Otherwise returns `break`.
+ *
+ * @group Actions
  */
 export function prependLeadingParagraph(state: EditorState): EdgeOutcome {
   const ops: Operation[] = [];

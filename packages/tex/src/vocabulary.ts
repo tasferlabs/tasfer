@@ -29,6 +29,8 @@ import {
 /**
  * A command that renders as a single symbol, such as `\degree` for °. One
  * entry of {@link symbolCommands}.
+ *
+ * @group Vocabulary
  */
 export interface SymbolCommand {
   /** Command word without the backslash, e.g. `degree`. */
@@ -40,6 +42,8 @@ export interface SymbolCommand {
 /**
  * A named operator the engine can render, such as `\arcsin` or `\liminf`. One
  * entry of {@link operatorCommands}.
+ *
+ * @group Vocabulary
  */
 export interface OperatorCommand {
   /** Command word without the backslash, e.g. `liminf`. */
@@ -52,6 +56,8 @@ export interface OperatorCommand {
  * Every command that renders as a single symbol, sorted by name. Use it to
  * build autocomplete or a symbol picker. Accent and spacing commands are left
  * out.
+ *
+ * @group Vocabulary
  */
 export const symbolCommands: readonly SymbolCommand[] = Object.entries(
   mathSymbols,
@@ -70,6 +76,8 @@ export const symbolCommands: readonly SymbolCommand[] = Object.entries(
  * backslash and sorted by name. `limits` is true for ones like `\lim`, whose
  * subscript goes underneath in display style, so a picker can offer a slot for
  * it.
+ *
+ * @group Vocabulary
  */
 export const operatorCommands: readonly OperatorCommand[] = Object.entries(
   MATH_OPERATORS,
@@ -82,15 +90,25 @@ export const operatorCommands: readonly OperatorCommand[] = Object.entries(
  * Unlike {@link symbolCommands} and {@link operatorCommands}, these sit over a
  * base, so insert them with a `{}` slot. Stored math documents only accept
  * accents from this list.
+ *
+ * @group Vocabulary
  */
 export const accentCommands: readonly string[] = [...ACCENTS].sort();
 
-/** Whether `name` (no backslash) is an accent that takes a base. */
+/**
+ * Whether `name` (no backslash) is an accent that takes a base.
+ *
+ * @group Vocabulary
+ */
 export function isAccentCommand(name: string): boolean {
   return ACCENTS.has(name);
 }
 
-/** Whether `name` is an accent whose glyph stretches over the whole base. */
+/**
+ * Whether `name` is an accent whose glyph stretches over the whole base.
+ *
+ * @group Vocabulary
+ */
 export function isStretchyAccentCommand(name: string): boolean {
   return STRETCHY_ACCENTS.has(name);
 }
@@ -100,6 +118,8 @@ export function isStretchyAccentCommand(name: string): boolean {
  * body: over and under lines, frames, fonts and alphabets, spacing-class
  * commands like `\mathbin`, phantoms, and `\not`. Insert them with a `{}` slot.
  * Stored math documents only accept wrappers from this list.
+ *
+ * @group Vocabulary
  */
 export const wrapperCommands: readonly string[] = [
   ...OVER_UNDER,
@@ -116,12 +136,20 @@ export const wrapperCommands: readonly string[] = [
 
 const WRAPPERS = new Set(wrapperCommands);
 
-/** Whether `name` (no backslash) wraps exactly one braced body. */
+/**
+ * Whether `name` (no backslash) wraps exactly one braced body.
+ *
+ * @group Vocabulary
+ */
 export function isWrapperCommand(name: string): boolean {
   return WRAPPERS.has(name);
 }
 
-/** Control words stacking a script over/under a base: two braced slots. */
+/**
+ * Control words stacking a script over/under a base: two braced slots.
+ *
+ * @group Vocabulary
+ */
 export const stackCommands: readonly string[] = [
   "overset",
   "stackrel",
@@ -130,7 +158,11 @@ export const stackCommands: readonly string[] = [
 
 const STACKS = new Set(stackCommands);
 
-/** Whether `name` (no backslash) stacks a script over/under a base. */
+/**
+ * Whether `name` (no backslash) stacks a script over/under a base.
+ *
+ * @group Vocabulary
+ */
 export function isStackCommand(name: string): boolean {
   return STACKS.has(name);
 }

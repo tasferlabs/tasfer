@@ -68,6 +68,8 @@ interface CompositionTextPayload {
  *
  * Pass the composition event's `data`. This action does not check focus or
  * read-only mode. The editor checks those before it dispatches.
+ *
+ * @group Built-in actions
  */
 export const COMPOSITION_START = stateAction<CompositionTextPayload>(
   "composition-start",
@@ -158,6 +160,8 @@ interface CompositionUpdatePayload {
  * Otherwise it stays where the user put it with the arrow keys. It does not
  * change the document. Without an active composition (see
  * {@link COMPOSITION_START}) it does nothing.
+ *
+ * @group Built-in actions
  */
 export const COMPOSITION_UPDATE = stateAction<CompositionUpdatePayload>(
   "composition-update",
@@ -223,6 +227,8 @@ export const COMPOSITION_UPDATE = stateAction<CompositionUpdatePayload>(
  * 0), the new text replaces those characters instead of adding to them. An
  * empty final text then deletes them. With no final text and no reopened word,
  * it only clears the composition. Pass the composition event's `data`.
+ *
+ * @group Built-in actions
  */
 // The handler keeps the scroll-to-cursor follow-up after committing, since that
 // touches the viewport, not the state.
@@ -374,6 +380,8 @@ function commitRecomposition(
  * app's own clipboard. It fires only when the editor has focus and something is
  * selected. It does not change the document. Like {@link OPEN_LINK}, it is a
  * plain {@link action}.
+ *
+ * @group Built-in actions
  */
 // The clipboard write must stay synchronous inside the ClipboardEvent, in
 // copyHandler (entries/editor.ts).
@@ -383,6 +391,8 @@ export const COPY = action("copy");
  * Delete the selection as part of a cut (Ctrl/Cmd+X). The editor writes the
  * selection to the clipboard first, then dispatches this action to delete it.
  * So handlers can watch or override the delete, but not the clipboard write.
+ *
+ * @group Built-in actions
  */
 // The clipboard write is synchronous in cutHandler (entries/editor.ts); the
 // default deletes through deleteSelectionThroughOwner.
@@ -416,6 +426,8 @@ interface PastePayload {
  * the result as `precomputed`. The default handler just applies that result, so
  * the paste never runs twice. Handlers can watch or override the paste here.
  * When the clipboard gave nothing to paste, the state stays the same.
+ *
+ * @group Built-in actions
  */
 // runPaste runs the paste so the handler can keep pastedImageBlockIndex, which
 // a StateResult cannot carry. The visibleBlocks refresh and scroll-to-cursor

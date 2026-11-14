@@ -53,6 +53,8 @@ import {
 /**
  * The `kind` every table document has. Check `StructuredDocument.kind` against
  * it to tell a table apart from other attached documents.
+ *
+ * @group Table data
  */
 export const TABLE_STRUCTURED_KIND = "table";
 
@@ -75,13 +77,19 @@ export const ROWS_SLOT = "rows";
 /** Name of the child list on a row that holds its cells. */
 export const CELLS_SLOT = "cells";
 
-/** Name of the text field that holds a cell's text. */
+/**
+ * Name of the text field that holds a cell's text.
+ *
+ * @group Table data
+ */
 export const CELL_TEXT_FIELD = "text";
 
 /**
  * Horizontal alignment of a column. When a column has no alignment,
  * {@link columnAlign} returns `null` instead, and the default alignment is
  * used.
+ *
+ * @group Table data
  */
 export type TableAlign = "left" | "center" | "right";
 
@@ -94,7 +102,11 @@ export function tableContentIdForBlock(blockId: string): string {
   return structuredContentId(blockId, TABLE_STRUCTURED_KIND);
 }
 
-/** The authoritative table attached to a block, if it carries one. */
+/**
+ * The authoritative table attached to a block, if it carries one.
+ *
+ * @group Table data
+ */
 export function getTableDocument(block: {
   readonly id: string;
   readonly structuredContent?: Readonly<Record<string, StructuredDocument>>;
@@ -103,7 +115,11 @@ export function getTableDocument(block: {
   return document?.kind === TABLE_STRUCTURED_KIND ? document : undefined;
 }
 
-/** A column's alignment, or `null` when it never set one. */
+/**
+ * A column's alignment, or `null` when it never set one.
+ *
+ * @group Table data
+ */
 export function columnAlign(column: StructuredNode): TableAlign | null {
   const align = column.attrs.align;
   return align === "left" || align === "center" || align === "right"
@@ -162,7 +178,11 @@ export function cellColumnId(cell: StructuredNode): string {
   return typeof columnId === "string" ? columnId : "";
 }
 
-/** The visible text of one cell. */
+/**
+ * The visible text of one cell.
+ *
+ * @group Table data
+ */
 export function cellText(
   document: StructuredDocument,
   cell: StructuredNode,
@@ -170,7 +190,11 @@ export function cellText(
   return getStructuredText(document, cell.id, CELL_TEXT_FIELD);
 }
 
-/** One row, with its cells already resolved against the column order. */
+/**
+ * One row, with its cells already resolved against the column order.
+ *
+ * @group Table data
+ */
 export interface TableRowView {
   readonly node: StructuredNode;
   /**
@@ -189,6 +213,8 @@ export interface TableRowView {
  * keeps its text in the {@link CELL_TEXT_FIELD} field. Because a cell names its
  * column, two people can add a row and a column at the same time and still end
  * up with the same table.
+ *
+ * @group Table data
  */
 export interface TableView {
   readonly root: StructuredNode | undefined;
@@ -210,6 +236,8 @@ export interface TableView {
  * A table is not always a full rectangle: a row can lack a cell for some
  * column. Read cells through this function rather than by their position in
  * the row.
+ *
+ * @group Table data
  */
 // Builds one child index for the whole document rather than asking per row: a
 // layout pass walks every row and cell, and the unindexed lookup scans all

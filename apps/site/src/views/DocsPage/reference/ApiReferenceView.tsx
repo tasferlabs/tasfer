@@ -43,11 +43,13 @@ import type {
      ?pkg=math            which package is showing
      #createEditor        an export, opened and scrolled to
      #Node.layout         one member of an export
-     #group-class         a group of exports, opened and scrolled to
+     #group-actions       a group of exports, opened and scrolled to
 
-   A package's exports are listed in groups, one per kind. One group
-   is open at a time and starts with its first few rows; the others
-   fold down to a row each, so the page stays short.
+   A package's exports are listed in groups: one per topic where the
+   package files its exports under topics (`@group` in the doc
+   comment), one per kind otherwise. One group is open at a time and
+   starts with its first few rows; the others fold down to a row each,
+   so the page stays short.
    ============================================================ */
 
 const INDEX = indexData as ApiIndex;
@@ -93,6 +95,9 @@ const GROUP_PREFIX = "group-";
 const PACKAGES_ANCHOR = GROUP_PREFIX + "packages";
 const entryGroupId = (entry: string) =>
   GROUP_PREFIX + entry.replace(/[^a-z0-9]+/gi, "-");
+/** "Built-in actions" → "built-in-actions": a topic's anchor and its i18n key. */
+const topicSlug = (topic: string) =>
+  topic.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 
 const SIG_KEYWORDS = new Set(
   (
@@ -781,15 +786,28 @@ export default function ApiReferenceView() {
     if (!data) return [];
     const [root, ...rest] = data.entries;
     const out: Group[] = [];
-    for (const kind of KIND_ORDER) {
-      const symbols = root.symbols.filter((s) => s.kind === kind);
-      if (symbols.length) {
+    if (data.groups?.length) {
+      for (const topic of data.groups) {
+        const slug = topicSlug(topic);
         out.push({
-          id: GROUP_PREFIX + kind,
-          title: t(`docs.ref.kind.${kind}`),
+          id: GROUP_PREFIX + slug,
+          // The name in the doc comment stands in until it is translated.
+          title: t(`docs.ref.topic.${slug}`, topic),
           mono: false,
-          symbols,
+          symbols: root.symbols.filter((s) => s.group === topic),
         });
+      }
+    } else {
+      for (const kind of KIND_ORDER) {
+        const symbols = root.symbols.filter((s) => s.kind === kind);
+        if (symbols.length) {
+          out.push({
+            id: GROUP_PREFIX + kind,
+            title: t(`docs.ref.kind.${kind}`),
+            mono: false,
+            symbols,
+          });
+        }
       }
     }
     // What only a secondary entry exports is listed under that entry.
@@ -1116,8 +1134,8 @@ export default function ApiReferenceView() {
                   <dt>{t("docs.ref.entryPoints", "Entry points")}</dt>
                   <dd className="is-entries">
                     {meta.entries.map((entry, i) => {
-                      // The package's own entry holds the kind groups; the
-                      // others have a group each, when they add anything.
+                      // The package's own entry holds the topic or kind groups;
+                      // the others have a group each, when they add anything.
                       const id = i === 0 ? groups[0]?.id : entryGroupId(entry);
                       const label = i === 0 ? entry : entry.slice(meta.name.length);
                       return id && groups.some((group) => group.id === id) ? (

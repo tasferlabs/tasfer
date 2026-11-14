@@ -22,6 +22,8 @@ import type { IdentityAllocator } from "@shared/identity";
  * The clock stamp on every operation: a counter plus the id of the peer that
  * made it. It puts all operations in one order. It does not use the wall clock,
  * so a wrong system clock cannot break that order.
+ *
+ * @group Document
  */
 // Despite the HLC name, this is a pure Lamport clock: no wall-clock component.
 export interface HLC {
@@ -174,6 +176,8 @@ export interface BlockSet extends BaseOp {
 /**
  * An operation that changes structured content kept inside a block, such as a
  * table's cells or a formula. Each one carries one change.
+ *
+ * @group Structured content
  */
 export interface ContentEdit extends BaseOp {
   op: "content_edit";
@@ -190,6 +194,8 @@ export interface ContentEdit extends BaseOp {
  * deleted or changed, or an edit to structured content inside a block. Every
  * edit makes a list of these. They are what gets saved and sent to other people
  * editing the same document.
+ *
+ * @group Document
  */
 export type Operation =
   | TextInsert
@@ -203,6 +209,8 @@ export type Operation =
 /**
  * Version vector tracking seen operations per peer.
  * Maps peer ID to highest operation counter seen from that peer.
+ *
+ * @group Document
  */
 export type VersionVector = Map<string, number>;
 
@@ -224,6 +232,8 @@ export interface OpLog {
  * A font family key. Opaque string chosen by the host application — the editor
  * does not assume any particular fonts exist. Keys are mapped to CSS
  * font-stacks via `EditorStyles.fonts.families`.
+ *
+ * @group Theme
  */
 export type FontFamily = string;
 // Editor State Types
@@ -751,6 +761,8 @@ export interface SelectionExpansionHistory {
  * const title = createEditor({ element: titleEl, doc, window: titleBlockWindow() });
  * const body = createEditor({ element: bodyEl, doc, window: bodyBlocksWindow() });
  * ```
+ *
+ * @group Editor
  */
 export interface ViewWindow {
   /**
@@ -906,6 +918,8 @@ export interface UndoManagerState {
  * state, the view, the undo history, and the editor's own action bus, nodes,
  * marks and schema. It is read-only: an action takes a state and returns a new
  * one instead of changing it.
+ *
+ * @group Editor
  */
 export interface EditorState {
   readonly document: DocumentState;
@@ -1211,6 +1225,8 @@ export interface RemoteCursorStyles {
  * fonts, per-block text styles, selection, caret, lists, scrollbar and more.
  * It is your theme merged over the defaults; read the current values with
  * `editor.view.getStyles()`.
+ *
+ * @group Theme
  */
 export interface EditorStyles {
   readonly canvas: CanvasStyles;
@@ -1237,6 +1253,8 @@ export interface EditorStyles {
  * The editor ships only a plain system font, so register your own here. Load
  * the font files yourself, then call {@link notifyFontsLoaded} so the text is
  * measured again.
+ *
+ * @group Theme
  */
 export interface FontStyles {
   /** Map of family key → CSS font-stack (e.g. `{ sans: "Inter, sans-serif" }`). */
@@ -1310,6 +1328,8 @@ export interface BlockStyles {
  * other fields style the grid around it. It lives in the core theme, even
  * though tables come from `@tasfer/table`, so tables follow your colors, dark
  * mode included.
+ *
+ * @group Theme
  */
 export interface TableBlockStyle extends TextStyle {
   /** Outer flow margin above/below the grid, separating it from prose. */
@@ -1488,6 +1508,8 @@ export interface CursorStyles {
  * scrollbar: { width: 10, borderRadius: 0 } } })`. Colors come from the
  * `scrollbar*` tokens. On touch devices the width narrows to 8px, unless you
  * set `width` yourself. Then your value is used everywhere.
+ *
+ * @group Theme
  */
 export interface ScrollbarStyles {
   // ── Colors (token-derived) ────────────────────────────────────────────────
@@ -1719,6 +1741,8 @@ export type DeepPartial<T> = T extends readonly (infer _U)[]
  * host overrides them per instance via `createEditor({ theme: { tokens } })` or
  * `editor.setTheme({ tokens })`. Nothing here is read from the DOM — a host
  * driving these from CSS variables converts them on its own side.
+ *
+ * @group Theme
  */
 export interface ThemeTokens {
   /** Default body text. */
@@ -1815,6 +1839,8 @@ export interface ThemeTokens {
  *   styles: { scrollbar: { width: 8 } },
  * });
  * ```
+ *
+ * @group Theme
  */
 export interface EditorTheme {
   readonly tokens?: Partial<ThemeTokens>;

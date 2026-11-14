@@ -9,6 +9,8 @@ import type { SymbolInfo, SymGroup } from "./symbols";
 /**
  * One face of the math fonts, such as `"Main-Bold"`. Its font file is
  * `KaTeX_<variant>.woff2`, for example `KaTeX_Main-Bold.woff2`.
+ *
+ * @group Rendering
  */
 export type FontVariant =
   | "Main-Regular"

@@ -41,14 +41,22 @@ import {
   parseMathDocument,
 } from "@tasfer/tex/data";
 
-/** A stable gap inside a math row. `null` means before its first child. */
+/**
+ * A stable gap inside a math row. `null` means before its first child.
+ *
+ * @group Caret and selection
+ */
 export interface MathRowCaret {
   readonly kind: "row";
   readonly rowId: string;
   readonly afterNodeId: string | null;
 }
 
-/** A stable gap inside the editable field of a raw-text or `text` leaf. */
+/**
+ * A stable gap inside the editable field of a raw-text or `text` leaf.
+ *
+ * @group Caret and selection
+ */
 export interface MathTextCaret {
   readonly kind: "text";
   readonly rowId: string;
@@ -63,6 +71,8 @@ export interface MathTextCaret {
  * ({@link MathRowCaret}) or a spot inside a piece of text
  * ({@link MathTextCaret}). It points at ids, not offsets, so it stays in place
  * when other parts of the formula change.
+ *
+ * @group Caret and selection
  */
 export type MathTreeCaret = MathRowCaret | MathTextCaret;
 

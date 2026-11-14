@@ -10,6 +10,8 @@ import { mountEditor, type MountEditorOptions } from "./mount";
  * Where {@link createEditor} gets its content: `markdown`, `blocks`, or an
  * existing `doc`. Pass at most one. TypeScript rejects two, and `createEditor`
  * throws if two reach it at runtime. Pass none for a blank document.
+ *
+ * @group Editor
  */
 // The `?: never` siblings on each variant enforce the exclusivity: setting
 // `doc` narrows to the third variant, where `markdown`/`blocks` are typed
@@ -54,6 +56,8 @@ export type CreateEditorContent<
 /**
  * The {@link createEditor} options other than content. They work with every
  * {@link CreateEditorContent} choice.
+ *
+ * @group Editor
  */
 // `doc` is omitted from the inherited MountEditorOptions because it is one of
 // the content sources; the CreateEditorContent union owns it so the exclusivity
@@ -84,6 +88,8 @@ export type CreateEditorBaseOptions<
 /**
  * Options for {@link createEditor}: the {@link CreateEditorBaseOptions} plus at
  * most one of the {@link CreateEditorContent} sources.
+ *
+ * @group Editor
  */
 export type CreateEditorOptions<
   D extends SchemaDefinition = BaseSchemaDefinition,
@@ -96,6 +102,8 @@ export type CreateEditorOptions<
  * Always call `destroy()` when you remove the editor. It replaces the plain
  * `Editor.destroy` and also removes the canvas layers, page listeners, the
  * portal and the render loop.
+ *
+ * @group Editor
  */
 export interface TasferEditor<
   D extends SchemaDefinition = BaseSchemaDefinition,
@@ -164,6 +172,7 @@ export interface TasferEditor<
  * // …later
  * editor.destroy();
  * ```
+ * @group Editor
  */
 export function createEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
   options: CreateEditorOptions<D>,

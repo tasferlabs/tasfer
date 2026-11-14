@@ -38,6 +38,8 @@ import type {
  * A math block's text is empty. The formula lives in the block's math
  * document, not in its text. Read it as LaTeX with
  * {@link getStructuredMathSource}.
+ *
+ * @group Setup
  */
 export type MathBlockAttrs = {
   readonly displayMode: boolean;
@@ -47,6 +49,8 @@ export type MathBlockAttrs = {
  * What {@link mathDataExtension} returns: the math block, the inline math mark
  * and the math content kind, with no canvas code. Add it to a data schema in
  * workers, servers and Markdown tools.
+ *
+ * @group Setup
  */
 export type MathDataExtension = {
   readonly blocks: readonly [BlockSpecCore<"math", MathBlockAttrs>];
@@ -72,6 +76,8 @@ export type MathDataExtension = {
  * Keep this data schema matched with the editor's schema, built with
  * {@link mathExtension}. Put each in its own module. Then a worker that imports
  * the data schema never loads the canvas code.
+ *
+ * @group Setup
  */
 // Each piece registers on the spec that owns it: the block spec carries the
 // display syntax rule, the mark spec carries the inline rule and

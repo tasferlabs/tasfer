@@ -21,7 +21,11 @@ import {
   type StructuredNode,
 } from "./sync/structured-content";
 
-/** Which side of a boundary owns a nested caret. */
+/**
+ * Which side of a boundary owns a nested caret.
+ *
+ * @group Selection
+ */
 export type ContentSelectionAffinity = "backward" | "forward";
 
 /**
@@ -32,6 +36,8 @@ export type ContentSelectionAffinity = "backward" | "forward";
  * the start of the field. It points at a character, not a number, so the caret
  * stays in place when someone else types earlier in the field. `affinity` says
  * which side owns the caret when two spots look the same on screen.
+ *
+ * @group Selection
  */
 export interface ContentTextPoint {
   readonly kind: "text";
@@ -48,6 +54,8 @@ export interface ContentTextPoint {
  *
  * `afterNodeId` is the child just before the caret. `null` means the start of
  * the slot. This lets an empty slot, like an empty row, hold a caret.
+ *
+ * @group Selection
  */
 export interface ContentGapPoint {
   readonly kind: "gap";
@@ -59,7 +67,11 @@ export interface ContentGapPoint {
   readonly affinity: ContentSelectionAffinity;
 }
 
-/** One supported caret stop inside a structured attachment. */
+/**
+ * One supported caret stop inside a structured attachment.
+ *
+ * @group Selection
+ */
 export type ContentPoint = ContentTextPoint | ContentGapPoint;
 
 /**
@@ -69,6 +81,8 @@ export type ContentPoint = ContentTextPoint | ContentGapPoint;
  * Both ends must be in the same block and the same structured content. The two
  * ends can be different point kinds. The extension that owns the content
  * decides which ranges it can edit.
+ *
+ * @group Selection
  */
 // Core must not discard a valid range merely because its endpoints use
 // different node-local address shapes.
@@ -157,7 +171,11 @@ export function contentGapPointsEqual(
   );
 }
 
-/** Exact value equality for either nested point kind. */
+/**
+ * Exact value equality for either nested point kind.
+ *
+ * @group Selection
+ */
 export function contentPointsEqual(
   left: ContentPoint,
   right: ContentPoint,
@@ -224,6 +242,8 @@ function contentSelectionBoundaryEqual(
  * Whether the range is just a caret, with both ends at the same spot in the
  * same text field or slot. `affinity` is ignored. A text end and a gap end
  * never count as the same spot.
+ *
+ * @group Selection
  */
 export function isContentSelectionCollapsed(
   selection: ContentSelection,
@@ -297,6 +317,8 @@ export function normalizeContentTextPoint(
 /**
  * Returns where a text point sits in its field's visible text right now, in
  * UTF-16 units. Returns `null` when the point's content is gone.
+ *
+ * @group Selection
  */
 export function resolveContentTextPointOffset(
   page: Page,
@@ -384,6 +406,8 @@ export function normalizeContentPoint(
  *
  * It does not put the ends in order or check that the range can be edited. The
  * extension that owns the content does that.
+ *
+ * @group Selection
  */
 export function normalizeContentSelection(
   page: Page,
@@ -533,6 +557,8 @@ export function reconcileContentSelectionState(
  * clears the normal cursor and selection, so there is only ever one caret.
  * Clearing it with `null` leaves the normal cursor as it is. Returns the same
  * state when nothing changed.
+ *
+ * @group Selection
  */
 export function updateContentSelection(
   state: EditorState,

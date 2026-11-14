@@ -107,6 +107,8 @@ function pickStop(
  * formula. `latex` is one formula's LaTeX: a block equation's whole source, or
  * an inline formula's own source. `offset` is a position in it. Use it to grey
  * out a step left or right button when that step would leave the math.
+ *
+ * @group Caret and selection
  */
 export function mathSourceAtEdge(
   latex: string,
@@ -123,6 +125,8 @@ export function mathSourceAtEdge(
  * relative like {@link mathSourceAtEdge}: a block equation's whole LaTeX with the
  * block offset, or an inline chip's own LaTeX with the chip-local offset. A host
  * uses this to decide whether to offer the matrix row/column controls.
+ *
+ * @group Matrices
  */
 export function mathMatrixContext(
   latex: string,
@@ -137,6 +141,8 @@ export function mathMatrixContext(
  * the first grid the range crosses. Returns null when the range touches no
  * grid. Use it for a selection, because a drag across a whole matrix starts and
  * ends just outside it. For a plain caret, use mathMatrixContext.
+ *
+ * @group Matrices
  */
 export function mathMatrixContextInRange(
   latex: string,
@@ -157,6 +163,8 @@ export function mathMatrixContextInRange(
  *
  * New cells are empty. Shrinking removes rows from the bottom and columns from
  * the right. The grid never goes below 1×1.
+ *
+ * @group Matrices
  */
 export function mathMatrixResize(
   latex: string,
@@ -1294,6 +1302,8 @@ export function getBlockMathOffsetVertical(
  * defaults to 22 for display math and 18 for inline. `color` defaults to
  * `currentColor`, so the SVG takes the color of the text around it. The SVG
  * names the math fonts, so load them first with `loadFonts` from `@tasfer/tex`.
+ *
+ * @group Setup
  */
 export function renderToSVG(
   latex: string,

@@ -37,6 +37,8 @@ import type { Token, TokenType } from "../tokenizer";
 /**
  * The formats a document can be written out as: Markdown, HTML or plain text.
  * A codec reads it from its output context to know which one is being produced.
+ *
+ * @group Serialization
  */
 export type SerialFormat = "markdown" | "html" | "text";
 
@@ -45,6 +47,8 @@ export type SerialFormat = "markdown" | "html" | "text";
  * Pass it as `renderReplacement` to {@link serializeToHTML}. It gets the
  * content `type`, its `source` text, and `displayMode` (`true` when it stands
  * as its own block). It returns an HTML string.
+ *
+ * @group Serialization
  */
 export type ReplacementRenderer = (
   type: string,
@@ -52,7 +56,11 @@ export type ReplacementRenderer = (
   displayMode: boolean,
 ) => string;
 
-/** Context handed to every `output()` call. Built by the per-format orchestrator. */
+/**
+ * Context handed to every `output()` call. Built by the per-format orchestrator.
+ *
+ * @group Serialization
+ */
 export interface OutputCtx {
   readonly format: SerialFormat;
   /** Render rich text content (char runs + format spans) in the active format. */
@@ -75,7 +83,11 @@ export interface OutputCtx {
   readonly preferSource?: boolean;
 }
 
-/** An HTML tag encountered in markdown input, pre-parsed by the orchestrator. */
+/**
+ * An HTML tag encountered in markdown input, pre-parsed by the orchestrator.
+ *
+ * @group Serialization
+ */
 export interface ParsedTag {
   readonly name: string;
   readonly attrs: Readonly<Record<string, string>>;
@@ -88,6 +100,8 @@ export interface ParsedTag {
  * `input()`, the token that starts the block has not been read yet, so the
  * codec reads it itself. In `inputTag()`, the parser has already read the tag
  * token.
+ *
+ * @group Serialization
  */
 export interface InputCtx {
   /** Indent level (already consumed by the orchestrator) for this block. */
@@ -139,6 +153,8 @@ export interface InputCtx {
  * The Markdown half of a {@link BlockCodec}. `output` writes a block as
  * Markdown; the optional `input` and `inputTag` read it back, from Markdown
  * tokens or from an HTML tag found inside Markdown.
+ *
+ * @group Serialization
  */
 export interface MarkdownCodec {
   output(block: Block, ctx: OutputCtx): string;
@@ -152,6 +168,8 @@ export interface MarkdownCodec {
 
 /**
  * The HTML half of a {@link BlockCodec}: turns one block into an HTML string.
+ *
+ * @group Serialization
  */
 export interface HtmlCodec {
   output(block: Block, ctx: OutputCtx): string;
@@ -159,6 +177,8 @@ export interface HtmlCodec {
 
 /**
  * The plain-text half of a {@link BlockCodec}: turns one block into plain text.
+ *
+ * @group Serialization
  */
 export interface TextCodec {
   output(block: Block, ctx: OutputCtx): string;
@@ -169,6 +189,8 @@ export interface TextCodec {
  * Markdown, HTML and plain text, and read back from Markdown. A custom node
  * declares the same thing without `types` (a {@link NodeCodec}); the schema
  * fills in the type names.
+ *
+ * @group Serialization
  */
 export interface BlockCodec {
   /** Every block type this codec handles (family codecs list several). */
@@ -185,5 +207,7 @@ export interface BlockCodec {
  * back: a {@link BlockCodec} without `types`. Set it as the node's `codec`
  * property. The node already has its `type`, so the schema fills in `types`
  * (see {@link codecFromNode}).
+ *
+ * @group Serialization
  */
 export type NodeCodec = Omit<BlockCodec, "types">;

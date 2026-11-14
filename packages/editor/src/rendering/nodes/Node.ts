@@ -50,7 +50,11 @@ import type {
 import type { MarkRegistry } from "../marks";
 import type { CaretModel } from "./caret-model";
 
-/** Result of the shared layout pass. Cacheable on `block.cachedLayout`. */
+/**
+ * Result of the shared layout pass. Cacheable on `block.cachedLayout`.
+ *
+ * @group Nodes
+ */
 export interface NodeLayout {
   /** Total vertical space the block occupies, including its own padding. */
   readonly height: number;
@@ -141,7 +145,11 @@ export interface NodeBlock extends BlockRuntimeState {
   readonly type: string;
 }
 
-/** Geometry + styles available without a canvas (measurement, height passes). */
+/**
+ * Geometry + styles available without a canvas (measurement, height passes).
+ *
+ * @group Nodes
+ */
 export interface NodeLayoutCtx {
   readonly block: Block;
   readonly blockIndex: number;
@@ -158,7 +166,11 @@ export interface NodeLayoutCtx {
   readonly marks: MarkRegistry;
 }
 
-/** Everything paint() needs on top of layout context. */
+/**
+ * Everything paint() needs on top of layout context.
+ *
+ * @group Nodes
+ */
 export interface NodePaintCtx extends NodeLayoutCtx {
   readonly ctx: CanvasRenderingContext2D;
   readonly state: EditorState;
@@ -182,6 +194,8 @@ export interface NodePaintCtx extends NodeLayoutCtx {
 /**
  * What {@link Node.contentSelectionFromPoint} gets: the layout context, the
  * live state and your typed block.
+ *
+ * @group Nodes
  */
 export interface NodeContentHitCtx<
   B extends NodeBlock = NodeBlock,
@@ -190,7 +204,11 @@ export interface NodeContentHitCtx<
   readonly block: B;
 }
 
-/** Gesture details that can affect a node's nested caret hit-test. */
+/**
+ * Gesture details that can affect a node's nested caret hit-test.
+ *
+ * @group Nodes
+ */
 export interface NodeContentHitOptions {
   readonly pointerType: NodePointerType;
   /**
@@ -206,7 +224,11 @@ export interface NodeContentHitOptions {
   readonly previousPoint?: ContentPoint | null;
 }
 
-/** A point in block-local canvas coordinates. */
+/**
+ * A point in block-local canvas coordinates.
+ *
+ * @group Nodes
+ */
 export interface Point {
   readonly x: number;
   readonly y: number;
@@ -216,6 +238,8 @@ export interface Point {
  * Context for {@link Node.contentCaretRect} — a layout context plus the block's
  * painted origin, so the node returns a rect in the caller's coordinate space
  * (viewport for the renderer, document for scroll/menu anchoring).
+ *
+ * @group Nodes
  */
 export interface NodeContentCaretCtx<
   B extends NodeBlock = NodeBlock,
@@ -226,7 +250,11 @@ export interface NodeContentCaretCtx<
   readonly origin: Point;
 }
 
-/** A caret rect: `x`/`y` are its top-left, `height` its full drawn extent. */
+/**
+ * A caret rect: `x`/`y` are its top-left, `height` its full drawn extent.
+ *
+ * @group Nodes
+ */
 export interface NodeCaretRect {
   readonly x: number;
   readonly y: number;
@@ -241,7 +269,11 @@ export interface NodeCaretRect {
   readonly offscreen?: "left" | "right";
 }
 
-/** An axis-aligned rect in the caller's coordinate space. */
+/**
+ * An axis-aligned rect in the caller's coordinate space.
+ *
+ * @group Nodes
+ */
 export interface NodeRect {
   readonly x: number;
   readonly y: number;
@@ -252,6 +284,8 @@ export interface NodeRect {
 /**
  * Geometry of a non-collapsed {@link ContentSelection} a node owns — what
  * {@link Node.contentSelectionGeometry} returns.
+ *
+ * @group Nodes
  */
 export interface NodeContentSelectionGeometry {
   /** The band the node paints for the range, used to test "is this on it". */
@@ -270,14 +304,22 @@ export interface NodeContentSelectionGeometry {
   readonly opacity?: number;
 }
 
-/** Context for {@link Node.activate} — enough to decide which overlay to open. */
+/**
+ * Context for {@link Node.activate} — enough to decide which overlay to open.
+ *
+ * @group Nodes
+ */
 export interface NodeActivateCtx {
   readonly state: EditorState;
   readonly block: Block;
   readonly blockIndex: number;
 }
 
-/** The host overlay {@link Node.activate} asks the engine to open. */
+/**
+ * The host overlay {@link Node.activate} asks the engine to open.
+ *
+ * @group Nodes
+ */
 export interface NodeActivation {
   readonly key: string;
   readonly data?: unknown;
@@ -287,15 +329,25 @@ export interface NodeActivation {
  * Context for the sideways-scroll hooks ({@link Node.canScrollSideways} and
  * friends): the block's layout inputs plus the live state, which is where a
  * node keeps its scroll offset (`ui.nodeViewState`).
+ *
+ * @group Nodes
  */
 export interface NodeScrollCtx extends NodeLayoutCtx {
   readonly state: EditorState;
 }
 
-/** Whether a hit region is being tested for a mouse or a finger. */
+/**
+ * Whether a hit region is being tested for a mouse or a finger.
+ *
+ * @group Nodes
+ */
 export type NodePointerType = "mouse" | "touch";
 
-/** Everything a node needs to compute its interactive sub-region geometry. */
+/**
+ * Everything a node needs to compute its interactive sub-region geometry.
+ *
+ * @group Nodes
+ */
 export interface NodeRegionCtx extends NodeLayoutCtx {
   readonly state: EditorState;
   readonly viewport: ViewportState;
@@ -314,6 +366,8 @@ export interface NodeRegionCtx extends NodeLayoutCtx {
  * `H` is the type `hitTest` returns. `onTap`, `drag.onStart` and `hover` get
  * that same value, so you never cast it. Build regions with {@link hitRegion}
  * to get `H` worked out for you.
+ *
+ * @group Nodes
  */
 export interface NodeHitRegion<H = unknown> {
   /** Stable id the event layer binds behavior to (e.g. "todo-checkbox"). */
@@ -361,6 +415,8 @@ export interface NodeHitRegion<H = unknown> {
  * ```
  *
  * It returns the region unchanged, so it fits in the array `regions` returns.
+ *
+ * @group Nodes
  */
 export function hitRegion<H>(region: NodeHitRegion<H>): NodeHitRegion<H> {
   return region;
@@ -384,6 +440,8 @@ export interface NodeAtomicHit {
  * `Node` itself only when you need full control, as the table node does. The
  * type parameter `B` is your block's shape, so `block` is typed in your
  * methods.
+ *
+ * @group Nodes
  */
 export abstract class Node<B extends NodeBlock = NodeBlock> {
   /** The block type string this node handles. */
@@ -669,6 +727,8 @@ export abstract class Node<B extends NodeBlock = NodeBlock> {
  * across the page), so two editors can register different block types, for
  * example one with lists and one without. That is also what makes block types
  * opt-in: the host chooses which nodes to register when it mounts the editor.
+ *
+ * @group Nodes
  */
 export class NodeRegistry {
   private readonly nodes = new Map<string, Node>();

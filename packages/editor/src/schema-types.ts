@@ -11,6 +11,8 @@ import type { ContentSelection } from "./structured-selection";
  * The type-level description of a schema: every block name and every mark name,
  * each mapped to the shape of its attributes. It exists only for TypeScript; it
  * is what lets `Doc`, `Schema` and the editor API know about your custom types.
+ *
+ * @group Schema
  */
 export interface SchemaDefinition {
   readonly blocks: Record<string, Record<string, unknown>>;
@@ -20,6 +22,8 @@ export interface SchemaDefinition {
 /**
  * A schema description that allows any block or mark name with any attributes.
  * Use it where the exact schema is not known.
+ *
+ * @group Schema
  */
 export type AnySchemaDefinition = {
   readonly blocks: Record<string, Record<string, unknown>>;
@@ -31,6 +35,8 @@ export type AnySchemaDefinition = {
  * types. The list of names is fixed. Built-in block attributes are loosely
  * typed, while the `link` mark has `{ url: string }`. Types you add with
  * `Schema.extend()` get exact attribute types.
+ *
+ * @group Schema
  */
 export interface BaseSchemaDefinition extends SchemaDefinition {
   readonly blocks: {
@@ -58,6 +64,8 @@ export interface BaseSchemaDefinition extends SchemaDefinition {
 /**
  * The block type names of schema `S`, as a union of string literals
  * (`"paragraph" | "heading1" | …`).
+ *
+ * @group Schema
  */
 export type BlockName<S extends SchemaDefinition> = Extract<
   keyof S["blocks"],
@@ -67,6 +75,8 @@ export type BlockName<S extends SchemaDefinition> = Extract<
 /**
  * The mark type names of schema `S`, as a union of string literals
  * (`"strong" | "link" | …`).
+ *
+ * @group Schema
  */
 export type MarkNameOf<S extends SchemaDefinition> = Extract<
   keyof S["marks"],
@@ -76,6 +86,8 @@ export type MarkNameOf<S extends SchemaDefinition> = Extract<
 /**
  * The shape of the attributes (the type-specific fields) that block type `T`
  * carries in schema `S`.
+ *
+ * @group Schema
  */
 export type BlockAttrs<
   S extends SchemaDefinition,
@@ -85,6 +97,8 @@ export type BlockAttrs<
 /**
  * The shape of the data that mark type `T` carries in schema `S`, such as
  * `{ url: string }` for a link.
+ *
+ * @group Schema
  */
 export type MarkAttrs<
   S extends SchemaDefinition,
@@ -94,6 +108,8 @@ export type MarkAttrs<
 /**
  * A plain-data snapshot of one block of type `T`: its `id`, `type`, visible
  * `text`, and `attrs` typed for that block type. See {@link BlockData}.
+ *
+ * @group Schema
  */
 export type BlockDataFor<S extends SchemaDefinition, T extends BlockName<S>> = {
   readonly id: string;
@@ -105,6 +121,8 @@ export type BlockDataFor<S extends SchemaDefinition, T extends BlockName<S>> = {
 /**
  * A {@link BlockDataFor} for any block type in schema `S`, as one union.
  * Checking `type` narrows `attrs` to that block type's attributes.
+ *
+ * @group Schema
  */
 export type SchemaBlockData<S extends SchemaDefinition> = {
   [T in BlockName<S>]: BlockDataFor<S, T>;
@@ -114,6 +132,8 @@ export type SchemaBlockData<S extends SchemaDefinition> = {
  * A mark of type `T` found in the document: its `name`, its `attrs` typed for
  * that mark, and the block, offsets and text of the run it covers. See
  * {@link MarkInfo}.
+ *
+ * @group Schema
  */
 export type MarkInfoFor<S extends SchemaDefinition, T extends MarkNameOf<S>> = {
   readonly name: T;
@@ -135,6 +155,8 @@ export type MergeRecords<A, B> = Omit<A, keyof B> & B;
 /**
  * Combines two schema descriptions into one. Where both define the same block
  * or mark name, `B` wins. This is how `extend()` types the schema it returns.
+ *
+ * @group Schema
  */
 export type MergeSchema<
   A extends SchemaDefinition,

@@ -42,6 +42,8 @@ import { TextNode, type TextNodeLayout, type TextualBlock } from "./TextNode";
 /**
  * The stored shape of a `quote` block: its text and the marks on that text,
  * with the type `"quote"`.
+ *
+ * @group Nodes
  */
 export interface QuoteBlock extends BlockRuntimeState {
   type: "quote";
@@ -52,6 +54,8 @@ export interface QuoteBlock extends BlockRuntimeState {
 /**
  * The built-in `quote` block: editable text drawn as a quote card, written as
  * `> text` in Markdown and `<blockquote>` in HTML.
+ *
+ * @group Nodes
  */
 export class QuoteNode extends TextNode {
   readonly type = "quote" as const;

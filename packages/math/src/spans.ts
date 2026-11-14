@@ -19,6 +19,8 @@ import type { Block } from "@tasfer/editor/serlization/loadPage";
 /**
  * One inline formula in a block's text: the text index where it starts, the
  * index where it ends, and the text stored in between.
+ *
+ * @group Structured content
  */
 export interface InlineMathSpan {
   startIndex: number;
@@ -34,6 +36,8 @@ export interface InlineMathSpan {
  * List every inline formula in a block, with where each one starts and ends
  * in the block's text. Use it to find the formula next to the caret or inside
  * a selection.
+ *
+ * @group Structured content
  */
 export function getInlineMathSpans(block: Block): InlineMathSpan[] {
   return resolveMarkRuns(block)

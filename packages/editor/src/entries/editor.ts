@@ -311,6 +311,8 @@ function hasTextStorage(
  *
  * There is no sync event. Connection status and peer count come from your sync
  * provider, which owns the connection.
+ *
+ * @group Editor
  */
 export type EditorEvent = "change" | "selectionchange" | "focus" | "blur";
 
@@ -319,6 +321,8 @@ export type EditorEvent = "change" | "selectionchange" | "focus" | "blur";
  * and whether they came from another person. Check `isRemote` to skip your own
  * edits. `ops.length` tells you how big the change was. One
  * {@link Editor.change} call gives one transaction with all of its edits.
+ *
+ * @group Editor
  */
 export interface ChangeTransaction {
   /** True when applied from a peer via sync; false for a local edit/undo/redo. */
@@ -336,6 +340,8 @@ export type { DocPoint, DocRange } from "../positions";
  * A plain-data snapshot of one block, as returned by the read API
  * ({@link QueryApi}): its `id`, `type`, visible `text` and type-specific
  * `attrs`. It is a copy for reading, never the editor's internal block.
+ *
+ * @group Editor
  */
 export type BlockData<S extends SchemaDefinition = BaseSchemaDefinition> =
   SchemaBlockData<S>;
@@ -343,6 +349,8 @@ export type BlockData<S extends SchemaDefinition = BaseSchemaDefinition> =
  * A mark found at a position or range, as returned by the read API's `marks()`:
  * its `name`, its data in `attrs` (a link's `url`, for example), and the block,
  * offsets and text of the run it covers.
+ *
+ * @group Editor
  */
 export type MarkInfo<S extends SchemaDefinition = BaseSchemaDefinition> = {
   [T in MarkNameOf<S>]: MarkInfoFor<S, T>;
@@ -385,6 +393,8 @@ type RuntimeBlockPatch = {
  * ```ts
  * editor.change((c) => c.insertText("Done").select("end"));
  * ```
+ *
+ * @group Editor
  */
 // insertText falls back to the live selection when an explicit range cannot be
 // resolved (makeChangeApi in editor.ts). For a stale block id that looks like a
@@ -554,6 +564,8 @@ export interface ChangeApi<S extends SchemaDefinition = AnySchemaDefinition> {
  * like a {@link Editor.change} callback. The host's own actions and the engine
  * built-ins are the same kind of value —
  * `const toggleStrong: EditorAction = (c) => c.setMark("strong")`.
+ *
+ * @group Editor
  */
 export type EditorAction<S extends SchemaDefinition = AnySchemaDefinition> = (
   c: ChangeApi<S>,
@@ -563,6 +575,8 @@ export type EditorAction<S extends SchemaDefinition = AnySchemaDefinition> = (
  * The editor's current state, for binding UI (see {@link Editor.state}). Each
  * read of `editor.state` builds a new one, and it never changes after that. So
  * read it again when you need fresh values.
+ *
+ * @group Editor
  */
 export interface EditorStateSnapshot {
   /**
@@ -636,6 +650,8 @@ export interface EditorStateSnapshot {
  * search matches and other people's cursors. It is a stable public API.
  * Providers use the highlight methods for remote cursors (see
  * `@tasfer/provider-core/cursors`).
+ *
+ * @group Editor
  */
 export interface EditorViewApi {
   /**
@@ -747,6 +763,8 @@ export interface EditorViewApi {
  * Tools for building UI around the editor, through `editor.host`: node
  * overlays, per-block view state, menus, the interaction mode, and restoring a
  * snapshot. It is a stable public API, but most apps never need it.
+ *
+ * @group Editor
  */
 export interface EditorHostApi {
   /**
@@ -825,6 +843,8 @@ export interface EditorHostApi {
  * `query.block(at)` and change it with `c.setBlock(attrs, at)`. The selection
  * itself is on `editor.state.selection.range` (see
  * {@link EditorStateSnapshot.selection}).
+ *
+ * @group Editor
  */
 export interface QueryApi<S extends SchemaDefinition = BaseSchemaDefinition> {
   /**
@@ -923,6 +943,8 @@ export interface QueryApi<S extends SchemaDefinition = BaseSchemaDefinition> {
  *   as in other Mac text fields. On other systems those reach your app.
  *
  * "Cmd" is ⌘ on Apple devices and Ctrl elsewhere.
+ *
+ * @group Editor
  */
 // Kept as a standalone interface (EditorApi) so the Editor class is
 // compile-checked against it. Engine-only doc-to-editor wiring lives on

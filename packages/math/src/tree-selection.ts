@@ -64,6 +64,8 @@ export function mathUnitBoundaryOffset(
 /**
  * Turn an editor selection point into a math caret. Returns `null` when the
  * point is not in this formula or not at a spot the math editor can edit.
+ *
+ * @group Caret and selection
  */
 export function contentPointToMathTreeCaret(
   document: StructuredDocument,
@@ -106,6 +108,8 @@ export function contentPointToMathTreeCaret(
  * Turn a math caret back into a collapsed editor selection in block `blockId`.
  * Returns `null` when the text or character the caret points at no longer
  * exists.
+ *
+ * @group Caret and selection
  */
 export function mathTreeCaretToContentSelection(
   blockId: string,
@@ -344,6 +348,8 @@ export function mathTreeCaretFromSourceOffset(
  * The offset in the formula's LaTeX source for this selection point. It changes
  * as the formula is edited, so do not store it. Returns `null` when the point
  * is not in the formula.
+ *
+ * @group Caret and selection
  */
 export function mathSourceOffsetFromContentPoint(
   document: StructuredDocument,
@@ -534,6 +540,8 @@ function snapMathSelectionPoints(
 /**
  * A collapsed editor selection at an offset in the formula's LaTeX source. It
  * lands on the nearest editable spot. Returns `null` when none is found.
+ *
+ * @group Caret and selection
  */
 export function mathContentSelectionFromSourceOffset(
   blockId: string,

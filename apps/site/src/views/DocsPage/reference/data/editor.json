@@ -1,5 +1,22 @@
 {
  "name": "@tasfer/editor",
+ "groups": [
+  "Editor",
+  "Document",
+  "Schema",
+  "Features",
+  "Actions",
+  "Built-in actions",
+  "Nodes",
+  "Marks",
+  "Text",
+  "Selection",
+  "Structured content",
+  "Decorations",
+  "Serialization",
+  "Theme",
+  "Utilities"
+ ],
  "entries": [
   {
    "id": "@tasfer/editor",
@@ -11,6 +28,7 @@
       "function action<P = void>(name: string): Action<P>",
       "function action<P = void>(\n  name: string,\n  mutate: MutationHandler<P>,\n): MutationAction<P>"
      ],
+     "group": "Actions",
      "summary": "Declare an action.",
      "doc": [
       {
@@ -108,6 +126,7 @@
      "sigs": [
       "function appendTrailingParagraph(\n  state: EditorState,\n  afterBlock: Block,\n): EdgeOutcome"
      ],
+     "group": "Actions",
      "summary": "Add an empty paragraph after `afterBlock`, which must be the last block, and move the caret into it.",
      "doc": [
       {
@@ -164,6 +183,7 @@
      "sigs": [
       "function applyStructuredEdit(\n  document: StructuredDocument,\n  edit: StructuredEdit,\n): StructuredDocument"
      ],
+     "group": "Structured content",
      "summary": "Apply one edit and return the new document.",
      "doc": [
       {
@@ -187,6 +207,7 @@
      "sigs": [
       "function applyStructuredEdits(\n  document: StructuredDocument,\n  edits: readonly StructuredEdit[],\n): StructuredDocument"
      ],
+     "group": "Structured content",
      "summary": "Apply several edits, one after another in the order given, and return the new document.",
      "doc": [
       {
@@ -210,6 +231,7 @@
      "sigs": [
       "function armedFieldRevert(\n  state: EditorState,\n): TextFieldAddress | undefined"
      ],
+     "group": "Text",
      "summary": "The address of the text field whose auto-format can still be taken back, or `undefined` when there is none.",
      "doc": [
       {
@@ -269,6 +291,7 @@
      "sigs": [
       "function blockIdWindow(id: string): ViewWindow"
      ],
+     "group": "Editor",
      "summary": "A single-block `ViewWindow` scoped to the block with the given id, or an empty window if that block is absent or deleted.",
      "doc": [
       {
@@ -306,6 +329,7 @@
      "sigs": [
       "function bodyBlocksWindow(): ViewWindow"
      ],
+     "group": "Editor",
      "examples": [
       {
        "lang": "ts",
@@ -386,6 +410,7 @@
      "sigs": [
       "function boxDecorationRect(\n  box: { x: number; y: number; width: number; height: number },\n  deco: RangeDecorationPaint,\n): DecorationRect"
      ],
+     "group": "Decorations",
      "summary": "A whole-box fragment (image, table cell, equation card) as a `DecorationRect`: its fill is the box itself, and an underline hugs the box's bottom edge instead of guessing at a baseline the box does not have.",
      "doc": [
       {
@@ -423,6 +448,7 @@
      "sigs": [
       "function buildStructuredChildIndex(\n  document: StructuredDocument,\n): StructuredChildIndex"
      ],
+     "group": "Structured content",
      "summary": "Index one document's children by parent and slot, in document order.",
      "doc": [
       {
@@ -446,6 +472,7 @@
      "sigs": [
       "function canonicalizeStructuredDocument(\n  document: StructuredDocument,\n): StructuredDocument"
      ],
+     "group": "Structured content",
      "summary": "Return a copy with its nodes, attributes and text fields sorted by key, so the JSON comes out in a stable order.",
      "doc": [
       {
@@ -469,6 +496,7 @@
      "sigs": [
       "function canRepositionImage(\n  block: Image,\n  frameWidth: number,\n  frameHeight: number,\n): boolean"
      ],
+     "group": "Nodes",
      "summary": "Whether the image can be repositioned in a frame of this size, in canvas pixels.",
      "doc": [
       {
@@ -508,6 +536,7 @@
      "sigs": [
       "function canRepositionImageAt(\n  block:\n    | Pick<Image, \"url\" | \"width\" | \"height\" | \"objectFit\">\n    | Readonly<Record<string, unknown>>,\n  viewport: ViewportState,\n  styles: EditorStyles,\n): boolean"
      ],
+     "group": "Nodes",
      "summary": "Like `canRepositionImage`, but it works out the image's drawn size from the block and the viewport.",
      "doc": [
       {
@@ -545,6 +574,7 @@
      "sigs": [
       "function collectAssetRefs(\n  blocks: Block[],\n  schema: DataSchema = getBaseDataSchema(),\n): string[]"
      ],
+     "group": "Schema",
      "summary": "Lists the assets the given blocks use, such as image hashes or URLs.",
      "doc": [
       {
@@ -568,6 +598,7 @@
      "sigs": [
       "function compositionRects(layout: TextLayout): TextRect[]"
      ],
+     "group": "Text",
      "summary": "Rects under the composition preview of a box, one per line or bidi run.",
      "doc": [
       {
@@ -591,6 +622,7 @@
      "sigs": [
       "function contentPointsEqual(\n  left: ContentPoint,\n  right: ContentPoint,\n): boolean"
      ],
+     "group": "Selection",
      "summary": "Exact value equality for either nested point kind.",
      "doc": [
       {
@@ -614,6 +646,7 @@
      "sigs": [
       "function createDefaultMarkRegistry(): MarkRegistry"
      ],
+     "group": "Marks",
      "summary": "Build a registry pre-populated with the built-in marks.",
      "doc": [
       {
@@ -637,6 +670,7 @@
      "sigs": [
       "function createDeterministicIdentityAllocator(\n  scope: string,\n  startCounter = 0,\n): IdentityAllocator"
      ],
+     "group": "Document",
      "summary": "Create an id maker that hands out `<scope>:0`, `<scope>:1`, and so on.",
      "doc": [
       {
@@ -717,6 +751,7 @@
      "sigs": [
       "function createDoc<D extends SchemaDefinition = BaseSchemaDefinition>(\n  input?: CreateDocOptions<D> | Uint8Array,\n): Doc<D>"
      ],
+     "group": "Document",
      "summary": "Creates a document.",
      "doc": [
       {
@@ -767,6 +802,7 @@
      "sigs": [
       "function createEditor<D extends SchemaDefinition = BaseSchemaDefinition>(\n  options: CreateEditorOptions<D>,\n): TasferEditor<D>"
      ],
+     "group": "Editor",
      "examples": [
       {
        "lang": "ts",
@@ -828,6 +864,7 @@
      "sigs": [
       "function createMarkRegistry(marks: readonly Mark[]): MarkRegistry"
      ],
+     "group": "Marks",
      "summary": "Build a registry from an explicit list of marks (host opt-in).",
      "doc": [
       {
@@ -851,6 +888,7 @@
      "sigs": [
       "function createNodeRegistry(nodes: readonly Node[]): NodeRegistry"
      ],
+     "group": "Nodes",
      "summary": "Builds a node registry from the nodes you list.",
      "doc": [
       {
@@ -874,6 +912,7 @@
      "sigs": [
       "function createStructuredDocument(\n  kind: string,\n  rootId: string,\n): StructuredDocument"
      ],
+     "group": "Structured content",
      "summary": "Create an empty structured document with no nodes.",
      "doc": [
       {
@@ -942,6 +981,7 @@
      "sigs": [
       "function decorationsForBlock(\n  layers: DecorationLayers,\n  blockId: string,\n): readonly Decoration[]"
      ],
+     "group": "Decorations",
      "summary": "The decorations that may touch one block, in layer order.",
      "doc": [
       {
@@ -987,6 +1027,7 @@
      "sigs": [
       "function defaultMarks(): Mark[]"
      ],
+     "group": "Marks",
      "summary": "Returns new instances of the built-in marks: strong, emphasis, strike, code and link.",
      "doc": [
       {
@@ -1010,6 +1051,7 @@
      "sigs": [
       "function defaultNodes(): Node[]"
      ],
+     "group": "Nodes",
      "summary": "Returns the built-in nodes, made new on each call: paragraph and headings (`TextNode`), bullet, numbered and todo lists (`ListNode`), quote, image and the divider line.",
      "doc": [
       {
@@ -1058,6 +1100,7 @@
      "sigs": [
       "function defineMark<\n  const T extends string,\n  const A extends Record<string, unknown> = Record<string, never>,\n>(type: T, config: DefineMarkConfig<A> = {}): MarkDef<T, InferAttrs<A>>"
      ],
+     "group": "Schema",
      "summary": "Declares a custom inline mark.",
      "doc": [
       {
@@ -1155,6 +1198,7 @@
      "sigs": [
       "function defineNode<\n  const T extends string,\n  const A extends Record<string, AttrSpec> = Record<string, never>,\n>(type: T, config: DefineNodeConfig<A> = {}): BlockSpec<T, InferAttrs<A>>"
      ],
+     "group": "Schema",
      "summary": "Defines a custom block type with no text, such as a callout box or an embed.",
      "doc": [
       {
@@ -1230,6 +1274,7 @@
      "sigs": [
       "function deserializeVV(obj: Record<string, number>): VersionVector"
      ],
+     "group": "Document",
      "summary": "Turns a plain object made by `serializeVV` back into a `VersionVector` map.",
      "doc": [
       {
@@ -1281,6 +1326,7 @@
      "sigs": [
       "function foldComposition(\n  chars: readonly Char[],\n  at: number,\n  text: string,\n  replace?:\n    | { readonly from: number; readonly to: number }\n    | readonly { readonly from: number; readonly to: number }[],\n): { chars: Char[]; compositionRange: { start: number; end: number } | null }"
      ],
+     "group": "Text",
      "summary": "The characters with the keyboard's live preview text (IME composition) added at visible offset `at`.",
      "doc": [
       {
@@ -1386,6 +1432,7 @@
      "sigs": [
       "function getBaseDataSchema(): DataSchema<BaseSchemaDefinition>"
      ],
+     "group": "Schema",
      "summary": "The default schema: every core block and mark type.",
      "doc": [
       {
@@ -1417,6 +1464,7 @@
      "sigs": [
       "function getContentWithComposition(\n  block: Block,\n  state: EditorState,\n  blockIndex: number,\n): {\n  chars: Char[];\n  formats: MarkSpan[];\n  compositionRange: { start: number; end: number } | null;\n}"
      ],
+     "group": "Text",
      "summary": "Returns a block's characters and marks with the text the user is still typing through an IME folded in, ready for layout.",
      "doc": [
       {
@@ -1465,6 +1513,7 @@
      "sigs": [
       "function getStructuredChildren(\n  document: StructuredDocument,\n  parentId: string,\n  slot: string,\n  options: {\n    readonly includeDeleted?: boolean;\n    readonly index?: StructuredChildIndex;\n  } = {},\n): StructuredNode[]"
      ],
+     "group": "Structured content",
      "summary": "The direct children of `parentId` in one `slot`, in document order.",
      "doc": [
       {
@@ -1560,6 +1609,7 @@
      "sigs": [
       "function getStructuredMarks(\n  document: StructuredDocument,\n  nodeId: string,\n  field: string,\n): readonly MarkRange[]"
      ],
+     "group": "Structured content",
      "summary": "The inline marks on one text field, in a fixed order.",
      "doc": [
       {
@@ -1608,6 +1658,7 @@
      "sigs": [
       "function getStructuredNode(\n  document: StructuredDocument,\n  nodeId: string,\n): StructuredNode | undefined"
      ],
+     "group": "Structured content",
      "summary": "One node by id, or `undefined` when it is not there.",
      "doc": [
       {
@@ -1647,6 +1698,7 @@
      "sigs": [
       "function getStructuredText(\n  document: StructuredDocument,\n  nodeId: string,\n  field: string,\n): string"
      ],
+     "group": "Structured content",
      "summary": "The visible text of one text field, without deleted characters.",
      "doc": [
       {
@@ -1670,6 +1722,7 @@
      "sigs": [
       "function hasStructuredContent(block: {\n  readonly structuredContent?: StructuredContentMap;\n}): boolean"
      ],
+     "group": "Structured content",
      "summary": "Whether a block carries any structured attachment, authoritative or supplemental.",
      "doc": [
       {
@@ -1693,6 +1746,7 @@
      "sigs": [
       "function hitRegion<H>(region: NodeHitRegion<H>): NodeHitRegion<H>"
      ],
+     "group": "Nodes",
      "summary": "Builds a hit region and works out its hit type from what `hitTest` returns.",
      "doc": [
       {
@@ -1776,6 +1830,7 @@
      "sigs": [
       "function insertParagraphBeside(\n  state: EditorState,\n  blockIndex: number,\n  side: \"before\" | \"after\",\n  caret: \"new\" | \"keep\",\n): StateResult | undefined"
      ],
+     "group": "Actions",
      "summary": "Insert an empty paragraph below (`side: \"after\"`) or above (`side: \"before\"`) the block at `blockIndex`.",
      "doc": [
       {
@@ -1855,6 +1910,7 @@
      "sigs": [
       "function invertStructuredEdit(\n  edit: StructuredEdit,\n  documentBefore: StructuredDocument,\n): StructuredEdit[]"
      ],
+     "group": "Structured content",
      "summary": "The edits that undo `edit`, worked out from the document before `edit` ran.",
      "doc": [
       {
@@ -1902,6 +1958,7 @@
      "sigs": [
       "function isApplePlatform(): boolean"
      ],
+     "group": "Utilities",
      "summary": "Returns `true` on macOS, iOS and iPadOS.",
      "doc": [
       {
@@ -1974,6 +2031,7 @@
      "sigs": [
       "function isContentSelectionCollapsed(\n  selection: ContentSelection,\n): boolean"
      ],
+     "group": "Selection",
      "summary": "Whether the range is just a caret, with both ends at the same spot in the same text field or slot.",
      "doc": [
       {
@@ -2005,6 +2063,7 @@
      "sigs": [
       "function isRepositioning(state: EditorState, blockId: string): boolean"
      ],
+     "group": "Nodes",
      "summary": "Whether the image block with this id is in reposition mode.",
      "doc": [
       {
@@ -2028,6 +2087,7 @@
      "sigs": [
       "function joinWithPreviousBlock(\n  state: EditorState,\n  boundary: BlockBoundaryContext,\n  mark?: Mark,\n): StateResult | null"
      ],
+     "group": "Actions",
      "summary": "Merge the current block into the block above.",
      "doc": [
       {
@@ -2089,6 +2149,7 @@
      "sigs": [
       "function layoutText(input: TextLayoutInput): TextLayout"
      ],
+     "group": "Text",
      "examples": [
       {
        "lang": "ts",
@@ -2199,6 +2260,7 @@
      "sigs": [
       "function lineEdges(\n  layout: Pick<TextLayout, \"width\" | \"isRTL\" | \"align\">,\n  line: Pick<RenderedLine, \"width\">,\n): { left: number; right: number }"
      ],
+     "group": "Text",
      "examples": [
       {
        "lang": "ts",
@@ -2236,6 +2298,7 @@
      "sigs": [
       "function mergeRegister(...disposers: Disposer[]): Disposer"
      ],
+     "group": "Actions",
      "summary": "Combine several teardown functions into one.",
      "doc": [
       {
@@ -2311,6 +2374,7 @@
      "sigs": [
       "function mergeTheme(base: EditorTheme, patch: EditorTheme): EditorTheme"
      ],
+     "group": "Theme",
      "summary": "Combines two themes.",
      "doc": [
       {
@@ -2435,6 +2499,7 @@
      "sigs": [
       "function nextEnclosingRange(\n  candidates: readonly SelectionRungRange[],\n  current: SelectionRungRange,\n): SelectionRungRange | null"
      ],
+     "group": "Selection",
      "summary": "Pick the next, wider selection for Expand Selection: the smallest of `candidates` that contains `current` and is larger than it.",
      "doc": [
       {
@@ -2482,6 +2547,7 @@
      "sigs": [
       "function normalizeContentSelection(\n  page: Page,\n  selection: ContentSelection | null | undefined,\n): ContentSelection | null"
      ],
+     "group": "Selection",
      "summary": "Checks a range against the current page.",
      "doc": [
       {
@@ -2571,6 +2637,7 @@
      "sigs": [
       "function normalizeLinkUrl(raw: unknown): string | null"
      ],
+     "group": "Utilities",
      "summary": "Turn an untrusted link URL into an absolute URL that is safe to open.",
      "doc": [
       {
@@ -2688,6 +2755,7 @@
      "sigs": [
       "function notifyFontsChanged(): void"
      ],
+     "group": "Theme",
      "summary": "Tell the editor that fonts changed after the first load.",
      "doc": [
       {
@@ -2736,6 +2804,7 @@
      "sigs": [
       "function notifyFontsLoaded(): void"
      ],
+     "group": "Theme",
      "summary": "Tell the editor that your base fonts have finished loading.",
      "doc": [
       {
@@ -2782,6 +2851,7 @@
      "sigs": [
       "function openLinkUrl(raw: unknown): boolean"
      ],
+     "group": "Utilities",
      "summary": "Open a link the way a click on `<a target=\"_blank\">` would: in a new tab, with no opener and no referrer.",
      "doc": [
       {
@@ -2860,6 +2930,7 @@
      "sigs": [
       "function paintDecorationRects(\n  ctx: CanvasRenderingContext2D,\n  rects: readonly DecorationRect[],\n  deco: RangeDecorationPaint,\n  styles: EditorStyles,\n): void"
      ],
+     "group": "Decorations",
      "summary": "Paints a range decoration over the rectangles your node's selection geometry gave you.",
      "doc": [
       {
@@ -2956,6 +3027,7 @@
      "sigs": [
       "function paintTextRun(args: PaintTextRunArgs): void"
      ],
+     "group": "Text",
      "summary": "Paints one line of text with its marks, exactly the way paragraphs do.",
      "doc": [
       {
@@ -2979,6 +3051,7 @@
      "sigs": [
       "function parseAllocatedIdentity(\n  value: unknown,\n): AllocatedIdentity | null"
      ],
+     "group": "Document",
      "summary": "Split an id like `scope:12` into its origin and counter.",
      "doc": [
       {
@@ -3018,6 +3091,7 @@
      "sigs": [
       "function parseFrontmatter(content: string): {\n  content: string;\n  metadata?: PageMetadata;\n}"
      ],
+     "group": "Serialization",
      "summary": "Takes the front matter (the `---` section at the top) off a Markdown file.",
      "doc": [
       {
@@ -3113,6 +3187,7 @@
      "sigs": [
       "function parsePage(\n  tokens: Token[],\n  schema: DataSchema = getBaseDataSchema(),\n  untypedBlockIds?: Set<string>,\n): Page"
      ],
+     "group": "Serialization",
      "summary": "Turns the tokens from `tokenizePage` into a `Page`.",
      "doc": [
       {
@@ -3204,6 +3279,7 @@
      "sigs": [
       "function prependLeadingParagraph(state: EditorState): EdgeOutcome"
      ],
+     "group": "Actions",
      "summary": "Add an empty paragraph at the top of the document and move the caret into it.",
      "doc": [
       {
@@ -3257,6 +3333,7 @@
      "sigs": [
       "function registerEmptyBlockBackspaceExit(\n  bus: ActionBus,\n  types: readonly string[],\n): void"
      ],
+     "group": "Actions",
      "summary": "Make Backspace at the start of an empty block turn it into a plain paragraph, instead of merging it into the block above.",
      "doc": [
       {
@@ -3307,6 +3384,7 @@
      "sigs": [
       "function replacementRunForContent(\n  layout: TextLayout,\n  contentId: string,\n): ReplacementRun | undefined"
      ],
+     "group": "Text",
      "summary": "The replacement run whose attachment is `contentId` — the run a nested caret or range in that attachment sits in — or `undefined` when this box holds none.",
      "doc": [
       {
@@ -3376,6 +3454,7 @@
      "sigs": [
       "function resolveContentTextPointOffset(\n  page: Page,\n  point: ContentTextPoint,\n): number | null"
      ],
+     "group": "Selection",
      "summary": "Returns where a text point sits in its field's visible text right now, in UTF-16 units.",
      "doc": [
       {
@@ -3407,6 +3486,7 @@
      "sigs": [
       "function resolveTheme(theme: EditorTheme = {}): EditorStyles"
      ],
+     "group": "Theme",
      "summary": "Turns an `EditorTheme` into the full `EditorStyles` the editor draws with.",
      "doc": [
       {
@@ -3483,6 +3563,7 @@
      "sigs": [
       "function runFieldAsParagraph(\n  state: EditorState,\n  address: TextFieldAddress,\n  range: FieldRange,\n  action: (paragraph: EditorState) => StateResult,\n): FieldRun"
      ],
+     "group": "Text",
      "summary": "Run a paragraph action on one text field, such as a table cell, and commit what it did.",
      "doc": [
       {
@@ -3661,6 +3742,7 @@
      "sigs": [
       "function safeLinkHref(raw: unknown): string | null"
      ],
+     "group": "Utilities",
      "summary": "Make an untrusted link URL safe to use as an `href`.",
      "doc": [
       {
@@ -3739,6 +3821,7 @@
      "sigs": [
       "function selectFlatRange(\n  state: EditorState,\n  blockIndex: number,\n  from: number,\n  to: number,\n): EditorState"
      ],
+     "group": "Selection",
      "summary": "Select the text from `from` to `to` (`to` not included) in the block at `blockIndex`, with the caret at `to`.",
      "doc": [
       {
@@ -3802,6 +3885,7 @@
      "sigs": [
       "function serializeToHTML(\n  blocks: Block[],\n  options: HtmlSerializeOptions = {},\n): string"
      ],
+     "group": "Serialization",
      "summary": "Turns blocks into a complete, standalone HTML page, with a title and built-in styles.",
      "doc": [
       {
@@ -3838,6 +3922,7 @@
      "sigs": [
       "function serializeToMarkdown(\n  blocks: Block[],\n  metadata?: PageMetadata,\n  options?: MarkdownSerializeOptions,\n): string"
      ],
+     "group": "Serialization",
      "summary": "Turns blocks into a Markdown string.",
      "doc": [
       {
@@ -3874,6 +3959,7 @@
      "sigs": [
       "function serializeVV(vv: VersionVector): Record<string, number>"
      ],
+     "group": "Document",
      "summary": "Turns a `VersionVector` map into a plain object, so you can save it or send it as JSON.",
      "doc": [
       {
@@ -3911,6 +3997,7 @@
      "sigs": [
       "function stateAction<P = void>(\n  name: string,\n  transform: StateMutator<P>,\n  options: StateActionOptions = {},\n): StateAction<P>"
      ],
+     "group": "Actions",
      "summary": "Declare a state action (see `StateAction`).",
      "doc": [
       {
@@ -3999,6 +4086,7 @@
      "sigs": [
       "function structuredContentId(blockId: string, slot: string): string"
      ],
+     "group": "Structured content",
      "summary": "The content id of one attachment on a block.",
      "doc": [
       {
@@ -4054,6 +4142,7 @@
      "sigs": [
       "function textCaretRect(\n  layout: TextLayout,\n  index: number,\n): { x: number; y: number; height: number }"
      ],
+     "group": "Text",
      "summary": "Caret box for a visible offset.",
      "doc": [
       {
@@ -4101,6 +4190,7 @@
      "sigs": [
       "function textContentCaretRect(\n  layout: TextLayout,\n  point: ContentPoint,\n  blockId: string,\n): { x: number; y: number; height: number } | null"
      ],
+     "group": "Text",
      "summary": "Where a caret INSIDE a replacement run's attachment stands, relative to the box — the nested-caret twin of `textCaretRect`.",
      "doc": [
       {
@@ -4163,6 +4253,7 @@
      "sigs": [
       "function textContentSelectionFromPoint(\n  layout: TextLayout,\n  x: number,\n  y: number,\n  blockId: string,\n  options: TextContentHitOptions = {},\n): ContentSelection | null"
      ],
+     "group": "Text",
      "summary": "The nested selection a point lands on INSIDE a replacement run (a click on a formula's numerator), with `x`/`y` relative to the box — or `null` off every run that resolves points inside itself, so the caller falls…",
      "doc": [
       {
@@ -4224,6 +4315,7 @@
      "sigs": [
       "function textContentSelectionRects(\n  layout: TextLayout,\n  selection: ContentSelection,\n  blockId: string,\n): TextRect[]"
      ],
+     "group": "Text",
      "summary": "The highlight of a range INSIDE a replacement run's attachment, relative to the box — the nested twin of `textRangeRects`.",
      "doc": [
       {
@@ -4275,6 +4367,7 @@
      "sigs": [
       "function textLineIndexAt(layout: TextLayout, index: number): number"
      ],
+     "group": "Text",
      "summary": "The line a caret at `index` sits on, or -1 when no line holds it (past the end of the text).",
      "doc": [
       {
@@ -4315,6 +4408,7 @@
      "sigs": [
       "function textOffsetAtPoint(\n  layout: TextLayout,\n  x: number,\n  y: number,\n): number"
      ],
+     "group": "Text",
      "summary": "The visible offset nearest a point, with `x` and `y` relative to the box.",
      "doc": [
       {
@@ -4377,6 +4471,7 @@
      "sigs": [
       "function textRangeRects(\n  layout: TextLayout,\n  start: number | null,\n  end: number | null,\n  options: { readonly hitTest?: boolean } = {},\n): TextRect[]"
      ],
+     "group": "Text",
      "summary": "Highlight rectangles for a range, one per line.",
      "doc": [
       {
@@ -4438,6 +4533,7 @@
      "sigs": [
       "function titleBlockWindow(): ViewWindow"
      ],
+     "group": "Editor",
      "summary": "A `ViewWindow` that shows only the document's title block (see `titleBlockIndex`).",
      "doc": [
       {
@@ -4526,6 +4622,7 @@
      "sigs": [
       "function tokenizePage(content: string, schema?: DataSchema)"
      ],
+     "group": "Serialization",
      "summary": "Splits Markdown text into the list of tokens that `parsePage` turns into blocks.",
      "doc": [
       {
@@ -4579,6 +4676,7 @@
      "sigs": [
       "function updateContentSelection(\n  state: EditorState,\n  selection: ContentSelection | null,\n): EditorState"
      ],
+     "group": "Selection",
      "summary": "Sets the nested selection, or clears it with `null`.",
      "doc": [
       {
@@ -4635,6 +4733,7 @@
      "sigs": [
       "function validateStructuredDocument(\n  value: StructuredDocument,\n): StructuredDocument | undefined"
      ],
+     "group": "Structured content",
      "summary": "Check a structured document from outside, such as a file or another peer.",
      "doc": [
       {
@@ -4666,6 +4765,7 @@
      "sigs": [
       "abstract class AtomicNode<\n  B extends NodeBlock = NodeBlock,\n> extends Node<B>"
      ],
+     "group": "Nodes",
      "summary": "Base class for blocks that hold no text, such as a divider, an image or an embed.",
      "doc": [
       {
@@ -4860,6 +4960,7 @@
      "sigs": [
       "class CodeMark extends Mark"
      ],
+     "group": "Marks",
      "summary": "The built-in `code` mark: inline code, drawn as a colored chip and written as `` `text` `` in Markdown.",
      "doc": [
       {
@@ -4921,6 +5022,7 @@
      "sigs": [
       "class DataSchema<D extends SchemaDefinition = AnySchemaDefinition>"
      ],
+     "group": "Schema",
      "summary": "The part of a schema with no drawing code: block and mark types, how they read and write Markdown and HTML, and what the user may create.",
      "doc": [
       {
@@ -6347,6 +6449,7 @@
      "sigs": [
       "class EmphasisMark extends Mark"
      ],
+     "group": "Marks",
      "summary": "The built-in `emphasis` mark: italic text, written as `*text*` in Markdown.",
      "doc": [
       {
@@ -6413,6 +6516,7 @@
      "sigs": [
       "class ImageNode extends AtomicNode<Image>"
      ],
+     "group": "Nodes",
      "summary": "The built-in `image` block.",
      "doc": [
       {
@@ -6893,6 +6997,7 @@
      "sigs": [
       "class LineNode extends AtomicNode<Line>"
      ],
+     "group": "Nodes",
      "summary": "The built-in `line` block: a horizontal divider, written as `---` in Markdown and `<hr />` in HTML.",
      "doc": [
       {
@@ -6962,6 +7067,7 @@
      "sigs": [
       "class LinkMark extends Mark"
      ],
+     "group": "Marks",
      "summary": "The built-in `link` mark: colored, underlined text that carries a `url`, written as `text` in Markdown.",
      "doc": [
       {
@@ -7139,6 +7245,7 @@
      "sigs": [
       "class ListNode extends TextNode"
      ],
+     "group": "Nodes",
      "summary": "The built-in node for the three list block types.",
      "doc": [
       {
@@ -7336,6 +7443,7 @@
      "sigs": [
       "abstract class Mark"
      ],
+     "group": "Marks",
      "summary": "Base class for how an inline mark looks and behaves on the canvas.",
      "doc": [
       {
@@ -7987,6 +8095,7 @@
      "sigs": [
       "class MarkRegistry"
      ],
+     "group": "Marks",
      "summary": "The marks one editor can draw, looked up by mark type; the renderer asks it how to style each marked run instead of checking mark names itself.",
      "doc": [
       {
@@ -8126,6 +8235,7 @@
      "sigs": [
       "abstract class Node<B extends NodeBlock = NodeBlock>"
      ],
+     "group": "Nodes",
      "summary": "The base class for a block type.",
      "doc": [
       {
@@ -9292,6 +9402,7 @@
      "sigs": [
       "class NodeRegistry"
      ],
+     "group": "Nodes",
      "summary": "The nodes one editor can draw, looked up by block type.",
      "doc": [
       {
@@ -9442,6 +9553,7 @@
      "sigs": [
       "class QuoteNode extends TextNode"
      ],
+     "group": "Nodes",
      "summary": "The built-in `quote` block: editable text drawn as a quote card, written as `> text` in Markdown and `<blockquote>` in HTML.",
      "doc": [
       {
@@ -9667,6 +9779,7 @@
      "sigs": [
       "class Schema<D extends SchemaDefinition = BaseSchemaDefinition>"
      ],
+     "group": "Schema",
      "summary": "The block and mark types an editor knows, and the nodes and marks that draw them.",
      "doc": [
       {
@@ -9966,6 +10079,7 @@
      "sigs": [
       "class StrikeMark extends Mark"
      ],
+     "group": "Marks",
      "summary": "The built-in `strike` mark: struck-through text, written as `~~text~~` in Markdown.",
      "doc": [
       {
@@ -10027,6 +10141,7 @@
      "sigs": [
       "class StrongMark extends Mark"
      ],
+     "group": "Marks",
      "summary": "The built-in `strong` mark: bold text, written as `**text**` in Markdown.",
      "doc": [
       {
@@ -10093,6 +10208,7 @@
      "sigs": [
       "class TextNode<\n  B extends TextualBlockBase = TextualBlock,\n> extends Node<B>"
      ],
+     "group": "Nodes",
      "summary": "The built-in node for text blocks: paragraphs and headings 1 to 3.",
      "doc": [
       {
@@ -10963,6 +11079,7 @@
      "sigs": [
       "interface Action<P = void>"
      ],
+     "group": "Actions",
      "summary": "An action, with the type of its payload.",
      "doc": [
       {
@@ -11033,6 +11150,7 @@
      "sigs": [
       "interface ActionBus"
      ],
+     "group": "Actions",
      "summary": "The message board one editor uses for its actions.",
      "doc": [
       {
@@ -11480,6 +11598,7 @@
      "sigs": [
       "interface AllocatedIdentity"
      ],
+     "group": "Document",
      "summary": "An id split into its two parts.",
      "doc": [
       {
@@ -11545,6 +11664,7 @@
      "sigs": [
       "interface AttrSpec<T = unknown>"
      ],
+     "group": "Schema",
      "summary": "One declared attribute of a custom node.",
      "doc": [
       {
@@ -11604,6 +11724,7 @@
      "sigs": [
       "interface BaseSchemaDefinition extends SchemaDefinition"
      ],
+     "group": "Schema",
      "summary": "The type-level description of `baseSchema`: the built-in block and mark types.",
      "doc": [
       {
@@ -11671,6 +11792,7 @@
      "sigs": [
       "interface BlockBoundaryContext"
      ],
+     "group": "Actions",
      "summary": "Where Backspace hit the start of a block: the current block and the block above it, by id and by index.",
      "doc": [
       {
@@ -11716,6 +11838,7 @@
      "sigs": [
       "interface BlockCodec"
      ],
+     "group": "Serialization",
      "summary": "How blocks of one type (or a family of related types) are written as Markdown, HTML and plain text, and read back from Markdown.",
      "doc": [
       {
@@ -11812,6 +11935,7 @@
      "sigs": [
       "interface BlockSpec<\n  T extends string = string,\n  A extends Record<string, unknown> = Record<string, unknown>,\n> extends BlockSpecCore<T, A>"
      ],
+     "group": "Schema",
      "summary": "A custom block type, as returned by `defineNode`.",
      "doc": [
       {
@@ -11894,6 +12018,7 @@
      "sigs": [
       "interface BlockSpecCore<\n  T extends string = string,\n  A extends Record<string, unknown> = Record<string, unknown>,\n>"
      ],
+     "group": "Schema",
      "summary": "One block type without its drawing code: its fields, defaults and capabilities (`descriptor`), and how it reads and writes Markdown and HTML (`codec`).",
      "doc": [
       {
@@ -12056,6 +12181,7 @@
      "sigs": [
       "interface BoxRenderStyle"
      ],
+     "group": "Nodes",
      "summary": "Declarative paint style for a `BoxNode`.",
      "doc": [
       {
@@ -12231,6 +12357,7 @@
      "sigs": [
       "interface CaretDecoration"
      ],
+     "group": "Decorations",
      "summary": "A caret at a point, optionally with a name/avatar flag (remote cursor).",
      "doc": [
       {
@@ -12292,6 +12419,7 @@
      "sigs": [
       "interface CaretModel<B extends CaretBlock = Block>"
      ],
+     "group": "Nodes",
      "summary": "Tells the editor how the caret behaves around content that is more than plain characters, such as a mention, a date pill or an inline formula.",
      "doc": [
       {
@@ -12700,6 +12828,7 @@
      "sigs": [
       "interface ChangeApi<S extends SchemaDefinition = AnySchemaDefinition>"
      ],
+     "group": "Editor",
      "summary": "The edit tools you get inside `Editor.change`, `Editor.canChange` and an `EditorAction`.",
      "doc": [
       {
@@ -13577,6 +13706,7 @@
      "sigs": [
       "interface ChangeTransaction"
      ],
+     "group": "Editor",
      "summary": "What an `on(\"change\", …)` listener gets: the edits that changed the document, and whether they came from another person.",
      "doc": [
       {
@@ -13674,6 +13804,7 @@
      "sigs": [
       "interface CharacterDecorationPoint"
      ],
+     "group": "Decorations",
      "summary": "A point in a block's text, pinned right after one character (`afterCharId`, or `null` for the start of the text).",
      "doc": [
       {
@@ -13725,6 +13856,7 @@
      "sigs": [
       "interface CodeBlock extends BlockRuntimeState"
      ],
+     "group": "Nodes",
      "summary": "A code block: editable monospace text (with embedded \"\\n\") plus a language tag.",
      "doc": [
       {
@@ -13826,6 +13958,7 @@
      "sigs": [
       "interface ContentEdgeRange"
      ],
+     "group": "Features",
      "summary": "The part of a structured document between a stop inside it and one edge.",
      "doc": [
       {
@@ -13901,6 +14034,7 @@
      "sigs": [
       "interface ContentEdgeRangeCtx"
      ],
+     "group": "Features",
      "summary": "What a kind is asked when a text selection stops inside one of its documents.",
      "doc": [
       {
@@ -13975,6 +14109,7 @@
      "sigs": [
       "interface ContentEdit extends BaseOp"
      ],
+     "group": "Structured content",
      "summary": "An operation that changes structured content kept inside a block, such as a table's cells or a formula.",
      "doc": [
       {
@@ -14056,6 +14191,7 @@
      "sigs": [
       "interface ContentGapPoint"
      ],
+     "group": "Selection",
      "summary": "A caret spot between the children of one parent node, in one named slot.",
      "doc": [
       {
@@ -14137,6 +14273,7 @@
      "sigs": [
       "interface ContentSelection"
      ],
+     "group": "Selection",
      "summary": "A selected range inside one piece of structured content, like a formula.",
      "doc": [
       {
@@ -14265,6 +14402,7 @@
      "sigs": [
       "interface ContentSelectionCtx"
      ],
+     "group": "Features",
      "summary": "What a kind's selection adapters get: the structured `document` and the `selection` inside it.",
      "doc": [
       {
@@ -14316,6 +14454,7 @@
      "sigs": [
       "interface ContentSelectionPasteCtx extends ContentSelectionCtx"
      ],
+     "group": "Features",
      "summary": "What a paste into an extension-owned nested selection carries.",
      "doc": [
       {
@@ -14414,6 +14553,7 @@
      "sigs": [
       "interface ContentSelectionSlice"
      ],
+     "group": "Features",
      "summary": "Clipboard-safe representations of a selected slice of structured content.",
      "doc": [
       {
@@ -14548,6 +14688,7 @@
      "sigs": [
       "interface ContentTextPoint"
      ],
+     "group": "Selection",
      "summary": "A caret spot in one text field of a structured node, like a part of a formula.",
      "doc": [
       {
@@ -14637,6 +14778,7 @@
      "sigs": [
       "interface CreateDocOptions<\n  D extends SchemaDefinition = BaseSchemaDefinition,\n>"
      ],
+     "group": "Document",
      "summary": "Options for `createDoc`: the starting content (Markdown, blocks, or bytes saved earlier), the document's identity, and the schema it uses.",
      "doc": [
       {
@@ -14988,6 +15130,7 @@
      "sigs": [
       "interface CursorDragInfo"
      ],
+     "group": "Built-in actions",
      "summary": "Where the finger is during a touch caret drag.",
      "doc": [
       {
@@ -15105,6 +15248,7 @@
      "sigs": [
       "interface CustomBlock extends BlockRuntimeState"
      ],
+     "group": "Document",
      "summary": "A custom block as its own code sees it (see `defineNode`).",
      "doc": [
       {
@@ -15196,6 +15340,7 @@
      "sigs": [
       "interface DataSchemaExtension"
      ],
+     "group": "Schema",
      "summary": "What you pass to `DataSchema.extend()`: the block types, marks and structured-content kinds to add to a data schema (the part of a schema with no drawing code).",
      "doc": [
       {
@@ -15467,6 +15612,7 @@
      "sigs": [
       "interface DecorationRange"
      ],
+     "group": "Decorations",
      "summary": "The span a range decoration covers, from `from` to `to`.",
      "doc": [
       {
@@ -15518,6 +15664,7 @@
      "sigs": [
       "interface DecorationRect"
      ],
+     "group": "Decorations",
      "summary": "One painted fragment of a range decoration — a line box, a bidi run, a structured row, or a whole block box.",
      "doc": [
       {
@@ -15576,6 +15723,7 @@
      "sigs": [
       "interface DefineMarkConfig<\n  A extends Record<string, unknown> = Record<string, never>,\n>"
      ],
+     "group": "Schema",
      "summary": "Options for `defineMark`: how the custom mark looks on the canvas, how it is written to and read from Markdown and HTML, and the data it carries.",
      "doc": [
       {
@@ -15859,6 +16007,7 @@
      "sigs": [
       "interface DefineNodeConfig<\n  A extends Record<string, AttrSpec> = Record<string, AttrSpec>,\n>"
      ],
+     "group": "Schema",
      "summary": "Options for `defineNode`: the custom block's attributes, how it is drawn (a styled box or your own node), and how it is written as Markdown, HTML and plain text.",
      "doc": [
       {
@@ -16256,6 +16405,7 @@
      "sigs": [
       "interface Doc<D extends SchemaDefinition = BaseSchemaDefinition>"
      ],
+     "group": "Document",
      "summary": "A document on its own, independent of any editor: its content plus the history of changes that lets copies on different devices merge to the same result.",
      "doc": [
       {
@@ -16650,6 +16800,7 @@
      "sigs": [
       "interface DocUpdate"
      ],
+     "group": "Document",
      "summary": "An applied batch of operations, delivered to `Doc.on(\"update\")` listeners.",
      "doc": [
       {
@@ -16750,6 +16901,7 @@
      "sigs": [
       "interface Editor<S extends SchemaDefinition = BaseSchemaDefinition>"
      ],
+     "group": "Editor",
      "summary": "The editor you work with.",
      "doc": [
       {
@@ -18351,6 +18503,7 @@
      "sigs": [
       "interface EditorHostApi"
      ],
+     "group": "Editor",
      "summary": "Tools for building UI around the editor, through `editor.host`: node overlays, per-block view state, menus, the interaction mode, and restoring a snapshot.",
      "doc": [
       {
@@ -18693,6 +18846,7 @@
      "sigs": [
       "interface EditorState"
      ],
+     "group": "Editor",
      "summary": "The complete state of one editor: the document, the selection and other UI state, the view, the undo history, and the editor's own action bus, nodes, marks and schema.",
      "doc": [
       {
@@ -18948,6 +19102,7 @@
      "sigs": [
       "interface EditorStateSnapshot"
      ],
+     "group": "Editor",
      "summary": "The editor's current state, for binding UI (see `Editor.state`).",
      "doc": [
       {
@@ -19362,6 +19517,7 @@
      "sigs": [
       "interface EditorStyles"
      ],
+     "group": "Theme",
      "summary": "Every visual setting the editor paints with, fully resolved: canvas padding, fonts, per-block text styles, selection, caret, lists, scrollbar and more.",
      "doc": [
       {
@@ -19504,6 +19660,7 @@
      "sigs": [
       "interface EditorTheme"
      ],
+     "group": "Theme",
      "summary": "How you style an editor.",
      "doc": [
       {
@@ -19715,6 +19872,7 @@
      "sigs": [
       "interface EditorViewApi"
      ],
+     "group": "Editor",
      "summary": "Screen positions and highlights, through `editor.view`: where the caret and blocks are on screen, scrolling, drop lines, and highlight layers such as search matches and other people's cursors.",
      "doc": [
       {
@@ -20330,6 +20488,7 @@
      "sigs": [
       "interface FeatureActionHook extends OrderedFeatureFacet"
      ],
+     "group": "Features",
      "summary": "Adds a feature's own actions to an editor.",
      "doc": [
       {
@@ -20368,6 +20527,7 @@
      "sigs": [
       "interface FeatureExtension extends SchemaExtension, FeatureFacets"
      ],
+     "group": "Features",
      "summary": "A reusable feature you install with `Schema.use`.",
      "doc": [
       {
@@ -20495,6 +20655,7 @@
      "sigs": [
       "interface FeatureFacets"
      ],
+     "group": "Features",
      "summary": "The parts of a feature bundle that no single node, mark or structured kind owns: input rules, paste rules, actions and theme defaults.",
      "doc": [
       {
@@ -20674,6 +20835,7 @@
      "sigs": [
       "interface FeatureInputRule extends OrderedFeatureFacet"
      ],
+     "group": "Features",
      "summary": "A rule that runs on text input in any block.",
      "doc": [
       {
@@ -20827,6 +20989,7 @@
      "sigs": [
       "interface FeatureInputRuleCtx"
      ],
+     "group": "Features",
      "summary": "Context passed to a feature-owned live-input rule.",
      "doc": [
       {
@@ -20919,6 +21082,7 @@
      "sigs": [
       "interface FeaturePasteRule extends OrderedFeatureFacet"
      ],
+     "group": "Features",
      "summary": "A feature-owned rewrite of clipboard text before Markdown parsing.",
      "doc": [
       {
@@ -20986,6 +21150,7 @@
      "sigs": [
       "interface FeatureThemeDefaults"
      ],
+     "group": "Features",
      "summary": "Theme defaults a feature adds, such as a diagram palette.",
      "doc": [
       {
@@ -21057,6 +21222,7 @@
      "sigs": [
       "interface FieldRange"
      ],
+     "group": "Text",
      "summary": "A caret (`anchor === focus`) or range, as visible offsets into the field.",
      "doc": [
       {
@@ -21133,6 +21299,7 @@
      "sigs": [
       "interface FlatDecorationPoint"
      ],
+     "group": "Decorations",
      "summary": "A point in a block's text, given as a block id and a character offset.",
      "doc": [
       {
@@ -21182,6 +21349,7 @@
      "sigs": [
       "interface FontStyles"
      ],
+     "group": "Theme",
      "summary": "The fonts the editor can use.",
      "doc": [
       {
@@ -21279,6 +21447,7 @@
      "sigs": [
       "interface HLC"
      ],
+     "group": "Document",
      "summary": "The clock stamp on every operation: a counter plus the id of the peer that made it.",
      "doc": [
       {
@@ -21338,6 +21507,7 @@
      "sigs": [
       "interface HtmlCodec"
      ],
+     "group": "Serialization",
      "summary": "The HTML half of a `BlockCodec`: turns one block into an HTML string.",
      "doc": [
       {
@@ -21382,6 +21552,7 @@
      "sigs": [
       "interface HtmlSerializeOptions"
      ],
+     "group": "Serialization",
      "summary": "Options for `serializeToHTML`: the page title, replacement URLs for images, extra CSS, the schema in use, and how formulas and similar content are rendered.",
      "doc": [
       {
@@ -21559,6 +21730,7 @@
      "sigs": [
       "interface IdentityAllocator"
      ],
+     "group": "Document",
      "summary": "Hands out ids for saved editor content, one per `nextId()` call.",
      "doc": [
       {
@@ -21628,6 +21800,7 @@
      "sigs": [
       "interface ImagePasteEvent"
      ],
+     "group": "Built-in actions",
      "summary": "Payload for `IMAGE_PASTE`: the pasted file and the stable id of the image block created to hold it.",
      "doc": [
       {
@@ -21701,6 +21874,7 @@
      "sigs": [
       "interface InputCtx"
      ],
+     "group": "Serialization",
      "summary": "What the Markdown parser hands to a codec's `markdown.input()` and `markdown.inputTag()`.",
      "doc": [
       {
@@ -21911,6 +22085,7 @@
      "sigs": [
       "interface MarkChipStyle"
      ],
+     "group": "Marks",
      "summary": "A rounded-rect background drawn behind a mark's glyphs (code, inline math).",
      "doc": [
       {
@@ -21951,6 +22126,7 @@
      "sigs": [
       "interface MarkCodec"
      ],
+     "group": "Serialization",
      "summary": "How one inline mark is written to and read from Markdown, and optionally how it appears in plain text and HTML.",
      "doc": [
       {
@@ -22081,6 +22257,7 @@
      "sigs": [
       "interface MarkDef<\n  T extends string = string,\n  A extends Record<string, unknown> = Record<string, unknown>,\n> extends MarkSpec<T, A>"
      ],
+     "group": "Schema",
      "summary": "A custom mark type, as returned by `defineMark`.",
      "doc": [
       {
@@ -22185,6 +22362,7 @@
      "sigs": [
       "interface MarkdownCodec"
      ],
+     "group": "Serialization",
      "summary": "The Markdown half of a `BlockCodec`.",
      "doc": [
       {
@@ -22313,6 +22491,7 @@
      "sigs": [
       "interface MarkdownSerializeOptions"
      ],
+     "group": "Serialization",
      "summary": "Options for `serializeToMarkdown`: rewrite asset URLs as they are written out, and name the schema when the document uses custom block types.",
      "doc": [
       {
@@ -22386,6 +22565,7 @@
      "sigs": [
       "interface MarkHtmlCodec"
      ],
+     "group": "Serialization",
      "summary": "The HTML part of a `MarkCodec`: how a marked run of text becomes HTML, and where it nests when several marks cover the same text.",
      "doc": [
       {
@@ -22508,6 +22688,7 @@
      "sigs": [
       "interface MarkHtmlCtx"
      ],
+     "group": "Serialization",
      "summary": "Helpers passed to an HTML codec so it needn't import the serializer.",
      "doc": [
       {
@@ -22610,6 +22791,7 @@
      "sigs": [
       "interface MarkOverlayCtx"
      ],
+     "group": "Marks",
      "summary": "What `Mark.overlays` receives: the editor state, the viewport and the current styles.",
      "doc": [
       {
@@ -22672,6 +22854,7 @@
      "sigs": [
       "interface MarkRange"
      ],
+     "group": "Document",
      "summary": "A mark on a range of characters.",
      "doc": [
       {
@@ -22712,6 +22895,7 @@
      "sigs": [
       "interface MarkReplacement"
      ],
+     "group": "Marks",
      "summary": "Lets a mark draw its run itself instead of its text, the way inline math draws a formula in place of the LaTeX.",
      "doc": [
       {
@@ -23179,6 +23363,7 @@
      "sigs": [
       "interface MarkReplacementCaret"
      ],
+     "group": "Marks",
      "summary": "Caret geometry inside a replacement run, from `MarkReplacement.caretRect`.",
      "doc": [
       {
@@ -23316,6 +23501,7 @@
      "sigs": [
       "interface MarkReplacementContentCtx extends MarkReplacementSourceCtx"
      ],
+     "group": "Marks",
      "summary": "What the caret and selection hooks of `MarkReplacement` receive for a run whose content lives in a block attachment: the stored mark, the block's attachments, the block id, and the part of the run being drawn.",
      "doc": [
       {
@@ -23447,6 +23633,7 @@
      "sigs": [
       "interface MarkReplacementDims"
      ],
+     "group": "Marks",
      "summary": "Measured size of a replacement-rendered run (inline math).",
      "doc": [
       {
@@ -23487,6 +23674,7 @@
      "sigs": [
       "interface MarkReplacementEdit"
      ],
+     "group": "Marks",
      "summary": "Where the collapsed caret sits relative to a replacement run, passed to `MarkReplacement.measure`/`paint`/`caretRect` so the replacement can adapt its rendering to in-progress editing (e.g. inline math keeps a…",
      "doc": [
       {
@@ -23617,6 +23805,7 @@
      "sigs": [
       "interface MarkReplacementPaintCtx"
      ],
+     "group": "Marks",
      "summary": "What a mark receives when it draws its own content in place of the text, as an inline formula does: the canvas context, the run's text, where to draw, the measured size and the current styles.",
      "doc": [
       {
@@ -23823,6 +24012,7 @@
      "sigs": [
       "interface MarkReplacementSourceCtx"
      ],
+     "group": "Marks",
      "summary": "Persisted context available while resolving one replacement-mark run.",
      "doc": [
       {
@@ -23882,6 +24072,7 @@
      "sigs": [
       "interface MarkSpec<\n  T extends string = string,\n  A extends Record<string, unknown> = Record<string, unknown>,\n>"
      ],
+     "group": "Schema",
      "summary": "A declared inline mark (bold, a custom highlight, …).",
      "doc": [
       {
@@ -23971,6 +24162,7 @@
      "sigs": [
       "interface MarkStyle"
      ],
+     "group": "Marks",
      "summary": "How one mark paints a run of text.",
      "doc": [
       {
@@ -24086,6 +24278,7 @@
      "sigs": [
       "interface MarkStyleCtx"
      ],
+     "group": "Marks",
      "summary": "What `Mark.style` receives: the editor's current styles and the stored mark for the run being drawn, including its `attrs`.",
      "doc": [
       {
@@ -24163,6 +24356,7 @@
      "sigs": [
       "interface MarkUnderlineStyle"
      ],
+     "group": "Marks",
      "summary": "An underline drawn beneath a mark's glyphs (link).",
      "doc": [
       {
@@ -24198,6 +24392,7 @@
      "sigs": [
       "interface MountedEditor<\n  D extends SchemaDefinition = BaseSchemaDefinition,\n>"
      ],
+     "group": "Editor",
      "summary": "A mounted editor: the `editor` you drive, the document it shows (when you passed one), a container for your own floating UI, and the calls to refocus, blur and `destroy` it.",
      "doc": [
       {
@@ -24380,6 +24575,7 @@
      "sigs": [
       "interface MountEditorOptions<\n  D extends SchemaDefinition = BaseSchemaDefinition,\n>"
      ],
+     "group": "Editor",
      "summary": "The mount options `CreateEditorOptions` builds on: whether the editor is editable, how it sizes itself, accessibility and keyboard behavior, placeholders, theme, fonts, the schema and the document to show.",
      "doc": [
       {
@@ -25428,6 +25624,7 @@
      "sigs": [
       "interface MutationAction<P = void> extends Action<P>"
      ],
+     "group": "Actions",
      "summary": "An action whose default behavior edits the document.",
      "doc": [
       {
@@ -25510,6 +25707,7 @@
      "sigs": [
       "interface NodeActivateCtx"
      ],
+     "group": "Nodes",
      "summary": "Context for `Node.activate` — enough to decide which overlay to open.",
      "doc": [
       {
@@ -25564,6 +25762,7 @@
      "sigs": [
       "interface NodeActivation"
      ],
+     "group": "Nodes",
      "summary": "The host overlay `Node.activate` asks the engine to open.",
      "doc": [
       {
@@ -25613,6 +25812,7 @@
      "sigs": [
       "interface NodeCaretRect"
      ],
+     "group": "Nodes",
      "summary": "A caret rect.",
      "doc": [
       {
@@ -25716,6 +25916,7 @@
      "sigs": [
       "interface NodeContentCaretCtx<\n  B extends NodeBlock = NodeBlock,\n> extends Omit<NodeLayoutCtx, \"block\">"
      ],
+     "group": "Nodes",
      "summary": "Context for `Node.contentCaretRect` — a layout context plus the block's painted origin, so the node returns a rect in the caller's coordinate space (viewport for the renderer, document for scroll/menu anchoring).",
      "doc": [
       {
@@ -25782,6 +25983,7 @@
      "sigs": [
       "interface NodeContentHitCtx<\n  B extends NodeBlock = NodeBlock,\n> extends Omit<NodeLayoutCtx, \"block\">"
      ],
+     "group": "Nodes",
      "summary": "What `Node.contentSelectionFromPoint` gets: the layout context, the live state and your typed block.",
      "doc": [
       {
@@ -25831,6 +26033,7 @@
      "sigs": [
       "interface NodeContentHitOptions"
      ],
+     "group": "Nodes",
      "summary": "Gesture details that can affect a node's nested caret hit-test.",
      "doc": [
       {
@@ -25915,6 +26118,7 @@
      "sigs": [
       "interface NodeContentSelectionGeometry"
      ],
+     "group": "Nodes",
      "summary": "Geometry of a non-collapsed `ContentSelection` a node owns — what `Node.contentSelectionGeometry` returns.",
      "doc": [
       {
@@ -26061,6 +26265,7 @@
      "sigs": [
       "interface NodeHitRegion<H = unknown>"
      ],
+     "group": "Nodes",
      "summary": "A clickable part of a block, such as a todo checkbox or an image resize handle.",
      "doc": [
       {
@@ -26408,6 +26613,7 @@
      "sigs": [
       "interface NodeLayout"
      ],
+     "group": "Nodes",
      "summary": "Result of the shared layout pass.",
      "doc": [
       {
@@ -26508,6 +26714,7 @@
      "sigs": [
       "interface NodeLayoutCtx"
      ],
+     "group": "Nodes",
      "summary": "Geometry + styles available without a canvas (measurement, height passes).",
      "doc": [
       {
@@ -26607,6 +26814,7 @@
      "sigs": [
       "interface NodePaintCtx extends NodeLayoutCtx"
      ],
+     "group": "Nodes",
      "summary": "Everything paint() needs on top of layout context.",
      "doc": [
       {
@@ -26709,6 +26917,7 @@
      "sigs": [
       "interface NodeRect"
      ],
+     "group": "Nodes",
      "summary": "An axis-aligned rect in the caller's coordinate space.",
      "doc": [
       {
@@ -26754,6 +26963,7 @@
      "sigs": [
       "interface NodeRegionCtx extends NodeLayoutCtx"
      ],
+     "group": "Nodes",
      "summary": "Everything a node needs to compute its interactive sub-region geometry.",
      "doc": [
       {
@@ -26806,6 +27016,7 @@
      "sigs": [
       "interface NodeScrollCtx extends NodeLayoutCtx"
      ],
+     "group": "Nodes",
      "summary": "Context for the sideways-scroll hooks (`Node.canScrollSideways` and friends): the block's layout inputs plus the live state, which is where a node keeps its scroll offset (`ui.nodeViewState`).",
      "doc": [
       {
@@ -26858,6 +27069,7 @@
      "sigs": [
       "interface OutputCtx"
      ],
+     "group": "Serialization",
      "summary": "Context handed to every `output()` call.",
      "doc": [
       {
@@ -26997,6 +27209,7 @@
      "sigs": [
       "interface Page"
      ],
+     "group": "Document",
      "summary": "A whole document in its loaded form: an `id`, a `title`, its blocks in order, and optional `PageMetadata`.",
      "doc": [
       {
@@ -27086,6 +27299,7 @@
      "sigs": [
       "interface PageMetadata"
      ],
+     "group": "Serialization",
      "summary": "Optional page details written as front matter (the `---` section at the top of a Markdown file): color, scheduled time, duration, all-day flag and whether the page is a task.",
      "doc": [
       {
@@ -27172,6 +27386,7 @@
      "sigs": [
       "interface PaintTextRunArgs"
      ],
+     "group": "Text",
      "summary": "Arguments to `paintTextRun`.",
      "doc": [
       {
@@ -27424,6 +27639,7 @@
      "sigs": [
       "interface ParsedTag"
      ],
+     "group": "Serialization",
      "summary": "An HTML tag encountered in markdown input, pre-parsed by the orchestrator.",
      "doc": [
       {
@@ -27464,6 +27680,7 @@
      "sigs": [
       "interface Point"
      ],
+     "group": "Nodes",
      "summary": "A point in block-local canvas coordinates.",
      "doc": [
       {
@@ -27499,6 +27716,7 @@
      "sigs": [
       "interface QueryApi<S extends SchemaDefinition = BaseSchemaDefinition>"
      ],
+     "group": "Editor",
      "summary": "Read the document through `editor.query`.",
      "doc": [
       {
@@ -28128,6 +28346,7 @@
      "sigs": [
       "interface QuoteBlock extends BlockRuntimeState"
      ],
+     "group": "Nodes",
      "summary": "The stored shape of a `quote` block: its text and the marks on that text, with the type `\"quote\"`.",
      "doc": [
       {
@@ -28184,6 +28403,7 @@
      "sigs": [
       "interface RangeDecoration"
      ],
+     "group": "Decorations",
      "summary": "A translucent fill (or an underline, see `style`) over a flat or structured span (find highlight, remote selection).",
      "doc": [
       {
@@ -28332,6 +28552,7 @@
      "sigs": [
       "interface SchemaDefinition"
      ],
+     "group": "Schema",
      "summary": "The type-level description of a schema: every block name and every mark name, each mapped to the shape of its attributes.",
      "doc": [
       {
@@ -28383,6 +28604,7 @@
      "sigs": [
       "interface SchemaExtension"
      ],
+     "group": "Schema",
      "summary": "What you pass to `Schema.extend()`, for example `baseSchema.extend({ nodes, marks })`: the custom block types and marks to add to a schema.",
      "doc": [
       {
@@ -28587,6 +28809,7 @@
      "sigs": [
       "interface SchemaRestriction<\n  D extends SchemaDefinition = BaseSchemaDefinition,\n>"
      ],
+     "group": "Schema",
      "summary": "What you pass to `Schema.restrict`: the block and mark types the user may create.",
      "doc": [
       {
@@ -29106,6 +29329,7 @@
      "sigs": [
       "interface ScrollbarStyles"
      ],
+     "group": "Theme",
      "summary": "How the scrollbar looks: colors, size and fade timing.",
      "doc": [
       {
@@ -29310,6 +29534,7 @@
      "sigs": [
       "interface SelectionRungRange"
      ],
+     "group": "Selection",
      "summary": "A half-open `[from, to)` span of offsets in one piece of text.",
      "doc": [
       {
@@ -29353,6 +29578,7 @@
      "sigs": [
       "interface SelectionWrapTrigger"
      ],
+     "group": "Marks",
      "summary": "One selection-wrap trigger: typing `char` while a non-collapsed text selection is held applies this mark to the selection instead of replacing it (see `Mark.selectionWrap`).",
      "doc": [
       {
@@ -29474,6 +29700,7 @@
      "sigs": [
       "interface StateAction<P = void> extends Action<P>"
      ],
+     "group": "Actions",
      "summary": "An action whose default behavior is a `StateMutator`.",
      "doc": [
       {
@@ -29599,6 +29826,7 @@
      "sigs": [
       "interface StateActionOptions"
      ],
+     "group": "Actions",
      "summary": "Options for `stateAction`.",
      "doc": [
       {
@@ -29669,6 +29897,7 @@
      "sigs": [
       "interface StateResult"
      ],
+     "group": "Actions",
      "summary": "The `{ state, ops }` pair every editor action returns, and what a `StateAction` works with.",
      "doc": [
       {
@@ -29742,6 +29971,7 @@
      "sigs": [
       "interface StoredMark"
      ],
+     "group": "Document",
      "summary": "An inline mark on a run of characters.",
      "doc": [
       {
@@ -29877,6 +30107,7 @@
      "sigs": [
       "interface StructuredChildIndex"
      ],
+     "group": "Structured content",
      "summary": "All of a document's children, grouped by parent and slot.",
      "doc": [
       {
@@ -29944,6 +30175,7 @@
      "sigs": [
       "interface StructuredContentCloneCtx"
      ],
+     "group": "Features",
      "summary": "What a `StructuredContentClone` gets when a block is copied under a new id: the attachment, the old and new block ids, the attachment's old id, and a way to make new ids.",
      "doc": [
       {
@@ -30020,6 +30252,7 @@
      "sigs": [
       "interface StructuredContentCloneResult"
      ],
+     "group": "Features",
      "summary": "What a `StructuredContentClone` returns: the copied attachment (`document`) and the id it is stored under on the new block (`contentId`).",
      "doc": [
       {
@@ -30085,6 +30318,7 @@
      "sigs": [
       "interface StructuredDocument"
      ],
+     "group": "Structured content",
      "summary": "A tree of nodes that a block keeps beside its text, such as a formula or a table.",
      "doc": [
       {
@@ -30191,6 +30425,7 @@
      "sigs": [
       "interface StructuredKindSpec"
      ],
+     "group": "Schema",
      "examples": [
       {
        "lang": "ts",
@@ -30420,6 +30655,7 @@
      "sigs": [
       "interface StructuredMarkAttachment"
      ],
+     "group": "Features",
      "summary": "One attachment created with a new structured mark: its id (`contentId`) and the edit that fills it (`edit`).",
      "doc": [
       {
@@ -30471,6 +30707,7 @@
      "sigs": [
       "interface StructuredMarkCloneCtx"
      ],
+     "group": "Features",
      "summary": "What a structured mark's `clone` hook gets after its block and the block's attachments were copied.",
      "doc": [
       {
@@ -30541,6 +30778,7 @@
      "sigs": [
       "interface StructuredMarkCreateCtx"
      ],
+     "group": "Features",
      "summary": "What a structured mark's `create` hook gets when a new mark is made.",
      "doc": [
       {
@@ -30625,6 +30863,7 @@
      "sigs": [
       "interface StructuredMarkCreateResult"
      ],
+     "group": "Features",
      "summary": "What a structured mark's `create` hook returns (see `StructuredMarkFacet`): the mark to store, and the attachments that hold its content.",
      "doc": [
       {
@@ -30731,6 +30970,7 @@
      "sigs": [
       "interface StructuredMarkFacet"
      ],
+     "group": "Features",
      "summary": "Extra behavior for a mark whose content lives in an attachment instead of the text, like inline math.",
      "doc": [
       {
@@ -30901,6 +31141,7 @@
      "sigs": [
       "interface StructuredMarkJoinCtx"
      ],
+     "group": "Features",
      "summary": "Canonical sources that became adjacent while creating one structured mark.",
      "doc": [
       {
@@ -30936,6 +31177,7 @@
      "sigs": [
       "interface StructuredMarkResolveCtx"
      ],
+     "group": "Features",
      "summary": "What a structured mark's `resolve` and `references` hooks get: the `mark` and its block's `attachments`.",
      "doc": [
       {
@@ -31003,6 +31245,7 @@
      "sigs": [
       "interface StructuredNode"
      ],
+     "group": "Structured content",
      "summary": "One normalized identity-bearing node in a structured document.",
      "doc": [
       {
@@ -31149,6 +31392,7 @@
      "sigs": [
       "interface StructuredNodeSeed"
      ],
+     "group": "Structured content",
      "summary": "The insertion payload for one node.",
      "doc": [
       {
@@ -31204,6 +31448,7 @@
      "sigs": [
       "interface StructuredPlacement"
      ],
+     "group": "Structured content",
      "summary": "Where a node sits in the tree.",
      "doc": [
       {
@@ -31321,6 +31566,7 @@
      "sigs": [
       "interface StructuredTextFieldRef"
      ],
+     "group": "Schema",
      "summary": "One character field inside a structured document.",
      "doc": [
       {
@@ -31356,6 +31602,7 @@
      "sigs": [
       "interface SyntaxCtx"
      ],
+     "group": "Features",
      "summary": "Where a Markdown rule is asked to match: the whole `source`, the `offset` to match at, and whether that offset starts a line (`startOfLine`).",
      "doc": [
       {
@@ -31420,6 +31667,7 @@
      "sigs": [
       "interface SyntaxMatch"
      ],
+     "group": "Features",
      "summary": "What a Markdown rule returns when it matches at the current offset.",
      "doc": [
       {
@@ -31483,6 +31731,7 @@
      "sigs": [
       "interface SyntaxRule extends OrderedFeatureFacet"
      ],
+     "group": "Features",
      "summary": "A Markdown rule.",
      "doc": [
       {
@@ -31576,6 +31825,7 @@
      "sigs": [
       "interface SyntaxToken"
      ],
+     "group": "Features",
      "summary": "Token emitted by a spec-owned markdown recognizer.",
      "doc": [
       {
@@ -31652,6 +31902,7 @@
      "sigs": [
       "interface TableBlockStyle extends TextStyle"
      ],
+     "group": "Theme",
      "summary": "How a table's grid looks.",
      "doc": [
       {
@@ -31862,6 +32113,7 @@
      "sigs": [
       "interface TasferEditor<\n  D extends SchemaDefinition = BaseSchemaDefinition,\n> extends EditorApi<D>"
      ],
+     "group": "Editor",
      "summary": "The handle `createEditor` returns.",
      "doc": [
       {
@@ -32156,6 +32408,7 @@
      "sigs": [
       "interface TextCodec"
      ],
+     "group": "Serialization",
      "summary": "The plain-text half of a `BlockCodec`: turns one block into plain text.",
      "doc": [
       {
@@ -32200,6 +32453,7 @@
      "sigs": [
       "interface TextContentHitOptions"
      ],
+     "group": "Text",
      "summary": "How a pointer is resolving, for `textContentSelectionFromPoint`.",
      "doc": [
       {
@@ -32278,6 +32532,7 @@
      "sigs": [
       "interface TextFieldAddress"
      ],
+     "group": "Text",
      "summary": "One prose field inside a block's structured attachment.",
      "doc": [
       {
@@ -32347,6 +32602,7 @@
      "sigs": [
       "interface TextFieldInfo"
      ],
+     "group": "Text",
      "summary": "One prose field inside a block's structured content, such as a table cell.",
      "doc": [
       {
@@ -32426,6 +32682,7 @@
      "sigs": [
       "interface TextFieldMark"
      ],
+     "group": "Text",
      "summary": "One mark run inside a text field, in the field's visible offsets.",
      "doc": [
       {
@@ -32471,6 +32728,7 @@
      "sigs": [
       "interface TextLayout"
      ],
+     "group": "Text",
      "summary": "One laid-out text box.",
      "doc": [
       {
@@ -32691,6 +32949,7 @@
      "sigs": [
       "interface TextLayoutInput"
      ],
+     "group": "Text",
      "summary": "Everything `layoutText` needs to lay out one box of text: the characters and their marks, the width to wrap to, the text style and fonts, and the reading direction.",
      "doc": [
       {
@@ -32883,6 +33142,7 @@
      "sigs": [
       "interface TextNodeLayout extends NodeLayout, TextLayout"
      ],
+     "group": "Nodes",
      "summary": "The layout of a text block: the `TextLayout` of its text (lines, line boxes, sizes), plus where the text sits inside the block.",
      "doc": [
       {
@@ -33036,6 +33296,7 @@
      "sigs": [
       "interface TextRect"
      ],
+     "group": "Text",
      "summary": "A rectangle inside a laid-out text box, for example one piece of a selection highlight.",
      "doc": [
       {
@@ -33112,6 +33373,7 @@
      "sigs": [
       "interface TextSpan"
      ],
+     "group": "Nodes",
      "summary": "A half-open run of block text, `[start, end)`.",
      "doc": [
       {
@@ -33155,6 +33417,7 @@
      "sigs": [
       "interface ThemeTokens"
      ],
+     "group": "Theme",
      "summary": "Semantic color palette — the small set of values that drive the editor's appearance.",
      "doc": [
       {
@@ -33837,6 +34100,7 @@
      "sigs": [
       "interface ViewWindow"
      ],
+     "group": "Editor",
      "summary": "Limits which blocks of a document one editor shows and edits.",
      "doc": [
       {
@@ -34018,6 +34282,7 @@
      "sigs": [
       "type ActionHandler<P = void> = (payload: P) => boolean | void"
      ],
+     "group": "Actions",
      "summary": "A handler for an action.",
      "doc": [
       {
@@ -34057,6 +34322,7 @@
      "sigs": [
       "type AnySchemaDefinition"
      ],
+     "group": "Schema",
      "summary": "A schema description that allows any block or mark name with any attributes.",
      "doc": [
       {
@@ -34092,6 +34358,7 @@
      "sigs": [
       "type Block =\n  TextBlock | VisualBlock | ListBlock | CodeBlock | QuoteBlock"
      ],
+     "group": "Document",
      "summary": "One block of a document as the editor stores it: a paragraph or heading, a list item, a code block, a quote, an image or a divider.",
      "doc": [
       {
@@ -34146,6 +34413,7 @@
      "sigs": [
       "type BlockAttrs<\n  S extends SchemaDefinition,\n  T extends BlockName<S>,\n> = S[\"blocks\"][T]"
      ],
+     "group": "Schema",
      "summary": "The shape of the attributes (the type-specific fields) that block type `T` carries in schema `S`.",
      "doc": [
       {
@@ -34185,6 +34453,7 @@
      "sigs": [
       "type BlockData<S extends SchemaDefinition = BaseSchemaDefinition> =\n  SchemaBlockData<S>"
      ],
+     "group": "Editor",
      "summary": "A plain-data snapshot of one block, as returned by the read API (`QueryApi`): its `id`, `type`, visible `text` and type-specific `attrs`.",
      "doc": [
       {
@@ -34254,6 +34523,7 @@
      "sigs": [
       "type BlockDataFor<S extends SchemaDefinition, T extends BlockName<S>>"
      ],
+     "group": "Schema",
      "summary": "A plain-data snapshot of one block of type `T`: its `id`, `type`, visible `text`, and `attrs` typed for that block type.",
      "doc": [
       {
@@ -34353,6 +34623,7 @@
      "sigs": [
       "type BlockName<S extends SchemaDefinition> = Extract<\n  keyof S[\"blocks\"],\n  string\n>"
      ],
+     "group": "Schema",
      "summary": "The block type names of schema `S`, as a union of string literals (`\"paragraph\" | \"heading1\" | …`).",
      "doc": [
       {
@@ -34392,6 +34663,7 @@
      "sigs": [
       "type CaretMotion =\n  \"charLeft\" | \"charRight\" | \"wordLeft\" | \"wordRight\" | \"up\" | \"down\""
      ],
+     "group": "Nodes",
      "summary": "One caret move that the editor asks `CaretModel.move` to resolve.",
      "doc": [
       {
@@ -34477,6 +34749,7 @@
      "sigs": [
       "type ContentEdgeRangeResolver = (\n  ctx: ContentEdgeRangeCtx,\n) => ContentEdgeRange | undefined"
      ],
+     "group": "Features",
      "summary": "Decides how much of a structured document a text selection takes when it starts or ends inside it.",
      "doc": [
       {
@@ -34542,6 +34815,7 @@
      "sigs": [
       "type ContentPoint = ContentTextPoint | ContentGapPoint"
      ],
+     "group": "Selection",
      "summary": "One supported caret stop inside a structured attachment.",
      "doc": [
       {
@@ -34565,6 +34839,7 @@
      "sigs": [
       "type ContentSelectionAffinity = \"backward\" | \"forward\""
      ],
+     "group": "Selection",
      "summary": "Which side of a boundary owns a nested caret.",
      "doc": [
       {
@@ -34588,6 +34863,7 @@
      "sigs": [
       "type ContentSelectionPaste = (\n  ctx: ContentSelectionPasteCtx,\n) => StateResult | undefined"
      ],
+     "group": "Features",
      "summary": "Handles a paste into a range inside a structured document.",
      "doc": [
       {
@@ -34644,6 +34920,7 @@
      "sigs": [
       "type ContentSelectionResolver = (\n  ctx: ContentSelectionCtx,\n) => ContentSelection | undefined"
      ],
+     "group": "Features",
      "summary": "Adjusts a range inside a structured document before it becomes the selection.",
      "doc": [
       {
@@ -34700,6 +34977,7 @@
      "sigs": [
       "type ContentSelectionSerializer = (\n  ctx: ContentSelectionCtx,\n) => ContentSelectionSlice | undefined"
      ],
+     "group": "Features",
      "summary": "Turns a range inside a structured document into clipboard content.",
      "doc": [
       {
@@ -34756,6 +35034,7 @@
      "sigs": [
       "type ContentSelectionSlicer = (\n  ctx: ContentSelectionCtx,\n) => StructuredDocument | undefined"
      ],
+     "group": "Features",
      "summary": "Cuts a copy of a structured document down to a range inside it.",
      "doc": [
       {
@@ -34829,6 +35108,7 @@
      "sigs": [
       "type CreateEditorBaseOptions<\n  D extends SchemaDefinition = BaseSchemaDefinition,\n> = Omit<MountEditorOptions<D>, \"doc\" | \"schema\"> & {\n  element: HTMLElement;\n  schema?: Schema<D>;\n  autofocus?: boolean;\n}"
      ],
+     "group": "Editor",
      "summary": "The `createEditor` options other than content.",
      "doc": [
       {
@@ -34998,6 +35278,7 @@
      "sigs": [
       "type CreateEditorContent<\n  D extends SchemaDefinition = BaseSchemaDefinition,\n> =\n  | {\n      markdown?: string;\n      blocks?: never;\n      doc?: never;\n    }\n  | {\n      blocks: Block[];\n      markdown?: never;\n      doc?: never;\n    }\n  | {\n      doc: Doc<D>;\n      markdown?: never;\n      blocks?: never;\n    }"
      ],
+     "group": "Editor",
      "summary": "Where `createEditor` gets its content.",
      "doc": [
       {
@@ -35239,6 +35520,7 @@
      "sigs": [
       "type CreateEditorOptions<\n  D extends SchemaDefinition = BaseSchemaDefinition,\n> = CreateEditorBaseOptions<D> & CreateEditorContent<D>"
      ],
+     "group": "Editor",
      "summary": "Options for `createEditor`: the `CreateEditorBaseOptions` plus at most one of the `CreateEditorContent` sources.",
      "doc": [
       {
@@ -35304,6 +35586,7 @@
      "sigs": [
       "type DataSchemaExtensionDefinition<E extends DataSchemaExtension>"
      ],
+     "group": "Schema",
      "summary": "Works out, for TypeScript, which block and mark names (with their attribute shapes) a `DataSchemaExtension` adds.",
      "doc": [
       {
@@ -35361,6 +35644,7 @@
      "sigs": [
       "type Decoration = RangeDecoration | BlockDecoration | CaretDecoration"
      ],
+     "group": "Decorations",
      "summary": "Something drawn over the document without being part of it: a highlighted or underlined range of text, a highlighted block, or a caret with an optional name label.",
      "doc": [
       {
@@ -35392,6 +35676,7 @@
      "sigs": [
       "type DecorationPoint =\n  FlatDecorationPoint | CharacterDecorationPoint | ContentPoint"
      ],
+     "group": "Decorations",
      "summary": "Where one end of a decoration sits: a text offset (`FlatDecorationPoint`), a point pinned to a character (`CharacterDecorationPoint`), or a point inside a node's own content, such as a table cell (`ContentPoint`).",
      "doc": [
       {
@@ -35457,6 +35742,7 @@
      "sigs": [
       "type Disposer = () => void"
      ],
+     "group": "Actions",
      "summary": "A teardown function — what `editor.registerAction`, `editor.subscribe`, `doc.on`, and friends return.",
      "doc": [
       {
@@ -35504,6 +35790,7 @@
      "sigs": [
       "type DocPoint =\n  | \"caret\"\n  | \"start\"\n  | \"end\"\n  | { block: string; offset?: number }\n  | { block: string; side: \"before\" | \"after\" }"
      ],
+     "group": "Document",
      "summary": "One spot in the document.",
      "doc": [
       {
@@ -35651,6 +35938,7 @@
      "sigs": [
       "type DocRange =\n  \"selection\" | DocPoint | { from: DocPoint; to: DocPoint }"
      ],
+     "group": "Document",
      "summary": "A stretch of the document.",
      "doc": [
       {
@@ -35760,6 +36048,7 @@
      "sigs": [
       "type EdgeOutcome =\n  | { kind: \"break\"; state: EditorState; ops: Operation[] }\n  | { kind: \"fallthrough\" }"
      ],
+     "group": "Actions",
      "summary": "What an edge helper, such as `appendTrailingParagraph`, did.",
      "doc": [
       {
@@ -35854,6 +36143,7 @@
      "sigs": [
       "type EditorAction<S extends SchemaDefinition = AnySchemaDefinition> = (\n  c: ChangeApi<S>,\n) => void"
      ],
+     "group": "Editor",
      "summary": "A named, reusable document mutation: a function over the `ChangeApi`.",
      "doc": [
       {
@@ -35929,6 +36219,7 @@
      "sigs": [
       "type EditorEvent = \"change\" | \"selectionchange\" | \"focus\" | \"blur\""
      ],
+     "group": "Editor",
      "summary": "Events for the convenience `Editor.on` subscription: - \"change\" — the document content changed - \"selectionchange\" — the caret/selection moved (no content change) - \"focus\" / \"blur\" — the editor gained or lost focus",
      "doc": [
       {
@@ -36022,6 +36313,7 @@
      "sigs": [
       "type FeatureInputPhase = \"before-insert\" | \"after-insert\""
      ],
+     "group": "Features",
      "summary": "When an input rule runs: before the typed text is inserted, or after.",
      "doc": [
       {
@@ -36045,6 +36337,7 @@
      "sigs": [
       "type FieldRun =\n  | {\n      readonly kind: \"applied\";\n      readonly state: EditorState;\n      readonly ops: Operation[];\n      readonly range: FieldRange;\n      readonly edited: boolean;\n      readonly moved: boolean;\n    }\n  | {\n      readonly kind: \"refused\";\n      readonly reason: \"missing\" | \"outside\" | \"no-caret\" | \"mismatch\";\n    }"
      ],
+     "group": "Text",
      "summary": "What running an action on a field as a paragraph came to.",
      "doc": [
       {
@@ -36242,6 +36535,7 @@
      "sigs": [
       "type FontFamily = string"
      ],
+     "group": "Theme",
      "summary": "A font family key.",
      "doc": [
       {
@@ -36273,6 +36567,7 @@
      "sigs": [
       "type LabelIconShape =\n  | { readonly shape: \"path\"; readonly d: string }\n  | {\n      readonly shape: \"rect\";\n      readonly x: number;\n      readonly y: number;\n      readonly width: number;\n      readonly height: number;\n      readonly rx?: number;\n    }\n  | {\n      readonly shape: \"line\";\n      readonly x1: number;\n      readonly y1: number;\n      readonly x2: number;\n      readonly y2: number;\n    }"
      ],
+     "group": "Decorations",
      "summary": "A glyph drawn next to a caret label, as primitive shapes in a 24×24 viewBox — the convention lucide and most icon sets share, so a producer can pass an icon set's raw geometry straight through.",
      "doc": [
       {
@@ -36296,6 +36591,7 @@
      "sigs": [
       "type MarkAttrs<\n  S extends SchemaDefinition,\n  T extends MarkNameOf<S>,\n> = S[\"marks\"][T]"
      ],
+     "group": "Schema",
      "summary": "The shape of the data that mark type `T` carries in schema `S`, such as `{ url: string }` for a link.",
      "doc": [
       {
@@ -36343,6 +36639,7 @@
      "sigs": [
       "type MarkInfo<S extends SchemaDefinition = BaseSchemaDefinition> = {\n  [T in MarkNameOf<S>]: MarkInfoFor<S, T>;\n}[MarkNameOf<S>]"
      ],
+     "group": "Editor",
      "summary": "A mark found at a position or range, as returned by the read API's `marks()`: its `name`, its data in `attrs` (a link's `url`, for example), and the block, offsets and text of the run it covers.",
      "doc": [
       {
@@ -36398,6 +36695,7 @@
      "sigs": [
       "type MarkInfoFor<S extends SchemaDefinition, T extends MarkNameOf<S>>"
      ],
+     "group": "Schema",
      "summary": "A mark of type `T` found in the document: its `name`, its `attrs` typed for that mark, and the block, offsets and text of the run it covers.",
      "doc": [
       {
@@ -36548,6 +36846,7 @@
      "sigs": [
       "type MarkNameOf<S extends SchemaDefinition> = Extract<\n  keyof S[\"marks\"],\n  string\n>"
      ],
+     "group": "Schema",
      "summary": "The mark type names of schema `S`, as a union of string literals (`\"strong\" | \"link\" | …`).",
      "doc": [
       {
@@ -36587,6 +36886,7 @@
      "sigs": [
       "type MergeSchema<\n  A extends SchemaDefinition,\n  B extends SchemaDefinition,\n>"
      ],
+     "group": "Schema",
      "summary": "Combines two schema descriptions into one.",
      "doc": [
       {
@@ -36638,6 +36938,7 @@
      "sigs": [
       "type MutationHandler<P = void> = (\n  c: ChangeApi,\n  payload: P,\n) => boolean | void"
      ],
+     "group": "Actions",
      "summary": "A handler for a mutation action.",
      "doc": [
       {
@@ -36691,6 +36992,7 @@
      "sigs": [
       "type NodeCodec = Omit<BlockCodec, \"types\">"
      ],
+     "group": "Serialization",
      "summary": "How a node's blocks are written as Markdown, HTML and plain text, and read back: a `BlockCodec` without `types`.",
      "doc": [
       {
@@ -36774,6 +37076,7 @@
      "sigs": [
       "type NodePointerType = \"mouse\" | \"touch\""
      ],
+     "group": "Nodes",
      "summary": "Whether a hit region is being tested for a mouse or a finger.",
      "doc": [
       {
@@ -36797,6 +37100,7 @@
      "sigs": [
       "type Operation =\n  | TextInsert\n  | TextDelete\n  | MarkSet\n  | BlockInsert\n  | BlockDelete\n  | BlockSet\n  | ContentEdit"
      ],
+     "group": "Document",
      "summary": "One change to a document: text added or deleted, a mark set, a block added, deleted or changed, or an edit to structured content inside a block.",
      "doc": [
       {
@@ -36820,6 +37124,7 @@
      "sigs": [
       "type PlaceholderBlockType =\n  | \"paragraph\"\n  | \"heading1\"\n  | \"heading2\"\n  | \"heading3\"\n  | \"bullet_list\"\n  | \"numbered_list\"\n  | \"todo_list\"\n  | \"math\""
      ],
+     "group": "Editor",
      "summary": "Block types that render placeholder ghost text when empty.",
      "doc": [
       {
@@ -36859,6 +37164,7 @@
      "sigs": [
       "type PlaceholderOption =\n  string | Partial<Record<PlaceholderBlockType, string>>"
      ],
+     "group": "Editor",
      "summary": "Placeholder ghost text for empty blocks: either one generic string applied to every block type, or a per-block-type map (e.g.",
      "doc": [
       {
@@ -36890,6 +37196,7 @@
      "sigs": [
       "type RangeDecorationPaint =\n  RangeDecoration | Pick<RangeDecoration, \"color\" | \"opacity\" | \"style\">"
      ],
+     "group": "Decorations",
      "summary": "The paint channels of a range decoration a painter needs — a whole `RangeDecoration` qualifies, as does a bare `{ color, opacity, style }` for a painter reusing the machinery for its own (local) selection.",
      "doc": [
       {
@@ -36935,6 +37242,7 @@
      "sigs": [
       "type RangeDecorationStyle =\n  | { readonly type: \"fill\" }\n  | {\n      readonly type: \"underline\";\n      readonly line: \"solid\" | \"wavy\" | \"dotted\" | \"dashed\";\n      readonly thickness?: number;\n    }"
      ],
+     "group": "Decorations",
      "summary": "How a range decoration is painted over its span.",
      "doc": [
       {
@@ -37021,6 +37329,7 @@
      "sigs": [
       "type ReplacementRenderer = (\n  type: string,\n  source: string,\n  displayMode: boolean,\n) => string"
      ],
+     "group": "Serialization",
      "summary": "A function your app supplies to turn rich content, such as math, into HTML.",
      "doc": [
       {
@@ -37098,6 +37407,7 @@
      "sigs": [
       "type SchemaBlockData<S extends SchemaDefinition> = {\n  [T in BlockName<S>]: BlockDataFor<S, T>;\n}[BlockName<S>]"
      ],
+     "group": "Schema",
      "summary": "A `BlockDataFor` for any block type in schema `S`, as one union.",
      "doc": [
       {
@@ -37159,6 +37469,7 @@
      "sigs": [
       "type SchemaDefinitionOf<S> = S extends Schema<infer D> ? D : never"
      ],
+     "group": "Schema",
      "summary": "Extract the compile-time document definition carried by a `Schema`.",
      "doc": [
       {
@@ -37196,6 +37507,7 @@
      "sigs": [
       "type SerialFormat = \"markdown\" | \"html\" | \"text\""
      ],
+     "group": "Serialization",
      "summary": "The formats a document can be written out as.",
      "doc": [
       {
@@ -37219,6 +37531,7 @@
      "sigs": [
       "type StateForwarder = <P>(\n  state: EditorState,\n  action: StateAction<P>,\n  payload: P,\n) => (StateResult & { handled?: boolean }) | void"
      ],
+     "group": "Actions",
      "summary": "A handler for every forwardable action no action-specific handler claimed — see `ActionBus.registerForwarder`.",
      "doc": [
       {
@@ -37270,6 +37583,7 @@
      "sigs": [
       "type StateHandler<P = void> = (\n  state: EditorState,\n  payload: P,\n) => (StateResult & { handled?: boolean }) | void"
      ],
+     "group": "Actions",
      "summary": "A handler for a state action.",
      "doc": [
       {
@@ -37315,6 +37629,7 @@
      "sigs": [
       "type StateMutator<P = void> = (\n  state: EditorState,\n  payload: P,\n) => StateResult"
      ],
+     "group": "Actions",
      "summary": "A state action's default behavior.",
      "doc": [
       {
@@ -37394,6 +37709,7 @@
      "sigs": [
       "type StructuredContentClone = (\n  ctx: StructuredContentCloneCtx,\n) => StructuredContentCloneResult | undefined"
      ],
+     "group": "Features",
      "summary": "Updates an attachment's ids when its block is copied under a new id, for example on import or when a block is split.",
      "doc": [
       {
@@ -37458,6 +37774,7 @@
      "sigs": [
       "type StructuredContentMap = Readonly<Record<string, StructuredDocument>>"
      ],
+     "group": "Structured content",
      "summary": "Optional attachments a block can carry; keyed by stable content id.",
      "doc": [
       {
@@ -37481,6 +37798,7 @@
      "sigs": [
       "type StructuredEdit =\n  | {\n      readonly kind: \"node_insert\";\n      readonly node: StructuredNodeSeed;\n    }\n  | {\n      readonly kind: \"node_delete\";\n      readonly nodeId: string;\n    }\n  | {\n      readonly kind: \"node_move\";\n      readonly nodeId: string;\n      readonly placement: StructuredPlacement;\n    }\n  | {\n      readonly kind: \"node_attr_set\";\n      readonly nodeId: string;\n      readonly key: string;\n      readonly value: StructuredValue;\n    }\n  | {\n      readonly kind: \"node_attr_delete\";\n      readonly nodeId: string;\n      readonly key: string;\n    }\n  | {\n      readonly kind: \"text_insert\";\n      readonly nodeId: string;\n      readonly field: string;\n      readonly afterCharId: string | null;\n      readonly charRuns: readonly CharRun[];\n    }\n  | {\n      readonly kind: \"text_delete\";\n      readonly nodeId: string;\n      readonly field: string;\n      readonly charIds: readonly string[];\n    }\n  | {\n      readonly kind: \"mark_set\";\n      readonly nodeId: string;\n      readonly field: string;\n      readonly charIds: readonly string[];\n      readonly mark: Mark;\n      readonly value: boolean;\n    }"
      ],
+     "group": "Structured content",
      "summary": "One schema-independent mutation inside a structured document.",
      "doc": [
       {
@@ -37653,6 +37971,7 @@
      "sigs": [
       "type StructuredMutation =\n  | {\n      readonly kind: \"document_init\";\n      readonly document: StructuredDocument;\n    }\n  | {\n      readonly kind: \"document_delete\";\n    }\n  | StructuredEdit"
      ],
+     "group": "Structured content",
      "summary": "What one `content_edit` operation carries: create an attachment (`document_init`), remove it (`document_delete`), or make one `StructuredEdit` inside it.",
      "doc": [
       {
@@ -37743,6 +38062,7 @@
      "sigs": [
       "type StructuredValue =\n  | null\n  | boolean\n  | number\n  | string\n  | readonly StructuredValue[]\n  | { readonly [key: string]: StructuredValue }"
      ],
+     "group": "Structured content",
      "summary": "A JSON-safe value accepted in a structured node's attribute bag.",
      "doc": [
       {
@@ -37766,6 +38086,7 @@
      "sigs": [
       "type TextAlign = \"left\" | \"center\" | \"right\" | null"
      ],
+     "group": "Text",
      "summary": "Horizontal alignment of each line inside the box.",
      "doc": [
       {
@@ -37797,6 +38118,7 @@
      "sigs": [
       "type VersionVector = Map<string, number>"
      ],
+     "group": "Document",
      "summary": "Version vector tracking seen operations per peer.",
      "doc": [
       {
@@ -37820,6 +38142,7 @@
      "sigs": [
       "const baseDataSchema: DataSchema<BaseSchemaDefinition>"
      ],
+     "group": "Schema",
      "summary": "The default data schema: every built-in block and mark type, with no drawing code.",
      "doc": [
       {
@@ -37859,6 +38182,7 @@
      "sigs": [
       "const baseSchema: Schema<BaseSchemaDefinition>"
      ],
+     "group": "Schema",
      "summary": "The default schema: every built-in block and mark type, ready to draw.",
      "doc": [
       {
@@ -38100,6 +38424,7 @@
      "sigs": [
       "const CLEAR_SELECTION: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Collapse any active selection to the caret (Escape).",
      "doc": [
       {
@@ -38123,6 +38448,7 @@
      "sigs": [
       "const CLOSE_CONTEXT_MENU: Action<void>"
      ],
+     "group": "Built-in actions",
      "summary": "The context menu should close.",
      "doc": [
       {
@@ -38155,6 +38481,7 @@
      "sigs": [
       "const COMPOSITION_END: StateAction<CompositionTextPayload>"
      ],
+     "group": "Built-in actions",
      "summary": "Finish an IME composition: insert the final text at the caret and clear the composition.",
      "doc": [
       {
@@ -38194,6 +38521,7 @@
      "sigs": [
       "const COMPOSITION_START: StateAction<CompositionTextPayload>"
      ],
+     "group": "Built-in actions",
      "summary": "Start an IME composition, the typing used by input methods and phone keyboards.",
      "doc": [
       {
@@ -38234,6 +38562,7 @@
      "sigs": [
       "const COMPOSITION_UPDATE: StateAction<CompositionUpdatePayload>"
      ],
+     "group": "Built-in actions",
      "summary": "Track the text while an IME composition is in progress.",
      "doc": [
       {
@@ -38285,6 +38614,7 @@
      "sigs": [
       "const CONTEXT_MENU_POINTER_MOVE: Action<{ clientX: number; clientY: number; }>"
      ],
+     "group": "Built-in actions",
      "summary": "A touch drag moved while a host context menu is capturing the pointer (see `OPEN_CONTEXT_MENU`).",
      "doc": [
       {
@@ -38330,6 +38660,7 @@
      "sigs": [
       "const CONTEXT_MENU_RELEASE: Action<{ clientX: number; clientY: number; }>"
      ],
+     "group": "Built-in actions",
      "summary": "The finger lifted while a host context menu held the pointer.",
      "doc": [
       {
@@ -38353,6 +38684,7 @@
      "sigs": [
       "const CONVERT_BLOCK: MutationAction<{ type: string; strip?: DocRange | undefined; }>"
      ],
+     "group": "Built-in actions",
      "summary": "Change the block at the caret to another type, as one undo step.",
      "doc": [
       {
@@ -38417,6 +38749,7 @@
      "sigs": [
       "const COPY: Action<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Fired after the editor copies the selection to the clipboard (Ctrl/Cmd+C).",
      "doc": [
       {
@@ -38468,6 +38801,7 @@
      "sigs": [
       "const CURSOR_DRAG_BOUNDARY: Action<void>"
      ],
+     "group": "Built-in actions",
      "summary": "The touch-dragged caret crossed a character/line boundary.",
      "doc": [
       {
@@ -38491,6 +38825,7 @@
      "sigs": [
       "const CURSOR_DRAG_END: Action<void>"
      ],
+     "group": "Built-in actions",
      "summary": "A touch cursor-drag gesture ended (finger lifted).",
      "doc": [
       {
@@ -38514,6 +38849,7 @@
      "sigs": [
       "const CURSOR_DRAG_MOVE: Action<CursorDragInfo>"
      ],
+     "group": "Built-in actions",
      "summary": "The touch-dragged caret moved (per-tick finger geometry).",
      "doc": [
       {
@@ -38537,6 +38873,7 @@
      "sigs": [
       "const CURSOR_DRAG_START: Action<CursorDragInfo>"
      ],
+     "group": "Built-in actions",
      "summary": "A touch cursor-drag gesture began.",
      "doc": [
       {
@@ -38560,6 +38897,7 @@
      "sigs": [
       "const CUT: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Delete the selection as part of a cut (Ctrl/Cmd+X).",
      "doc": [
       {
@@ -38583,6 +38921,7 @@
      "sigs": [
       "const DEFAULT_TOKENS: ThemeTokens"
      ],
+     "group": "Theme",
      "summary": "The default colors.",
      "doc": [
       {
@@ -38637,6 +38976,7 @@
      "sigs": [
       "const DELETE_BACKWARD: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Delete backward one position / the selection (Backspace).",
      "doc": [
       {
@@ -38660,6 +39000,7 @@
      "sigs": [
       "const DELETE_FORWARD: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Delete forward one position / the selection (Delete).",
      "doc": [
       {
@@ -38683,6 +39024,7 @@
      "sigs": [
       "const DELETE_TO_LINE_END: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Delete forward to the line end (⌘+Delete / ⌃K on macOS).",
      "doc": [
       {
@@ -38706,6 +39048,7 @@
      "sigs": [
       "const DELETE_TO_LINE_START: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Delete back to the line start (⌘+Backspace on macOS).",
      "doc": [
       {
@@ -38729,6 +39072,7 @@
      "sigs": [
       "const DELETE_WORD_BACKWARD: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Delete backward to the previous word boundary (Ctrl/Cmd+Backspace).",
      "doc": [
       {
@@ -38752,6 +39096,7 @@
      "sigs": [
       "const DELETE_WORD_FORWARD: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Delete forward to the next word boundary (Ctrl/Cmd+Delete).",
      "doc": [
       {
@@ -38775,6 +39120,7 @@
      "sigs": [
       "const DRAG_DETENT: Action<void>"
      ],
+     "group": "Built-in actions",
      "summary": "A drag passed a snap point the user should feel.",
      "doc": [
       {
@@ -38812,6 +39158,7 @@
      "sigs": [
       "const ENTER_IMAGE_REPOSITION: StateAction<{ blockIndex?: number | undefined; }>"
      ],
+     "group": "Built-in actions",
      "summary": "Puts an image into reposition mode, where dragging pans its crop.",
      "doc": [
       {
@@ -38866,6 +39213,7 @@
      "sigs": [
       "const EXIT_BLOCK: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Leave the current block (Shift+Enter).",
      "doc": [
       {
@@ -38889,6 +39237,7 @@
      "sigs": [
       "const EXIT_IMAGE_REPOSITION: StateAction<{ blockIndex: number; revert: boolean; }>"
      ],
+     "group": "Built-in actions",
      "summary": "Leaves reposition mode.",
      "doc": [
       {
@@ -38946,6 +39295,7 @@
      "sigs": [
       "const EXPAND_SELECTION: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Grow the selection one step (⌃⇧⌘→ on Apple, Shift+Alt+→ elsewhere).",
      "doc": [
       {
@@ -39006,6 +39356,7 @@
      "sigs": [
       "const EXPAND_SELECTION_STEP: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "One Expand Selection step: make the selection one size wider.",
      "doc": [
       {
@@ -39034,6 +39385,7 @@
      "sigs": [
       "const EXTEND_SELECTION_DOWN: StateAction<ViewportPayload>"
      ],
+     "group": "Built-in actions",
      "summary": "Extend the selection down one visual line (Shift+ArrowDown).",
      "doc": [
       {
@@ -39057,6 +39409,7 @@
      "sigs": [
       "const EXTEND_SELECTION_END: StateAction<{ isCtrl: boolean; }>"
      ],
+     "group": "Built-in actions",
      "summary": "Extend the selection to the line end, or to the document end when `isCtrl` (Shift+End / Ctrl+Shift+End).",
      "doc": [
       {
@@ -39088,6 +39441,7 @@
      "sigs": [
       "const EXTEND_SELECTION_HOME: StateAction<{ isCtrl: boolean; }>"
      ],
+     "group": "Built-in actions",
      "summary": "Extend the selection to the line start, or to the document start when `isCtrl` (Shift+Home / Ctrl+Shift+Home).",
      "doc": [
       {
@@ -39119,6 +39473,7 @@
      "sigs": [
       "const EXTEND_SELECTION_LEFT: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Extend the selection one position to the left (Shift+ArrowLeft).",
      "doc": [
       {
@@ -39142,6 +39497,7 @@
      "sigs": [
       "const EXTEND_SELECTION_PAGE_DOWN: StateAction<ViewportPayload>"
      ],
+     "group": "Built-in actions",
      "summary": "Extend the selection down one viewport page (Shift+PageDown).",
      "doc": [
       {
@@ -39165,6 +39521,7 @@
      "sigs": [
       "const EXTEND_SELECTION_PAGE_UP: StateAction<ViewportPayload>"
      ],
+     "group": "Built-in actions",
      "summary": "Extend the selection up one viewport page (Shift+PageUp).",
      "doc": [
       {
@@ -39188,6 +39545,7 @@
      "sigs": [
       "const EXTEND_SELECTION_RIGHT: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Extend the selection one position to the right (Shift+ArrowRight).",
      "doc": [
       {
@@ -39211,6 +39569,7 @@
      "sigs": [
       "const EXTEND_SELECTION_UP: StateAction<ViewportPayload>"
      ],
+     "group": "Built-in actions",
      "summary": "Extend the selection up one visual line (Shift+ArrowUp).",
      "doc": [
       {
@@ -39234,6 +39593,7 @@
      "sigs": [
       "const EXTEND_SELECTION_WORD_LEFT: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Extend the selection to the previous word boundary (Ctrl/Cmd+Shift+ArrowLeft).",
      "doc": [
       {
@@ -39257,6 +39617,7 @@
      "sigs": [
       "const EXTEND_SELECTION_WORD_RIGHT: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Extend the selection to the next word boundary (Ctrl/Cmd+Shift+ArrowRight).",
      "doc": [
       {
@@ -39280,6 +39641,7 @@
      "sigs": [
       "const IMAGE_PASTE: Action<ImagePasteEvent>"
      ],
+     "group": "Built-in actions",
      "summary": "An image was pasted, like a screenshot.",
      "doc": [
       {
@@ -39336,6 +39698,7 @@
      "sigs": [
       "const INDENT_LIST_ITEM: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Indent the current list item one level (Tab on a list block).",
      "doc": [
       {
@@ -39359,6 +39722,7 @@
      "sigs": [
       "const INSERT_TEXT: StateAction<{ text: string; }>"
      ],
+     "group": "Built-in actions",
      "summary": "Insert text at the caret, or in place of the selection.",
      "doc": [
       {
@@ -39405,6 +39769,7 @@
      "sigs": [
       "const JOIN_WITH_PREVIOUS_BLOCK: StateAction<BlockBoundaryContext>"
      ],
+     "group": "Built-in actions",
      "summary": "Backspace at the very start of a block dispatches this when there is a block above.",
      "doc": [
       {
@@ -39436,6 +39801,7 @@
      "sigs": [
       "const MOVE_BLOCK: StateAction<{ blockId: string; afterBlockId: string | null; }>"
      ],
+     "group": "Built-in actions",
      "summary": "Move a block so it sits right after `afterBlockId`.",
      "doc": [
       {
@@ -39497,6 +39863,7 @@
      "sigs": [
       "const MOVE_BLOCKS: StateAction<{ blockIds: readonly string[]; afterBlockId: string | null; }>"
      ],
+     "group": "Built-in actions",
      "summary": "Move several blocks so they sit right after `afterBlockId`.",
      "doc": [
       {
@@ -39552,6 +39919,7 @@
      "sigs": [
       "const MOVE_CONTENT_TAB: StateAction<{ backward: boolean; }>"
      ],
+     "group": "Built-in actions",
      "summary": "Tab and Shift+Tab inside a block that has parts of its own, like moving between table cells.",
      "doc": [
       {
@@ -39591,6 +39959,7 @@
      "sigs": [
       "const MOVE_CURSOR_DOWN: StateAction<ViewportPayload>"
      ],
+     "group": "Built-in actions",
      "summary": "Move the caret down one visual line (ArrowDown), collapsing any active selection first.",
      "doc": [
       {
@@ -39614,6 +39983,7 @@
      "sigs": [
       "const MOVE_CURSOR_LEFT: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Move the caret one position to the left (ArrowLeft), collapsing any active selection first.",
      "doc": [
       {
@@ -39637,6 +40007,7 @@
      "sigs": [
       "const MOVE_CURSOR_PAGE_DOWN: StateAction<ViewportPayload>"
      ],
+     "group": "Built-in actions",
      "summary": "Move the caret down one viewport page (PageDown), collapsing any active selection first.",
      "doc": [
       {
@@ -39660,6 +40031,7 @@
      "sigs": [
       "const MOVE_CURSOR_PAGE_UP: StateAction<ViewportPayload>"
      ],
+     "group": "Built-in actions",
      "summary": "Move the caret up one viewport page (PageUp), collapsing any active selection first.",
      "doc": [
       {
@@ -39683,6 +40055,7 @@
      "sigs": [
       "const MOVE_CURSOR_RIGHT: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Mirror of `MOVE_CURSOR_LEFT`: move the caret one position to the right, collapsing any active selection first.",
      "doc": [
       {
@@ -39720,6 +40093,7 @@
      "sigs": [
       "const MOVE_CURSOR_UP: StateAction<ViewportPayload>"
      ],
+     "group": "Built-in actions",
      "summary": "Move the caret up one visual line (ArrowUp), collapsing any active selection first.",
      "doc": [
       {
@@ -39743,6 +40117,7 @@
      "sigs": [
       "const MOVE_TO_DOCUMENT_END: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Move the caret to the very end of the document (Ctrl/Cmd+End) — the end of the last visible block — collapsing any active selection first.",
      "doc": [
       {
@@ -39766,6 +40141,7 @@
      "sigs": [
       "const MOVE_TO_DOCUMENT_START: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Move the caret to the very start of the document (Ctrl/Cmd+Home), collapsing any active selection first.",
      "doc": [
       {
@@ -39789,6 +40165,7 @@
      "sigs": [
       "const MOVE_TO_LINE_END: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Move the caret to the end of the current line (End), collapsing any active selection first.",
      "doc": [
       {
@@ -39812,6 +40189,7 @@
      "sigs": [
       "const MOVE_TO_LINE_START: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Move the caret to the start of the current line (Home), collapsing any active selection first.",
      "doc": [
       {
@@ -39835,6 +40213,7 @@
      "sigs": [
       "const MOVE_TO_NEXT_WORD: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Jump the caret to the start of the next word (Ctrl/Cmd+ArrowRight), collapsing any active selection first.",
      "doc": [
       {
@@ -39858,6 +40237,7 @@
      "sigs": [
       "const MOVE_TO_PREVIOUS_WORD: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Jump the caret to the start of the previous word (Ctrl/Cmd+ArrowLeft), collapsing any active selection first.",
      "doc": [
       {
@@ -39881,6 +40261,7 @@
      "sigs": [
       "const OPEN_CONTEXT_MENU: Action<{ x: number; y: number; hasSelection: boolean; point?: DocPoint | undefined; }>"
      ],
+     "group": "Built-in actions",
      "summary": "The editor wants a context menu.",
      "doc": [
       {
@@ -40071,6 +40452,7 @@
      "sigs": [
       "const OPEN_LINK: Action<{ url: string; }>"
      ],
+     "group": "Built-in actions",
      "summary": "A link was activated (Cmd/Ctrl-click on a `link` mark).",
      "doc": [
       {
@@ -40141,6 +40523,7 @@
      "sigs": [
       "const OUTDENT_LIST_ITEM: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Outdent the current list item one level (Shift+Tab on a list block).",
      "doc": [
       {
@@ -40164,6 +40547,7 @@
      "sigs": [
       "const PASTE: StateAction<PastePayload>"
      ],
+     "group": "Built-in actions",
      "summary": "Paste clipboard content at the caret (Ctrl/Cmd+V).",
      "doc": [
       {
@@ -40204,6 +40588,7 @@
      "sigs": [
       "const PLACE_CURSOR_AT_POINT: StateAction<{ position: Position; extend: boolean; contentSelection?: ContentSelection | null | undefined; }>"
      ],
+     "group": "Built-in actions",
      "summary": "Place the caret at a resolved text position (single click).",
      "doc": [
       {
@@ -40243,6 +40628,7 @@
      "sigs": [
       "const REGION_DRAG_START: Action<{ regionId: string; intensity: \"heavy\" | \"light\" | \"medium\"; }>"
      ],
+     "group": "Built-in actions",
      "summary": "A touch hold turned into a drag: a selection handle, an image resize, a scrollbar, and so on.",
      "doc": [
       {
@@ -40314,6 +40700,7 @@
      "sigs": [
       "const REVERT_INPUT_RULE: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Undo the Markdown shortcut the last keystroke triggered, and keep the typed characters.",
      "doc": [
       {
@@ -40353,6 +40740,7 @@
      "sigs": [
       "const SCROLL: Action<{ scrollY: number; deltaY: number; source: \"programmatic\" | \"user\"; }>"
      ],
+     "group": "Built-in actions",
      "summary": "The page is about to scroll from user input: a wheel, a touch drag, or momentum.",
      "doc": [
       {
@@ -40433,6 +40821,7 @@
      "sigs": [
       "const SELECT_ALL: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Select the whole document (Ctrl/Cmd+A).",
      "doc": [
       {
@@ -40456,6 +40845,7 @@
      "sigs": [
       "const SELECT_LINE_AT_POINT: StateAction<{ position: Position; }>"
      ],
+     "group": "Built-in actions",
      "summary": "Select the whole line at a resolved position (triple-click).",
      "doc": [
       {
@@ -40479,6 +40869,7 @@
      "sigs": [
       "const SELECT_WORD_AT_POINT: StateAction<{ position: Position; range?: { start: number; end: number; } | undefined; }>"
      ],
+     "group": "Built-in actions",
      "summary": "Select the whole word at a resolved position (double-click).",
      "doc": [
       {
@@ -40502,6 +40893,7 @@
      "sigs": [
       "const SHRINK_SELECTION: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Step back to the selection the last `EXPAND_SELECTION` grew from.",
      "doc": [
       {
@@ -40539,6 +40931,7 @@
      "sigs": [
       "const SPLIT_BLOCK: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Split the current block at the caret (Enter).",
      "doc": [
       {
@@ -40562,6 +40955,7 @@
      "sigs": [
       "const TAP_SELECT_LINE: StateAction<PositionPayload>"
      ],
+     "group": "Built-in actions",
      "summary": "Triple-tap: selects the whole line at the tap, even inside an existing selection.",
      "doc": [
       {
@@ -40593,6 +40987,7 @@
      "sigs": [
       "const TAP_SELECT_WORD: StateAction<PositionPayload & { range?: { start: number; end: number; } | undefined; }>"
      ],
+     "group": "Built-in actions",
      "summary": "Double-tap: selects the word at the tap and closes an open context menu.",
      "doc": [
       {
@@ -40632,6 +41027,7 @@
      "sigs": [
       "const TEXT_INPUT: Action<{ text: string; blockIndex: number; textIndex: number; inputSource?: \"hardware-keyboard\" | \"input-surface\" | undefined; contentPoint?: ContentPoint | undefined; }>"
      ],
+     "group": "Built-in actions",
      "summary": "A key press on this device just typed text into a block.",
      "doc": [
       {
@@ -40728,6 +41124,7 @@
      "sigs": [
       "const TEXT_INPUTTED: StateAction<{ blockIndex: number; textIndex: number; }>"
      ],
+     "group": "Built-in actions",
      "summary": "Runs right after typed text is inserted, with the caret at `textIndex` in `blockIndex`.",
      "doc": [
       {
@@ -40822,6 +41219,7 @@
      "sigs": [
       "const TOGGLE_CODE: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Toggle the `code` mark over the selection (Ctrl/Cmd+E).",
      "doc": [
       {
@@ -40853,6 +41251,7 @@
      "sigs": [
       "const TOGGLE_EMPHASIS: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Toggle the `emphasis` (italic) mark over the selection (Ctrl/Cmd+I).",
      "doc": [
       {
@@ -40884,6 +41283,7 @@
      "sigs": [
       "const TOGGLE_MARK: StateAction<{ name: string; }>"
      ],
+     "group": "Built-in actions",
      "examples": [
       {
        "lang": "ts",
@@ -40992,6 +41392,7 @@
      "sigs": [
       "const TOGGLE_STRIKE: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Toggle the `strike` (strike-through) mark over the selection (Ctrl/Cmd+Shift+X).",
      "doc": [
       {
@@ -41023,6 +41424,7 @@
      "sigs": [
       "const TOGGLE_STRONG: StateAction<void>"
      ],
+     "group": "Built-in actions",
      "summary": "Toggle the `strong` (bold) mark over the selection (Ctrl/Cmd+B).",
      "doc": [
       {
@@ -41054,6 +41456,7 @@
      "sigs": [
       "const TOGGLE_TODO_CHECKED: StateAction<{ blockIndex: number; }>"
      ],
+     "group": "Built-in actions",
      "summary": "Checks or unchecks a todo item, for example when its checkbox is tapped.",
      "doc": [
       {

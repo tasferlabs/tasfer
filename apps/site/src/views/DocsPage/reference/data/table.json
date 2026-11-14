@@ -1,5 +1,12 @@
 {
  "name": "@tasfer/table",
+ "groups": [
+  "Setup",
+  "Actions and controls",
+  "Table data",
+  "Layout",
+  "Caret and selection"
+ ],
  "entries": [
   {
    "id": "@tasfer/table",
@@ -10,6 +17,7 @@
      "sigs": [
       "function activeTableContext(\n  state: EditorState,\n): TableContext | undefined"
      ],
+     "group": "Actions and controls",
      "summary": "The table the caret is in, and where the caret sits in it.",
      "doc": [
       {
@@ -41,6 +49,7 @@
      "sigs": [
       "function cellText(\n  document: StructuredDocument,\n  cell: StructuredNode,\n): string"
      ],
+     "group": "Table data",
      "summary": "The visible text of one cell.",
      "doc": [
       {
@@ -64,6 +73,7 @@
      "sigs": [
       "function columnAlign(column: StructuredNode): TableAlign | null"
      ],
+     "group": "Table data",
      "summary": "A column's alignment, or `null` when it never set one.",
      "doc": [
       {
@@ -95,6 +105,7 @@
      "sigs": [
       "function createTableInputRule(\n  options: TableInputOptions = {},\n): FeatureInputRule"
      ],
+     "group": "Setup",
      "summary": "Make the input rule that sends typing into the table cell with the caret.",
      "doc": [
       {
@@ -143,6 +154,7 @@
      "sigs": [
       "function getTableDocument(block: {\n  readonly id: string;\n  readonly structuredContent?: Readonly<Record<string, StructuredDocument>>;\n}): StructuredDocument | undefined"
      ],
+     "group": "Table data",
      "summary": "The authoritative table attached to a block, if it carries one.",
      "doc": [
       {
@@ -166,6 +178,7 @@
      "sigs": [
       "function layoutTable(\n  document: StructuredDocument | undefined,\n  ctx: TableLayoutCtx,\n  composition?: TableComposition,\n): TableLayout"
      ],
+     "group": "Layout",
      "summary": "Measure a whole table at `ctx.maxWidth`: its columns, rows, cells and wrapped lines.",
      "doc": [
       {
@@ -230,6 +243,7 @@
      "sigs": [
       "function readTable(document: StructuredDocument): TableView"
      ],
+     "group": "Table data",
      "summary": "Reads a table document as columns and rows.",
      "doc": [
       {
@@ -270,6 +284,7 @@
      "sigs": [
       "function tableCaretFromContentPoint(\n  document: StructuredDocument,\n  point: {\n    readonly kind: string;\n    readonly nodeId?: string;\n    readonly field?: string;\n    readonly afterCharId?: string | null;\n  },\n): TableCaret | undefined"
      ],
+     "group": "Caret and selection",
      "summary": "Turn a content point back into a cell caret: the cell and the offset in it.",
      "doc": [
       {
@@ -301,6 +316,7 @@
      "sigs": [
       "function tableCaretToContentPoint(\n  document: StructuredDocument,\n  blockId: string,\n  caret: TableCaret,\n  affinity: \"forward\" | \"backward\" = \"forward\",\n): ContentTextPoint | undefined"
      ],
+     "group": "Caret and selection",
      "summary": "Turn a cell caret into a `ContentTextPoint` that stays in place when the text around it changes.",
      "doc": [
       {
@@ -375,6 +391,7 @@
      "sigs": [
       "function tableCaretToContentSelection(\n  document: StructuredDocument,\n  blockId: string,\n  caret: TableCaret,\n  affinity: \"forward\" | \"backward\" = \"forward\",\n): ContentSelection | undefined"
      ],
+     "group": "Caret and selection",
      "summary": "A collapsed selection at one cell caret.",
      "doc": [
       {
@@ -398,6 +415,7 @@
      "sigs": [
       "function tableCellIds(document: StructuredDocument): string[]"
      ],
+     "group": "Caret and selection",
      "summary": "The cell ids of a table in row-major order — the order Tab walks.",
      "doc": [
       {
@@ -421,6 +439,7 @@
      "sigs": [
       "function tableDataExtension(): TableDataExtension"
      ],
+     "group": "Setup",
      "summary": "The table feature without any canvas code.",
      "doc": [
       {
@@ -482,6 +501,7 @@
      "sigs": [
       "function tableExtension(\n  options: TableFeatureOptions = {},\n): TableFeatureExtension"
      ],
+     "group": "Setup",
      "summary": "Adds tables to your schema: the table block, plus typing, selecting and copying inside cells.",
      "doc": [
       {
@@ -541,6 +561,7 @@
      "sigs": [
       "function tableShapeAt(\n  document: StructuredDocument,\n  point: ContentPoint,\n): TableShape | undefined"
      ],
+     "group": "Actions and controls",
      "summary": "Read the shape of the table around a caret: its size, the caret's row and column, and that column's alignment.",
      "doc": [
       {
@@ -588,6 +609,7 @@
      "sigs": [
       "class TableNode extends Node<TableBlock>"
      ],
+     "group": "Setup",
      "summary": "The table block node: lays out and paints the grid, and handles the caret, typing and selection inside cells.",
      "doc": [
       {
@@ -1067,6 +1089,7 @@
      "sigs": [
       "interface TableBlock extends BlockRuntimeState"
      ],
+     "group": "Setup",
      "summary": "A table block.",
      "doc": [
       {
@@ -1111,6 +1134,7 @@
      "sigs": [
       "interface TableCaret"
      ],
+     "group": "Caret and selection",
      "summary": "A caret inside one cell: the cell node's id and a visible UTF-16 offset.",
      "doc": [
       {
@@ -1146,6 +1170,7 @@
      "sigs": [
       "interface TableCellLayout"
      ],
+     "group": "Layout",
      "summary": "One laid-out cell: its box, its resolved text, and its wrapped lines.",
      "doc": [
       {
@@ -1382,6 +1407,7 @@
      "sigs": [
       "interface TableColumnLayout"
      ],
+     "group": "Layout",
      "summary": "One column's horizontal band, in block-local coordinates.",
      "doc": [
       {
@@ -1454,6 +1480,7 @@
      "sigs": [
       "interface TableContext"
      ],
+     "group": "Actions and controls",
      "summary": "The table the nested caret currently addresses, and where in it.",
      "doc": [
       {
@@ -1587,6 +1614,7 @@
      "sigs": [
       "interface TableInputOptions"
      ],
+     "group": "Setup",
      "summary": "What a host can turn on in the cell-input rule.",
      "doc": [
       {
@@ -1719,6 +1747,7 @@
      "sigs": [
       "interface TableLayout extends NodeLayout"
      ],
+     "group": "Layout",
      "summary": "The full table layout — the single geometry every pass reads.",
      "doc": [
       {
@@ -1883,6 +1912,7 @@
      "sigs": [
       "interface TableLayoutCtx"
      ],
+     "group": "Layout",
      "summary": "Everything the geometry needs that is not the document itself.",
      "doc": [
       {
@@ -1950,6 +1980,7 @@
      "sigs": [
       "interface TableRowLayout"
      ],
+     "group": "Layout",
      "summary": "One row band and its cells, one per column (holes included).",
      "doc": [
       {
@@ -1995,6 +2026,7 @@
      "sigs": [
       "interface TableRowView"
      ],
+     "group": "Table data",
      "summary": "One row, with its cells already resolved against the column order.",
      "doc": [
       {
@@ -2050,6 +2082,7 @@
      "sigs": [
       "interface TableShape"
      ],
+     "group": "Actions and controls",
      "summary": "The shape of a table around one caret, for a host drawing its own controls: how big the grid is, where the caret sits in it, and that column's alignment.",
      "doc": [
       {
@@ -2133,6 +2166,7 @@
      "sigs": [
       "interface TableTargetPayload"
      ],
+     "group": "Actions and controls",
      "examples": [
       {
        "lang": "ts",
@@ -2246,6 +2280,7 @@
      "sigs": [
       "interface TableToolsOverlayData"
      ],
+     "group": "Actions and controls",
      "summary": "What the host component needs to render and act.",
      "doc": [
       {
@@ -2305,6 +2340,7 @@
      "sigs": [
       "interface TableView"
      ],
+     "group": "Table data",
      "summary": "A whole table resolved for reading: columns, rows, and cells by column.",
      "doc": [
       {
@@ -2404,6 +2440,7 @@
      "sigs": [
       "type TableAlign = \"left\" | \"center\" | \"right\""
      ],
+     "group": "Table data",
      "summary": "Horizontal alignment of a column.",
      "doc": [
       {
@@ -2449,6 +2486,7 @@
      "sigs": [
       "type TableBlockAttrs = Record<never, never>"
      ],
+     "group": "Setup",
      "summary": "A table block carries no attributes of its own; everything is in the tree.",
      "doc": [
       {
@@ -2472,6 +2510,7 @@
      "sigs": [
       "type TableDataExtension"
      ],
+     "group": "Setup",
      "summary": "What `tableDataExtension` returns: the table block and its content kind, with no canvas code.",
      "doc": [
       {
@@ -2521,6 +2560,7 @@
      "sigs": [
       "type TableFeatureExtension"
      ],
+     "group": "Setup",
      "summary": "What `tableExtension` returns: everything the editor needs for tables, ready to pass to `schema.use(...)`.",
      "doc": [
       {
@@ -2588,6 +2628,7 @@
      "sigs": [
       "type TableFeatureOptions = TableInputOptions"
      ],
+     "group": "Setup",
      "summary": "What a host can turn on when it installs the table feature.",
      "doc": [
       {
@@ -2625,6 +2666,7 @@
      "sigs": [
       "type TableInsertSide = \"before\" | \"after\""
      ],
+     "group": "Actions and controls",
      "summary": "Which side of the reference row/column a new one lands on.",
      "doc": [
       {
@@ -2648,6 +2690,7 @@
      "sigs": [
       "const CELL_TEXT_FIELD: \"text\""
      ],
+     "group": "Table data",
      "summary": "Name of the text field that holds a cell's text.",
      "doc": [
       {
@@ -2671,6 +2714,7 @@
      "sigs": [
       "const TABLE_DELETE_COLUMN: StateAction<TableTargetPayload>"
      ],
+     "group": "Actions and controls",
      "summary": "Delete the target column.",
      "doc": [
       {
@@ -2694,6 +2738,7 @@
      "sigs": [
       "const TABLE_DELETE_ROW: StateAction<TableTargetPayload>"
      ],
+     "group": "Actions and controls",
      "summary": "Delete the target row.",
      "doc": [
       {
@@ -2717,6 +2762,7 @@
      "sigs": [
       "const TABLE_INSERT_COLUMN: StateAction<TableTargetPayload & { readonly side: TableInsertSide; }>"
      ],
+     "group": "Actions and controls",
      "summary": "Add an empty column before (`side: \"before\"`) or after (`side: \"after\"`) the target column.",
      "doc": [
       {
@@ -2756,6 +2802,7 @@
      "sigs": [
       "const TABLE_INSERT_ROW: StateAction<TableTargetPayload & { readonly side: TableInsertSide; }>"
      ],
+     "group": "Actions and controls",
      "summary": "Add an empty row above (`side: \"before\"`) or below (`side: \"after\"`) the target row.",
      "doc": [
       {
@@ -2795,6 +2842,7 @@
      "sigs": [
       "const TABLE_MOVE_COLUMN: StateAction<TableTargetPayload & { readonly to: number; }>"
      ],
+     "group": "Actions and controls",
      "summary": "Move the target column so it ends up at `to`.",
      "doc": [
       {
@@ -2872,6 +2920,7 @@
      "sigs": [
       "const TABLE_SELECT_COLUMN: StateAction<TableTargetPayload>"
      ],
+     "group": "Actions and controls",
      "summary": "Select the target column whole.",
      "doc": [
       {
@@ -2895,6 +2944,7 @@
      "sigs": [
       "const TABLE_SELECT_ROW: StateAction<TableTargetPayload>"
      ],
+     "group": "Actions and controls",
      "summary": "Select the whole target row, ready to copy, cut, clear or format as one.",
      "doc": [
       {
@@ -2918,6 +2968,7 @@
      "sigs": [
       "const TABLE_SET_COLUMN_ALIGN: StateAction<TableTargetPayload & { readonly align: TableAlign | null; }>"
      ],
+     "group": "Actions and controls",
      "summary": "Align the target column's text left, center or right.",
      "doc": [
       {
@@ -2949,6 +3000,7 @@
      "sigs": [
       "const TABLE_STRUCTURED_KIND: \"table\""
      ],
+     "group": "Table data",
      "summary": "The `kind` every table document has.",
      "doc": [
       {
@@ -2988,6 +3040,7 @@
      "sigs": [
       "const TABLE_TOOLS_OVERLAY: \"table-tools\""
      ],
+     "group": "Actions and controls",
      "summary": "Overlay key for the table's inline structural controls.",
      "doc": [
       {
@@ -3011,6 +3064,7 @@
      "sigs": [
       "const tableContentSelectionKind: { readonly kind: \"table\"; readonly contentSelection: ({ document, selection, }: ContentSelectionCtx) => ContentSelectionSlice | undefined; readonly paste: (ctx: ContentSelectionPasteCtx) => StateResult | undefined; }"
      ],
+     "group": "Setup",
      "summary": "The table's copy and paste handlers.",
      "doc": [
       {

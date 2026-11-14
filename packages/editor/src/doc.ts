@@ -50,7 +50,11 @@ import {
 } from "./sync/sync";
 import { invariant } from "@shared/invariant";
 
-/** An applied batch of operations, delivered to `Doc.on("update")` listeners. */
+/**
+ * An applied batch of operations, delivered to `Doc.on("update")` listeners.
+ *
+ * @group Document
+ */
 export interface DocUpdate {
   /**
    * The edits just applied. For `applyUpdate`, only the ones the doc did not
@@ -72,6 +76,8 @@ export interface DocUpdate {
  * Options for {@link createDoc}: the starting content (Markdown, blocks, or
  * bytes saved earlier), the document's identity, and the schema it uses. Every
  * field is optional.
+ *
+ * @group Document
  */
 export interface CreateDocOptions<
   D extends SchemaDefinition = BaseSchemaDefinition,
@@ -127,6 +133,8 @@ export interface CreateDocOptions<
  * A doc needs no editor and no page element. So it also works on a server, in
  * a worker or in a test: read it with `getMarkdown()`, sync it with
  * `applyUpdate`, and save it with `encodeState()`.
+ *
+ * @group Document
  */
 export interface Doc<D extends SchemaDefinition = BaseSchemaDefinition> {
   /** @internal Phantom carrier preserving the schema type across APIs. */
@@ -272,6 +280,7 @@ function decodePersisted(bytes: Uint8Array): PersistedDocV1 {
  * ```
  *
  * @throws {InvariantError} when `bytes` (in either form) use a format this build cannot read, for example one written by a newer app version. Markdown, blocks and ops never throw this.
+ * @group Document
  */
 export function createDoc<D extends SchemaDefinition = BaseSchemaDefinition>(
   input?: CreateDocOptions<D> | Uint8Array,

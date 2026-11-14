@@ -38,6 +38,8 @@ import type { BlockSpecCore } from "../sync/schema";
  * tag. It is written as a fence of three backticks in Markdown. The `code` type is
  * built in, so it loads, saves and syncs with `baseSchema` alone. Drawing it on
  * the canvas, with syntax colors, needs `codeExtension()` from `@tasfer/code`.
+ *
+ * @group Nodes
  */
 export interface CodeBlock extends BlockRuntimeState {
   type: "code";

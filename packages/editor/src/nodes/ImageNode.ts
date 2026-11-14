@@ -202,6 +202,8 @@ export function imageCropSlack(
  * pixels. Use it to decide whether to show a Reposition button. Returns `false`
  * unless the image is in `cover` mode, has loaded, and its crop hides more than
  * one pixel of it.
+ *
+ * @group Nodes
  */
 export function canRepositionImage(
   block: Image,
@@ -645,6 +647,8 @@ function imageGeometry(
  * the block and the viewport. Use it in host UI that has no layout of its own,
  * such as a mobile toolbar. It uses the same size math as the canvas, so both
  * always give the same answer.
+ *
+ * @group Nodes
  */
 // Both this and the on-canvas chrome resolve the frame through imageGeometry,
 // so the two surfaces cannot disagree. The mobile toolbar is the only way into
@@ -837,6 +841,8 @@ export interface ImageViewState {
  * Whether the image block with this id is in reposition mode. Show the mode's
  * Done and Cancel buttons based on this alone, not on hover. The pointer often
  * leaves the image during the mode, and buttons tied to hover would vanish.
+ *
+ * @group Nodes
  */
 export function isRepositioning(state: EditorState, blockId: string): boolean {
   return (
@@ -940,6 +946,8 @@ function imageResizeDetent(
  * Its attrs are `url`, `alt`, `width` (a number, or `"full"` for full width),
  * `height`, `objectFit` (`"cover"` or `"contain"`) and `objectPosition` (the
  * crop point for `cover`, as `{ x, y }` from 0 to 1).
+ *
+ * @group Nodes
  */
 export class ImageNode extends AtomicNode<Image> {
   readonly type = "image" as const;
@@ -2343,6 +2351,8 @@ function repositionCommitOps(
  *
  * Only one image can be in the mode. If another image is in it, that image
  * leaves first and its new crop is saved.
+ *
+ * @group Built-in actions
  */
 export const ENTER_IMAGE_REPOSITION = stateAction<{ blockIndex?: number }>(
   "enter-image-reposition",
@@ -2398,6 +2408,8 @@ export const UPDATE_IMAGE_REPOSITION = stateAction<{
  *
  * With `revert: true` (Cancel, Escape), it puts back the crop the image had
  * when the mode started, and saves nothing.
+ *
+ * @group Built-in actions
  */
 export const EXIT_IMAGE_REPOSITION = stateAction<{
   blockIndex: number;

@@ -55,7 +55,11 @@ import {
   type TextLayout,
 } from "@tasfer/editor/text-layout";
 
-/** One column's horizontal band, in block-local coordinates. */
+/**
+ * One column's horizontal band, in block-local coordinates.
+ *
+ * @group Layout
+ */
 export interface TableColumnLayout {
   /** Left edge of the column, measured from the block's content box. */
   readonly x: number;
@@ -64,7 +68,11 @@ export interface TableColumnLayout {
   readonly align: TableAlign | null;
 }
 
-/** One laid-out cell: its box, its resolved text, and its wrapped lines. */
+/**
+ * One laid-out cell: its box, its resolved text, and its wrapped lines.
+ *
+ * @group Layout
+ */
 export interface TableCellLayout {
   /**
    * The cell node's id, or `null` for a hole — a column this row has no cell
@@ -107,7 +115,11 @@ export interface TableCellLayout {
   readonly lines: readonly RenderedLine[];
 }
 
-/** One row band and its cells, one per column (holes included). */
+/**
+ * One row band and its cells, one per column (holes included).
+ *
+ * @group Layout
+ */
 export interface TableRowLayout {
   readonly rowId: string;
   readonly y: number;
@@ -115,7 +127,11 @@ export interface TableRowLayout {
   readonly cells: readonly TableCellLayout[];
 }
 
-/** The full table layout — the single geometry every pass reads. */
+/**
+ * The full table layout — the single geometry every pass reads.
+ *
+ * @group Layout
+ */
 export interface TableLayout extends NodeLayout {
   readonly columns: readonly TableColumnLayout[];
   readonly rows: readonly TableRowLayout[];
@@ -156,7 +172,11 @@ export interface TableComposition {
   readonly text: string;
 }
 
-/** Everything the geometry needs that is not the document itself. */
+/**
+ * Everything the geometry needs that is not the document itself.
+ *
+ * @group Layout
+ */
 export interface TableLayoutCtx {
   readonly maxWidth: number;
   readonly style: TableBlockStyle;
@@ -316,6 +336,8 @@ export function tableGridWidth(
  * resize drag does. Cell text wraps inside its column, and each row is as
  * tall as its tallest cell. No column gets narrower than `minColumnWidth`
  * while there is room.
+ *
+ * @group Layout
  */
 export function layoutTable(
   document: StructuredDocument | undefined,

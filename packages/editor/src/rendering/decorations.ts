@@ -39,6 +39,8 @@ import {
  * A point in a block's text, given as a block id and a character offset. The
  * offset is clamped to the text length. It does not move when text before it
  * changes. Use {@link CharacterDecorationPoint} for a point that does.
+ *
+ * @group Decorations
  */
 export interface FlatDecorationPoint {
   readonly block: string;
@@ -49,6 +51,8 @@ export interface FlatDecorationPoint {
  * A point in a block's text, pinned right after one character (`afterCharId`,
  * or `null` for the start of the text). It stays in place when people edit the
  * text around it.
+ *
+ * @group Decorations
  */
 export interface CharacterDecorationPoint {
   readonly blockId: string;
@@ -60,6 +64,8 @@ export interface CharacterDecorationPoint {
  * ({@link FlatDecorationPoint}), a point pinned to a character
  * ({@link CharacterDecorationPoint}), or a point inside a node's own content,
  * such as a table cell ({@link ContentPoint}).
+ *
+ * @group Decorations
  */
 export type DecorationPoint =
   FlatDecorationPoint | CharacterDecorationPoint | ContentPoint;
@@ -70,6 +76,8 @@ export type DecorationPoint =
  * inline formula), both ends must be content points in the same piece of
  * content. A range that mixes the two kinds, or splits across content, is not
  * painted.
+ *
+ * @group Decorations
  */
 export interface DecorationRange {
   readonly from: DecorationPoint;
@@ -82,6 +90,8 @@ export interface DecorationRange {
  * the text instead, in the decoration's own colour. The core knows only the
  * stroke pattern — what an underline *means* is the producer's business. An
  * underline is drawn below a link's own underline, so both stay visible.
+ *
+ * @group Decorations
  */
 export type RangeDecorationStyle =
   | { readonly type: "fill" }
@@ -96,6 +106,8 @@ export type RangeDecorationStyle =
  * A translucent fill (or an underline, see `style`) over a flat or structured
  * span (find highlight, remote selection). The producer supplies the `color`;
  * `gutter` additionally surfaces the span as a marker on the scrollbar track.
+ *
+ * @group Decorations
  */
 export interface RangeDecoration {
   readonly kind: "range";
@@ -135,6 +147,8 @@ export interface BlockDecoration {
  * whatever primitives it's handed (in the label's text color, round caps/joins,
  * at the theme's icon stroke width) with no idea what they depict. A host uses
  * this to mark, say, which device a collaborator is on.
+ *
+ * @group Decorations
  */
 export type LabelIconShape =
   | { readonly shape: "path"; readonly d: string }
@@ -158,6 +172,8 @@ export type LabelIconShape =
  * A caret at a point, optionally with a name/avatar flag (remote cursor). The
  * producer supplies the `color`; label chrome (font/padding/radius) comes from
  * the theme's `remoteCursor` tokens.
+ *
+ * @group Decorations
  */
 export interface CaretDecoration {
   readonly kind: "caret";
@@ -176,6 +192,8 @@ export interface CaretDecoration {
  * underlined range of text, a highlighted block, or a caret with an optional
  * name label. Hosts use decorations for things like search matches and other
  * people's cursors, and set them with `editor.view.setDecorations(layer, …)`.
+ *
+ * @group Decorations
  */
 export type Decoration = RangeDecoration | BlockDecoration | CaretDecoration;
 
@@ -277,6 +295,8 @@ function buildBlockDecorationIndex(
  * since it may pass through this one. Paint from this instead of
  * {@link allDecorations}, so each block only walks its own share. The result is
  * cached until the decorations change.
+ *
+ * @group Decorations
  */
 export function decorationsForBlock(
   layers: DecorationLayers,
@@ -413,6 +433,8 @@ export function decorationPointBlockId(point: DecorationPoint): string {
  * structured row, or a whole block box. `baseline` is the absolute y of the
  * text baseline the fragment sits on; an underline hangs from it. Fragments
  * without one (a box with no text of its own) underline near the bottom edge.
+ *
+ * @group Decorations
  */
 export interface DecorationRect {
   readonly x: number;
@@ -426,6 +448,8 @@ export interface DecorationRect {
  * The paint channels of a range decoration a painter needs — a whole
  * {@link RangeDecoration} qualifies, as does a bare `{ color, opacity, style }`
  * for a painter reusing the machinery for its own (local) selection.
+ *
+ * @group Decorations
  */
 export type RangeDecorationPaint =
   RangeDecoration | Pick<RangeDecoration, "color" | "opacity" | "style">;
@@ -442,6 +466,8 @@ function underlineThickness(deco: RangeDecorationPaint): number {
  * A whole-box fragment (image, table cell, equation card) as a
  * {@link DecorationRect}: its fill is the box itself, and an underline hugs the
  * box's bottom edge instead of guessing at a baseline the box does not have.
+ *
+ * @group Decorations
  */
 export function boxDecorationRect(
   box: { x: number; y: number; width: number; height: number },
@@ -469,6 +495,8 @@ export function boxDecorationRect(
  *   below a link's own underline. It uses `color` and is fully opaque unless
  *   `opacity` is set. Wavy lines join up across rectangles, so one span reads
  *   as one wave.
+ *
+ * @group Decorations
  */
 export function paintDecorationRects(
   ctx: CanvasRenderingContext2D,

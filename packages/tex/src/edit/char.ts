@@ -39,6 +39,8 @@ const STRUCTURAL = new Set([
  * Returns `false` when the math fonts have no glyph for it, such as an emoji.
  * That character would draw nothing and the user could not see or delete it. A
  * host can use this to drop the character instead of inserting it.
+ *
+ * @group Rendering
  */
 // Mirrors the layout path for one literal char atom (symbolFor, then a metric
 // lookup) so it stays in sync with what renders.

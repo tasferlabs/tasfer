@@ -42,6 +42,8 @@ import {
 /**
  * A caret inside one cell: the cell node's id and a visible UTF-16 offset.
  * Because it names the cell, someone editing another cell never moves it.
+ *
+ * @group Caret and selection
  */
 export interface TableCaret {
   readonly cellId: string;
@@ -78,6 +80,8 @@ export function cellLength(
  *
  * `affinity` is `forward` by default. That keeps a caret at a line wrap on the
  * line being typed.
+ *
+ * @group Caret and selection
  */
 export function tableCaretToContentPoint(
   document: StructuredDocument,
@@ -103,6 +107,8 @@ export function tableCaretToContentPoint(
 /**
  * Turn a content point back into a cell caret: the cell and the offset in it.
  * Returns `undefined` when the point is not text in a cell of this table.
+ *
+ * @group Caret and selection
  */
 export function tableCaretFromContentPoint(
   document: StructuredDocument,
@@ -122,7 +128,11 @@ export function tableCaretFromContentPoint(
   return { cellId: point.nodeId, offset };
 }
 
-/** A collapsed selection at one cell caret. */
+/**
+ * A collapsed selection at one cell caret.
+ *
+ * @group Caret and selection
+ */
 export function tableCaretToContentSelection(
   document: StructuredDocument,
   blockId: string,
@@ -295,7 +305,11 @@ export type TableCaretStep =
   | "cell-start"
   | "cell-end";
 
-/** The cell ids of a table in row-major order — the order Tab walks. */
+/**
+ * The cell ids of a table in row-major order — the order Tab walks.
+ *
+ * @group Caret and selection
+ */
 export function tableCellIds(document: StructuredDocument): string[] {
   const ids: string[] = [];
   for (const row of readTable(document).rows) {

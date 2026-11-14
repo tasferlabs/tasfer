@@ -44,6 +44,8 @@ import {
  * (Shift held and a selection already exists) the active selection's focus is
  * dragged to the position; otherwise a fresh selection is started at the caret
  * and the editor enters `select` mode (drag-to-select). Pure, no ops.
+ *
+ * @group Built-in actions
  */
 export const PLACE_CURSOR_AT_POINT = stateAction<{
   position: Position;
@@ -121,7 +123,11 @@ export const PLACE_CURSOR_IN_PADDING = stateAction<{
 
 // ─── Word / line selection (double / triple click) ───────────────────────────
 
-/** Select the whole word at a resolved position (double-click). Pure, no ops. */
+/**
+ * Select the whole word at a resolved position (double-click). Pure, no ops.
+ *
+ * @group Built-in actions
+ */
 export const SELECT_WORD_AT_POINT = stateAction<{
   position: Position;
   /**
@@ -139,7 +145,11 @@ export const SELECT_WORD_AT_POINT = stateAction<{
   ops: [],
 }));
 
-/** Select the whole line at a resolved position (triple-click). Pure, no ops. */
+/**
+ * Select the whole line at a resolved position (triple-click). Pure, no ops.
+ *
+ * @group Built-in actions
+ */
 export const SELECT_LINE_AT_POINT = stateAction<{ position: Position }>(
   "select-line-at-point",
   (state, { position }) => ({

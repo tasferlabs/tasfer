@@ -146,6 +146,8 @@ export interface NotNode {
  * The size of a run of text, in em at font size 1, as returned by
  * {@link TextFallback}'s `measure`: its `width`, its `ascent` above the
  * baseline and its `depth` below it.
+ *
+ * @group Rendering
  */
 export interface TextFallbackChar {
   readonly width: number;

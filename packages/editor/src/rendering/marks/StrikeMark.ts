@@ -17,6 +17,8 @@ const STRIKE_CODEC: MarkCodec = {
 /**
  * The built-in `strike` mark: struck-through text, written as `~~text~~` in
  * Markdown.
+ *
+ * @group Marks
  */
 export class StrikeMark extends Mark {
   readonly type = "strike";

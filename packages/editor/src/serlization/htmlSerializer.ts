@@ -51,6 +51,8 @@ const STYLES = `
  * Options for {@link serializeToHTML}: the page title, replacement URLs for
  * images, extra CSS, the schema in use, and how formulas and similar content
  * are rendered.
+ *
+ * @group Serialization
  */
 export interface HtmlSerializeOptions {
   title?: string;
@@ -221,6 +223,8 @@ export function serializeToHTMLFragment(
  *   schema: appSchema.data,
  * });
  * ```
+ *
+ * @group Serialization
  */
 export function serializeToHTML(
   blocks: Block[],

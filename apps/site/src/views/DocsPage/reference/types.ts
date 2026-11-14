@@ -55,6 +55,8 @@ export interface ApiSymbol extends ApiDocFields {
   /** Set only when two entries of one package use the same name. */
   anchor?: string;
   kind: ApiKind;
+  /** The topic it is filed under (`@group`), in a package that has topics. */
+  group?: string;
   /** One per declaration: several for overloads. */
   sigs: string[];
   members?: ApiMember[];
@@ -71,6 +73,8 @@ export interface ApiEntry {
 
 export interface ApiPackage {
   name: string;
+  /** The package's topics in page order; absent when it is listed by kind. */
+  groups?: string[];
   entries: ApiEntry[];
 }
 

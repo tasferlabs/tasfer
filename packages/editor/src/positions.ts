@@ -45,6 +45,8 @@ import { getStructuredMarks } from "./sync/structured-content";
  * The block is found by its id, so a saved point still finds its block after
  * other edits, unless that block was deleted. The offset is a plain count, so
  * edits earlier in the same block can shift what it points at.
+ *
+ * @group Document
  */
 export type DocPoint =
   | "caret"
@@ -65,6 +67,8 @@ export type DocPoint =
  * range to stay in one block. Given a range across blocks, they do nothing. The
  * one exception is `insertText`, which then types over the current selection
  * instead.
+ *
+ * @group Document
  */
 export type DocRange =
   "selection" | DocPoint | { from: DocPoint; to: DocPoint };

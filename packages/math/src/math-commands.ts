@@ -16,6 +16,8 @@ import { isValidLatex, operatorCommands, symbolCommands } from "@tasfer/tex";
 /**
  * One entry in the `\` command list: a piece of LaTeX the user can insert into
  * a formula, with a label and search words for an autocomplete menu.
+ *
+ * @group Actions and commands
  */
 export interface MathCommand {
   /** Stable id (also the canonical command keyword, e.g. `int`). */
@@ -62,6 +64,8 @@ function endsInControlWord(latex: string): boolean {
  * unknown command, `\pia`. Otherwise the text is `latex` as is. The caret goes
  * in the first empty `{}`. When there is none, it goes at the end, after the
  * added space if there is one.
+ *
+ * @group Actions and commands
  */
 // The caret goes after the separator space because the spot between a command
 // and its separator has no caret stop (the space is absorbed into the command's
@@ -688,6 +692,8 @@ const GENERATED: readonly MathCommand[] = [
  * hand-picked templates come first (fractions, roots, Greek letters…), then
  * every other symbol and named operator the renderer supports. Search it with
  * {@link filterMathCommands}.
+ *
+ * @group Actions and commands
  */
 export const MATH_COMMANDS: readonly MathCommand[] = [
   ...COMMANDS,
@@ -781,6 +787,8 @@ export function isMathEnvironmentCommandPrefix(prefix: string): boolean {
  * word in the name that starts with the query, a keyword that starts with it,
  * then the query found anywhere. So `int` puts `\int` first. On a tie,
  * hand-picked commands come first.
+ *
+ * @group Actions and commands
  */
 export function filterMathCommands(query: string): MathCommand[] {
   const q = query.toLowerCase();

@@ -23,6 +23,8 @@ const EMPHASIS_CODEC: MarkCodec = {
 
 /**
  * The built-in `emphasis` mark: italic text, written as `*text*` in Markdown.
+ *
+ * @group Marks
  */
 export class EmphasisMark extends Mark {
   readonly type = "emphasis";

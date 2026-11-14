@@ -30,7 +30,11 @@ import {
 } from "./mark-spans";
 import type { IdentityAllocator } from "@shared/identity";
 
-/** A JSON-safe value accepted in a structured node's attribute bag. */
+/**
+ * A JSON-safe value accepted in a structured node's attribute bag.
+ *
+ * @group Structured content
+ */
 export type StructuredValue =
   | null
   | boolean
@@ -47,6 +51,8 @@ export type StructuredValue =
  * child in it. Siblings sort by `orderKey`, then by `id`, so two inserts with
  * the same key land in the same order for everyone. The root uses `parentId:
  * null` with an empty `slot` and `orderKey`.
+ *
+ * @group Structured content
  */
 export interface StructuredPlacement {
   readonly parentId: string | null;
@@ -54,7 +60,11 @@ export interface StructuredPlacement {
   readonly orderKey: string;
 }
 
-/** One normalized identity-bearing node in a structured document. */
+/**
+ * One normalized identity-bearing node in a structured document.
+ *
+ * @group Structured content
+ */
 export interface StructuredNode {
   readonly id: string;
   readonly type: string;
@@ -84,7 +94,11 @@ export interface StructuredNode {
   readonly deleted?: boolean;
 }
 
-/** The insertion payload for one node. Children are inserted separately. */
+/**
+ * The insertion payload for one node. Children are inserted separately.
+ *
+ * @group Structured content
+ */
 export interface StructuredNodeSeed {
   readonly id: string;
   readonly type: string;
@@ -98,6 +112,8 @@ export interface StructuredNodeSeed {
  * A tree of nodes that a block keeps beside its text, such as a formula or a
  * table. `rootId` never changes. It is also the attachment's content id: its
  * key in the block's `structuredContent`.
+ *
+ * @group Structured content
  */
 export interface StructuredDocument {
   readonly version: 1;
@@ -115,13 +131,19 @@ export interface StructuredDocument {
   readonly nodes: Readonly<Record<string, StructuredNode>>;
 }
 
-/** Optional attachments a block can carry; keyed by stable content id. */
+/**
+ * Optional attachments a block can carry; keyed by stable content id.
+ *
+ * @group Structured content
+ */
 export type StructuredContentMap = Readonly<Record<string, StructuredDocument>>;
 
 /**
  * The content id of one attachment on a block. The same `blockId` and `slot`
  * always give the same id, so every peer finds the attachment under the same
  * key. Throws when `blockId` or `slot` is empty.
+ *
+ * @group Structured content
  */
 // Attachment addressing is not identity allocation. Every structured feature
 // uses this core convention instead of publishing a featureContentIdForBlock
@@ -133,7 +155,11 @@ export function structuredContentId(blockId: string, slot: string): string {
   return `${blockId}/${encodeURIComponent(slot)}`;
 }
 
-/** Whether a block carries any structured attachment, authoritative or supplemental. */
+/**
+ * Whether a block carries any structured attachment, authoritative or supplemental.
+ *
+ * @group Structured content
+ */
 export function hasStructuredContent(block: {
   readonly structuredContent?: StructuredContentMap;
 }): boolean {
@@ -225,7 +251,11 @@ export function adoptAttachmentsFromPage(
   return adopted;
 }
 
-/** One schema-independent mutation inside a structured document. */
+/**
+ * One schema-independent mutation inside a structured document.
+ *
+ * @group Structured content
+ */
 export type StructuredEdit =
   | {
       readonly kind: "node_insert";
@@ -281,6 +311,8 @@ export type StructuredEdit =
  * What one `content_edit` operation carries: create an attachment
  * (`document_init`), remove it (`document_delete`), or make one
  * {@link StructuredEdit} inside it.
+ *
+ * @group Structured content
  */
 export type StructuredMutation =
   | {
@@ -306,6 +338,8 @@ export type StructuredMutation =
  *   node: { id: rootId, type: "row", placement: { parentId: null, slot: "", orderKey: "" } },
  * });
  * ```
+ *
+ * @group Structured content
  */
 export function createStructuredDocument(
   kind: string,
@@ -317,6 +351,8 @@ export function createStructuredDocument(
 /**
  * One node by id, or `undefined` when it is not there. Deleted nodes are
  * returned too, with `deleted: true`.
+ *
+ * @group Structured content
  */
 export function getStructuredNode(
   document: StructuredDocument,
@@ -332,6 +368,8 @@ export function getStructuredNode(
  * To get mark runs at visible offsets, as block text has them, pass the field's
  * characters (from `iterateAllChars`) and these marks to
  * `resolveMarkRunsFromChars`.
+ *
+ * @group Structured content
  */
 export function getStructuredMarks(
   document: StructuredDocument,
@@ -344,6 +382,8 @@ export function getStructuredMarks(
 /**
  * The visible text of one text field, without deleted characters. An empty
  * string when the node or field is missing.
+ *
+ * @group Structured content
  */
 export function getStructuredText(
   document: StructuredDocument,
@@ -369,6 +409,8 @@ function childGroupKey(parentId: string, slot: string): string {
  *
  * An index only fits the exact document it was built from. Build a new one
  * after an edit.
+ *
+ * @group Structured content
  */
 // Deliberately NOT a cache hidden inside this module, so two editors on one
 // page can never share or invalidate each other's. Walking a tree without it is
@@ -377,7 +419,11 @@ export interface StructuredChildIndex {
   readonly groups: ReadonlyMap<string, readonly StructuredNode[]>;
 }
 
-/** Index one document's children by parent and slot, in document order. */
+/**
+ * Index one document's children by parent and slot, in document order.
+ *
+ * @group Structured content
+ */
 export function buildStructuredChildIndex(
   document: StructuredDocument,
 ): StructuredChildIndex {
@@ -406,6 +452,8 @@ export function buildStructuredChildIndex(
  * To walk a whole tree, build one index with {@link buildStructuredChildIndex}
  * and pass it as `index`. Without it, every call scans all nodes. Both ways
  * give the same nodes in the same order.
+ *
+ * @group Structured content
  */
 export function getStructuredChildren(
   document: StructuredDocument,
@@ -440,6 +488,8 @@ export function getStructuredChildren(
  * Apply one edit and return the new document. An edit that is broken or does
  * not fit, such as one for a missing node, changes nothing: you get the same
  * document object back.
+ *
+ * @group Structured content
  */
 export function applyStructuredEdit(
   document: StructuredDocument,
@@ -469,6 +519,8 @@ export function applyStructuredEdit(
  * Apply several edits, one after another in the order given, and return the new
  * document. It does not sort them. Pass them in the order the operation history
  * has them, so every peer ends up with the same document.
+ *
+ * @group Structured content
  */
 export function applyStructuredEdits(
   document: StructuredDocument,
@@ -510,6 +562,8 @@ export function applyStructuredMutation(
  * The edits that undo `edit`, worked out from the document before `edit` ran.
  * Returns an empty array when `edit` changes nothing, and for inserting the
  * root node, which is never undone.
+ *
+ * @group Structured content
  */
 // Text deletion may restore several runs but still needs only one insert: all
 // characters remain as tombstones, so the insertion path clears their deletion
@@ -683,6 +737,8 @@ export function invertStructuredEdit(
  * Return a copy with its nodes, attributes and text fields sorted by key, so
  * the JSON comes out in a stable order. Deleted nodes and deleted characters
  * are kept.
+ *
+ * @group Structured content
  */
 export function canonicalizeStructuredDocument(
   document: StructuredDocument,
@@ -853,6 +909,8 @@ export function cloneStructuredDocumentWithFreshIdentities(
  * Check a structured document from outside, such as a file or another peer.
  * Returns a clean copy when it is valid, or `undefined` when it is not. It
  * never throws.
+ *
+ * @group Structured content
  */
 export function validateStructuredDocument(
   value: StructuredDocument,

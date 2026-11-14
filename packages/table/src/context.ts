@@ -49,7 +49,11 @@ import {
 /** A claimed handler result: state changed (or deliberately did not), plus ops. */
 export type Claimed = StateResult & { readonly handled: true };
 
-/** The table the nested caret currently addresses, and where in it. */
+/**
+ * The table the nested caret currently addresses, and where in it.
+ *
+ * @group Actions and controls
+ */
 export interface TableContext {
   readonly block: Block;
   readonly blockIndex: number;
@@ -107,6 +111,8 @@ export function tableTargetForBlock(
 /**
  * The table the caret is in, and where the caret sits in it. Returns
  * `undefined` when the caret is not in a table.
+ *
+ * @group Actions and controls
  */
 // An anchor that is not a text point (a gap between nodes, which a table never
 // produces) collapses onto the focus rather than failing the whole lookup.

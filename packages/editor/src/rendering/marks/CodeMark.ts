@@ -19,6 +19,8 @@ const CODE_CODEC: MarkCodec = {
 /**
  * The built-in `code` mark: inline code, drawn as a colored chip and written as
  * `` `text` `` in Markdown.
+ *
+ * @group Marks
  */
 export class CodeMark extends Mark {
   readonly type = "code";

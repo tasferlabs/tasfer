@@ -175,6 +175,8 @@ export const CLOSE_NODE_OVERLAY = stateAction(
 /**
  * Triple-tap: selects the whole line at the tap, even inside an existing
  * selection. The handler resolves `position`. Does not change the document.
+ *
+ * @group Built-in actions
  */
 // Named TAP_* (vs the mouse SELECT_LINE_AT_POINT) for the touch convention.
 export const TAP_SELECT_LINE = stateAction<PositionPayload>(
@@ -190,6 +192,8 @@ export const TAP_SELECT_LINE = stateAction<PositionPayload>(
  * handler resolves `position`. It can also pass a ready-made `range` when the
  * node under the finger picks the word itself, such as a formula. Does not
  * change the document.
+ *
+ * @group Built-in actions
  */
 // Named TAP_* (vs the mouse SELECT_WORD_AT_POINT) for the touch convention.
 export const TAP_SELECT_WORD = stateAction<

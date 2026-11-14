@@ -80,6 +80,8 @@ export {
  *
  * Opt-in nodes such as math, code blocks and tables are not in this list. Add
  * them through their extensions.
+ *
+ * @group Nodes
  */
 // Built-in nodes are stateless (layout/paint logic only), so building them
 // inside this function keeps the module import free of side effects and
@@ -97,6 +99,8 @@ export function defaultNodes(): Node[] {
 /**
  * Builds a node registry from the nodes you list. Only those block types get a
  * node. If two nodes claim the same block type, the later one wins.
+ *
+ * @group Nodes
  */
 export function createNodeRegistry(nodes: readonly Node[]): NodeRegistry {
   const registry = new NodeRegistry();

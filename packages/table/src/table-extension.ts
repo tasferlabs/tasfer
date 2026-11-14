@@ -29,6 +29,8 @@ import type { StructuredKindSpec } from "@tasfer/editor/sync/schema";
 /**
  * What {@link tableExtension} returns: everything the editor needs for
  * tables, ready to pass to `schema.use(...)`.
+ *
+ * @group Setup
  */
 export type TableFeatureExtension = {
   readonly name: "table";
@@ -40,6 +42,8 @@ export type TableFeatureExtension = {
 /**
  * What a host can turn on when it installs the table feature. The options are
  * listed on {@link TableInputOptions}.
+ *
+ * @group Setup
  */
 export type TableFeatureOptions = TableInputOptions;
 
@@ -62,6 +66,8 @@ export type TableFeatureOptions = TableInputOptions;
  * // Let **bold**, *italic* and the other shortcuts format text inside cells
  * const withShortcuts = baseSchema.use(tableExtension({ markdownShortcuts: true }));
  * ```
+ *
+ * @group Setup
  */
 export function tableExtension(
   options: TableFeatureOptions = {},

@@ -64,6 +64,8 @@ import { invariant } from "@shared/invariant";
  * A custom block type, as returned by {@link defineNode}. Pass it in `nodes` to
  * `Schema.extend()`. It holds the type's data rules and save format, plus
  * `node`, the {@link Node} that draws it.
+ *
+ * @group Schema
  */
 export interface BlockSpec<
   T extends string = string,
@@ -77,6 +79,8 @@ export interface BlockSpec<
  * `Schema.extend()`. It is a {@link MarkSpec} plus `render`, the {@link Mark}
  * that draws it. Without `render`, the mark is still kept and synced, but looks
  * like plain text.
+ *
+ * @group Schema
  */
 export interface MarkDef<
   T extends string = string,
@@ -89,6 +93,8 @@ export interface MarkDef<
  * What you pass to `Schema.extend()`, for example
  * `baseSchema.extend({ nodes, marks })`: the custom block types and marks to
  * add to a schema.
+ *
+ * @group Schema
  */
 export interface SchemaExtension {
   /**
@@ -134,6 +140,8 @@ export interface SchemaExtension {
  *
  * const schema = baseSchema.use(callouts);
  * ```
+ *
+ * @group Features
  */
 // This distinct shape is the stable composition boundary for extension
 // packages; new feature capabilities can be added here without changing how
@@ -153,6 +161,8 @@ export interface FeatureExtension extends SchemaExtension, FeatureFacets {
  * ```ts
  * const titleSchema = baseSchema.restrict({ blocks: ["heading1"], marks: [] });
  * ```
+ *
+ * @group Schema
  */
 export interface SchemaRestriction<
   D extends SchemaDefinition = BaseSchemaDefinition,
@@ -252,6 +262,8 @@ type ExtensionDefinition<E extends SchemaExtension> = {
  * const schema = baseSchema.extend({ nodes: [callout] });
  * const editor = createEditor({ element, schema });
  * ```
+ *
+ * @group Schema
  */
 export class Schema<D extends SchemaDefinition = BaseSchemaDefinition> {
   readonly data: DataSchema<D>;
@@ -375,7 +387,11 @@ export class Schema<D extends SchemaDefinition = BaseSchemaDefinition> {
   }
 }
 
-/** Extract the compile-time document definition carried by a {@link Schema}. */
+/**
+ * Extract the compile-time document definition carried by a {@link Schema}.
+ *
+ * @group Schema
+ */
 export type SchemaDefinitionOf<S> = S extends Schema<infer D> ? D : never;
 
 /**
@@ -434,6 +450,8 @@ function toBlockSpec(entry: BlockSpec | Node): BlockSpec {
  * The `code` block is the one type that is not drawn here. It still loads,
  * saves, syncs and exports, but it shows as a placeholder until you add
  * `codeExtension()` from `@tasfer/code`.
+ *
+ * @group Schema
  */
 // The node/mark instances come straight from defaultNodes() / defaultMarks()
 // (the single source of truth for the core set), so this never drifts from
@@ -450,6 +468,8 @@ export const baseSchema: Schema<BaseSchemaDefinition> = new Schema(
  * Options for {@link defineMark}: how the custom mark looks on the canvas, how
  * it is written to and read from Markdown and HTML, and the data it carries.
  * Every field is optional.
+ *
+ * @group Schema
  */
 export interface DefineMarkConfig<
   A extends Record<string, unknown> = Record<string, never>,
@@ -508,6 +528,8 @@ export interface DefineMarkConfig<
  * });
  * const editor = createEditor({ element, schema }); // draws it, no `marks` option needed
  * ```
+ *
+ * @group Schema
  */
 export function defineMark<
   const T extends string,
@@ -524,7 +546,11 @@ export function defineMark<
 
 // ─── defineNode ──────────────────────────────────────────────────────────────
 
-/** One declared attribute of a custom node. */
+/**
+ * One declared attribute of a custom node.
+ *
+ * @group Schema
+ */
 export interface AttrSpec<T = unknown> {
   /** Default value, applied when the block is created. */
   default?: T;
@@ -540,6 +566,8 @@ export interface AttrSpec<T = unknown> {
  * drawn (a styled box or your own node), and how it is written as Markdown,
  * HTML and plain text. A node class can supply the same fields as its
  * `static nodeConfig`.
+ *
+ * @group Schema
  */
 export interface DefineNodeConfig<
   A extends Record<string, AttrSpec> = Record<string, AttrSpec>,
@@ -646,6 +674,8 @@ function coerceAttr(raw: string, def: unknown): unknown {
  * }
  * const schema = baseSchema.extend({ nodes: [new Callout()] });
  * ```
+ *
+ * @group Schema
  */
 export function defineNode<
   const T extends string,

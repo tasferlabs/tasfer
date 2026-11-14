@@ -221,6 +221,8 @@ function cellSliceParagraph(
  * The pasted cells are left selected. Text with no tab or line break goes in
  * at the caret like typing. Formatting survives only text copied in Tasfer.
  * Text from elsewhere is pasted as typed, so `*.ts` never turns italic.
+ *
+ * @group Setup
  */
 export const tableContentSelectionKind = {
   kind: TABLE_STRUCTURED_KIND,

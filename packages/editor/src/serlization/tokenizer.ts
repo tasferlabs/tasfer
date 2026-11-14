@@ -105,6 +105,8 @@ export type Token = NewLineToken | VisibleToken;
  * into blocks. Pass the schema so Markdown syntax added by custom nodes, marks
  * and features is recognized; without one, only the built-in syntax and the
  * older `$…$` / `$$…$$` math syntax are.
+ *
+ * @group Serialization
  */
 export default function tokenizePage(content: string, schema?: DataSchema) {
   const state = {

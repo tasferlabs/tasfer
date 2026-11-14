@@ -171,6 +171,8 @@ const EDGE_ADD_TARGET = ":edge-add:";
  * document attached to it, which {@link getTableDocument} returns. Because
  * every cell is its own text, two people editing the same table merge cell by
  * cell and letter by letter, not as one big value.
+ *
+ * @group Setup
  */
 export interface TableBlock extends BlockRuntimeState {
   readonly type: "table";
@@ -356,6 +358,8 @@ function tableStyle(styles: EditorStyles): TableBlockStyle {
  * Column widths are saved as a share of the table, so a table keeps its
  * proportions on a phone and on a desktop. A width drag is one undo step.
  * Widths are not written to Markdown.
+ *
+ * @group Setup
  */
 export class TableNode extends Node<TableBlock> {
   readonly type = "table" as const;

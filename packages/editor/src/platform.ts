@@ -7,6 +7,8 @@ import { isTouchOnlyDevice } from "./node-shared";
  *
  * It reads `navigator` on every call. It returns `false` when there is no
  * `navigator`.
+ *
+ * @group Utilities
  */
 // Not cached at module load: no shared mutable state, and a test can stub the
 // global before exercising a keymap branch.

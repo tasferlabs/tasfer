@@ -54,6 +54,8 @@ export type VisualBlock = Image | Line;
  * }
  * const schema = baseSchema.extend({ nodes: [new CalloutNode()] });
  * ```
+ *
+ * @group Nodes
  */
 export abstract class AtomicNode<
   B extends NodeBlock = NodeBlock,

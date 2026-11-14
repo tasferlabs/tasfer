@@ -38,7 +38,11 @@ import { isTextualBlock } from "../sync/block-registry";
 import { findWordEnd, findWordStart, isWordChar } from "../word-chars";
 import { selectAll } from "./actions";
 
-/** A half-open `[from, to)` span of offsets in one piece of text. */
+/**
+ * A half-open `[from, to)` span of offsets in one piece of text.
+ *
+ * @group Selection
+ */
 export interface SelectionRungRange {
   readonly from: number;
   readonly to: number;
@@ -49,6 +53,8 @@ export interface SelectionRungRange {
  * `candidates` that contains `current` and is larger than it. Returns `null`
  * when none is wider. List every range your node could select around the caret
  * (word, brackets, line, …), in any order.
+ *
+ * @group Selection
  */
 export function nextEnclosingRange(
   candidates: readonly SelectionRungRange[],
@@ -68,6 +74,8 @@ export function nextEnclosingRange(
  * `blockIndex`, with the caret at `to`. Returns the new state. Use it from a
  * node whose content is plain text, like a code block, to apply an Expand
  * Selection step.
+ *
+ * @group Selection
  */
 export function selectFlatRange(
   state: EditorState,
@@ -225,6 +233,8 @@ function flatRange(
  *   return { state: selected, ops: [], handled: true };
  * });
  * ```
+ *
+ * @group Built-in actions
  */
 export const EXPAND_SELECTION_STEP = stateAction(
   "expand-selection-step",
@@ -291,6 +301,8 @@ function withHistory(
  *
  * The shortcut follows the physical arrow, not the text direction: → always
  * grows and ← always shrinks, in right-to-left text too.
+ *
+ * @group Built-in actions
  */
 export const EXPAND_SELECTION = stateAction("expand-selection", (state) => {
   const history = liveHistory(state);
@@ -314,6 +326,8 @@ export const EXPAND_SELECTION = stateAction("expand-selection", (state) => {
  * Step back to the selection the last {@link EXPAND_SELECTION} grew from. A
  * no-op once the ladder is back at its start, or when anything else has moved
  * the selection or changed the page since. Pure selection change, no ops.
+ *
+ * @group Built-in actions
  */
 export const SHRINK_SELECTION = stateAction("shrink-selection", (state) => {
   const history = liveHistory(state);

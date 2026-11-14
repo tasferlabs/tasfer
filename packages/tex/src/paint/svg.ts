@@ -13,6 +13,8 @@ import type { MathLayout } from "../index";
 
 /**
  * Options for {@link toSVG}. Without a `color` the formula is drawn in black.
+ *
+ * @group Rendering
  */
 export interface ToSvgOptions {
   color?: string;
@@ -22,6 +24,8 @@ export interface ToSvgOptions {
  * Draw `layout` as an `<svg>` string to put in HTML. Its `vertical-align` style
  * lines the formula's baseline up with the text around it. Glyphs use the math
  * fonts, so load them first with {@link loadFonts}.
+ *
+ * @group Rendering
  */
 export function toSVG(layout: MathLayout, opts: ToSvgOptions = {}): string {
   const color = opts.color ?? "#000";

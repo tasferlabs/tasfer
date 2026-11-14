@@ -15,6 +15,8 @@ import type { MathLayout } from "../index";
 /**
  * One place the caret can sit in a laid-out formula: its offset in the LaTeX
  * source and where that is on screen. {@link caretStops} lists them all.
+ *
+ * @group Caret and selection
  */
 export interface CaretStop {
   /** Offset into the source LaTeX string. */
@@ -75,6 +77,8 @@ export interface CaretStop {
 /**
  * Options for {@link hitTest}, which turns a click or touch point into a caret
  * position in the formula.
+ *
+ * @group Caret and selection
  */
 export interface HitTestOptions {
   /** Minimum width and height, in CSS pixels, of an empty-slot hit target. */
@@ -103,6 +107,8 @@ export interface HitTestOptions {
  * Where to draw the caret in a laid-out formula, in pixels. `x` is measured
  * from the formula's left edge; `top` and `bottom` from its baseline, so
  * negative values are above it. Returned by {@link caretRect}.
+ *
+ * @group Caret and selection
  */
 export interface CaretRect {
   readonly x: number;
@@ -114,6 +120,8 @@ export interface CaretRect {
  * One highlight rectangle for a selection in a laid-out formula, in pixels.
  * `x` is measured from the formula's left edge; `y` from its baseline, so
  * negative values are above it. Returned by {@link selectionRects}.
+ *
+ * @group Caret and selection
  */
 export interface SelectionRect {
   readonly x: number;
@@ -126,6 +134,8 @@ export interface SelectionRect {
  * Every caret stop for a layout, sorted by source offset then x. Glyphs with no
  * source span (e.g. delimiter pieces) are skipped — the caret only stops at real
  * source positions.
+ *
+ * @group Caret and selection
  */
 export function caretStops(layout: MathLayout): CaretStop[] {
   const stops: CaretStop[] = [];
@@ -418,6 +428,8 @@ function dragHitTest(
  * construct, like `\sqrt{x}`, lands after it, not inside it.
  *
  * For a finger drag, pass `drag: true` (see {@link HitTestOptions}).
+ *
+ * @group Caret and selection
  */
 export function hitTest(
   layout: MathLayout,
@@ -669,6 +681,8 @@ const MIN_CARET_HEIGHT_EM = 0.5;
  * Leave `edge` out for a plain caret. Just after a construct like `x^{2}`, the
  * caret then sits on the main line, not up on the script. Just before a
  * construct, it keeps the height of what comes before it.
+ *
+ * @group Caret and selection
  */
 // A leading boundary must not win the bare-caret tie: between `\det` and a
 // following matrix the caret stays `\det`-tall. Short carets are lifted to
@@ -759,6 +773,8 @@ function nearestStopByOffset(stops: CaretStop[], offset: number): CaretStop {
  * When a script has both parts, down from the superscript goes straight to the
  * subscript, and up from the subscript goes to the superscript. The base
  * between them is skipped.
+ *
+ * @group Caret and selection
  */
 // Score = |dx| * VERTICAL_X_WEIGHT + dy, so a baseline sibling beside a
 // fraction loses on x even when it is closer. On a tie in the script jump, the
@@ -825,7 +841,11 @@ export function caretVertical(
 /** How much more horizontal distance counts than vertical in {@link caretVertical}. */
 const VERTICAL_X_WEIGHT = 3;
 
-/** Options for {@link spanAtPoint}. */
+/**
+ * Options for {@link spanAtPoint}.
+ *
+ * @group Caret and selection
+ */
 export interface SpanAtPointOptions {
   /**
    * Minimum width/height, in CSS pixels, of an atom's tap target. A `+`/`=` glyph
@@ -941,6 +961,8 @@ function collectAtomHits(
  * {@link unitAt} does a similar job from a caret offset. Use this one for a
  * pointer, so an operator between two constructs, like the `+` in `x^2+y^2`,
  * can still be selected.
+ *
+ * @group Caret and selection
  */
 export function spanAtPoint(
   layout: MathLayout,
@@ -988,6 +1010,8 @@ export function spanAtPoint(
  * ends may come in either order. You get one rectangle per visual row, so a
  * formula that wraps gets one per line, not one tall block across the gaps.
  * Returns an empty list when nothing in the range is drawn.
+ *
+ * @group Caret and selection
  */
 export function selectionRects(
   layout: MathLayout,

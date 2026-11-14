@@ -504,6 +504,8 @@ export function vvEquals(a: VersionVector, b: VersionVector): boolean {
 /**
  * Turns a {@link VersionVector} map into a plain object, so you can save it or
  * send it as JSON.
+ *
+ * @group Document
  */
 export function serializeVV(vv: VersionVector): Record<string, number> {
   const result: Record<string, number> = {};
@@ -516,6 +518,8 @@ export function serializeVV(vv: VersionVector): Record<string, number> {
 /**
  * Turns a plain object made by {@link serializeVV} back into a
  * {@link VersionVector} map.
+ *
+ * @group Document
  */
 export function deserializeVV(obj: Record<string, number>): VersionVector {
   return new Map(Object.entries(obj));

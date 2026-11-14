@@ -68,12 +68,18 @@ export interface MathDocumentSourceProjection {
 /**
  * Turns a formula into LaTeX source. The same formula always prints the same
  * text.
+ *
+ * @group Document
  */
 export function printMathDocument(document: MathDocument): string {
   return projectMathDocumentSource(document).latex;
 }
 
-/** Serialize one editable row. Primarily useful to extension authors. */
+/**
+ * Serialize one editable row. Primarily useful to extension authors.
+ *
+ * @group Document
+ */
 export function printMathRow(row: MathRow): string {
   const printer = new MathDocumentPrinter();
   printer.writeRow(row);

@@ -21,10 +21,12 @@
  *   node scripts/generate-api.mjs --check          fail when stale (npm run api:check)
  *   node scripts/generate-api.mjs --init-baseline  restart the baseline (see below)
  *
- * Two rules are enforced on every run, and both only bite on new code:
+ * Three rules are enforced on every run. The first two only bite on new code:
  *
  *   1. An export must have a doc comment.
  *   2. An export added after the baseline must say when it arrived: `@since 0.3.0`.
+ *   3. In a package that files its exports under topics (TOPICS below), an
+ *      export of the package's main entry must name its topic: `@group Actions`.
  *
  * scripts/api-baseline.json is what "new" is measured against. It lists the
  * exports that existed when the rules were introduced (they need no `@since`)
@@ -71,6 +73,53 @@ const FRONT = ["editor", "react", "math", "code", "table"];
 
 /** Order of the kind groups on the page. */
 const KIND_ORDER = ["function", "class", "interface", "type", "const", "enum", "namespace"];
+
+/**
+ * The topics a package's exports are filed under, in the order the page lists
+ * them. An export picks its topic with `@group <topic>` in its doc comment. A
+ * package that is not listed here is small enough to be listed by kind.
+ *
+ * A declaration has one doc comment, so one that several packages export
+ * (`shared/identity.ts`, the formula model `@tasfer/math` passes on from
+ * `@tasfer/tex`) needs a topic every one of them lists.
+ */
+const TOPICS = {
+  editor: [
+    "Editor",
+    "Document",
+    "Schema",
+    "Features",
+    "Actions",
+    "Built-in actions",
+    "Nodes",
+    "Marks",
+    "Text",
+    "Selection",
+    "Structured content",
+    "Decorations",
+    "Serialization",
+    "Theme",
+    "Utilities",
+  ],
+  math: [
+    "Setup",
+    "Actions and commands",
+    "Document",
+    "Structured content",
+    "Caret and selection",
+    "Matrices",
+  ],
+  table: ["Setup", "Actions and controls", "Table data", "Layout", "Caret and selection"],
+  tex: [
+    "Rendering",
+    "Document",
+    "Document layout",
+    "Caret and selection",
+    "Source editing",
+    "Matrices",
+    "Vocabulary",
+  ],
+};
 
 /** An inferred type longer than this is cut: it is a data table, not a signature. */
 const MAX_INFERRED = 400;
@@ -614,6 +663,11 @@ function describeExport(ctx, exported) {
   }
 
   const src = sourcePath(nodes[0].getSourceFile().fileName);
+  // The topic is the export's, whichever of its declarations names it.
+  const group = jsDocs
+    .flatMap((d) => d.tags)
+    .find((tag) => tag.name === "group")
+    ?.text.trim();
 
   return {
     id: symbol.id,
@@ -621,6 +675,7 @@ function describeExport(ctx, exported) {
       name,
       kind,
       sigs,
+      ...(group ? { group } : {}),
       ...docFields(docs, name, ctx.problems),
       ...(members.length ? { members } : {}),
       ...(src ? { src } : {}),
@@ -694,6 +749,29 @@ function describePackage(api, slug, problems) {
     entries.push({ id: entry.id, names });
   }
 
+  // Topics sort the main entry only: a secondary entry is a group of its own,
+  // and a package without topics is listed by kind.
+  const topics = TOPICS[slug];
+  const used = new Set();
+  entries.forEach((entry, i) => {
+    for (const name of entry.names) {
+      const { row } = rows.get(name);
+      if (!topics || i > 0) {
+        delete row.group;
+      } else if (!row.group) {
+        problems.push(
+          `${pkg.name}: "${name}" has no topic. Add \`@group <topic>\` to its doc comment: ${topics.join(", ")}.`,
+        );
+      } else if (!topics.includes(row.group)) {
+        problems.push(
+          `${pkg.name}: "${name}" is filed under "${row.group}", which is not a topic of this package: ${topics.join(", ")}.`,
+        );
+      } else {
+        used.add(row.group);
+      }
+    }
+  });
+
   const byKindThenName = (a, b) =>
     KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) ||
     a.name.localeCompare(b.name, "en", { sensitivity: "base" }) ||
@@ -709,6 +787,7 @@ function describePackage(api, slug, problems) {
         .filter(([declared]) => !rows.has(declared))
         .sort(([a], [b]) => (a < b ? -1 : 1)),
     ),
+    ...(topics ? { groups: topics.filter((topic) => used.has(topic)) } : {}),
     entries: entries.map((entry) => ({
       id: entry.id,
       symbols: entry.names.map((n) => rows.get(n).row).sort(byKindThenName),
@@ -805,7 +884,11 @@ function main() {
   for (const pkg of packages) {
     files.set(
       join(OUT, `${pkg.slug}.json`),
-      serialize({ name: pkg.name, entries: pkg.entries }),
+      serialize({
+        name: pkg.name,
+        ...(pkg.groups ? { groups: pkg.groups } : {}),
+        entries: pkg.entries,
+      }),
     );
   }
   files.set(BASELINE, serialize(baseline));

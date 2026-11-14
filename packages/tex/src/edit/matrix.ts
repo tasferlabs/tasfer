@@ -18,6 +18,8 @@ import { parse } from "../parse/parser";
  * The matrix or other `\begin…\end` grid around a source offset. `env` is the
  * environment name, such as `pmatrix`. `rows` and `cols` are the grid size.
  * `row` and `col` are the cell the offset is in, counting from 0.
+ *
+ * @group Matrices
  */
 export interface MatrixContext {
   readonly env: string;
@@ -31,7 +33,10 @@ export interface MatrixContext {
 
 /** One localized source edit: replace `[start, end)` with `text`. `start === end`
  *  is a pure insertion; `text === ""` is a pure deletion. Offsets index the
- *  ORIGINAL source. */
+ *  ORIGINAL source.
+ *
+ * @group Matrices
+ */
 export interface MatrixTextEdit {
   readonly start: number;
   readonly end: number;
@@ -50,6 +55,8 @@ export interface MatrixTextEdit {
  * Only the added or removed cells and rows change, plus the column spec such as
  * `{lcr}`. Every other cell keeps its exact text, so another person's edit to
  * that cell at the same time still merges cleanly.
+ *
+ * @group Matrices
  */
 // A whole-environment rewrite would delete and re-create the kept characters
 // and diverge under concurrent editing; that is why the edits are minimal.
@@ -135,6 +142,8 @@ function cellAt(
 /**
  * The environment enclosing `offset` and the caret's cell within it, or null when
  * `offset` is not inside any tabular construct.
+ *
+ * @group Matrices
  */
 export function matrixContextAt(
   latex: string,
@@ -154,6 +163,8 @@ export function matrixContextAt(
  * enters the grid.
  *
  * For a caret with no selection, use {@link matrixContextAt}.
+ *
+ * @group Matrices
  */
 export function matrixContextInRange(
   latex: string,
@@ -227,6 +238,8 @@ function colSpecBraces(
  * size never goes below 1 × 1. Cells that stay are not touched (see
  * {@link MatrixEditResult}). The caret goes to the remaining cell nearest the
  * one it was in.
+ *
+ * @group Matrices
  */
 export function matrixResize(
   latex: string,

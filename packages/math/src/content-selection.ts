@@ -166,6 +166,8 @@ export function mathContentEdgeRange({
  * How math handles selection and copy. {@link mathExtension} adds it for you.
  * Add it to `structuredKinds` only when you build an interactive schema by
  * hand.
+ *
+ * @group Setup
  */
 export const mathContentSelectionKind = {
   kind: MATH_STRUCTURED_KIND,

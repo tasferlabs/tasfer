@@ -18,10 +18,18 @@ import type { NodeOverlay } from "@tasfer/editor/state-types";
 import type { ContentTextPoint } from "@tasfer/editor/structured-selection";
 import type { NodeRegionCtx } from "@tasfer/editor/rendering/nodes/Node";
 
-/** Overlay key for the table's inline structural controls. */
+/**
+ * Overlay key for the table's inline structural controls.
+ *
+ * @group Actions and controls
+ */
 export const TABLE_TOOLS_OVERLAY = "table-tools";
 
-/** What the host component needs to render and act. */
+/**
+ * What the host component needs to render and act.
+ *
+ * @group Actions and controls
+ */
 export interface TableToolsOverlayData {
   /**
    * The grid at the caret: which row and column, how many there are, and the

@@ -14,7 +14,11 @@ import type { BlockBounds } from "../../state-types";
 import { AtomicNode } from "./AtomicNode";
 import type { NodeLayoutCtx, NodePaintCtx } from "./Node";
 
-/** Declarative paint style for a {@link BoxNode}. All fields optional. */
+/**
+ * Declarative paint style for a {@link BoxNode}. All fields optional.
+ *
+ * @group Nodes
+ */
 export interface BoxRenderStyle {
   /** Box height in px (intrinsic). Default 40. */
   height?: number;

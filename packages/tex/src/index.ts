@@ -36,6 +36,8 @@ import { DISPLAY, TEXT } from "./style";
 /**
  * Options for {@link layoutMath}: font size, display or inline style, line
  * wrapping, and a fallback font for text the math fonts cannot draw.
+ *
+ * @group Rendering
  */
 export interface LayoutOptions {
   /**
@@ -92,6 +94,8 @@ export interface LayoutOptions {
  * Options for {@link layoutMathDocument}. The same as {@link LayoutOptions},
  * without `literalRange` and `literalBackslashes`. Give the typing caret as
  * `literalCaret` instead. Backslashes are handled for you.
+ *
+ * @group Rendering
  */
 export type MathDocumentLayoutOptions = Omit<
   LayoutOptions,
@@ -113,6 +117,8 @@ export type MathDocumentLayoutOptions = Omit<
  * its size in em at font size 1. A host can read it off a canvas with
  * `measureText` and divide by the font size it used. `fontFamily` is the CSS
  * font the same text is painted with, so size and paint match.
+ *
+ * @group Rendering
  */
 export interface TextFallback {
   readonly fontFamily: string;
@@ -123,6 +129,8 @@ export interface TextFallback {
  * A formula that has been measured and is ready to draw. {@link layoutMath}
  * returns it; pass it to {@link paintMath} or {@link toSVG}, and read `width`,
  * `height` and `depth` to make room for it.
+ *
+ * @group Rendering
  */
 export interface MathLayout {
   /** The laid-out box tree (dimensions in em; multiply by `fontSize` for px). */
@@ -142,6 +150,8 @@ export interface MathLayout {
 /**
  * Whether `latex` has no unknown commands. Rendering never throws. It draws
  * unknown commands as placeholders. So use this to check if a formula is valid.
+ *
+ * @group Rendering
  */
 export function isValidLatex(latex: string): boolean {
   let ok = true;
@@ -188,6 +198,8 @@ export function isValidLatex(latex: string): boolean {
  * // x is the left edge, y is the baseline
  * paintMath(ctx, layout, 0, layout.height);
  * ```
+ *
+ * @group Rendering
  */
 export function layoutMath(
   latex: string,
@@ -241,6 +253,8 @@ export function layoutMath(
  * Lay out a {@link MathDocument}, ready to draw. The result's items and caret
  * stops point to the document's own item ids, not to LaTeX offsets. To change
  * the formula, edit `document` and lay it out again.
+ *
+ * @group Rendering
  */
 // The painter still runs on the source-span layout engine, so this prints a
 // temporary LaTeX projection, lays that out, and maps boxes and carets back to
@@ -291,6 +305,8 @@ function projectedPendingCommandRange(
  * operator or relation, like `+` or `=`. Returns an empty array when there is
  * no such place, such as a single symbol or one big fraction. To get a piece's
  * width, lay it out on its own with `layoutMath(piece).width`.
+ *
+ * @group Rendering
  */
 export function breakpoints(latex: string): number[] {
   const ast = parse(latex);

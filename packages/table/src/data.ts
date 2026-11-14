@@ -57,13 +57,19 @@ import type {
 // The adapter key a headless host needs to look the kind up on its own schema.
 export { TABLE_STRUCTURED_KIND } from "./structured";
 
-/** A table block carries no attributes of its own; everything is in the tree. */
+/**
+ * A table block carries no attributes of its own; everything is in the tree.
+ *
+ * @group Setup
+ */
 export type TableBlockAttrs = Record<never, never>;
 
 /**
  * What {@link tableDataExtension} returns: the table block and its content
  * kind, with no canvas code. Add it to a data schema in workers, the CLI and
  * Markdown tools.
+ *
+ * @group Setup
  */
 export type TableDataExtension = {
   readonly blocks: readonly [BlockSpecCore<"table", TableBlockAttrs>];
@@ -262,6 +268,8 @@ export const tableStructuredKind: StructuredKindSpec = {
  *
  * const schema = baseDataSchema.extend(tableDataExtension());
  * ```
+ *
+ * @group Setup
  */
 export function tableDataExtension(): TableDataExtension {
   return {

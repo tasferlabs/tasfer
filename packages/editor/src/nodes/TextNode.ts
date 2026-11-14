@@ -153,6 +153,8 @@ export const TEXT_BLOCK_TYPES = [
  * Line boxes are relative to the text area, as in {@link TextLayout}. To get a
  * real position, add the block's origin, the indent and marker space, and
  * `insetY` yourself.
+ *
+ * @group Nodes
  */
 export interface TextNodeLayout extends NodeLayout, TextLayout {
   readonly lines: readonly RenderedLine[];
@@ -177,6 +179,8 @@ export interface TextNodeLayout extends NodeLayout, TextLayout {
  *
  * The painter does not wrap text. If your node wraps text into lines, call
  * `paintTextRun` once per line.
+ *
+ * @group Text
  */
 export interface PaintTextRunArgs {
   readonly ctx: CanvasRenderingContext2D;
@@ -217,6 +221,8 @@ export interface PaintTextRunArgs {
  * Paints one line of text with its marks, exactly the way paragraphs do. Use it
  * when your node lays out text itself, like a table cell. It handles marks,
  * joined Arabic letters and inline formulas for you.
+ *
+ * @group Text
  */
 // Painting a cell any other way would mean a second implementation of mark
 // resolution, Arabic ligature batching and replacement runs, and the two would
@@ -305,6 +311,8 @@ export type TextualBlock = TextBlock | ListBlock | CodeBlock | QuoteBlock;
  * When no composition is active in this block, you get the block's own content
  * and `compositionRange` is null. A block that does not hold text, such as an
  * image, returns empty content.
+ *
+ * @group Text
  */
 export function getContentWithComposition(
   block: Block,
@@ -1146,6 +1154,8 @@ function headingLevel(ctx: InputCtx): number {
  *
  * A `paragraph` is plain text in Markdown. `heading1`, `heading2` and
  * `heading3` are written as `#`, `##` and `###`.
+ *
+ * @group Nodes
  */
 export class TextNode<
   B extends TextualBlockBase = TextualBlock,

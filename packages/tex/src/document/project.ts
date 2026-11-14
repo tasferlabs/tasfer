@@ -21,7 +21,11 @@ import {
   parseAllocatedIdentity,
 } from "@shared/identity";
 
-/** Options for importing a LaTeX string into a structured document. */
+/**
+ * Options for importing a LaTeX string into a structured document.
+ *
+ * @group Document
+ */
 export interface ParseMathDocumentOptions {
   /**
    * Gives each imported item its id. By default the ids come from a fixed
@@ -59,6 +63,8 @@ export interface ProjectMathAstOptions extends ParseMathDocumentOptions {
  * const doc = parseMathDocument("\\frac{a}{b}");
  * const latex = printMathDocument(doc);
  * ```
+ *
+ * @group Document
  */
 export function parseMathDocument(
   latex: string,

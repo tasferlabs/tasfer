@@ -49,10 +49,18 @@ export interface OrderedFeatureFacet {
   readonly priority?: number;
 }
 
-/** When an input rule runs: before the typed text is inserted, or after. */
+/**
+ * When an input rule runs: before the typed text is inserted, or after.
+ *
+ * @group Features
+ */
 export type FeatureInputPhase = "before-insert" | "after-insert";
 
-/** Context passed to a feature-owned live-input rule. */
+/**
+ * Context passed to a feature-owned live-input rule.
+ *
+ * @group Features
+ */
 export interface FeatureInputRuleCtx {
   /** The current editor state, including changes made by earlier rules. */
   readonly state: EditorState;
@@ -81,6 +89,8 @@ export interface FeatureInputOptions {
  * A rule that runs on text input in any block. `phase` says whether it runs
  * before or after the text is inserted. Rules with a higher `priority` run
  * first.
+ *
+ * @group Features
  */
 export interface FeatureInputRule extends OrderedFeatureFacet {
   readonly phase: FeatureInputPhase;
@@ -110,7 +120,11 @@ export interface FeatureInputRule extends OrderedFeatureFacet {
   ): (StateResult & { readonly handled?: boolean }) | undefined;
 }
 
-/** A feature-owned rewrite of clipboard text before Markdown parsing. */
+/**
+ * A feature-owned rewrite of clipboard text before Markdown parsing.
+ *
+ * @group Features
+ */
 export interface FeaturePasteRule extends OrderedFeatureFacet {
   /** Skip this rule when the schema forbids authoring the named mark. */
   readonly requiresMark?: string;
@@ -122,7 +136,11 @@ export interface FeaturePasteRule extends OrderedFeatureFacet {
   transform(text: string): string | undefined;
 }
 
-/** Token emitted by a spec-owned markdown recognizer. */
+/**
+ * Token emitted by a spec-owned markdown recognizer.
+ *
+ * @group Features
+ */
 export interface SyntaxToken {
   /**
    * The token's kind. It can be any string. A codec reads the kinds it knows.
@@ -137,6 +155,8 @@ export interface SyntaxToken {
 /**
  * Where a Markdown rule is asked to match: the whole `source`, the `offset` to
  * match at, and whether that offset starts a line (`startOfLine`).
+ *
+ * @group Features
  */
 export interface SyntaxCtx {
   readonly source: string;
@@ -148,6 +168,8 @@ export interface SyntaxCtx {
  * What a Markdown rule returns when it matches at the current offset. `length`
  * must be positive and stay inside the source, and `tokens` must not be empty.
  * Otherwise the parser throws.
+ *
+ * @group Features
  */
 export interface SyntaxMatch {
   /** Number of UTF-16 code units consumed; must be a positive integer. */
@@ -166,6 +188,8 @@ export interface SyntaxMatch {
  *
  * Each rule's `id` must be unique in the schema. If two specs use the same id,
  * building the schema throws.
+ *
+ * @group Features
  */
 export interface SyntaxRule extends OrderedFeatureFacet {
   readonly scope: "block" | "inline";
@@ -176,12 +200,18 @@ export interface SyntaxRule extends OrderedFeatureFacet {
  * Adds a feature's own actions to an editor. `register` runs once for each
  * editor as it is set up, after the editor's nodes and marks add theirs. Use it
  * for actions that do not belong to one node or mark.
+ *
+ * @group Features
  */
 export interface FeatureActionHook extends OrderedFeatureFacet {
   register(bus: ActionBus): void;
 }
 
-/** Clipboard-safe representations of a selected slice of structured content. */
+/**
+ * Clipboard-safe representations of a selected slice of structured content.
+ *
+ * @group Features
+ */
 export interface ContentSelectionSlice {
   readonly plainText: string;
   /**
@@ -208,6 +238,8 @@ export interface ContentSelectionSlice {
 /**
  * What a kind's selection adapters get: the structured `document` and the
  * `selection` inside it.
+ *
+ * @group Features
  */
 export interface ContentSelectionCtx {
   readonly document: StructuredDocument;
@@ -219,6 +251,8 @@ export interface ContentSelectionCtx {
  * it as `contentSelection` on a `structuredKinds` entry.
  *
  * Return `undefined` when the range cannot be copied without losing something.
+ *
+ * @group Features
  */
 // This is a schema facet rather than a core switch on node names: an editor
 // without that feature installs no serializer, while any future structured
@@ -227,7 +261,11 @@ export type ContentSelectionSerializer = (
   ctx: ContentSelectionCtx,
 ) => ContentSelectionSlice | undefined;
 
-/** What a paste into an extension-owned nested selection carries. */
+/**
+ * What a paste into an extension-owned nested selection carries.
+ *
+ * @group Features
+ */
 export interface ContentSelectionPasteCtx extends ContentSelectionCtx {
   /** The editor state the paste applies to. */
   readonly state: EditorState;
@@ -249,6 +287,8 @@ export interface ContentSelectionPasteCtx extends ContentSelectionCtx {
  * `undefined` to let the editor insert the plain text as if it were typed. A
  * table uses this to spread a copied grid across cells. The returned ops are
  * the whole paste.
+ *
+ * @group Features
  */
 export type ContentSelectionPaste = (
   ctx: ContentSelectionPasteCtx,
@@ -262,6 +302,8 @@ export type ContentSelectionPaste = (
  * drag, shift+click, the keyboard or the API. Display math uses it so a range
  * never covers only part of a construct. Return `undefined` to keep the range
  * as it is.
+ *
+ * @group Features
  */
 export type ContentSelectionResolver = (
   ctx: ContentSelectionCtx,
@@ -278,12 +320,18 @@ export type ContentSelectionResolver = (
  *
  * Return `undefined` when the range cannot stand on its own. The whole formula
  * is then copied.
+ *
+ * @group Features
  */
 export type ContentSelectionSlicer = (
   ctx: ContentSelectionCtx,
 ) => StructuredDocument | undefined;
 
-/** What a kind is asked when a text selection stops inside one of its documents. */
+/**
+ * What a kind is asked when a text selection stops inside one of its documents.
+ *
+ * @group Features
+ */
 export interface ContentEdgeRangeCtx {
   readonly document: StructuredDocument;
   readonly blockId: string;
@@ -294,7 +342,11 @@ export interface ContentEdgeRangeCtx {
   readonly edge: "start" | "end";
 }
 
-/** The part of a structured document between a stop inside it and one edge. */
+/**
+ * The part of a structured document between a stop inside it and one edge.
+ *
+ * @group Features
+ */
 export interface ContentEdgeRange {
   /**
    * The selected part. `anchor` is on the side of the stop and `focus` on the
@@ -316,6 +368,8 @@ export interface ContentEdgeRange {
  * just that part. A kind without this adapter is always taken whole.
  *
  * Return `undefined` when the point no longer exists in the document.
+ *
+ * @group Features
  */
 export type ContentEdgeRangeResolver = (
   ctx: ContentEdgeRangeCtx,
@@ -334,13 +388,19 @@ export const STRUCTURED_MARK_ANCHOR_CHAR = "￼";
 /**
  * One attachment created with a new structured mark: its id (`contentId`) and
  * the edit that fills it (`edit`).
+ *
+ * @group Features
  */
 export interface StructuredMarkAttachment {
   readonly contentId: string;
   readonly edit: StructuredMutation;
 }
 
-/** What a structured mark's `create` hook gets when a new mark is made. */
+/**
+ * What a structured mark's `create` hook gets when a new mark is made.
+ *
+ * @group Features
+ */
 export interface StructuredMarkCreateCtx {
   /** Mark requested by the generic authoring action. */
   readonly mark: Mark;
@@ -363,6 +423,8 @@ export interface StructuredMarkCreateCtx {
  * The mark must keep the type that was asked for. Each attachment needs its own
  * non-empty `contentId`, and the document must accept it. Otherwise applying
  * the mark throws.
+ *
+ * @group Features
  */
 export interface StructuredMarkCreateResult {
   /**
@@ -380,13 +442,19 @@ export interface StructuredMarkCreateResult {
 /**
  * What a structured mark's `resolve` and `references` hooks get: the `mark` and
  * its block's `attachments`.
+ *
+ * @group Features
  */
 export interface StructuredMarkResolveCtx {
   readonly mark: Mark;
   readonly attachments: StructuredContentMap | undefined;
 }
 
-/** Canonical sources that became adjacent while creating one structured mark. */
+/**
+ * Canonical sources that became adjacent while creating one structured mark.
+ *
+ * @group Features
+ */
 export interface StructuredMarkJoinCtx {
   readonly left: string;
   readonly right: string;
@@ -395,6 +463,8 @@ export interface StructuredMarkJoinCtx {
 /**
  * What a structured mark's `clone` hook gets after its block and the block's
  * attachments were copied.
+ *
+ * @group Features
  */
 export interface StructuredMarkCloneCtx {
   readonly mark: Mark;
@@ -419,6 +489,8 @@ export interface StructuredMarkCloneCtx {
  * block is copied (paste, snapshot restore), the editor updates those marks
  * with `clone` too, and copies their attachments to the clipboard. So a node
  * with rich-text fields needs no extra code for them.
+ *
+ * @group Features
  */
 export interface StructuredMarkFacet {
   create?(ctx: StructuredMarkCreateCtx): StructuredMarkCreateResult | undefined;
@@ -451,6 +523,8 @@ export interface StructuredMarkFacet {
  * What a {@link StructuredContentClone} gets when a block is copied under a new
  * id: the attachment, the old and new block ids, the attachment's old id, and a
  * way to make new ids.
+ *
+ * @group Features
  */
 export interface StructuredContentCloneCtx {
   readonly document: StructuredDocument;
@@ -467,6 +541,8 @@ export interface StructuredContentCloneCtx {
 /**
  * What a {@link StructuredContentClone} returns: the copied attachment
  * (`document`) and the id it is stored under on the new block (`contentId`).
+ *
+ * @group Features
  */
 export interface StructuredContentCloneResult {
   readonly contentId: string;
@@ -482,6 +558,8 @@ export interface StructuredContentCloneResult {
  * depend on the block it sits in, like display math, uses this to update them.
  * The returned document's root id must equal the returned `contentId`, or the
  * copy fails. Return `undefined` to keep the unchanged copy.
+ *
+ * @group Features
  */
 export type StructuredContentClone = (
   ctx: StructuredContentCloneCtx,
@@ -493,6 +571,8 @@ export type StructuredContentClone = (
  *
  * Features merge in install order, and later ones win. Objects merge key by
  * key. Arrays and plain values are replaced.
+ *
+ * @group Features
  */
 export interface FeatureThemeDefaults {
   /** Stable id used for intentional replacement by a later feature. */
@@ -510,6 +590,8 @@ export interface FeatureThemeDefaults {
  *
  * The removed keys below are kept so an old bundle that still sets them fails
  * to compile. In JavaScript it throws an error instead.
+ *
+ * @group Features
  */
 export interface FeatureFacets {
   readonly inputRules?: readonly FeatureInputRule[];

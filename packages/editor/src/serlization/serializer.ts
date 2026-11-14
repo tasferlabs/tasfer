@@ -18,6 +18,8 @@ import type { Block } from "./loadPage";
  * of a Markdown file): color, scheduled time, duration, all-day flag and
  * whether the page is a task. Pass it to {@link serializeToMarkdown}; read it
  * back with {@link parseFrontmatter}.
+ *
+ * @group Serialization
  */
 export interface PageMetadata {
   color?: string | null;
@@ -30,6 +32,8 @@ export interface PageMetadata {
 /**
  * Options for {@link serializeToMarkdown}: rewrite asset URLs as they are
  * written out, and name the schema when the document uses custom block types.
+ *
+ * @group Serialization
  */
 export interface MarkdownSerializeOptions {
   /**
@@ -66,6 +70,8 @@ function serializeFrontmatter(metadata: PageMetadata): string {
  *   schema: appSchema.data,
  * });
  * ```
+ *
+ * @group Serialization
  */
 export function serializeToMarkdown(
   blocks: Block[],

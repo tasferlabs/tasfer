@@ -43,6 +43,8 @@ const RELATIVE_REF = /^([/?#]|\.\.?\/)/;
  * the raw one. Keep the raw one only for display.
  *
  * For an `href`, use {@link safeLinkHref}. It keeps relative links.
+ *
+ * @group Utilities
  */
 export function normalizeLinkUrl(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
@@ -89,6 +91,8 @@ export function normalizeLinkUrl(raw: unknown): string | null {
  * keeps relative links such as `/docs/setup` or `#intro` as they are, because
  * they point into the document's own site. You still need to escape the result
  * when you write it into an attribute.
+ *
+ * @group Utilities
  */
 // Rewriting a relative reference to an absolute URL would point it somewhere
 // else entirely. Relative refs carry no scheme, so there is nothing to allow or
@@ -123,6 +127,8 @@ const HANDOFF_PROTOCOLS: readonly string[] = ["mailto:", "tel:"];
  *
  * Call it inside the click or key handler that asked for it, so the browser
  * treats it as the user's own action.
+ *
+ * @group Utilities
  */
 // window.open(url, "_blank", "noopener,noreferrer") is the obvious spelling and
 // the wrong one. Per HTML's "popup window is requested" steps, any non-empty

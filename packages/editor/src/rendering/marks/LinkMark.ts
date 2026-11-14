@@ -52,6 +52,8 @@ const LINK_CODEC: MarkCodec = {
  * ```ts
  * editor.change((c) => c.setMark("link", { attrs: { url }, range }));
  * ```
+ *
+ * @group Marks
  */
 export class LinkMark extends Mark {
   readonly type = "link";

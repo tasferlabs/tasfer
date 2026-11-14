@@ -85,7 +85,11 @@ import {
   type StructuredEdit,
 } from "./sync/structured-content";
 
-/** One prose field inside a block's structured attachment. */
+/**
+ * One prose field inside a block's structured attachment.
+ *
+ * @group Text
+ */
 export interface TextFieldAddress {
   /** The block that owns the attachment. */
   readonly blockId: string;
@@ -95,7 +99,11 @@ export interface TextFieldAddress {
   readonly field: string;
 }
 
-/** A caret (`anchor === focus`) or range, as visible offsets into the field. */
+/**
+ * A caret (`anchor === focus`) or range, as visible offsets into the field.
+ *
+ * @group Text
+ */
 export interface FieldRange {
   readonly anchor: number;
   readonly focus: number;
@@ -108,7 +116,11 @@ export interface FieldRange {
   readonly content?: ContentSelection;
 }
 
-/** What running an action on a field as a paragraph came to. */
+/**
+ * What running an action on a field as a paragraph came to.
+ *
+ * @group Text
+ */
 export type FieldRun =
   | {
       readonly kind: "applied";
@@ -712,6 +724,8 @@ function carryUi(
  * );
  * if (run.kind === "applied") return run.state;
  * ```
+ *
+ * @group Text
  */
 export function runFieldAsParagraph(
   state: EditorState,
@@ -888,6 +902,8 @@ export function runFieldAsParagraph(
  * `undefined` when there is none. Backspace or the first undo takes it back. To
  * do that, run {@link REVERT_INPUT_RULE} on that field with
  * {@link runFieldAsParagraph}.
+ *
+ * @group Text
  */
 export function armedFieldRevert(
   state: EditorState,

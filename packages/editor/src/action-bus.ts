@@ -30,6 +30,8 @@ import type { EditorState, Operation } from "./state-types";
  * An action, with the type of its payload. It holds no state, so declare it
  * once at module level and share it between editors. Make one with
  * {@link action} or {@link stateAction}.
+ *
+ * @group Actions
  */
 // The `_p` field is phantom: type-only, never read at runtime.
 export interface Action<P = void> {
@@ -47,6 +49,8 @@ export interface Action<P = void> {
  * the payload, so its edits land in the same undo step as the default. Return
  * `true` to claim the action and skip the default edit. Return `false` or
  * nothing to just watch. Edits it made still apply either way.
+ *
+ * @group Actions
  */
 export type MutationHandler<P = void> = (
   c: ChangeApi,
@@ -59,6 +63,8 @@ export type MutationHandler<P = void> = (
  * `change()`. That makes one undo step, one update sent to other people, and
  * one `change` event. A handler that returns `true` skips the default. It is
  * still an {@link Action}, so a schema shortcut can point at it.
+ *
+ * @group Actions
  */
 export interface MutationAction<P = void> extends Action<P> {
   readonly mutate: MutationHandler<P>;
@@ -80,6 +86,8 @@ export interface MutationAction<P = void> extends Action<P> {
  *
  * editor.dispatch(INSERT_DATE, { date: "2026-11-14" });
  * ```
+ *
+ * @group Actions
  */
 export function action<P = void>(name: string): Action<P>;
 export function action<P = void>(
@@ -107,6 +115,8 @@ export function isMutationAction<P>(c: Action<P>): c is MutationAction<P> {
  * {@link StateAction} works with. `state` is the new editor state. `ops` is the
  * list of document edits it made. It is empty when only the caret or selection
  * moved.
+ *
+ * @group Actions
  */
 export interface StateResult {
   state: EditorState;
@@ -118,6 +128,8 @@ export interface StateResult {
  * the payload, and returns a {@link StateResult}. It must not change the state
  * it gets. It can do things a {@link MutationAction}'s {@link ChangeApi}
  * cannot, like moving the caret or selection without editing the document.
+ *
+ * @group Actions
  */
 export type StateMutator<P = void> = (
   state: EditorState,
@@ -130,6 +142,8 @@ export type StateMutator<P = void> = (
  * {@link StateResult} to make changes. Add `handled: true` to claim the action:
  * lower-priority handlers and the default then do not run. Return nothing to
  * just watch.
+ *
+ * @group Actions
  */
 export type StateHandler<P = void> = (
   state: EditorState,
@@ -142,6 +156,8 @@ export type StateHandler<P = void> = (
  * the document. It runs through {@link ActionBus.dispatchState}, or
  * `editor.dispatch` on a live editor. It is still an {@link Action} and shares
  * the same handler list.
+ *
+ * @group Actions
  */
 export interface StateAction<P = void> extends Action<P> {
   readonly transform: StateMutator<P>;
@@ -149,7 +165,11 @@ export interface StateAction<P = void> extends Action<P> {
   readonly forwardable?: boolean;
 }
 
-/** Options for {@link stateAction}. */
+/**
+ * Options for {@link stateAction}.
+ *
+ * @group Actions
+ */
 export interface StateActionOptions {
   /**
    * The action edits at the caret, the way a key press does, so a node that
@@ -179,6 +199,8 @@ export interface StateActionOptions {
  *
  * editor.dispatch(BLOCK_TOUCHED, { blockIndex: 0 });
  * ```
+ *
+ * @group Actions
  */
 export function stateAction<P = void>(
   name: string,
@@ -196,6 +218,8 @@ export function stateAction<P = void>(
  * {@link ActionBus.registerForwarder}. It gets the action itself, so it can
  * dispatch the same action somewhere else (a stand-in paragraph) with the
  * same payload.
+ *
+ * @group Actions
  */
 export type StateForwarder = <P>(
   state: EditorState,
@@ -216,6 +240,8 @@ export function isStateAction<P>(c: Action<P>): c is StateAction<P> {
  * A handler for an action. Return `true` to claim the action. Then
  * lower-priority handlers and the editor's default do not run. Return `false`
  * or nothing to just watch, and the action moves on to lower-priority handlers.
+ *
+ * @group Actions
  */
 export type ActionHandler<P = void> = (payload: P) => boolean | void;
 
@@ -234,6 +260,8 @@ export const DEFAULT_ACTION_PRIORITY = -Infinity;
  * action; dispatching the action runs them from highest priority to lowest
  * until one claims it. Each editor has its own bus, and a custom node or mark
  * receives it in `registerActions` to listen for, or override, an action.
+ *
+ * @group Actions
  */
 export interface ActionBus {
   /**
@@ -453,6 +481,8 @@ export function createActionBus(): ActionBus {
 /**
  * A teardown function — what `editor.registerAction`, `editor.subscribe`,
  * `doc.on`, and friends return. Calling it undoes the registration.
+ *
+ * @group Actions
  */
 export type Disposer = () => void;
 
@@ -473,6 +503,8 @@ export type Disposer = () => void;
  *
  * The disposers run in the order you passed them. Calling the returned function
  * a second time does nothing.
+ *
+ * @group Actions
  */
 // Mirrors Lexical's mergeRegister from @lexical/utils; the list is cleared
 // after the first call so captured closures can be collected.
@@ -496,6 +528,8 @@ export function mergeRegister(...disposers: Disposer[]): Disposer {
  * drops it otherwise. A host can register a higher-priority handler returning
  * `true` to route the link itself (native nav, a confirmation step); doing so
  * makes the host responsible for the same protocol check.
+ *
+ * @group Built-in actions
  */
 export const OPEN_LINK = action<{ url: string }>("open-link");
 
@@ -504,6 +538,8 @@ export const OPEN_LINK = action<{ url: string }>("open-link");
  * caret's position. Get that from `editor.view.coordsAtPos("caret")`. Use
  * `touchX` to point a magnifier at the finger, and `touchRadiusY` to place the
  * magnifier above the fingertip.
+ *
+ * @group Built-in actions
  */
 export interface CursorDragInfo {
   /** Finger contact X (canvas/viewport coords). */
@@ -516,16 +552,32 @@ export interface CursorDragInfo {
   readonly touchRadiusY: number;
 }
 
-/** A touch cursor-drag gesture began. Observe-only (no editor default). */
+/**
+ * A touch cursor-drag gesture began. Observe-only (no editor default).
+ *
+ * @group Built-in actions
+ */
 export const CURSOR_DRAG_START = action<CursorDragInfo>("cursor-drag-start");
 
-/** The touch-dragged caret moved (per-tick finger geometry). Observe-only. */
+/**
+ * The touch-dragged caret moved (per-tick finger geometry). Observe-only.
+ *
+ * @group Built-in actions
+ */
 export const CURSOR_DRAG_MOVE = action<CursorDragInfo>("cursor-drag-move");
 
-/** The touch-dragged caret crossed a character/line boundary. Observe-only. */
+/**
+ * The touch-dragged caret crossed a character/line boundary. Observe-only.
+ *
+ * @group Built-in actions
+ */
 export const CURSOR_DRAG_BOUNDARY = action("cursor-drag-boundary");
 
-/** A touch cursor-drag gesture ended (finger lifted). Observe-only. */
+/**
+ * A touch cursor-drag gesture ended (finger lifted). Observe-only.
+ *
+ * @group Built-in actions
+ */
 export const CURSOR_DRAG_END = action("cursor-drag-end");
 
 /**
@@ -534,6 +586,8 @@ export const CURSOR_DRAG_END = action("cursor-drag-end");
  * an `activationIntensity`. `regionId` names the drag area. `intensity` is
  * `"light"`, `"medium"` or `"heavy"`. A host turns it into a haptic or a sound.
  * Observe-only.
+ *
+ * @group Built-in actions
  */
 export const REGION_DRAG_START = action<{
   regionId: string;
@@ -544,6 +598,8 @@ export const REGION_DRAG_START = action<{
  * A drag passed a snap point the user should feel. For example, an image resize
  * snapped to full width, or a slider passed a tick. A host can play a light
  * haptic. Caret drags use {@link CURSOR_DRAG_BOUNDARY} instead. Observe-only.
+ *
+ * @group Built-in actions
  */
 export const DRAG_DETENT = action("drag-detent");
 
@@ -558,6 +614,8 @@ export const DRAG_DETENT = action("drag-detent");
  * Use it to open a menu when the user types a character, like `/` for a slash
  * menu. It fires once per key press, so the menu does not reopen later just
  * because an old `/` is still in the text.
+ *
+ * @group Built-in actions
  */
 export const TEXT_INPUT = action<{
   text: string;
@@ -578,6 +636,8 @@ export const TEXT_INPUT = action<{
  * typed. For example, math turns `\frac` into `\frac{}{}` and puts the caret in
  * the first slot. By default it does nothing. Handlers return `{ state, ops }`
  * like any {@link StateAction}.
+ *
+ * @group Built-in actions
  */
 // This is the effect half of the caret/edit seam, the counterpart to the pure
 // query hooks on CaretModel; observers may also arm caret-anchored scratch
@@ -625,6 +685,8 @@ export const CONVERT_STRUCTURED_BLOCK = stateAction<{
 /**
  * Payload for {@link IMAGE_PASTE}: the pasted file and the stable id of the
  * image block created to hold it.
+ *
+ * @group Built-in actions
  */
 export interface ImagePasteEvent {
   /** The pasted image file. */
@@ -641,6 +703,8 @@ export interface ImagePasteEvent {
  *
  * A custom image node can register at a higher priority and return `true` to
  * handle the upload itself. The editor has no default handler.
+ *
+ * @group Built-in actions
  */
 export const IMAGE_PASTE = action<ImagePasteEvent>("image-paste");
 
@@ -656,6 +720,8 @@ export const IMAGE_PASTE = action<ImagePasteEvent>("image-paste");
  * Scrolls made by code (`scrollToPosition`, keeping the view steady, clearing
  * the document) fire after the page moved, with `source: "programmatic"`. Their
  * return value is ignored, so only user scrolls can be stopped.
+ *
+ * @group Built-in actions
  */
 export const SCROLL = action<{
   scrollY: number;
@@ -685,6 +751,8 @@ export const SCROLL = action<{
  * {@link CONTEXT_MENU_POINTER_MOVE} and {@link CONTEXT_MENU_RELEASE} instead of
  * scrolling or selecting. Dispatch {@link CLOSE_CONTEXT_MENU} when you close
  * the menu.
+ *
+ * @group Built-in actions
  */
 export const OPEN_CONTEXT_MENU = action<{
   x: number;
@@ -702,6 +770,8 @@ export const OPEN_CONTEXT_MENU = action<{
  * {@link OPEN_CONTEXT_MENU}). Payload is the raw viewport client point so the
  * host can hit-test its menu items (e.g. `document.elementFromPoint`) and update
  * its own hover highlight. Observe-only.
+ *
+ * @group Built-in actions
  */
 export const CONTEXT_MENU_POINTER_MOVE = action<{
   clientX: number;
@@ -712,6 +782,8 @@ export const CONTEXT_MENU_POINTER_MOVE = action<{
  * The finger lifted while a host context menu held the pointer. The payload is
  * where it lifted, in viewport client coordinates. Run the menu item under that
  * point, if there is one. Observe-only.
+ *
+ * @group Built-in actions
  */
 export const CONTEXT_MENU_RELEASE = action<{
   clientX: number;
@@ -726,5 +798,7 @@ export const CONTEXT_MENU_RELEASE = action<{
  * Dispatch it yourself when your menu closes for any other reason, like picking
  * an item or pressing Escape. Until it fires, the editor treats your menu as
  * open. It ignores key presses and sends touch drags to the menu.
+ *
+ * @group Built-in actions
  */
 export const CLOSE_CONTEXT_MENU = action("close-context-menu");

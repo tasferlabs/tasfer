@@ -19,7 +19,11 @@ import type { Mark } from "../loadPage";
 import { type TokenType } from "../tokenizer";
 import type { ReplacementRenderer } from "./types";
 
-/** Helpers passed to an HTML codec so it needn't import the serializer. */
+/**
+ * Helpers passed to an HTML codec so it needn't import the serializer.
+ *
+ * @group Serialization
+ */
 export interface MarkHtmlCtx {
   /** The run's raw (unescaped) text — needed by replacement marks (math). */
   readonly text: string;
@@ -38,6 +42,8 @@ export interface MarkHtmlCtx {
 /**
  * The HTML part of a {@link MarkCodec}: how a marked run of text becomes HTML,
  * and where it nests when several marks cover the same text.
+ *
+ * @group Serialization
  */
 export interface MarkHtmlCodec {
   /**
@@ -60,6 +66,8 @@ export interface MarkHtmlCodec {
  * How one inline mark is written to and read from Markdown, and optionally how
  * it appears in plain text and HTML. A custom mark supplies one so its
  * formatting is kept when the document is saved as Markdown and loaded again.
+ *
+ * @group Serialization
  */
 export interface MarkCodec {
   readonly type: string;

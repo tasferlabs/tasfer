@@ -23,7 +23,11 @@
 import type { Node } from "../parse/ast";
 import { parse } from "../parse/parser";
 
-/** A single placeholder insertion: `text` to splice in at source index `at`. */
+/**
+ * A single placeholder insertion: `text` to splice in at source index `at`.
+ *
+ * @group Source editing
+ */
 export interface LatexInsert {
   /** Index into the ORIGINAL LaTeX string at which to insert. */
   readonly at: number;
@@ -35,6 +39,8 @@ export interface LatexInsert {
  * The result of {@link normalizeLatex}: the LaTeX with every missing `{}`
  * filled in, the insertions that got it there, and a way to carry a caret
  * offset over from the old string to the new one.
+ *
+ * @group Source editing
  */
 export interface LatexNormalization {
   /** The LaTeX with every missing `{}` added. */
@@ -124,6 +130,8 @@ function collect(node: Node, out: number[]): void {
  * `\frac` becomes `\frac{}{}` and `x^` becomes `x^{}`. How the formula looks
  * does not change. Running it again changes nothing. See
  * {@link LatexNormalization} for what it returns.
+ *
+ * @group Source editing
  */
 export function normalizeLatex(latex: string): LatexNormalization {
   if (!latex) {
@@ -190,6 +198,8 @@ function parseShape(latex: string): string {
  * Returns false for spaces that matter: one that ends a command name (`\sin x`
  * would become the unknown `\sinx`), and one inside text such as `\text{a b}`.
  * Also returns false when the character at `offset` is not a space.
+ *
+ * @group Source editing
  */
 export function isRedundantSpace(latex: string, offset: number): boolean {
   if (latex[offset] !== " ") return false;

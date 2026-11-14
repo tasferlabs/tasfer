@@ -1,5 +1,13 @@
 {
  "name": "@tasfer/math",
+ "groups": [
+  "Setup",
+  "Actions and commands",
+  "Document",
+  "Structured content",
+  "Caret and selection",
+  "Matrices"
+ ],
  "entries": [
   {
    "id": "@tasfer/math",
@@ -10,6 +18,7 @@
      "sigs": [
       "function contentPointToMathTreeCaret(\n  document: StructuredDocument,\n  point: ContentPoint,\n): MathTreeCaret | null"
      ],
+     "group": "Caret and selection",
      "summary": "Turn an editor selection point into a math caret.",
      "doc": [
       {
@@ -41,6 +50,7 @@
      "sigs": [
       "function filterMathCommands(query: string): MathCommand[]"
      ],
+     "group": "Actions and commands",
      "summary": "Searches `MATH_COMMANDS` for `query`, the letters typed after `\\`.",
      "doc": [
       {
@@ -119,6 +129,7 @@
      "sigs": [
       "function getInlineMathSpans(block: Block): InlineMathSpan[]"
      ],
+     "group": "Structured content",
      "summary": "List every inline formula in a block, with where each one starts and ends in the block's text.",
      "doc": [
       {
@@ -142,6 +153,7 @@
      "sigs": [
       "function getMathStructuredDocument(\n  block: Pick<Block, \"id\" | \"structuredContent\">,\n): StructuredDocument | undefined"
      ],
+     "group": "Structured content",
      "summary": "Returns the equation stored on a math block, as stored.",
      "doc": [
       {
@@ -174,6 +186,7 @@
      "sigs": [
       "function getStructuredMathMarkSource(\n  mark: Mark,\n  attachments: StructuredContentMap | undefined,\n): string | undefined"
      ],
+     "group": "Structured content",
      "summary": "The LaTeX of the formula an inline math mark points to.",
      "doc": [
       {
@@ -206,6 +219,7 @@
      "sigs": [
       "function getStructuredMathSource(\n  block: Pick<Block, \"id\" | \"structuredContent\">,\n): string | undefined"
      ],
+     "group": "Structured content",
      "summary": "Returns the block's equation as LaTeX, printed from its structured form.",
      "doc": [
       {
@@ -238,6 +252,7 @@
      "sigs": [
       "function mathCommandInsertion(\n  latex: string,\n  following: string,\n): { text: string; caretOffset: number }"
      ],
+     "group": "Actions and commands",
      "summary": "The text to insert for a command's `latex`, and where the caret goes in it.",
      "doc": [
       {
@@ -350,6 +365,7 @@
      "sigs": [
       "function mathContentIdForBlock(blockId: string): string"
      ],
+     "group": "Structured content",
      "deprecated": [
       {
        "type": "paragraph",
@@ -409,6 +425,7 @@
      "sigs": [
       "function mathContentSelectionFromSourceOffset(\n  blockId: string,\n  contentId: string,\n  document: StructuredDocument,\n  sourceOffset: number,\n  lastUpdate = Date.now(),\n): ContentSelection | null"
      ],
+     "group": "Caret and selection",
      "summary": "A collapsed editor selection at an offset in the formula's LaTeX source.",
      "doc": [
       {
@@ -440,6 +457,7 @@
      "sigs": [
       "function mathDataExtension(): MathDataExtension"
      ],
+     "group": "Setup",
      "summary": "Math with no canvas code: the math block, the inline math mark, how they read and write Markdown, HTML and text, and the math content kind.",
      "doc": [
       {
@@ -506,6 +524,7 @@
      "sigs": [
       "function mathExtension(): MathFeatureExtension"
      ],
+     "group": "Setup",
      "summary": "Adds block and inline math to an editor schema.",
      "doc": [
       {
@@ -615,6 +634,7 @@
      "sigs": [
       "function mathMarkContentId(mark: Mark): string | undefined"
      ],
+     "group": "Structured content",
      "summary": "Read a valid structured attachment reference from arbitrary mark attrs.",
      "doc": [
       {
@@ -639,6 +659,7 @@
      "sigs": [
       "function mathMatrixContext(\n  latex: string,\n  offset: number,\n): MatrixContext | null"
      ],
+     "group": "Matrices",
      "summary": "The tabular construct (`matrix`/`pmatrix`/`cases`/`aligned`/`array`/…) enclosing `offset` in a math source, and the `(row, col)` of the cell the caret sits in — or null when the caret is not inside a grid.",
      "doc": [
       {
@@ -748,6 +769,7 @@
      "sigs": [
       "function mathMatrixContextInRange(\n  latex: string,\n  start: number,\n  end: number,\n): MatrixContext | null"
      ],
+     "group": "Matrices",
      "summary": "Like `mathMatrixContext`, but for a selection from `start` to `end`, in either order.",
      "doc": [
       {
@@ -801,6 +823,7 @@
      "sigs": [
       "function mathMatrixResize(\n  latex: string,\n  offset: number,\n  rows: number,\n  cols: number,\n): MatrixEditResult | null"
      ],
+     "group": "Matrices",
      "summary": "Works out how to resize the grid at `offset` to `rows` × `cols`.",
      "doc": [
       {
@@ -946,6 +969,7 @@
      "sigs": [
       "function mathReplacementRenderer(\n  ...[type, source, displayMode]: Parameters<ReplacementRenderer>\n): ReturnType<ReplacementRenderer>"
      ],
+     "group": "Setup",
      "summary": "Draws math as inline SVG in HTML export.",
      "doc": [
       {
@@ -1006,6 +1030,7 @@
      "sigs": [
       "function mathSourceAtEdge(\n  latex: string,\n  offset: number,\n  dir: \"left\" | \"right\",\n): boolean"
      ],
+     "group": "Caret and selection",
      "summary": "Whether the caret at `offset` is at the `dir` edge of a formula, with no caret stop left in that direction.",
      "doc": [
       {
@@ -1069,6 +1094,7 @@
      "sigs": [
       "function mathSourceOffsetFromContentPoint(\n  document: StructuredDocument,\n  point: ContentPoint,\n): number | null"
      ],
+     "group": "Caret and selection",
      "summary": "The offset in the formula's LaTeX source for this selection point.",
      "doc": [
       {
@@ -1100,6 +1126,7 @@
      "sigs": [
       "function mathTreeCaretToContentSelection(\n  blockId: string,\n  contentId: string,\n  document: StructuredDocument,\n  caret: MathTreeCaret,\n  lastUpdate = Date.now(),\n): ContentSelection | null"
      ],
+     "group": "Caret and selection",
      "summary": "Turn a math caret back into a collapsed editor selection in block `blockId`.",
      "doc": [
       {
@@ -1139,6 +1166,7 @@
      "sigs": [
       "function parseMathDocument(\n  latex: string,\n  options: ParseMathDocumentOptions = {},\n): MathDocument"
      ],
+     "group": "Document",
      "summary": "Turns a LaTeX string into a `MathDocument`: a tree of math items, each with its own id, that you can store and edit.",
      "doc": [
       {
@@ -1199,6 +1227,7 @@
      "sigs": [
       "function parseMathDocumentInit(\n  latex: string,\n  options: ParseMathInitOptions = {},\n): MathDocumentInitMutation"
      ],
+     "group": "Structured content",
      "summary": "Parses LaTeX into the single edit that creates a formula's structured document.",
      "doc": [
       {
@@ -1264,6 +1293,7 @@
      "sigs": [
       "function printMathDocument(document: MathDocument): string"
      ],
+     "group": "Document",
      "summary": "Turns a formula into LaTeX source.",
      "doc": [
       {
@@ -1288,6 +1318,7 @@
      "sigs": [
       "function renderToSVG(\n  latex: string,\n  displayMode: boolean,\n  fontSize = displayMode ? 22 : 18,\n  color = \"currentColor\",\n): string"
      ],
+     "group": "Setup",
      "summary": "Renders LaTeX to an SVG string, for previews and HTML export.",
      "doc": [
       {
@@ -1351,6 +1382,7 @@
      "sigs": [
       "function resolveStructuredInlineMathRuns(\n  block: InlineMathHostBlock,\n): ResolvedInlineMathRun[]"
      ],
+     "group": "Structured content",
      "summary": "Finds every inline formula in a block.",
      "doc": [
       {
@@ -1375,6 +1407,7 @@
      "sigs": [
       "function structuredToMathDocument(\n  value: StructuredDocument,\n): MathDocument | undefined"
      ],
+     "group": "Structured content",
      "summary": "Converts a stored structured equation back into a `MathDocument`.",
      "doc": [
       {
@@ -1424,6 +1457,7 @@
      "sigs": [
       "function trailingMathCommandRun(\n  document: StructuredDocument,\n  caret: MathTreeCaret,\n  trigger: \"\\\\\" | \"/\" = \"\\\\\",\n): TrailingMathCommandRun | undefined"
      ],
+     "group": "Actions and commands",
      "summary": "Finds the `\\query` the user is typing right before `caret`, for a `\\` autocomplete menu.",
      "doc": [
       {
@@ -1512,6 +1546,7 @@
      "sigs": [
       "class MathMark extends Mark"
      ],
+     "group": "Setup",
      "summary": "The inline math mark: draws a formula inside a line of text and handles the caret and typing inside it.",
      "doc": [
       {
@@ -1639,6 +1674,7 @@
      "sigs": [
       "class MathNode extends TextNode<MathBlock>"
      ],
+     "group": "Setup",
      "summary": "The math block node: lays out, paints and edits a display equation on the canvas.",
      "doc": [
       {
@@ -2004,6 +2040,7 @@
      "sigs": [
       "interface IdentityAllocator"
      ],
+     "group": "Document",
      "summary": "Hands out ids for saved editor content, one per `nextId()` call.",
      "doc": [
       {
@@ -2074,6 +2111,7 @@
      "sigs": [
       "interface InlineMathHostBlock"
      ],
+     "group": "Structured content",
      "summary": "The parts of a text block that `resolveStructuredInlineMathRuns` reads.",
      "doc": [
       {
@@ -2134,6 +2172,7 @@
      "sigs": [
       "interface InlineMathSpan"
      ],
+     "group": "Structured content",
      "summary": "One inline formula in a block's text: the text index where it starts, the index where it ends, and the text stored in between.",
      "doc": [
       {
@@ -2186,6 +2225,7 @@
      "sigs": [
       "interface MathBlock extends BlockRuntimeState"
      ],
+     "group": "Setup",
      "summary": "A math block: one LaTeX equation shown on its own line.",
      "doc": [
       {
@@ -2275,6 +2315,7 @@
      "sigs": [
       "interface MathCommand"
      ],
+     "group": "Actions and commands",
      "summary": "One entry in the `\\` command list: a piece of LaTeX the user can insert into a formula, with a label and search words for an autocomplete menu.",
      "doc": [
       {
@@ -2392,6 +2433,7 @@
      "sigs": [
       "interface MathDelimited"
      ],
+     "group": "Document",
      "summary": "A body surrounded by automatically sized delimiters.",
      "doc": [
       {
@@ -2443,6 +2485,7 @@
      "sigs": [
       "interface MathDocument"
      ],
+     "group": "Document",
      "summary": "A whole formula, in the form a host saves.",
      "doc": [
       {
@@ -2495,6 +2538,7 @@
      "sigs": [
       "interface MathFraction"
      ],
+     "group": "Document",
      "summary": "A generalized fraction with persistent numerator and denominator slots.",
      "doc": [
       {
@@ -2566,6 +2610,7 @@
      "sigs": [
       "interface MathMatrix"
      ],
+     "group": "Document",
      "summary": "A matrix/array environment with structural rows and cells.",
      "doc": [
       {
@@ -2617,6 +2662,7 @@
      "sigs": [
       "interface MathMatrixCell"
      ],
+     "group": "Document",
      "summary": "One matrix cell, with its own id.",
      "doc": [
       {
@@ -2666,6 +2712,7 @@
      "sigs": [
       "interface MathMatrixRow"
      ],
+     "group": "Document",
      "summary": "One row of a matrix, with its own id.",
      "doc": [
       {
@@ -2707,6 +2754,7 @@
      "sigs": [
       "interface MathOperator"
      ],
+     "group": "Document",
      "summary": "A named math operator, optionally taking display-style limits.",
      "doc": [
       {
@@ -2753,6 +2801,7 @@
      "sigs": [
       "interface MathRadical"
      ],
+     "group": "Document",
      "summary": "A square root, optionally with an index slot.",
      "doc": [
       {
@@ -2799,6 +2848,7 @@
      "sigs": [
       "interface MathRawLatex"
      ],
+     "group": "Document",
      "summary": "LaTeX the formula model does not understand, kept exactly as written so nothing is lost.",
      "doc": [
       {
@@ -2848,6 +2898,7 @@
      "sigs": [
       "interface MathRawText"
      ],
+     "group": "Document",
      "summary": "Plain math-mode source that can be edited as a character run.",
      "doc": [
       {
@@ -2889,6 +2940,7 @@
      "sigs": [
       "interface MathRoot"
      ],
+     "group": "Document",
      "summary": "The top of a formula.",
      "doc": [
       {
@@ -2938,6 +2990,7 @@
      "sigs": [
       "interface MathRow"
      ],
+     "group": "Document",
      "summary": "An ordered list of formula pieces, like a fraction's top or a superscript.",
      "doc": [
       {
@@ -2979,6 +3032,7 @@
      "sigs": [
       "interface MathRowCaret"
      ],
+     "group": "Caret and selection",
      "summary": "A stable gap inside a math row.",
      "doc": [
       {
@@ -3028,6 +3082,7 @@
      "sigs": [
       "interface MathScripts"
      ],
+     "group": "Document",
      "summary": "A base with persistent optional super- and subscript slots.",
      "doc": [
       {
@@ -3079,6 +3134,7 @@
      "sigs": [
       "interface MathStructuredProjectionOptions"
      ],
+     "group": "Structured content",
      "summary": "Options for how ids are made when a formula is converted to structured form.",
      "doc": [
       {
@@ -3177,6 +3233,7 @@
      "sigs": [
       "interface MathSymbol"
      ],
+     "group": "Document",
      "summary": "An atomic symbol.",
      "doc": [
       {
@@ -3244,6 +3301,7 @@
      "sigs": [
       "interface MathText"
      ],
+     "group": "Document",
      "summary": "Plain words inside a formula, written with `\\text`, `\\textbf` and similar commands.",
      "doc": [
       {
@@ -3314,6 +3372,7 @@
      "sigs": [
       "interface MathTextCaret"
      ],
+     "group": "Caret and selection",
      "summary": "A stable gap inside the editable field of a raw-text or `text` leaf.",
      "doc": [
       {
@@ -3389,6 +3448,7 @@
      "sigs": [
       "interface MatrixContext"
      ],
+     "group": "Matrices",
      "summary": "The matrix or other `\\begin…\\end` grid around a source offset.",
      "doc": [
       {
@@ -3520,6 +3580,7 @@
      "sigs": [
       "interface MatrixEditResult"
      ],
+     "group": "Matrices",
      "summary": "The result of `matrixResize`: the edits to make, and where the caret goes.",
      "doc": [
       {
@@ -3623,6 +3684,7 @@
      "sigs": [
       "interface MatrixTextEdit"
      ],
+     "group": "Matrices",
      "summary": "One localized source edit: replace `[start, end)` with `text`.",
      "doc": [
       {
@@ -3695,6 +3757,7 @@
      "sigs": [
       "interface ParseMathDocumentOptions"
      ],
+     "group": "Document",
      "summary": "Options for importing a LaTeX string into a structured document.",
      "doc": [
       {
@@ -3763,6 +3826,7 @@
      "sigs": [
       "interface ParseMathInitOptions extends MathStructuredProjectionOptions"
      ],
+     "group": "Structured content",
      "summary": "Options for initializing one structured document from LaTeX source.",
      "doc": [
       {
@@ -3806,6 +3870,7 @@
      "sigs": [
       "interface ResolvedInlineMathRun"
      ],
+     "group": "Structured content",
      "summary": "One inline formula in a block, as returned by `resolveStructuredInlineMathRuns`.",
      "doc": [
       {
@@ -3917,6 +3982,7 @@
      "sigs": [
       "interface TrailingMathCommandRun"
      ],
+     "group": "Actions and commands",
      "summary": "A `\\query` (or `/query`) the user is still typing, as found by `trailingMathCommandRun`.",
      "doc": [
       {
@@ -4023,6 +4089,7 @@
      "sigs": [
       "type MathBlockAttrs"
      ],
+     "group": "Setup",
      "summary": "The attributes stored on a math block.",
      "doc": [
       {
@@ -4093,6 +4160,7 @@
      "sigs": [
       "type MathDataExtension"
      ],
+     "group": "Setup",
      "summary": "What `mathDataExtension` returns: the math block, the inline math mark and the math content kind, with no canvas code.",
      "doc": [
       {
@@ -4148,6 +4216,7 @@
      "sigs": [
       "type MathDocumentInitMutation = Extract<\n  StructuredMutation,\n  { readonly kind: \"document_init\" }\n>"
      ],
+     "group": "Structured content",
      "summary": "The single edit that creates a formula's whole structured document in one step.",
      "doc": [
       {
@@ -4186,6 +4255,7 @@
      "sigs": [
       "type MathDocumentNode =\n  | MathRawText\n  | MathSymbol\n  | MathFraction\n  | MathRadical\n  | MathScripts\n  | MathAccent\n  | MathWrapper\n  | MathStack\n  | MathDelimited\n  | MathMatrix\n  | MathText\n  | MathOperator\n  | MathRawLatex"
      ],
+     "group": "Document",
      "summary": "Any one piece of a formula in a `MathDocument`: a symbol, a fraction, a square root, a matrix, and so on.",
      "doc": [
       {
@@ -4256,6 +4326,7 @@
      "sigs": [
       "type MathFeatureExtension"
      ],
+     "group": "Setup",
      "summary": "What `mathExtension` returns: everything the editor needs for block and inline math, ready to pass to `schema.use(...)`.",
      "doc": [
       {
@@ -4333,6 +4404,7 @@
      "sigs": [
       "type MathItemId = string"
      ],
+     "group": "Document",
      "summary": "Stable identity of an item in a `MathDocument`.",
      "doc": [
       {
@@ -4371,6 +4443,7 @@
      "sigs": [
       "type MathMarkAttrs"
      ],
+     "group": "Setup",
      "summary": "The attributes stored on an inline math mark.",
      "doc": [
       {
@@ -4445,6 +4518,7 @@
      "sigs": [
       "type MathSymbolClass =\n  | \"mathord\"\n  | \"textord\"\n  | \"bin\"\n  | \"rel\"\n  | \"open\"\n  | \"close\"\n  | \"punct\"\n  | \"inner\"\n  | \"op\"\n  | \"accent\"\n  | \"spacing\""
      ],
+     "group": "Document",
      "summary": "The spacing class carried by a named or otherwise atomic symbol.",
      "doc": [
       {
@@ -4469,6 +4543,7 @@
      "sigs": [
       "type MathTextVariant =\n  | \"normal\"\n  | \"bold\"\n  | \"italic\"\n  | \"monospace\"\n  | \"sans-serif\""
      ],
+     "group": "Document",
      "summary": "The styles a `\\text`-family command can have, such as `\\textbf` for `\"bold\"`.",
      "doc": [
       {
@@ -4517,6 +4592,7 @@
      "sigs": [
       "type MathTreeCaret = MathRowCaret | MathTextCaret"
      ],
+     "group": "Caret and selection",
      "summary": "A caret inside a formula: either a gap between items in a row (`MathRowCaret`) or a spot inside a piece of text (`MathTextCaret`).",
      "doc": [
       {
@@ -4569,6 +4645,7 @@
      "sigs": [
       "const EXIT_INLINE_MATH: StateAction<{ blockId: string; startIndex: number; endIndex: number; direction: \"left\" | \"right\"; }>"
      ],
+     "group": "Actions and commands",
      "summary": "Moves the caret out of the inline formula at `[startIndex, endIndex)` in block `blockId`, to its `left` or `right` side.",
      "doc": [
       {
@@ -4638,6 +4715,7 @@
      "sigs": [
       "const INSERT_MATH_COMMAND: StateAction<{ readonly text: string; readonly caretOffset?: number | undefined; readonly trigger?: \"/\" | \"\\\\\" | undefined; }>"
      ],
+     "group": "Actions and commands",
      "summary": "Inserts a command picked from a menu into the formula the caret is in.",
      "doc": [
       {
@@ -4706,6 +4784,7 @@
      "sigs": [
       "const MATH_COMMANDS: readonly MathCommand[]"
      ],
+     "group": "Actions and commands",
      "summary": "Every command the `\\` autocomplete can offer inside a formula.",
      "doc": [
       {
@@ -4751,6 +4830,7 @@
      "sigs": [
       "const MATH_STRUCTURED_KIND: \"math\""
      ],
+     "group": "Structured content",
      "summary": "The `kind` value (`\"math\"`) that marks a structured document as a math equation.",
      "doc": [
       {
@@ -4791,6 +4871,7 @@
      "sigs": [
       "const mathContentSelectionKind: { readonly kind: \"math\"; readonly contentSelection: ({ document, selection, }: ContentSelectionCtx) => ContentSelectionSlice | undefined; readonly resolveSelection: ({ document, selection, }: ContentSelectionCtx) => ContentSelection | undefined; readonly edgeRange: ({ document, blockId, contentId, point, edge, }: Co..."
      ],
+     "group": "Setup",
      "summary": "How math handles selection and copy.",
      "doc": [
       {
@@ -4836,6 +4917,7 @@
      "sigs": [
       "const mathInputRules: readonly [FeatureInputRule, FeatureInputRule, FeatureInputRule, FeatureInputRule]"
      ],
+     "group": "Setup",
      "summary": "The typing rules for math: editing inside a formula, typing `$$` alone in a block to turn it into a block equation, and typing `$…$` to make inline math.",
      "doc": [
       {
@@ -4889,6 +4971,7 @@
      "sigs": [
       "const mathPasteRule: FeaturePasteRule"
      ],
+     "group": "Setup",
      "summary": "Paste rule that turns pasted text into an inline formula when the text is clearly LaTeX, such as `\\frac{a}{b}` or `x^2` (never a URL or a file name).",
      "doc": [
       {
@@ -4942,6 +5025,7 @@
      "sigs": [
       "const RESIZE_MATH_MATRIX: StateAction<{ readonly rows: number; readonly cols: number; }>"
      ],
+     "group": "Actions and commands",
      "summary": "Resizes the matrix the caret or selection is in to `rows` × `cols`.",
      "doc": [
       {

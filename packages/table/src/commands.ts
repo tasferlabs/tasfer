@@ -70,7 +70,11 @@ import type {
   StructuredNode,
 } from "@tasfer/editor/sync/structured-content";
 
-/** Which side of the reference row/column a new one lands on. */
+/**
+ * Which side of the reference row/column a new one lands on.
+ *
+ * @group Actions and controls
+ */
 export type TableInsertSide = "before" | "after";
 
 /**
@@ -449,6 +453,7 @@ export const NEW_TABLE_COLUMNS = 3;
  * // Select the third column of the caret's table.
  * editor.dispatch(TABLE_SELECT_COLUMN, { columnIndex: 2 });
  * ```
+ * @group Actions and controls
  */
 export interface TableTargetPayload {
   /**
@@ -473,12 +478,18 @@ export interface TableTargetPayload {
 /**
  * Add an empty row above (`side: "before"`) or below (`side: "after"`) the
  * target row. Nothing happens when asked to add a row above the header row.
+ *
+ * @group Actions and controls
  */
 export const TABLE_INSERT_ROW = stateAction<
   TableTargetPayload & { readonly side: TableInsertSide }
 >("table-insert-row", (state) => ({ state, ops: [] }));
 
-/** Delete the target row. Nothing happens when it is the table's only row. */
+/**
+ * Delete the target row. Nothing happens when it is the table's only row.
+ *
+ * @group Actions and controls
+ */
 export const TABLE_DELETE_ROW = stateAction<TableTargetPayload>(
   "table-delete-row",
   (state) => ({ state, ops: [] }),
@@ -487,6 +498,8 @@ export const TABLE_DELETE_ROW = stateAction<TableTargetPayload>(
 /**
  * Add an empty column before (`side: "before"`) or after (`side: "after"`)
  * the target column.
+ *
+ * @group Actions and controls
  */
 export const TABLE_INSERT_COLUMN = stateAction<
   TableTargetPayload & { readonly side: TableInsertSide }
@@ -495,6 +508,8 @@ export const TABLE_INSERT_COLUMN = stateAction<
 /**
  * Delete the target column. Nothing happens when it is the table's only
  * column.
+ *
+ * @group Actions and controls
  */
 export const TABLE_DELETE_COLUMN = stateAction<TableTargetPayload>(
   "table-delete-column",
@@ -511,6 +526,8 @@ export const TABLE_DELETE_COLUMN = stateAction<TableTargetPayload>(
  * minus 1, and for "move right" its index plus 1.
  *
  * Dragging a column by its grip on the canvas dispatches this on release.
+ *
+ * @group Actions and controls
  */
 export const TABLE_MOVE_COLUMN = stateAction<
   TableTargetPayload & { readonly to: number }
@@ -519,6 +536,8 @@ export const TABLE_MOVE_COLUMN = stateAction<
 /**
  * Align the target column's text left, center or right. Pass `align: null` to
  * clear the setting.
+ *
+ * @group Actions and controls
  */
 export const TABLE_SET_COLUMN_ALIGN = stateAction<
   TableTargetPayload & { readonly align: TableAlign | null }
@@ -527,6 +546,8 @@ export const TABLE_SET_COLUMN_ALIGN = stateAction<
 /**
  * Select the whole target row, ready to copy, cut, clear or format as one. It
  * changes no content.
+ *
+ * @group Actions and controls
  */
 export const TABLE_SELECT_ROW = stateAction<TableTargetPayload>(
   "table-select-row",
@@ -537,6 +558,8 @@ export const TABLE_SELECT_ROW = stateAction<TableTargetPayload>(
  * Select the target column whole. Pressing a column's move grip without
  * dragging it dispatches this too, so the grip that picks a column up also
  * picks it out.
+ *
+ * @group Actions and controls
  */
 export const TABLE_SELECT_COLUMN = stateAction<TableTargetPayload>(
   "table-select-column",
@@ -603,6 +626,8 @@ function commandTarget(
  * is 1, "delete column" when `columns` is 1, and "add row above" when
  * `rowIndex` is 0. A row above the header is not allowed, because Markdown
  * tables always use the first row as the column titles.
+ *
+ * @group Actions and controls
  */
 export interface TableShape {
   readonly rows: number;
@@ -618,6 +643,8 @@ export interface TableShape {
  * `query.content(blockId, contentId)`, and the caret point, from
  * `state.contentSelection.focus`. It is safe to call during a React render.
  * Returns `undefined` when the point is not in one of the table's cells.
+ *
+ * @group Actions and controls
  */
 export function tableShapeAt(
   document: StructuredDocument,

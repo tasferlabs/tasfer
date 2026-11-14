@@ -63,13 +63,21 @@ export const LIST_BLOCK_TYPES = [
 // from the event handlers (Tab/Shift+Tab in `keysEvents.ts`, the todo-checkbox
 // region in `blockRegions.ts`).
 
-/** Indent the current list item one level (Tab on a list block). */
+/**
+ * Indent the current list item one level (Tab on a list block).
+ *
+ * @group Built-in actions
+ */
 export const INDENT_LIST_ITEM = stateAction("indent-list-item", (state) => {
   const result = indentListItem(state);
   return { state: result.state, ops: result.ops };
 });
 
-/** Outdent the current list item one level (Shift+Tab on a list block). */
+/**
+ * Outdent the current list item one level (Shift+Tab on a list block).
+ *
+ * @group Built-in actions
+ */
 export const OUTDENT_LIST_ITEM = stateAction("outdent-list-item", (state) => {
   const result = outdentListItem(state);
   return { state: result.state, ops: result.ops };
@@ -78,6 +86,8 @@ export const OUTDENT_LIST_ITEM = stateAction("outdent-list-item", (state) => {
 /**
  * Checks or unchecks a todo item, for example when its checkbox is tapped. Pass
  * the item's block index. The change is saved like any other edit.
+ *
+ * @group Built-in actions
  */
 export const TOGGLE_TODO_CHECKED = stateAction<{ blockIndex: number }>(
   "toggle-todo-checked",
@@ -194,6 +204,8 @@ function markerSlotX(
  * `numbered_list` and `todo_list`. A list item is a text block with an indent
  * and a marker (bullet, number or checkbox) in front of it. In Markdown they
  * are written as `- `, `1. ` and `- [ ] ` (`- [x] ` when checked).
+ *
+ * @group Nodes
  */
 export class ListNode extends TextNode {
   // Representative type; registered under every LIST_BLOCK_TYPES key.

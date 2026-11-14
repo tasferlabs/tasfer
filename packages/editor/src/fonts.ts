@@ -201,6 +201,8 @@ export function onFontsReady(cb: () => void): () => void {
  * {@link notifyFontsChanged}.
  *
  * The editor does not load fonts. Your app loads them and then calls this.
+ *
+ * @group Theme
  */
 export function notifyFontsLoaded(): void {
   if (fontsLoaded) return;
@@ -223,6 +225,8 @@ export function notifyFontsLoaded(): void {
  * It clears the saved text measurements, so text is measured again with the new
  * fonts. It does not redraw open editors by itself. Pass the new fonts with
  * `editor.setTheme(...)`, which redraws.
+ *
+ * @group Theme
  */
 export function notifyFontsChanged(): void {
   // Flush metrics/width caches so measurements use the (possibly new) font

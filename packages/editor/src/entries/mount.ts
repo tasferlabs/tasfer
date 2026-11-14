@@ -38,6 +38,8 @@ import {
  * A mounted editor: the `editor` you drive, the document it shows (when you
  * passed one), a container for your own floating UI, and the calls to refocus,
  * blur and `destroy` it.
+ *
+ * @group Editor
  */
 export interface MountedEditor<
   D extends SchemaDefinition = BaseSchemaDefinition,
@@ -97,6 +99,8 @@ function createCanvasContainer(parentContainer: HTMLElement): HTMLDivElement {
 /**
  * Block types that render placeholder ghost text when empty. `bullet_list` and
  * `numbered_list` both render through the same list-item placeholder slot.
+ *
+ * @group Editor
  */
 export type PlaceholderBlockType =
   | "paragraph"
@@ -112,6 +116,8 @@ export type PlaceholderBlockType =
  * Placeholder ghost text for empty blocks: either one generic string applied to
  * every block type, or a per-block-type map (e.g.
  * `{ paragraph: "Write…", heading1: "Title" }`).
+ *
+ * @group Editor
  */
 export type PlaceholderOption =
   string | Partial<Record<PlaceholderBlockType, string>>;
@@ -121,6 +127,8 @@ export type PlaceholderOption =
  * is editable, how it sizes itself, accessibility and keyboard behavior,
  * placeholders, theme, fonts, the schema and the document to show. Every field
  * is optional.
+ *
+ * @group Editor
  */
 export interface MountEditorOptions<
   D extends SchemaDefinition = BaseSchemaDefinition,

@@ -14,6 +14,8 @@ import { stateAction } from "@tasfer/editor/action-bus";
  * ```ts
  * editor.dispatch(INSERT_MATH_COMMAND, { text: "\\frac{}{}" });
  * ```
+ *
+ * @group Actions and commands
  */
 export const INSERT_MATH_COMMAND = stateAction<{
   readonly text: string;
@@ -31,6 +33,8 @@ export const INSERT_MATH_COMMAND = stateAction<{
  * ```ts
  * editor.dispatch(RESIZE_MATH_MATRIX, { rows: 3, cols: 3 });
  * ```
+ *
+ * @group Actions and commands
  */
 export const RESIZE_MATH_MATRIX = stateAction<{
   readonly rows: number;

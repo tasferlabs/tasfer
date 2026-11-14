@@ -441,6 +441,8 @@ const inlineMathReplacement: MarkReplacement = {
  * In the line's text, a formula is one character. So a `{ block, offset }`
  * range cannot point inside a formula. A range that cuts into one replaces the
  * whole formula. To change the LaTeX itself, use `c.editContent(...)`.
+ *
+ * @group Setup
  */
 export class MathMark extends Mark {
   constructor() {

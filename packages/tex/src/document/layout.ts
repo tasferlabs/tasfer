@@ -13,7 +13,11 @@ import type {
   ProjectedMathItem,
 } from "./print";
 
-/** A caret in a row: before, between, or after its children. */
+/**
+ * A caret in a row: before, between, or after its children.
+ *
+ * @group Document layout
+ */
 export interface MathDocumentRowPosition {
   readonly kind: "row";
   readonly rowId: MathItemId;
@@ -23,7 +27,11 @@ export interface MathDocumentRowPosition {
   readonly nodeId?: MathItemId;
 }
 
-/** A caret inside one of a node's text fields: `text`, `latex` or `name`. */
+/**
+ * A caret inside one of a node's text fields: `text`, `latex` or `name`.
+ *
+ * @group Document layout
+ */
 export interface MathDocumentFieldPosition {
   readonly kind: "field";
   readonly rowId: MathItemId;
@@ -37,6 +45,8 @@ export interface MathDocumentFieldPosition {
  * A caret position inside a {@link MathDocument}, named by stable ids rather
  * than a text offset: either a gap between the children of a row, or a spot
  * inside a text field.
+ *
+ * @group Document layout
  */
 export type MathDocumentCaretPosition =
   | MathDocumentRowPosition
@@ -46,6 +56,8 @@ export type MathDocumentCaretPosition =
  * A caret position to look up. It is the same as
  * {@link MathDocumentCaretPosition}, except a field position may leave out
  * `rowId`. Its `nodeId` already says where it is.
+ *
+ * @group Document layout
  */
 export type MathDocumentCaretAddress =
   | MathDocumentRowPosition
@@ -56,6 +68,8 @@ export type MathDocumentCaretAddress =
 /**
  * One place the caret can be drawn, with every formula position that lands
  * there.
+ *
+ * @group Document layout
  */
 export interface MathDocumentCaretStop extends Omit<CaretStop, "offset"> {
   /**
@@ -75,6 +89,8 @@ export interface MathDocumentCaretStop extends Omit<CaretStop, "offset"> {
  * The rectangle around one part of a laid-out formula, in pixels. `x` is
  * measured from the formula's left edge; `y` from its baseline, so negative
  * values are above it.
+ *
+ * @group Document layout
  */
 export interface MathDocumentBounds {
   readonly x: number;
@@ -86,6 +102,8 @@ export interface MathDocumentBounds {
 /**
  * The kind of thing a {@link MathDocumentItemLayout} describes: the root, a
  * row, a matrix row or cell, or any {@link MathNode} type.
+ *
+ * @group Document layout
  */
 export type MathDocumentItemType =
   | "root"
@@ -97,6 +115,8 @@ export type MathDocumentItemType =
 /**
  * Where one part of a formula sits on screen: the root, a row, a matrix row or
  * cell, or a node.
+ *
+ * @group Document layout
  */
 export interface MathDocumentItemLayout {
   readonly id: MathItemId;
@@ -119,6 +139,8 @@ export interface MathDocumentItemLayout {
  * A laid-out formula, ready to paint, plus where each part of its
  * {@link MathDocument} sits. `items` maps each id to its geometry. Treat `box`
  * as opaque: it is only for painting.
+ *
+ * @group Document layout
  */
 export interface MathDocumentLayout {
   readonly box: Box;
@@ -136,6 +158,8 @@ export interface MathDocumentLayout {
  * Options for {@link hitTestMathDocument}. The same as {@link HitTestOptions},
  * except the caret's current position during a drag is given as a document
  * position instead of a source offset.
+ *
+ * @group Document layout
  */
 export interface MathDocumentHitTestOptions extends Omit<
   HitTestOptions,
@@ -201,6 +225,8 @@ export function createMathDocumentLayout(
 /**
  * Finds the caret stop for a position in the formula. Returns `null` when no
  * stop matches the position.
+ *
+ * @group Document layout
  */
 export function mathDocumentCaretStop(
   layout: MathDocumentLayout,
@@ -224,6 +250,8 @@ export function mathDocumentCaretStop(
  * Returns `null` when there is nowhere to go, for example on the formula's main
  * line, or when `position` is not in the layout. The host then moves the caret
  * to the line above or below.
+ *
+ * @group Document layout
  */
 // The current stop is found by identity, not by source offset: at construct
 // boundaries an outer row edge and an inner field edge can share one printed
@@ -393,6 +421,8 @@ function resolveItemParents(
  * Finds the caret stop nearest an offset in the formula's LaTeX source. When
  * several stops are equally near, the one drawn closest to that offset wins.
  * Returns `null` only when the formula has no caret stops.
+ *
+ * @group Document layout
  */
 export function mathDocumentCaretFromSourceOffset(
   layout: MathDocumentLayout,
@@ -425,6 +455,8 @@ export function mathDocumentCaretFromSourceOffset(
  * Finds the caret stop at a point in a laid-out formula. `x` and `y` are in
  * pixels, measured like {@link MathDocumentBounds}. Returns `null` only when
  * the formula has no caret stops.
+ *
+ * @group Document layout
  */
 export function hitTestMathDocument(
   layout: MathDocumentLayout,

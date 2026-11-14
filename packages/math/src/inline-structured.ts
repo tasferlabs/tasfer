@@ -42,6 +42,8 @@ import { needsCommandSeparator, printMathDocument } from "@tasfer/tex/data";
  * placeholder character (U+FFFC), and the formula lives in the math document
  * that `contentId` names. An editor without math shows that placeholder
  * character. Read the LaTeX with {@link getStructuredMathMarkSource}.
+ *
+ * @group Setup
  */
 export type MathMarkAttrs = {
   /** Id of the math document that holds this formula. */
@@ -50,6 +52,8 @@ export type MathMarkAttrs = {
 
 /**
  * The parts of a text block that {@link resolveStructuredInlineMathRuns} reads.
+ *
+ * @group Structured content
  */
 export interface InlineMathHostBlock {
   readonly id: string;
@@ -61,6 +65,8 @@ export interface InlineMathHostBlock {
 /**
  * One inline formula in a block, as returned by
  * {@link resolveStructuredInlineMathRuns}. Deleted text is not counted.
+ *
+ * @group Structured content
  */
 export interface ResolvedInlineMathRun {
   readonly startIndex: number;
@@ -89,7 +95,11 @@ export interface StructuredMathMarkAttachment {
   readonly init: MathDocumentInitMutation;
 }
 
-/** Read a valid structured attachment reference from arbitrary mark attrs. */
+/**
+ * Read a valid structured attachment reference from arbitrary mark attrs.
+ *
+ * @group Structured content
+ */
 export function mathMarkContentId(mark: Mark): string | undefined {
   const value = mark.attrs?.contentId;
   return typeof value === "string" && value.length > 0 ? value : undefined;
@@ -165,6 +175,8 @@ export const mathStructuredMarkFacet = {
  * The LaTeX of the formula an inline math mark points to. Returns undefined
  * when the mark has no `contentId`, or when its math document is missing or not
  * valid.
+ *
+ * @group Structured content
  */
 export function getStructuredMathMarkSource(
   mark: Mark,
@@ -197,6 +209,8 @@ export function getInlineMathStructuredDocument(
  * visible text, its characters, and its math document and LaTeX when they
  * resolve. Deleted text is skipped. Works without the editor or any canvas
  * code.
+ *
+ * @group Structured content
  */
 export function resolveStructuredInlineMathRuns(
   block: InlineMathHostBlock,

@@ -236,6 +236,8 @@ import type { MathNode as MathTreeNode, MathRow } from "@tasfer/tex/data";
  * LaTeX source only until the block gets a structured math document; after
  * that the document is the real content and `charRuns` is kept just for
  * compatibility. Named `MathBlock` so it does not shadow the global `Math`.
+ *
+ * @group Setup
  */
 export interface MathBlock extends BlockRuntimeState {
   type: "math";
@@ -1109,6 +1111,8 @@ function mathDecorationRect(
  * `setBlock({ type: "math" })`, turns it back into an equation. If the inline
  * formula sits inside other text, the text stays and the formula moves into a
  * new equation right after it.
+ *
+ * @group Setup
  */
 export class MathNode extends TextNode<MathBlock> {
   readonly type = "math" as const;
@@ -3039,6 +3043,8 @@ export const SET_INLINE_MATH_HOVER = stateAction<{
  *   direction: "right",
  * });
  * ```
+ *
+ * @group Actions and commands
  */
 // Lives with the math node, not on the generic editor handle. The caret is
 // placed on the exiting edge, then stepped once more with

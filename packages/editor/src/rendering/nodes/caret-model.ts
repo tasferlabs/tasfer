@@ -30,7 +30,11 @@ export interface CaretBlock {
   readonly type: string;
 }
 
-/** A half-open run of block text, `[start, end)`. */
+/**
+ * A half-open run of block text, `[start, end)`.
+ *
+ * @group Nodes
+ */
 export interface TextSpan {
   readonly start: number;
   readonly end: number;
@@ -41,6 +45,8 @@ export interface TextSpan {
  * `charLeft` and `charRight` are the arrow keys. `wordLeft` and `wordRight` are
  * word jumps. `up` and `down` move between rows inside the content, such as a
  * fraction's top and bottom.
+ *
+ * @group Nodes
  */
 export type CaretMotion =
   "charLeft" | "charRight" | "wordLeft" | "wordRight" | "up" | "down";
@@ -60,6 +66,8 @@ export type CaretMotion =
  *   };
  * }
  * ```
+ *
+ * @group Nodes
  */
 export interface CaretModel<B extends CaretBlock = Block> {
   /**

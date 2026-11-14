@@ -64,6 +64,8 @@ export const CODE_FONT_FAMILY = "monospace";
  *
  * The editor never reads CSS variables. If your app keeps its colors in CSS
  * variables, read them yourself and pass them in as tokens.
+ *
+ * @group Theme
  */
 // These were formerly read from `--editor-*` / `--primary` / `--muted` CSS
 // variables off `document.documentElement`.
@@ -156,6 +158,8 @@ function deepMerge<T>(base: T, override: DeepPartial<T> | undefined): T {
  * level deep. `nodeStrings` merges per node type. `fonts.defaultFamily` from
  * `patch` wins when it is set. `fontFamily` from `patch` wins whenever the key
  * is there, even when it is `null`. Neither input is changed.
+ *
+ * @group Theme
  */
 export function mergeTheme(base: EditorTheme, patch: EditorTheme): EditorTheme {
   return {
@@ -224,6 +228,8 @@ export function resolveNodeStrings(
  * Two values depend on the screen, so they are not decided here: the smaller
  * side padding on phones, and the dimmed selection color when the window loses
  * focus. This function returns the desktop padding and the focused color.
+ *
+ * @group Theme
  */
 // `getEditorStyles` applies the mobile padding and the unfocused selection
 // color per render.

@@ -319,7 +319,11 @@ function insertIntoCell(
   };
 }
 
-/** What a host can turn on in the cell-input rule. */
+/**
+ * What a host can turn on in the cell-input rule.
+ *
+ * @group Setup
+ */
 export interface TableInputOptions {
   /**
    * Turn on the inline markdown shortcuts inside cells, as in a paragraph.
@@ -346,6 +350,8 @@ export interface TableInputOptions {
  *
  * Every rule it makes has the same id, `table.cell.input`. Installing a second
  * one replaces the first.
+ *
+ * @group Setup
  */
 export function createTableInputRule(
   options: TableInputOptions = {},

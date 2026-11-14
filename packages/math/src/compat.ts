@@ -48,6 +48,8 @@ export function getCompatibilityDataSchema(): DataSchema {
  *   renderReplacement: mathReplacementRenderer,
  * });
  * ```
+ *
+ * @group Setup
  */
 export function mathReplacementRenderer(
   ...[type, source, displayMode]: Parameters<ReplacementRenderer>

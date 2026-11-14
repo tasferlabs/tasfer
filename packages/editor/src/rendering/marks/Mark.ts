@@ -49,6 +49,8 @@ import type { CaretModel } from "../nodes/caret-model";
  * One selection-wrap trigger: typing `char` while a non-collapsed text
  * selection is held applies this mark to the selection instead of replacing
  * it (see {@link Mark.selectionWrap}).
+ *
+ * @group Marks
  */
 export interface SelectionWrapTrigger {
   /** The typed character that triggers the wrap (e.g. `"*"`, `"$"`). */
@@ -62,14 +64,22 @@ export interface SelectionWrapTrigger {
   readonly level?: number;
 }
 
-/** A rounded-rect background drawn behind a mark's glyphs (code, inline math). */
+/**
+ * A rounded-rect background drawn behind a mark's glyphs (code, inline math).
+ *
+ * @group Marks
+ */
 export interface MarkChipStyle {
   readonly color: string;
   readonly padding: number;
   readonly borderRadius: number;
 }
 
-/** An underline drawn beneath a mark's glyphs (link). */
+/**
+ * An underline drawn beneath a mark's glyphs (link).
+ *
+ * @group Marks
+ */
 export interface MarkUnderlineStyle {
   readonly color: string;
   readonly thickness: number;
@@ -81,6 +91,8 @@ export interface MarkUnderlineStyle {
  * plain `color`. Underline and strikethrough are drawn on top of the rest. None
  * of these change how wide the text is. Bold and italic do, so they go in
  * {@link MarkMetrics} instead.
+ *
+ * @group Marks
  */
 export interface MarkStyle {
   /** Glyph fill color (code chip color, link color, …). */
@@ -110,6 +122,8 @@ export interface MarkMetrics {
 /**
  * What {@link Mark.style} receives: the editor's current styles and the stored
  * mark for the run being drawn, including its `attrs`.
+ *
+ * @group Marks
  */
 export interface MarkStyleCtx {
   readonly styles: EditorStyles;
@@ -117,7 +131,11 @@ export interface MarkStyleCtx {
   readonly mark: MarkData;
 }
 
-/** Measured size of a replacement-rendered run (inline math). */
+/**
+ * Measured size of a replacement-rendered run (inline math).
+ *
+ * @group Marks
+ */
 export interface MarkReplacementDims {
   readonly width: number;
   readonly height: number;
@@ -130,6 +148,8 @@ export interface MarkReplacementDims {
  * adapt its rendering to in-progress editing (e.g. inline math keeps a command
  * still being typed as literal source rather than its resolved symbol). Both
  * fields are absent/false when the caret isn't in this run.
+ *
+ * @group Marks
  */
 export interface MarkReplacementEdit {
   /** Caret offset *within this run's text*, or undefined if the caret isn't in it. */
@@ -144,7 +164,11 @@ export interface MarkReplacementEdit {
   readonly editing?: boolean;
 }
 
-/** Caret geometry inside a replacement run, from {@link MarkReplacement.caretRect}. */
+/**
+ * Caret geometry inside a replacement run, from {@link MarkReplacement.caretRect}.
+ *
+ * @group Marks
+ */
 export interface MarkReplacementCaret {
   /** X from the run's left edge, CSS px. */
   readonly x: number;
@@ -191,6 +215,8 @@ export interface MarkReplacementSelectionRect {
  * an inline formula does: the canvas context, the run's text, where to draw,
  * the measured size and the current styles. Passed to
  * {@link MarkReplacement.paint}.
+ *
+ * @group Marks
  */
 export interface MarkReplacementPaintCtx {
   readonly ctx: CanvasRenderingContext2D;
@@ -213,7 +239,11 @@ export interface MarkReplacementPaintCtx {
   readonly requestRedraw: () => void;
 }
 
-/** Persisted context available while resolving one replacement-mark run. */
+/**
+ * Persisted context available while resolving one replacement-mark run.
+ *
+ * @group Marks
+ */
 export interface MarkReplacementSourceCtx {
   /** The stored mark for this exact run, including feature attrs/contentId. */
   readonly mark: MarkData;
@@ -227,6 +257,8 @@ export interface MarkReplacementSourceCtx {
  * attachments, the block id, and the part of the run being drawn. When the
  * editor is resolving a click or drag, it also says which pointer is used and
  * whether a finger is dragging.
+ *
+ * @group Marks
  */
 export interface MarkReplacementContentCtx extends MarkReplacementSourceCtx {
   readonly blockId: string;
@@ -256,6 +288,8 @@ export interface MarkReplacementContentCtx extends MarkReplacementSourceCtx {
  * By default the caret and clicks treat the run as one unit and stop only at
  * its edges. Add `caretRect` and `hitTest` to let them go inside the drawn
  * content.
+ *
+ * @group Marks
  */
 export interface MarkReplacement {
   /**
@@ -378,6 +412,8 @@ export interface MarkReplacement {
  * What {@link Mark.overlays} receives: the editor state, the viewport and the
  * current styles. A mark is not tied to one block, so it finds the run's
  * position and range in the active menu on `state`.
+ *
+ * @group Marks
  */
 export interface MarkOverlayCtx {
   readonly state: EditorState;
@@ -402,6 +438,8 @@ export interface MarkOverlayCtx {
  *   marks: [defineMark("highlight", { render: new HighlightMark() })],
  * });
  * ```
+ *
+ * @group Marks
  */
 export abstract class Mark {
   /** The mark type this renders (matches the stored `Mark.type`). */
@@ -523,6 +561,8 @@ export abstract class Mark {
  * editor has its own registry (kept on its state as `marks`, not shared across
  * the page), so two editors can register different marks without affecting
  * each other. The mark-side twin of {@link NodeRegistry}.
+ *
+ * @group Marks
  */
 export class MarkRegistry {
   private readonly marks = new Map<string, Mark>();

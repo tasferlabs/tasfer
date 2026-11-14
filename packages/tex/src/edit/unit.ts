@@ -22,7 +22,11 @@
 import type { Node } from "../parse/ast";
 import { parse } from "../parse/parser";
 
-/** The resolved editing unit adjacent to a caret. */
+/**
+ * The resolved editing unit adjacent to a caret.
+ *
+ * @group Caret and selection
+ */
 export interface MathUnit {
   /** Source range of the unit (half-open `[start, end)`). */
   readonly start: number;
@@ -308,6 +312,8 @@ export function isInsideConstruct(latex: string, offset: number): boolean {
  *
  * Nested constructs redirect outward, so `\hat{\dot{x|}}` returns the offset
  * after the whole `\hat{…}`.
+ *
+ * @group Caret and selection
  */
 export function scriptAttachOffset(
   latex: string,
@@ -423,6 +429,8 @@ function scriptEndHop(
 /**
  * The editing unit immediately before `offset` — what a Backspace there acts on.
  * `null` at the very start (`offset <= 0`).
+ *
+ * @group Caret and selection
  */
 export function unitBefore(latex: string, offset: number): MathUnit | null {
   return resolve(latex, offset, "backward");
@@ -431,6 +439,8 @@ export function unitBefore(latex: string, offset: number): MathUnit | null {
 /**
  * The editing unit immediately after `offset` — what a forward-Delete there acts
  * on. `null` at the very end (`offset >= latex.length`).
+ *
+ * @group Caret and selection
  */
 export function unitAfter(latex: string, offset: number): MathUnit | null {
   return resolve(latex, offset, "forward");
@@ -545,6 +555,8 @@ function levelsAt(root: Node, offset: number): SelectionLevel[] {
  *
  * Ends already at the shared level do not move. Returns the adjusted pair. A
  * collapsed range (`anchor === focus`) comes back unchanged.
+ *
+ * @group Caret and selection
  */
 export function resolveSelectionRange(
   latex: string,
@@ -599,6 +611,8 @@ export function resolveSelectionRange(
  * Pick the smallest range that strictly contains the current one, so each press
  * grows by one level. Some returned ranges may not contain `[from, to)`. Skip
  * those.
+ *
+ * @group Caret and selection
  */
 export function enclosingSelectionRanges(
   latex: string,
@@ -636,6 +650,8 @@ export function enclosingSelectionRanges(
  * at the top level selects just itself. A click lands on the edge between two
  * glyphs, so both sides are checked and a construct wins: between a `\frac` and
  * a `+`, the fraction is selected. Returns `null` for an empty formula.
+ *
+ * @group Caret and selection
  */
 export function unitAt(latex: string, offset: number): MathUnit | null {
   // Level-aware, like the caret: {@link resolveSelection} escalates a leaf to the

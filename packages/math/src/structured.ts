@@ -41,6 +41,8 @@ import {
 /**
  * The `kind` value (`"math"`) that marks a structured document as a math
  * equation.
+ *
+ * @group Structured content
  */
 export const MATH_STRUCTURED_KIND = "math";
 
@@ -48,6 +50,7 @@ export const MATH_STRUCTURED_KIND = "math";
  * Returns the id a math block stores its equation under: `${blockId}/math`.
  *
  * @deprecated Use `structuredContentId(blockId, "math")` from `@tasfer/editor`. It returns the same value.
+ * @group Structured content
  */
 export function mathContentIdForBlock(blockId: string): string {
   return structuredContentId(blockId, MATH_STRUCTURED_KIND);
@@ -56,6 +59,8 @@ export function mathContentIdForBlock(blockId: string): string {
 /**
  * Returns the equation stored on a math block, as stored. It is not checked for
  * validity. Returns `undefined` when the block has none.
+ *
+ * @group Structured content
  */
 export function getMathStructuredDocument(
   block: Pick<Block, "id" | "structuredContent">,
@@ -80,6 +85,8 @@ export function getMathDocumentForBlock(
  * Returns the block's equation as LaTeX, printed from its structured form.
  * Returns `undefined` when the block has no valid structured equation, such as
  * an older block.
+ *
+ * @group Structured content
  */
 export function getStructuredMathSource(
   block: Pick<Block, "id" | "structuredContent">,
@@ -94,6 +101,8 @@ export function getStructuredMathSource(
  * One allocator gives ids to both nodes and characters, so the two never clash.
  * Imports and tests can pass a fixed allocator. Code that creates live content
  * should pass the editor's `state.CRDTbinding`.
+ *
+ * @group Structured content
  */
 export interface MathStructuredProjectionOptions {
   readonly identityAllocator?: IdentityAllocator;
@@ -108,7 +117,11 @@ export interface MathStructuredProjectionOptions {
   readonly authority?: "block" | "supplemental";
 }
 
-/** Options for initializing one structured document from LaTeX source. */
+/**
+ * Options for initializing one structured document from LaTeX source.
+ *
+ * @group Structured content
+ */
 export interface ParseMathInitOptions extends MathStructuredProjectionOptions {
   /** Stable attachment id. It also becomes the structured root node id. */
   readonly contentId?: string;
@@ -117,6 +130,8 @@ export interface ParseMathInitOptions extends MathStructuredProjectionOptions {
 /**
  * The single edit that creates a formula's whole structured document in one
  * step. {@link parseMathDocumentInit} builds one from LaTeX source.
+ *
+ * @group Structured content
  */
 export type MathDocumentInitMutation = Extract<
   StructuredMutation,
@@ -158,6 +173,8 @@ export function mathDocumentToStructured(
  *
  * Returns `undefined` when the data is not a valid math equation. In that case
  * keep the stored data and show a placeholder, so nothing is lost.
+ *
+ * @group Structured content
  */
 export function structuredToMathDocument(
   value: StructuredDocument,
@@ -186,6 +203,8 @@ export function validateStructuredMathDocument(
  * `identityAllocator`. Without one, ids come from a fixed allocator based on
  * `contentId`, which suits imports and tests. Throws if the parsed formula
  * cannot be converted.
+ *
+ * @group Structured content
  */
 // Attachments are created by exactly one peer (the one typing or importing), so
 // no cross-peer identity convergence is needed.

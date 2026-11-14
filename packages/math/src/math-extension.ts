@@ -32,6 +32,8 @@ export type { MathBlockAttrs } from "./data";
 /**
  * What {@link mathExtension} returns: everything the editor needs for block
  * and inline math, ready to pass to `schema.use(...)`.
+ *
+ * @group Setup
  */
 export type MathFeatureExtension = {
   readonly name: "math";
@@ -62,6 +64,8 @@ export type MathFeatureExtension = {
  *
  * Without math in the schema, `$…$` and `$$…$$` stay plain text, kept exactly
  * as written. So Markdown read without math loses no formulas.
+ *
+ * @group Setup
  */
 export function mathExtension(): MathFeatureExtension {
   const data = mathDataExtension();

@@ -211,6 +211,8 @@ function generateEmptyTree(): Page {
  * const page = parsePage(tokenizePage(content, schema.data), schema.data);
  * if (metadata) page.metadata = metadata;
  * ```
+ *
+ * @group Serialization
  */
 // untypedBlockIds is a side channel on purpose: the distinction describes the
 // source, not the block, so it must never ride along on Block into a snapshot

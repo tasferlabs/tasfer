@@ -292,6 +292,8 @@ export function applyMathTreeCommandToDocument(
 /**
  * A `\query` (or `/query`) the user is still typing, as found by
  * {@link trailingMathCommandRun}.
+ *
+ * @group Actions and commands
  */
 export interface TrailingMathCommandRun {
   /** Text typed after the trigger so far — empty right after it is inserted. */
@@ -309,6 +311,8 @@ export interface TrailingMathCommandRun {
  *
  * Read the query this way, not from the formula's LaTeX. The LaTeX can differ
  * from what was typed: a lone `\` shows up as `\backslash`.
+ *
+ * @group Actions and commands
  */
 export function trailingMathCommandRun(
   document: StructuredDocument,

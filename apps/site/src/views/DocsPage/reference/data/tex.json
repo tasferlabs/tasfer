@@ -1,5 +1,14 @@
 {
  "name": "@tasfer/tex",
+ "groups": [
+  "Rendering",
+  "Document",
+  "Document layout",
+  "Caret and selection",
+  "Source editing",
+  "Matrices",
+  "Vocabulary"
+ ],
  "entries": [
   {
    "id": "@tasfer/tex",
@@ -10,6 +19,7 @@
      "sigs": [
       "function backslashFusesWith(latex: string, offset: number): boolean"
      ],
+     "group": "Source editing",
      "summary": "Returns `true` when a `\\` typed just before `offset` would join with the next character and change what it means.",
      "doc": [
       {
@@ -179,6 +189,7 @@
      "sigs": [
       "function balanceBraces(latex: string): {\n  readonly inserts: readonly LatexInsert[];\n  readonly changed: boolean;\n}"
      ],
+     "group": "Source editing",
      "summary": "Finds the `}` braces missing from `latex`, one for each `{` that is never closed.",
      "doc": [
       {
@@ -338,6 +349,7 @@
      "sigs": [
       "function breakpoints(latex: string): number[]"
      ],
+     "group": "Rendering",
      "summary": "Source offsets where `latex` may wrap to a new line: before each top-level operator or relation, like `+` or `=`.",
      "doc": [
       {
@@ -393,6 +405,7 @@
      "sigs": [
       "function canRenderMathChar(ch: string): boolean"
      ],
+     "group": "Rendering",
      "summary": "Returns `true` when the character `ch`, typed into a formula, would show up and the caret can stop at it.",
      "doc": [
       {
@@ -506,6 +519,7 @@
      "sigs": [
       "function caretRect(\n  layout: MathLayout,\n  offset: number,\n  edge?: \"start\" | \"end\",\n): CaretRect | null"
      ],
+     "group": "Caret and selection",
      "summary": "Returns where to draw the caret for a source `offset`.",
      "doc": [
       {
@@ -619,6 +633,7 @@
      "sigs": [
       "function caretStops(layout: MathLayout): CaretStop[]"
      ],
+     "group": "Caret and selection",
      "summary": "Every caret stop for a layout, sorted by source offset then x.",
      "doc": [
       {
@@ -642,6 +657,7 @@
      "sigs": [
       "function caretVertical(\n  layout: MathLayout,\n  offset: number,\n  dir: \"up\" | \"down\",\n  preferredX: number,\n): number | null"
      ],
+     "group": "Caret and selection",
      "summary": "Moves the caret one row up or down inside a formula, for example from a fraction's top to its bottom, or from a base to its superscript.",
      "doc": [
       {
@@ -695,6 +711,7 @@
      "sigs": [
       "function createDeterministicIdentityAllocator(\n  scope: string,\n  startCounter = 0,\n): IdentityAllocator"
      ],
+     "group": "Document",
      "summary": "Create an id maker that hands out `<scope>:0`, `<scope>:1`, and so on.",
      "doc": [
       {
@@ -777,6 +794,7 @@
      "sigs": [
       "function enclosingSelectionRanges(\n  latex: string,\n  from: number,\n  to: number,\n): Array<{ readonly start: number; readonly end: number }>"
      ],
+     "group": "Caret and selection",
      "summary": "All the ranges that expand-selection can grow to from `[from, to)`, in no set order.",
      "doc": [
       {
@@ -833,6 +851,7 @@
      "sigs": [
       "function escapeStrayCloseBraces(latex: string): string"
      ],
+     "group": "Source editing",
      "summary": "Returns `latex` with every extra `}` turned into `\\}`, a visible brace.",
      "doc": [
       {
@@ -977,6 +996,7 @@
      "sigs": [
       "function escapeTypedBrace(\n  latex: string,\n  offset: number,\n  char: string,\n): string | null"
      ],
+     "group": "Source editing",
      "summary": "Returns what a `{` or `}` typed at `offset` should become.",
      "doc": [
       {
@@ -1201,6 +1221,7 @@
      "sigs": [
       "function escapeTypedReserved(\n  latex: string,\n  offset: number,\n  char: string,\n): string | null"
      ],
+     "group": "Source editing",
      "summary": "Returns what a `$`, `#`, `%` or `&` typed at `offset` should become.",
      "doc": [
       {
@@ -1429,6 +1450,7 @@
      "sigs": [
       "function hitTest(\n  layout: MathLayout,\n  x: number,\n  y: number,\n  options: HitTestOptions = {},\n): number"
      ],
+     "group": "Caret and selection",
      "summary": "Returns the source offset for a click or tap at `(x, y)`.",
      "doc": [
       {
@@ -1532,6 +1554,7 @@
      "sigs": [
       "function hitTestMathDocument(\n  layout: MathDocumentLayout,\n  x: number,\n  y: number,\n  options: MathDocumentHitTestOptions = {},\n): MathDocumentCaretStop | null"
      ],
+     "group": "Document layout",
      "summary": "Finds the caret stop at a point in a laid-out formula.",
      "doc": [
       {
@@ -1593,6 +1616,7 @@
      "sigs": [
       "function inRawTextArg(latex: string, offset: number): boolean"
      ],
+     "group": "Source editing",
      "summary": "Returns `true` when `offset` is inside the text of a text command such as `\\text{…}`, `\\textbf{…}` or `\\operatorname{…}`.",
      "doc": [
       {
@@ -1730,6 +1754,7 @@
      "sigs": [
       "function isAccentCommand(name: string): boolean"
      ],
+     "group": "Vocabulary",
      "summary": "Whether `name` (no backslash) is an accent that takes a base.",
      "doc": [
       {
@@ -1762,6 +1787,7 @@
      "sigs": [
       "function isRedundantSpace(latex: string, offset: number): boolean"
      ],
+     "group": "Source editing",
      "summary": "Whether the space at `offset` can be removed without changing how the formula looks.",
      "doc": [
       {
@@ -1858,6 +1884,7 @@
      "sigs": [
       "function isStackCommand(name: string): boolean"
      ],
+     "group": "Vocabulary",
      "summary": "Whether `name` (no backslash) stacks a script over/under a base.",
      "doc": [
       {
@@ -1890,6 +1917,7 @@
      "sigs": [
       "function isStretchyAccentCommand(name: string): boolean"
      ],
+     "group": "Vocabulary",
      "summary": "Whether `name` is an accent whose glyph stretches over the whole base.",
      "doc": [
       {
@@ -1922,6 +1950,7 @@
      "sigs": [
       "function isValidLatex(latex: string): boolean"
      ],
+     "group": "Rendering",
      "summary": "Whether `latex` has no unknown commands.",
      "doc": [
       {
@@ -1953,6 +1982,7 @@
      "sigs": [
       "function isWrapperCommand(name: string): boolean"
      ],
+     "group": "Vocabulary",
      "summary": "Whether `name` (no backslash) wraps exactly one braced body.",
      "doc": [
       {
@@ -1985,6 +2015,7 @@
      "sigs": [
       "function layoutMath(\n  latex: string,\n  opts: LayoutOptions = {},\n): MathLayout"
      ],
+     "group": "Rendering",
      "summary": "Parse and lay out `latex`, ready to draw.",
      "doc": [
       {
@@ -2021,6 +2052,7 @@
      "sigs": [
       "function layoutMathDocument(\n  document: MathDocument,\n  opts: MathDocumentLayoutOptions = {},\n): MathDocumentLayout"
      ],
+     "group": "Rendering",
      "summary": "Lay out a `MathDocument`, ready to draw.",
      "doc": [
       {
@@ -2066,6 +2098,7 @@
      "sigs": [
       "async function loadFonts(opts: LoadFontsOptions): Promise<void>"
      ],
+     "group": "Rendering",
      "summary": "Load the math fonts and add them to the page, so `paintMath` and `toSVG` can draw with them.",
      "doc": [
       {
@@ -2133,6 +2166,7 @@
      "sigs": [
       "function mathDocumentCaretFromSourceOffset(\n  layout: MathDocumentLayout,\n  sourceOffset: number,\n): MathDocumentCaretStop | null"
      ],
+     "group": "Document layout",
      "summary": "Finds the caret stop nearest an offset in the formula's LaTeX source.",
      "doc": [
       {
@@ -2164,6 +2198,7 @@
      "sigs": [
       "function mathDocumentCaretStop(\n  layout: MathDocumentLayout,\n  position: MathDocumentCaretAddress,\n): MathDocumentCaretStop | null"
      ],
+     "group": "Document layout",
      "summary": "Finds the caret stop for a position in the formula.",
      "doc": [
       {
@@ -2195,6 +2230,7 @@
      "sigs": [
       "function mathDocumentCaretVertical(\n  layout: MathDocumentLayout,\n  position: MathDocumentCaretAddress,\n  direction: \"up\" | \"down\",\n  preferredX?: number,\n): MathDocumentCaretStop | null"
      ],
+     "group": "Document layout",
      "summary": "Moves the caret one row up or down inside a formula.",
      "doc": [
       {
@@ -2259,6 +2295,7 @@
      "sigs": [
       "function mathDocumentsSemanticallyEqual(\n  left: MathDocument,\n  right: MathDocument,\n): boolean"
      ],
+     "group": "Document",
      "summary": "Returns `true` when two formulas mean the same thing.",
      "doc": [
       {
@@ -2308,6 +2345,7 @@
      "sigs": [
       "function matrixContextAt(\n  latex: string,\n  offset: number,\n): MatrixContext | null"
      ],
+     "group": "Matrices",
      "summary": "The environment enclosing `offset` and the caret's cell within it, or null when `offset` is not inside any tabular construct.",
      "doc": [
       {
@@ -2347,6 +2385,7 @@
      "sigs": [
       "function matrixContextInRange(\n  latex: string,\n  start: number,\n  end: number,\n): MatrixContext | null"
      ],
+     "group": "Matrices",
      "summary": "Returns the matrix or other grid that the selection from `start` to `end` touches, or `null` when it touches none.",
      "doc": [
       {
@@ -2450,6 +2489,7 @@
      "sigs": [
       "function matrixResize(\n  latex: string,\n  offset: number,\n  nextRows: number,\n  nextCols: number,\n): MatrixEditResult | null"
      ],
+     "group": "Matrices",
      "summary": "Resizes the matrix or other grid around `offset` to `nextRows` × `nextCols`.",
      "doc": [
       {
@@ -2544,6 +2584,7 @@
      "sigs": [
       "function needsCommandSeparator(\n  latex: string,\n  offset: number,\n  char: string,\n): boolean"
      ],
+     "group": "Source editing",
      "summary": "Whether typing `char` at `offset` should add a space first, so the letter does not join the command before it.",
      "doc": [
       {
@@ -2689,6 +2730,7 @@
      "sigs": [
       "function normalizeLatex(latex: string): LatexNormalization"
      ],
+     "group": "Source editing",
      "summary": "Add the missing `{}` to every unfinished construct in `latex`, so a bare `\\frac` becomes `\\frac{}{}` and `x^` becomes `x^{}`.",
      "doc": [
       {
@@ -2774,6 +2816,7 @@
      "sigs": [
       "function paintMath(\n  ctx: CanvasRenderingContext2D,\n  layout: MathLayout,\n  x: number,\n  y: number,\n  opts: PaintOptions = {},\n): void"
      ],
+     "group": "Rendering",
      "summary": "Paint `layout` with its baseline origin at `(x, y)` — `x` is the left edge, `y` is the baseline.",
      "doc": [
       {
@@ -2837,6 +2880,7 @@
      "sigs": [
       "function parseAllocatedIdentity(\n  value: unknown,\n): AllocatedIdentity | null"
      ],
+     "group": "Document",
      "summary": "Split an id like `scope:12` into its origin and counter.",
      "doc": [
       {
@@ -2878,6 +2922,7 @@
      "sigs": [
       "function parseMathDocument(\n  latex: string,\n  options: ParseMathDocumentOptions = {},\n): MathDocument"
      ],
+     "group": "Document",
      "summary": "Turns a LaTeX string into a `MathDocument`: a tree of math items, each with its own id, that you can store and edit.",
      "doc": [
       {
@@ -2939,6 +2984,7 @@
      "sigs": [
       "function pendingCommandRange(\n  latex: string,\n  caret: number,\n): { start: number; end: number } | null"
      ],
+     "group": "Source editing",
      "summary": "The range of the command the user is still typing at `caret`, from its `\\` up to the caret.",
      "doc": [
       {
@@ -3067,6 +3113,7 @@
      "sigs": [
       "function printMathDocument(document: MathDocument): string"
      ],
+     "group": "Document",
      "summary": "Turns a formula into LaTeX source.",
      "doc": [
       {
@@ -3092,6 +3139,7 @@
      "sigs": [
       "function printMathRow(row: MathRow): string"
      ],
+     "group": "Document",
      "summary": "Serialize one editable row.",
      "doc": [
       {
@@ -3117,6 +3165,7 @@
      "sigs": [
       "function resolveSelectionRange(\n  latex: string,\n  anchor: number,\n  focus: number,\n  focusEdge: \"start\" | \"end\",\n): { anchor: number; focus: number }"
      ],
+     "group": "Caret and selection",
      "summary": "Adjust a selection so it never covers only part of a fraction, root or other construct.",
      "doc": [
       {
@@ -3223,6 +3272,7 @@
      "sigs": [
       "function scriptAttachOffset(\n  latex: string,\n  offset: number,\n  script: \"^\" | \"_\",\n): number | null"
      ],
+     "group": "Caret and selection",
      "summary": "Where a `^` or `_` typed at `offset` should really go, so it attaches to the whole construct instead of nesting inside the slot the caret is in.",
      "doc": [
       {
@@ -3433,6 +3483,7 @@
      "sigs": [
       "function selectionRects(\n  layout: MathLayout,\n  start: number,\n  end: number,\n): SelectionRect[]"
      ],
+     "group": "Caret and selection",
      "summary": "Returns the highlight rectangles for the source range `[start, end)`.",
      "doc": [
       {
@@ -3464,6 +3515,7 @@
      "sigs": [
       "function spanAtPoint(\n  layout: MathLayout,\n  x: number,\n  y: number,\n  options: SpanAtPointOptions = {},\n): { start: number; end: number } | null"
      ],
+     "group": "Caret and selection",
      "summary": "Returns the source span that a double-click or double-tap at `(x, y)` selects.",
      "doc": [
       {
@@ -3571,6 +3623,7 @@
      "sigs": [
       "function strayCloseBraceInserts(latex: string): readonly LatexInsert[]"
      ],
+     "group": "Source editing",
      "summary": "Returns the edits that turn every extra `}` in `latex` into `\\}`.",
      "doc": [
       {
@@ -3682,6 +3735,7 @@
      "sigs": [
       "function toSVG(layout: MathLayout, opts: ToSvgOptions = {}): string"
      ],
+     "group": "Rendering",
      "summary": "Draw `layout` as an `<svg>` string to put in HTML.",
      "doc": [
       {
@@ -3743,6 +3797,7 @@
      "sigs": [
       "function unitAfter(latex: string, offset: number): MathUnit | null"
      ],
+     "group": "Caret and selection",
      "summary": "The editing unit immediately after `offset` — what a forward-Delete there acts on.",
      "doc": [
       {
@@ -3790,6 +3845,7 @@
      "sigs": [
       "function unitAt(latex: string, offset: number): MathUnit | null"
      ],
+     "group": "Caret and selection",
      "summary": "The unit a double-click or double-tap at source `offset` selects.",
      "doc": [
       {
@@ -3845,6 +3901,7 @@
      "sigs": [
       "function unitBefore(latex: string, offset: number): MathUnit | null"
      ],
+     "group": "Caret and selection",
      "summary": "The editing unit immediately before `offset` — what a Backspace there acts on.",
      "doc": [
       {
@@ -3892,6 +3949,7 @@
      "sigs": [
       "interface AllocatedIdentity"
      ],
+     "group": "Document",
      "summary": "An id split into its two parts.",
      "doc": [
       {
@@ -3959,6 +4017,7 @@
      "sigs": [
       "interface CaretRect"
      ],
+     "group": "Caret and selection",
      "summary": "Where to draw the caret in a laid-out formula, in pixels.",
      "doc": [
       {
@@ -4037,6 +4096,7 @@
      "sigs": [
       "interface CaretStop"
      ],
+     "group": "Caret and selection",
      "summary": "One place the caret can sit in a laid-out formula: its offset in the LaTeX source and where that is on screen.",
      "doc": [
       {
@@ -4414,6 +4474,7 @@
      "sigs": [
       "interface HitTestOptions"
      ],
+     "group": "Caret and selection",
      "summary": "Options for `hitTest`, which turns a click or touch point into a caret position in the formula.",
      "doc": [
       {
@@ -4520,6 +4581,7 @@
      "sigs": [
       "interface IdentityAllocator"
      ],
+     "group": "Document",
      "summary": "Hands out ids for saved editor content, one per `nextId()` call.",
      "doc": [
       {
@@ -4591,6 +4653,7 @@
      "sigs": [
       "interface LatexInsert"
      ],
+     "group": "Source editing",
      "summary": "A single placeholder insertion.",
      "doc": [
       {
@@ -4674,6 +4737,7 @@
      "sigs": [
       "interface LatexNormalization"
      ],
+     "group": "Source editing",
      "summary": "The result of `normalizeLatex`: the LaTeX with every missing `{}` filled in, the insertions that got it there, and a way to carry a caret offset over from the old string to the new one.",
      "doc": [
       {
@@ -4853,6 +4917,7 @@
      "sigs": [
       "interface LayoutOptions"
      ],
+     "group": "Rendering",
      "summary": "Options for `layoutMath`: font size, display or inline style, line wrapping, and a fallback font for text the math fonts cannot draw.",
      "doc": [
       {
@@ -5157,6 +5222,7 @@
      "sigs": [
       "interface LoadFontsOptions"
      ],
+     "group": "Rendering",
      "summary": "Options for `loadFonts`: where the font files are served from and which faces to load.",
      "doc": [
       {
@@ -5328,6 +5394,7 @@
      "sigs": [
       "interface MathDelimited"
      ],
+     "group": "Document",
      "summary": "A body surrounded by automatically sized delimiters.",
      "doc": [
       {
@@ -5380,6 +5447,7 @@
      "sigs": [
       "interface MathDocument"
      ],
+     "group": "Document",
      "summary": "A whole formula, in the form a host saves.",
      "doc": [
       {
@@ -5433,6 +5501,7 @@
      "sigs": [
       "interface MathDocumentBounds"
      ],
+     "group": "Document layout",
      "summary": "The rectangle around one part of a laid-out formula, in pixels.",
      "doc": [
       {
@@ -5494,6 +5563,7 @@
      "sigs": [
       "interface MathDocumentCaretStop extends Omit<CaretStop, \"offset\">"
      ],
+     "group": "Document layout",
      "summary": "One place the caret can be drawn, with every formula position that lands there.",
      "doc": [
       {
@@ -5561,6 +5631,7 @@
      "sigs": [
       "interface MathDocumentFieldPosition"
      ],
+     "group": "Document layout",
      "summary": "A caret inside one of a node's text fields.",
      "doc": [
       {
@@ -5647,6 +5718,7 @@
      "sigs": [
       "interface MathDocumentHitTestOptions extends Omit<\n  HitTestOptions,\n  \"dragPrevOffset\"\n>"
      ],
+     "group": "Document layout",
      "summary": "Options for `hitTestMathDocument`.",
      "doc": [
       {
@@ -5733,6 +5805,7 @@
      "sigs": [
       "interface MathDocumentItemLayout"
      ],
+     "group": "Document layout",
      "summary": "Where one part of a formula sits on screen: the root, a row, a matrix row or cell, or a node.",
      "doc": [
       {
@@ -5838,6 +5911,7 @@
      "sigs": [
       "interface MathDocumentLayout"
      ],
+     "group": "Document layout",
      "summary": "A laid-out formula, ready to paint, plus where each part of its `MathDocument` sits.",
      "doc": [
       {
@@ -5938,6 +6012,7 @@
      "sigs": [
       "interface MathDocumentRowPosition"
      ],
+     "group": "Document layout",
      "summary": "A caret in a row: before, between, or after its children.",
      "doc": [
       {
@@ -6023,6 +6098,7 @@
      "sigs": [
       "interface MathFraction"
      ],
+     "group": "Document",
      "summary": "A generalized fraction with persistent numerator and denominator slots.",
      "doc": [
       {
@@ -6095,6 +6171,7 @@
      "sigs": [
       "interface MathLayout"
      ],
+     "group": "Rendering",
      "summary": "A formula that has been measured and is ready to draw.",
      "doc": [
       {
@@ -6297,6 +6374,7 @@
      "sigs": [
       "interface MathMatrix"
      ],
+     "group": "Document",
      "summary": "A matrix/array environment with structural rows and cells.",
      "doc": [
       {
@@ -6349,6 +6427,7 @@
      "sigs": [
       "interface MathMatrixCell"
      ],
+     "group": "Document",
      "summary": "One matrix cell, with its own id.",
      "doc": [
       {
@@ -6399,6 +6478,7 @@
      "sigs": [
       "interface MathMatrixRow"
      ],
+     "group": "Document",
      "summary": "One row of a matrix, with its own id.",
      "doc": [
       {
@@ -6441,6 +6521,7 @@
      "sigs": [
       "interface MathOperator"
      ],
+     "group": "Document",
      "summary": "A named math operator, optionally taking display-style limits.",
      "doc": [
       {
@@ -6488,6 +6569,7 @@
      "sigs": [
       "interface MathRadical"
      ],
+     "group": "Document",
      "summary": "A square root, optionally with an index slot.",
      "doc": [
       {
@@ -6535,6 +6617,7 @@
      "sigs": [
       "interface MathRawLatex"
      ],
+     "group": "Document",
      "summary": "LaTeX the formula model does not understand, kept exactly as written so nothing is lost.",
      "doc": [
       {
@@ -6585,6 +6668,7 @@
      "sigs": [
       "interface MathRawText"
      ],
+     "group": "Document",
      "summary": "Plain math-mode source that can be edited as a character run.",
      "doc": [
       {
@@ -6627,6 +6711,7 @@
      "sigs": [
       "interface MathRoot"
      ],
+     "group": "Document",
      "summary": "The top of a formula.",
      "doc": [
       {
@@ -6677,6 +6762,7 @@
      "sigs": [
       "interface MathRow"
      ],
+     "group": "Document",
      "summary": "An ordered list of formula pieces, like a fraction's top or a superscript.",
      "doc": [
       {
@@ -6719,6 +6805,7 @@
      "sigs": [
       "interface MathScripts"
      ],
+     "group": "Document",
      "summary": "A base with persistent optional super- and subscript slots.",
      "doc": [
       {
@@ -6771,6 +6858,7 @@
      "sigs": [
       "interface MathSymbol"
      ],
+     "group": "Document",
      "summary": "An atomic symbol.",
      "doc": [
       {
@@ -6839,6 +6927,7 @@
      "sigs": [
       "interface MathText"
      ],
+     "group": "Document",
      "summary": "Plain words inside a formula, written with `\\text`, `\\textbf` and similar commands.",
      "doc": [
       {
@@ -6910,6 +6999,7 @@
      "sigs": [
       "interface MathUnit"
      ],
+     "group": "Caret and selection",
      "summary": "The resolved editing unit adjacent to a caret.",
      "doc": [
       {
@@ -7002,6 +7092,7 @@
      "sigs": [
       "interface MatrixContext"
      ],
+     "group": "Matrices",
      "summary": "The matrix or other `\\begin…\\end` grid around a source offset.",
      "doc": [
       {
@@ -7133,6 +7224,7 @@
      "sigs": [
       "interface MatrixEditResult"
      ],
+     "group": "Matrices",
      "summary": "The result of `matrixResize`: the edits to make, and where the caret goes.",
      "doc": [
       {
@@ -7236,6 +7328,7 @@
      "sigs": [
       "interface MatrixTextEdit"
      ],
+     "group": "Matrices",
      "summary": "One localized source edit: replace `[start, end)` with `text`.",
      "doc": [
       {
@@ -7308,6 +7401,7 @@
      "sigs": [
       "interface OperatorCommand"
      ],
+     "group": "Vocabulary",
      "summary": "A named operator the engine can render, such as `\\arcsin` or `\\liminf`.",
      "doc": [
       {
@@ -7413,6 +7507,7 @@
      "sigs": [
       "interface PaintOptions"
      ],
+     "group": "Rendering",
      "summary": "Options for `paintMath`.",
      "doc": [
       {
@@ -7477,6 +7572,7 @@
      "sigs": [
       "interface ParseMathDocumentOptions"
      ],
+     "group": "Document",
      "summary": "Options for importing a LaTeX string into a structured document.",
      "doc": [
       {
@@ -7546,6 +7642,7 @@
      "sigs": [
       "interface SelectionRect"
      ],
+     "group": "Caret and selection",
      "summary": "One highlight rectangle for a selection in a laid-out formula, in pixels.",
      "doc": [
       {
@@ -7621,6 +7718,7 @@
      "sigs": [
       "interface SpanAtPointOptions"
      ],
+     "group": "Caret and selection",
      "summary": "Options for `spanAtPoint`.",
      "doc": [
       {
@@ -7693,6 +7791,7 @@
      "sigs": [
       "interface SymbolCommand"
      ],
+     "group": "Vocabulary",
      "summary": "A command that renders as a single symbol, such as `\\degree` for °.",
      "doc": [
       {
@@ -7790,6 +7889,7 @@
      "sigs": [
       "interface TextFallback"
      ],
+     "group": "Rendering",
      "summary": "A host font for the `\\text{…}` fallback (see `LayoutOptions.textFallback`).",
      "doc": [
       {
@@ -7871,6 +7971,7 @@
      "sigs": [
       "interface TextFallbackChar"
      ],
+     "group": "Rendering",
      "summary": "The size of a run of text, in em at font size 1, as returned by `TextFallback`'s `measure`: its `width`, its `ascent` above the baseline and its `depth` below it.",
      "doc": [
       {
@@ -7957,6 +8058,7 @@
      "sigs": [
       "interface ToSvgOptions"
      ],
+     "group": "Rendering",
      "summary": "Options for `toSVG`.",
      "doc": [
       {
@@ -8009,6 +8111,7 @@
      "sigs": [
       "type FontVariant =\n  | \"Main-Regular\"\n  | \"Main-Bold\"\n  | \"Main-Italic\"\n  | \"Main-BoldItalic\"\n  | \"Math-Italic\"\n  | \"Math-BoldItalic\"\n  | \"AMS-Regular\"\n  | \"Size1-Regular\"\n  | \"Size2-Regular\"\n  | \"Size3-Regular\"\n  | \"Size4-Regular\"\n  | \"Caligraphic-Regular\"\n  | \"Fraktur-Regular\"\n  | \"SansSerif-Regular\"\n  | \"Script-Regular\"\n  | \"Typewriter-Regular\""
      ],
+     "group": "Rendering",
      "summary": "One face of the math fonts, such as `\"Main-Bold\"`.",
      "doc": [
       {
@@ -8056,6 +8159,7 @@
      "sigs": [
       "type MathDocumentCaretAddress =\n  | MathDocumentRowPosition\n  | (Omit<MathDocumentFieldPosition, \"rowId\"> & {\n      readonly rowId?: MathItemId;\n    })"
      ],
+     "group": "Document layout",
      "summary": "A caret position to look up.",
      "doc": [
       {
@@ -8109,6 +8213,7 @@
      "sigs": [
       "type MathDocumentCaretPosition =\n  | MathDocumentRowPosition\n  | MathDocumentFieldPosition"
      ],
+     "group": "Document layout",
      "summary": "A caret position inside a `MathDocument`, named by stable ids rather than a text offset: either a gap between the children of a row, or a spot inside a text field.",
      "doc": [
       {
@@ -8146,6 +8251,7 @@
      "sigs": [
       "type MathDocumentItemType =\n  | \"root\"\n  | \"row\"\n  | \"matrix-row\"\n  | \"matrix-cell\"\n  | MathNode[\"type\"]"
      ],
+     "group": "Document layout",
      "summary": "The kind of thing a `MathDocumentItemLayout` describes: the root, a row, a matrix row or cell, or any `MathNode` type.",
      "doc": [
       {
@@ -8197,6 +8303,7 @@
      "sigs": [
       "type MathDocumentLayoutOptions = Omit<\n  LayoutOptions,\n  \"literalRange\" | \"literalBackslashes\"\n> & {\n  literalCaret?: Pick<MathDocumentFieldPosition, \"nodeId\" | \"field\" | \"offset\">;\n}"
      ],
+     "group": "Rendering",
      "summary": "Options for `layoutMathDocument`.",
      "doc": [
       {
@@ -8335,6 +8442,7 @@
      "sigs": [
       "type MathItemId = string"
      ],
+     "group": "Document",
      "summary": "Stable identity of an item in a `MathDocument`.",
      "doc": [
       {
@@ -8374,6 +8482,7 @@
      "sigs": [
       "type MathNode =\n  | MathRawText\n  | MathSymbol\n  | MathFraction\n  | MathRadical\n  | MathScripts\n  | MathAccent\n  | MathWrapper\n  | MathStack\n  | MathDelimited\n  | MathMatrix\n  | MathText\n  | MathOperator\n  | MathRawLatex"
      ],
+     "group": "Document",
      "summary": "Any one piece of a formula in a `MathDocument`: a symbol, a fraction, a square root, a matrix, and so on.",
      "doc": [
       {
@@ -8445,6 +8554,7 @@
      "sigs": [
       "type MathSymbolClass =\n  | \"mathord\"\n  | \"textord\"\n  | \"bin\"\n  | \"rel\"\n  | \"open\"\n  | \"close\"\n  | \"punct\"\n  | \"inner\"\n  | \"op\"\n  | \"accent\"\n  | \"spacing\""
      ],
+     "group": "Document",
      "summary": "The spacing class carried by a named or otherwise atomic symbol.",
      "doc": [
       {
@@ -8470,6 +8580,7 @@
      "sigs": [
       "type MathTextVariant =\n  | \"normal\"\n  | \"bold\"\n  | \"italic\"\n  | \"monospace\"\n  | \"sans-serif\""
      ],
+     "group": "Document",
      "summary": "The styles a `\\text`-family command can have, such as `\\textbf` for `\"bold\"`.",
      "doc": [
       {
@@ -8519,6 +8630,7 @@
      "sigs": [
       "const accentCommands: readonly string[]"
      ],
+     "group": "Vocabulary",
      "summary": "Accent commands (`hat`, `vec`, `widehat`) without the backslash, sorted.",
      "doc": [
       {
@@ -8603,6 +8715,7 @@
      "sigs": [
       "const ALL_VARIANTS: FontVariant[]"
      ],
+     "group": "Rendering",
      "summary": "Every font face the engine can draw with.",
      "doc": [
       {
@@ -8648,6 +8761,7 @@
      "sigs": [
       "const operatorCommands: readonly OperatorCommand[]"
      ],
+     "group": "Vocabulary",
      "summary": "Every named operator the engine draws (`arcsin`, `liminf`, …), without the backslash and sorted by name.",
      "doc": [
       {
@@ -8703,6 +8817,7 @@
      "sigs": [
       "const stackCommands: readonly string[]"
      ],
+     "group": "Vocabulary",
      "summary": "Control words stacking a script over/under a base: two braced slots.",
      "doc": [
       {
@@ -8727,6 +8842,7 @@
      "sigs": [
       "const symbolCommands: readonly SymbolCommand[]"
      ],
+     "group": "Vocabulary",
      "summary": "Every command that renders as a single symbol, sorted by name.",
      "doc": [
       {
@@ -8750,6 +8866,7 @@
      "sigs": [
       "const wrapperCommands: readonly string[]"
      ],
+     "group": "Vocabulary",
      "summary": "Commands, without the backslash and sorted, that wrap exactly one braced body: over and under lines, frames, fonts and alphabets, spacing-class commands like `\\mathbin`, phantoms, and `\\not`.",
      "doc": [
       {

@@ -60,6 +60,8 @@ export function titleBlockIndex(blocks: readonly Block[]): number {
  * });
  * createEditor({ element: bodyEl, doc, window: bodyBlocksWindow() });
  * ```
+ *
+ * @group Editor
  */
 export function titleBlockWindow(): ViewWindow {
   return {
@@ -89,6 +91,7 @@ export function titleBlockWindow(): ViewWindow {
  *   c.insertBlock({ type: "paragraph" }, { block: titleId, side: "after" }),
  * );
  * ```
+ * @group Editor
  */
 export function bodyBlocksWindow(): ViewWindow {
   return {
@@ -147,6 +150,8 @@ export function nextBlockInWindow(
  * A single-block {@link ViewWindow} scoped to the block with the given id, or an
  * empty window if that block is absent or deleted. Binds an editor to one
  * specific block of a shared doc (e.g. a card field or a comment body).
+ *
+ * @group Editor
  */
 export function blockIdWindow(id: string): ViewWindow {
   return {
