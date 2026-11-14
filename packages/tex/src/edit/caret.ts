@@ -1083,6 +1083,10 @@ function collectSelected(
       let hi = -Infinity;
       let count = 0;
       for (const c of box.textCarets) {
+        // A group-edge stop marks where the caret shows, not a character
+        // boundary — counting it would light a whole RTL word for a range that
+        // covers none of its letters (just `\text{`).
+        if (c.edge) continue;
         if (c.offset >= start && c.offset <= end) {
           lo = Math.min(lo, c.dx);
           hi = Math.max(hi, c.dx);

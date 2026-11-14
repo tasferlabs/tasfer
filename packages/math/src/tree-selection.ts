@@ -8,7 +8,17 @@
  */
 
 import { structuredToMathDocument } from "./structured";
-import type { MathTreeCaret } from "./tree-edit";
+// Every layout here must be the host one the block paints with: without its
+// text fallback, letters the math fonts lack (Arabic, Hebrew, CJK in `\text{…}`)
+// are zero-width and have no caret stops, so a source offset inside them would
+// resolve to the wrong place (select-all and double-click lost the Arabic word).
+import { layoutMathDocumentHost as layoutMathDocument } from "./tex-host";
+import {
+  type MathTreeCaret,
+  type MathTreeEditResult,
+  type MathTreeMotion,
+  moveMathTreeCaret,
+} from "./tree-edit";
 import type {
   ContentPoint,
   ContentSelection,
@@ -16,13 +26,13 @@ import type {
 import {
   findCharInRuns,
   getVisibleOffsetAfterChar,
+  getVisibleTextFromRuns,
 } from "@tasfer/editor/sync/char-runs";
 import {
   getStructuredChildren,
   type StructuredDocument,
 } from "@tasfer/editor/sync/structured-content";
 import {
-  layoutMathDocument,
   type MathDocument,
   type MathDocumentCaretPosition,
   mathDocumentCaretStop,
@@ -534,4 +544,164 @@ export function mathContentSelectionFromSourceOffset(
         lastUpdate,
       )
     : null;
+}
+
+/** Stops nearer than this many pixels count as the same caret position. */
+const SAME_SPOT_PX = 0.5;
+
+/**
+ * Horizontal arrow movement that follows what is on screen when right-to-left
+ * text (Arabic, Hebrew) sits inside a `\text{…}` group.
+ *
+ * The formula flows left to right, but the letters of such a word run right to
+ * left, so the tree's logical step (one letter forward/back in the text) moves
+ * the caret the opposite way on screen and jumps across the word when entering
+ * it. Here ← always moves the caret left and → right: inside the group it walks
+ * to the next letter boundary on that side, and at the group's edge it steps
+ * out beside it. Everything else (Latin or CJK text, symbols, constructs) keeps
+ * the ordinary logical movement.
+ */
+export function moveMathTreeCaretVisually(
+  document: StructuredDocument,
+  caret: MathTreeCaret,
+  motion: MathTreeMotion,
+): MathTreeEditResult {
+  if (motion === "arrow-left" || motion === "arrow-right") {
+    const step = rtlTextArrowStep(
+      document,
+      caret,
+      motion === "arrow-left" ? "left" : "right",
+    );
+    if (step && !step.sameSpot) {
+      return { handled: true, edits: [], caret: step.caret };
+    }
+    // Leaving the group lands on a spot the caret already shows at (the
+    // group's edge), so keep going one more step from there instead of
+    // spending a key press on no visible movement.
+    if (step) return moveMathTreeCaret(document, step.caret, motion);
+  }
+  return moveMathTreeCaret(document, caret, motion);
+}
+
+function rtlTextArrowStep(
+  document: StructuredDocument,
+  caret: MathTreeCaret,
+  direction: "left" | "right",
+): { readonly caret: MathTreeCaret; readonly sameSpot: boolean } | null {
+  const math = structuredToMathDocument(document);
+  if (!math) return null;
+  const position = mathTreeCaretPosition(document, caret);
+  if (!position) return null;
+  // The `\text` group involved: the one holding the caret, or the one the
+  // ordinary step would enter from beside it.
+  let textNodeId: string;
+  let inside: boolean;
+  if (caret.kind === "text" && document.nodes[caret.nodeId]?.type === "text") {
+    textNodeId = caret.nodeId;
+    inside = true;
+  } else {
+    const logical = moveMathTreeCaret(
+      document,
+      caret,
+      direction === "left" ? "arrow-left" : "arrow-right",
+    );
+    if (!logical.handled || logical.caret.kind !== "text") return null;
+    textNodeId = logical.caret.nodeId;
+    inside = false;
+  }
+  const node = document.nodes[textNodeId];
+  const rowId = node?.placement.parentId;
+  if (!node || node.deleted || node.type !== "text" || !rowId) return null;
+
+  const layout = layoutMathDocument(math);
+  const current = mathDocumentCaretStop(layout, position);
+  if (!current) return null;
+  const length = getVisibleTextFromRuns([
+    ...(node.textFields.text ?? []),
+  ]).length;
+  const letters: { offset: number; x: number }[] = [];
+  for (let offset = 0; offset <= length; offset++) {
+    const stop = mathDocumentCaretStop(layout, {
+      kind: "field",
+      rowId,
+      nodeId: textNodeId,
+      field: "text",
+      offset,
+    });
+    if (!stop) return null;
+    letters.push({ offset, x: stop.x });
+  }
+  // Only right-to-left letters need this: somewhere a later letter boundary
+  // shows to the LEFT of an earlier one.
+  const reversed = letters.some(
+    (letter, i) => i > 0 && letter.x < letters[i - 1].x - SAME_SPOT_PX,
+  );
+  if (!reversed) return null;
+
+  // The nearest letter boundary on the requested side of the caret.
+  let target: { offset: number; x: number } | null = null;
+  for (const letter of letters) {
+    const ahead =
+      direction === "left"
+        ? letter.x < current.x - SAME_SPOT_PX
+        : letter.x > current.x + SAME_SPOT_PX;
+    if (!ahead) continue;
+    if (
+      !target ||
+      (direction === "left" ? letter.x > target.x : letter.x < target.x)
+    ) {
+      target = letter;
+    }
+  }
+  if (target) {
+    const point = mathDocumentPositionToContentPoint(
+      "math-layout-host",
+      document.rootId,
+      document,
+      {
+        kind: "field",
+        rowId,
+        nodeId: textNodeId,
+        field: "text",
+        offset: target.offset,
+      },
+    );
+    const next = point ? contentPointToMathTreeCaret(document, point) : null;
+    return next ? { caret: next, sameSpot: false } : null;
+  }
+  if (!inside) return null;
+
+  // Past the group's edge: the gap beside it on that side. The formula flows
+  // left to right, so the gap on the left is the one before the group.
+  const siblings = getStructuredChildren(document, rowId, "children");
+  const index = siblings.findIndex((child) => child.id === textNodeId);
+  if (index < 0) return null;
+  const gap = direction === "left" ? index : index + 1;
+  const gapStop = mathDocumentCaretStop(layout, {
+    kind: "row",
+    rowId,
+    offset: gap,
+  });
+  return {
+    caret: {
+      kind: "row",
+      rowId,
+      afterNodeId: siblings[gap - 1]?.id ?? null,
+    },
+    sameSpot: !gapStop || Math.abs(gapStop.x - current.x) <= SAME_SPOT_PX,
+  };
+}
+
+/** The stable layout address of a tree caret. */
+function mathTreeCaretPosition(
+  document: StructuredDocument,
+  caret: MathTreeCaret,
+): MathDocumentCaretPosition | null {
+  const point = mathTreeCaretToContentSelection(
+    "math-layout-host",
+    document.rootId,
+    document,
+    caret,
+  )?.focus;
+  return point ? contentPointToMathDocumentPosition(document, point) : null;
 }
