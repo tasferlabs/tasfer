@@ -21,7 +21,7 @@
  */
 
 import { analyzeLineBidi } from "./bidi";
-import { isMidSurrogatePair } from "./code-points";
+import { isInsideEmoji, isMidSurrogatePair } from "./code-points";
 import {
   type FontFamily,
   getFontMetrics,
@@ -759,7 +759,15 @@ export function textOffsetAtPoint(
 }
 
 // Every candidate offset below skips the middle of a surrogate pair: a caret
-// there splits an emoji, and the next keystroke stores two lone halves.
+// there splits an emoji, and the next keystroke stores two lone halves. It also
+// skips the inside of a many-part emoji (a family, a flag, a skin tone): the
+// width measured to a point inside one is the width of its loose parts, which
+// can reach past the emoji's own right edge, so a click on the next character
+// used to land inside it.
+function isCaretSplit(text: string, i: number): boolean {
+  return isMidSurrogatePair(text, i) || isInsideEmoji(text, i);
+}
+
 function offsetWithinLine(
   layout: TextLayout,
   line: RenderedLine,
@@ -814,7 +822,7 @@ function offsetWithinLine(
     let best = chosen.start;
     let bestDist = Infinity;
     for (let i = chosen.start; i <= chosen.end; i++) {
-      if (isMidSurrogatePair(lineText, i)) continue;
+      if (isCaretSplit(lineText, i)) continue;
       // Visual x of logical boundary i within the run: LTR grows from the
       // run's left; RTL grows from its right (reversed).
       const vx =
@@ -886,7 +894,7 @@ function offsetWithinLine(
     let bestPosition = lineStartIndex;
     let minDistance = Infinity;
     for (let i = 0; i <= lineText.length; i++) {
-      if (isMidSurrogatePair(lineText, i)) continue;
+      if (isCaretSplit(lineText, i)) continue;
       const charVisualX = edges.right - lead - positionWidths[i];
       const distance = Math.abs(relativeX - charVisualX);
       if (distance < minDistance) {
@@ -903,7 +911,7 @@ function offsetWithinLine(
   let bestPosition = lineStartIndex;
   let minDistance = Math.abs(relativeX - start);
   for (let i = 0; i <= lineText.length; i++) {
-    if (isMidSurrogatePair(lineText, i)) continue;
+    if (isCaretSplit(lineText, i)) continue;
     const distance = Math.abs(relativeX - (start + positionWidths[i]));
     if (distance < minDistance) {
       minDistance = distance;
