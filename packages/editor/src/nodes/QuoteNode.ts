@@ -19,7 +19,7 @@ import type {
 import { invalidateBlockCache } from "../rendering/renderer";
 import { clearSelection, moveCursorToPosition } from "../selection";
 import type { NodeCodec } from "../serlization/codecs/types";
-import type { Char, CharRun, MarkSpan } from "../serlization/loadPage";
+import type { CharRun, MarkSpan } from "../serlization/loadPage";
 import { NEWLINE, QUOTE } from "../serlization/tokenizer";
 import type {
   EditorState,
@@ -58,30 +58,15 @@ export class QuoteNode extends TextNode {
     return styles.blocks.quote;
   }
 
-  protected override estimateLayoutMaxWidth(
+  /**
+   * The card's inner padding on the side opposite the accent, so wrapped text
+   * stops short of the card edge on the line-end side — mirrored for RTL.
+   */
+  protected override trailingInset(
     _block: TextualBlock,
-    maxWidth: number,
     styles: EditorStyles,
   ): number {
-    return maxWidth - styles.blocks.quote.paddingX;
-  }
-
-  override computeLayout(
-    block: TextualBlock,
-    maxWidth: number,
-    styles: EditorStyles,
-    content?: {
-      chars: Char[];
-      formats: MarkSpan[];
-      compositionRange: { start: number; end: number } | null;
-    },
-  ): TextNodeLayout {
-    return super.computeLayout(
-      block,
-      maxWidth - styles.blocks.quote.paddingX,
-      styles,
-      content,
-    );
+    return styles.blocks.quote.paddingX;
   }
 
   protected override leadingInset(

@@ -155,6 +155,8 @@ export interface TextNodeLayout extends NodeLayout, TextLayout {
   readonly formats: MarkSpan[];
   readonly indentOffset: number;
   readonly markerWidth: number;
+  /** Space kept free on the line-end side of the text. See `trailingInset`. */
+  readonly trailingInset: number;
   /**
    * Vertical inset before the first line (and mirrored after the last via the
    * style's paddingBottom). Resolved from the style's `paddingTop` — headings
@@ -163,7 +165,7 @@ export interface TextNodeLayout extends NodeLayout, TextLayout {
    * selection) starts from `blockTop + insetY`.
    */
   readonly insetY: number;
-  /** Content width available to text (maxWidth minus list indent + marker). */
+  /** Content width available to text (maxWidth minus leading + trailing insets). */
   readonly adjustedMaxWidth: number;
 }
 
@@ -1245,15 +1247,13 @@ export class TextNode<
       this.textStyle(c.styles, block.type),
       block.style,
     );
-    const layoutMaxWidth = this.estimateLayoutMaxWidth(
-      block,
-      c.maxWidth,
-      c.styles,
-    );
     const { indentOffset, markerWidth } = this.leadingInset(block, c.styles);
     const usableWidth = Math.max(
       1,
-      layoutMaxWidth - indentOffset - markerWidth,
+      c.maxWidth -
+        indentOffset -
+        markerWidth -
+        this.trailingInset(block, c.styles),
     );
     const averageGlyphWidth = textStyle.fontSize * 0.55;
     const charsPerLine = Math.max(
@@ -1282,19 +1282,6 @@ export class TextNode<
     const layout = this.layout(c);
     const first = layout.lines[0];
     return layout.insetY + (first ? first.y + first.height / 2 : 0);
-  }
-
-  /**
-   * Width handed to the shared text layout before leading insets are removed.
-   * CodeNode overrides this because its right-side container padding is applied
-   * before TextNode's left-side leading inset.
-   */
-  protected estimateLayoutMaxWidth(
-    _block: B,
-    maxWidth: number,
-    _styles: EditorStyles,
-  ): number {
-    return maxWidth;
   }
 
   /**
@@ -1351,7 +1338,9 @@ export class TextNode<
     // the layout here means every downstream pass (caret, selection, hit-test)
     // gets correct geometry without re-checking the block type.
     const { indentOffset, markerWidth } = this.leadingInset(block, styles);
-    const adjustedMaxWidth = maxWidth - indentOffset - markerWidth;
+    const trailingInset = this.trailingInset(block, styles);
+    const adjustedMaxWidth =
+      maxWidth - indentOffset - markerWidth - trailingInset;
     const insetY = this.contentInsetY(block, styles, textStyle);
 
     const chars = content?.chars ?? charRunsToChars(block.charRuns);
@@ -1396,16 +1385,26 @@ export class TextNode<
       maxWidth,
       indentOffset,
       markerWidth,
+      trailingInset,
       insetY,
       adjustedMaxWidth,
     };
   }
 
-  /** Base text x (left edge of the text area) given the block's left origin. */
+  /**
+   * Left edge of the text area given the block's left origin — the one answer
+   * the painter and every geometry pass (caret, selection, hit-test) share, so
+   * a highlight always lands on the glyphs it covers.
+   *
+   * The leading inset (list indent + marker gutter, a quote's accent, a code
+   * box's padding) sits on the line-start side and the trailing inset on the
+   * line-end side. Both swap sides with the block's direction: RTL text is
+   * mirrored, so its area starts after the trailing inset and the leading inset
+   * follows its `adjustedMaxWidth` on the right.
+   */
   private baseX(layout: TextNodeLayout, originX: number): number {
-    if (layout.indentOffset === 0 && layout.markerWidth === 0) return originX;
     return layout.isRTL
-      ? originX + layout.indentOffset
+      ? originX + layout.trailingInset
       : originX + layout.indentOffset + layout.markerWidth;
   }
 
@@ -1611,7 +1610,6 @@ export class TextNode<
       fontMetrics,
       codePadding,
       indentOffset,
-      markerWidth,
       insetY,
       adjustedMaxWidth,
       chars: renderChars,
@@ -1619,18 +1617,12 @@ export class TextNode<
       compositionRange,
     } = layout;
 
-    // Marker / text-area x positions. For non-list blocks indentOffset and
-    // markerWidth are 0, so adjustedX === x and markerX is unused (no marker is
-    // painted) — the same result the old isListBlock branch produced.
-    let adjustedX: number;
-    let markerX: number;
-    if (isRTL) {
-      adjustedX = x;
-      markerX = x + adjustedMaxWidth;
-    } else {
-      markerX = x + indentOffset;
-      adjustedX = x + indentOffset + markerWidth;
-    }
+    // Marker / text-area x positions. The text area comes from `baseX`, the
+    // same edge the caret, selection and hit-test passes use. The marker gutter
+    // sits on the line-start side of it: right after the text for RTL, after
+    // the indent for LTR. Blocks without a marker never paint at `markerX`.
+    const adjustedX = this.baseX(layout, x);
+    const markerX = isRTL ? adjustedX + adjustedMaxWidth : x + indentOffset;
 
     const renderedLines: RenderedLine[] = [];
     const fullContent = getBlockTextContent(runtimeBlock);
@@ -2015,6 +2007,16 @@ export class TextNode<
     _styles: EditorStyles,
   ): { indentOffset: number; markerWidth: number } {
     return { indentOffset: 0, markerWidth: 0 };
+  }
+
+  /**
+   * Horizontal space kept free on the line-END side of the text (the right for
+   * LTR, the left for RTL) — a card's inner padding opposite its accent. Zero
+   * for plain blocks. Like `leadingInset` it is folded into `computeLayout`, so
+   * it mirrors with the block's direction in every pass at once.
+   */
+  protected trailingInset(_block: B, _styles: EditorStyles): number {
+    return 0;
   }
 
   /**
