@@ -10,10 +10,6 @@ import AppSelfHostingEn from "./pages/app/self-hosting.mdx";
 import AppSupportEn from "./pages/app/support.mdx";
 import AppSyncRelayEn from "./pages/app/sync-relay.mdx";
 import AppTroubleshootingEn from "./pages/app/troubleshooting.mdx";
-import EditorApiCommandsEn from "./pages/editor/api-commands.mdx";
-import EditorApiEditorEn from "./pages/editor/api-editor.mdx";
-import EditorApiReactEn from "./pages/editor/api-react.mdx";
-import EditorApiSchemaEn from "./pages/editor/api-schema.mdx";
 import EditorCollaborationEn from "./pages/editor/collaboration.mdx";
 import EditorConceptsEn from "./pages/editor/concepts.mdx";
 import EditorCustomNodesEn from "./pages/editor/custom-nodes.mdx";
@@ -51,10 +47,6 @@ export const AppTroubleshooting = localizedMdx(
 );
 /* The editor SDK articles are English-only for now: their Arabic translations
  * were pulled, so they render the same article in every locale. */
-export const EditorApiCommands = EditorApiCommandsEn;
-export const EditorApiEditor = EditorApiEditorEn;
-export const EditorApiReact = EditorApiReactEn;
-export const EditorApiSchema = EditorApiSchemaEn;
 export const EditorCollaboration = EditorCollaborationEn;
 export const EditorConcepts = EditorConceptsEn;
 export const EditorCustomNodes = EditorCustomNodesEn;

@@ -60,11 +60,11 @@ class CalloutNode extends AtomicNode {
 const schema = baseSchema.extend({ nodes: [new CalloutNode()] });
 ```
 
-You can also look at the [reference](/docs/editor/api-schema#definenode) for more details.
+You can also look at the [reference](/docs/editor/reference?pkg=editor#defineNode) for more details.
 
 <h3 id="nested-caret">A caret inside a node's own content</h3>
 
-Most nodes, such as the text node, hold their text in the block, and the caret points at it by index. Not all nodes can do that. A table keeps its cells in a structured attachment, a separate tree stored next to the block (see [tables](/docs/editor/api-schema#table)). There is no index there, so the node handles the caret itself, in both directions:
+Most nodes, such as the text node, hold their text in the block, and the caret points at it by index. Not all nodes can do that. A table keeps its cells in a structured attachment, a separate tree stored next to the block (see [tables](/docs/editor/reference?pkg=table#tableExtension)). There is no index there, so the node handles the caret itself, in both directions:
 
 ```ts
 class GridNode extends Node {
@@ -126,9 +126,9 @@ With it, phones show selection handles on the range and let you drag them, a tap
 
 If your content takes some pieces whole (a formula's √), a handle crossing such a piece shades the covered part, and the piece joins the range once the finger is past its middle. The shade uses the theme's `selection.opacity`. Return `opacity` when your node fills its band at another strength, so the two look like one highlight.
 
-**Collaborators.** A peer's caret in your content is placed with the same `contentCaretRect`, so you write nothing extra. Their selection is yours to paint. In `paint`, loop over `decorationsForBlock(state.ui.decorations, block.id)` and pass your rects to `paintDecorationRects(ctx, rects, deco, styles)`. It draws the fill or the underline, whichever the [decoration](/docs/editor/api-editor#decorations) asks for. Give each rect a `baseline` so an underline sits under the text. For a box with no text, build the rect with `boxDecorationRect(box, deco)`.
+**Collaborators.** A peer's caret in your content is placed with the same `contentCaretRect`, so you write nothing extra. Their selection is yours to paint. In `paint`, loop over `decorationsForBlock(state.ui.decorations, block.id)` and pass your rects to `paintDecorationRects(ctx, rects, deco, styles)`. It draws the fill or the underline, whichever the [decoration](/docs/editor/reference?pkg=editor#Decoration) asks for. Give each rect a `baseline` so an underline sits under the text. For a box with no text, build the rect with `boxDecorationRect(box, deco)`.
 
-**Text.** To draw and measure text the way paragraphs do (marks, Arabic, formulas, IME), use the engine's own helpers such as `paintTextRun` and `layoutText`. See [Text inside a custom node](/docs/editor/api-schema#text-helpers).
+**Text.** To draw and measure text the way paragraphs do (marks, Arabic, formulas, IME), use the engine's own helpers such as [`paintTextRun`](/docs/editor/reference?pkg=editor#paintTextRun) and [`layoutText`](/docs/editor/reference?pkg=editor#layoutText).
 
 <h3 id="document-edge">Leaving a node at the document's edge</h3>
 
@@ -400,8 +400,8 @@ if (block?.type === "callout") {
 
 Two more things live in the reference, because most nodes never need them:
 
-- Your own markdown syntax: `markdownSyntax` on [`defineNode`](/docs/editor/api-schema#definenode) and [`defineMark`](/docs/editor/api-schema#definemark).
-- Marks whose content lives in an attachment, like an inline formula: [Marks inside structured content](/docs/editor/api-schema#structured-marks).
+- Your own markdown syntax: `markdownSyntax` on [`defineNode`](/docs/editor/reference?pkg=editor#defineNode) and [`defineMark`](/docs/editor/reference?pkg=editor#defineMark).
+- Marks whose content lives in an attachment, like an inline formula: [`StructuredMarkFacet`](/docs/editor/reference?pkg=editor#StructuredMarkFacet).
 
 <Callout kind="tip" title="Schema changes are CRDT-safe.">
   Blocks are stored by type *name*, so a peer on the same schema merges your
@@ -411,13 +411,13 @@ Two more things live in the reference, because most nodes never need them:
   migration.
 </Callout>
 
-To limit which types an editor may _create_ (a one-line title, a comment box), use [`restrict`](/docs/editor/api-schema#restrict). It only blocks creating: the editor still shows a `callout` that a collaborator or a paste brings in.
+To limit which types an editor may _create_ (a one-line title, a comment box), use [`restrict`](/docs/editor/reference?pkg=editor#Schema.restrict). It only blocks creating: the editor still shows a `callout` that a collaborator or a paste brings in.
 
 <h2 id="next">What to read next</h2>
 
 <CardGrid>
   <Card
-    to="editor/api-schema"
+    to="editor/reference?pkg=editor#Schema"
     icon={<Icons.Book />}
     title="Schema & nodes"
     desc="defineNode, defineMark, extend, and the allow-list that gates what an editor may author."

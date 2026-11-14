@@ -80,7 +80,7 @@ Display and inline forms convert into each other losslessly.
 
 ## Documentation
 
-[tasfer.app/docs/editor/api-schema#math](https://www.tasfer.app/docs/editor/api-schema#math)
+[tasfer.app/docs/editor/reference?pkg=math](https://www.tasfer.app/docs/editor/reference?pkg=math)
 
 ## License
 

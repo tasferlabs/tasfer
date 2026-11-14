@@ -38,7 +38,7 @@ const editor = createEditor({
 
 **Tokens or styles?** `tokens` are the colors: text, heading, cursor, selection, link, and so on. `styles` is for everything finer, like the font size of one block type, the padding, or the scrollbar. You can override any single value in it.
 
-**One block, not all of them.** A theme styles every block of a type the same way. To style one block, give it its own `style` with `setBlock({ style: { … } })` (see [Changes & actions](/docs/editor/api-commands)). The block's own style wins over the theme, and the theme wins over the defaults.
+**One block, not all of them.** A theme styles every block of a type the same way. To style one block, give it its own `style` with `setBlock({ style: { … } })` (see [`ChangeApi`](/docs/editor/reference?pkg=editor#ChangeApi)). The block's own style wins over the theme, and the theme wins over the defaults.
 
 Keys under `styles.blocks` are camelCase (`bulletList`, `numberedList`, `todoList`), while block type names use underscores (`bullet_list`).
 
@@ -138,7 +138,7 @@ editor.setTheme({
     desc="Add your own blocks and inline styles: callouts, mentions, embeds."
   />
   <Card
-    to="editor/api-editor"
+    to="editor/reference?pkg=editor#createEditor"
     icon={<Icons.Braces />}
     title="Editor API"
     desc="Every option, method, and event on the Editor instance."

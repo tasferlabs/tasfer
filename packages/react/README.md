@@ -87,7 +87,7 @@ imperative handle (`setTheme`, `setMarkdown`, `change`, …).
 
 ## Documentation
 
-[tasfer.app/docs/editor/api-react](https://www.tasfer.app/docs/editor/api-react)
+[tasfer.app/docs/editor/reference?pkg=react](https://www.tasfer.app/docs/editor/reference?pkg=react)
 
 ## License
 

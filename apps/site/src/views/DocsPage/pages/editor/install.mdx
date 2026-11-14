@@ -30,9 +30,9 @@ For React, add the binding too. It needs React 19:
 
 The big features are separate packages, so they stay out of your bundle until you ask for them:
 
-- [`@tasfer/math`](/docs/editor/api-schema#math) and `@tasfer/tex`: formulas. Install both.
-- [`@tasfer/code`](/docs/editor/api-schema#code): code blocks with syntax highlighting.
-- [`@tasfer/table`](/docs/editor/api-schema#table): tables.
+- [`@tasfer/math`](/docs/editor/reference?pkg=math#mathExtension) and `@tasfer/tex`: formulas. Install both.
+- [`@tasfer/code`](/docs/editor/reference?pkg=code#codeExtension): code blocks with syntax highlighting.
+- [`@tasfer/table`](/docs/editor/reference?pkg=table#tableExtension): tables.
 - [`@tasfer/provider-relay`](/docs/editor/collaboration): editing together over the network.
 
 <h2 id="requirements">Requirements</h2>
@@ -114,14 +114,14 @@ export default function App() {
     desc="A guided tutorial: toolbar, saving, and live collaboration."
   />
   <Card
-    to="editor/api-editor"
+    to="editor/reference?pkg=editor#createEditor"
     icon={<Icons.Braces />}
     title="Editor API"
     desc="Every option, method, and event on the Editor instance."
   />
   <ForFramework fw="react">
     <Card
-      to="editor/api-react"
+      to="editor/reference?pkg=react#Editor"
       icon={<Icons.Braces />}
       title="React bindings"
       desc="The Editor component, useEditor, and the state hooks."

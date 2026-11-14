@@ -2,7 +2,11 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "redirects": [
-    { "source": "/page/:path*", "destination": "/app/page/:path*", "permanent": false }
+    { "source": "/page/:path*", "destination": "/app/page/:path*", "permanent": false },
+    { "source": "/:lang(en|ar)/docs/editor/api-react", "destination": "/:lang/docs/editor/reference?pkg=react", "permanent": true },
+    { "source": "/:lang(en|ar)/docs/editor/api-:page(editor|commands|schema)", "destination": "/:lang/docs/editor/reference", "permanent": true },
+    { "source": "/docs/editor/api-react", "destination": "/docs/editor/reference?pkg=react", "permanent": true },
+    { "source": "/docs/editor/api-:page(editor|commands|schema)", "destination": "/docs/editor/reference", "permanent": true }
   ],
   "installCommand": "npm ci",
   "ignoreCommand": "bash -c 'if [[ \"$VERCEL_GIT_COMMIT_MESSAGE\" == *\"[force deploy]\"* ]]; then exit 1; fi; if [[ \"$VERCEL_GIT_COMMIT_MESSAGE\" == *\"[skip ci]\"* ]]; then exit 0; fi; git diff --quiet HEAD^ HEAD -- .'"

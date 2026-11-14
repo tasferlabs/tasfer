@@ -1,7 +1,13 @@
 {/* @tasfer/editor docs — Realtime collaboration. */}
 
 import { Icons } from "../../docsIcons";
-import { Callout, Card, CardGrid, Lede, PropsTable } from "../../docsComponents";
+import {
+  Callout,
+  Card,
+  CardGrid,
+  Lede,
+  PropsTable,
+} from "../../docsComponents";
 
 <Lede>
   A provider sends edits between people. Swap the provider to change *how*
@@ -10,12 +16,31 @@ import { Callout, Card, CardGrid, Lede, PropsTable } from "../../docsComponents"
 
 <h2 id="providers">Choosing a provider</h2>
 
-<PropsTable cols={["Provider", "How it connects", "Use it when"]} rows={[
-  { name: "provider-relay", type: "WebSocket relay", desc: "People are behind firewalls or home routers. A small server passes the edits along, encrypted with a room secret it never gets." },
-  { name: "provider-webrtc", type: "Peer-to-peer", desc: "Browsers talk to each other directly, so it is the fastest. A small signaling server is needed only to introduce them." },
-  { name: "provider-indexeddb", type: "Local disk", desc: "Not a network provider. It saves the document in the browser, so a reload is instant and works offline." },
-  { name: "custom", type: "Anything", desc: "Write a Transport (from @tasfer/provider-core) and give it to createProvider. Sync over your own backend, a BroadcastChannel, or a file watcher." },
-]} />
+<PropsTable
+  cols={["Provider"]}
+  rows={[
+    {
+      name: "provider-relay",
+      type: "WebSocket relay",
+      desc: "People are behind firewalls or home routers. A small server passes the edits along, encrypted with a room secret it never gets.",
+    },
+    {
+      name: "provider-webrtc",
+      type: "Peer-to-peer",
+      desc: "Browsers talk to each other directly, so it is the fastest. A small signaling server is needed only to introduce them.",
+    },
+    {
+      name: "provider-indexeddb",
+      type: "Local disk",
+      desc: "Not a network provider. It saves the document in the browser, so a reload is instant and works offline.",
+    },
+    {
+      name: "custom",
+      type: "Anything",
+      desc: "Write a Transport (from @tasfer/provider-core) and give it to createProvider. Sync over your own backend, a BroadcastChannel, or a file watcher.",
+    },
+  ]}
+/>
 
 <h3 id="relay-privacy">What the relay can see</h3>
 
@@ -43,7 +68,7 @@ const net = createRelayProvider({
   doc: editor.doc,
   room: "team-notes",
   relay: "wss://relay.tasfer.app",
-  secret: roomSecret,   // share it with people yourself, never with the relay
+  secret: roomSecret, // share it with people yourself, never with the relay
 });
 ```
 
@@ -60,7 +85,7 @@ net.presence.on("change", (peers) => {
 });
 ```
 
-The editor itself does not know about other people. It only draws [decorations](/docs/editor/api-editor#decorations): a caret decoration for someone's caret, and a range decoration for their selection. `bindPresenceCursors` connects presence to decorations for you:
+The editor itself does not know about other people. It only draws [decorations](/docs/editor/reference?pkg=editor#Decoration): a caret decoration for someone's caret, and a range decoration for their selection. `bindPresenceCursors` connects presence to decorations for you:
 
 ```ts
 import { bindPresenceCursors } from "@tasfer/provider-core/cursors";
@@ -76,11 +101,16 @@ Each person gets their own decoration layer, named `presence:<peerId>`.
 
 Sending presence over your own transport? Use the two functions underneath. `selectionToCursorPresence(editor.state.selection.range, user)` makes the object to send. `cursorPresenceToDecorations(peerId, state)` turns a received one into decorations for ``editor.view.setDecorations(`presence:${peerId}`, …)``.
 
-<Callout kind="note" title="Offline is not a special case.">Disconnect, edit for an hour on a plane, reconnect. Your changes merge with everyone else's, and everyone ends up with the same document. There is no "resolve conflicts" dialog because there are no conflicts. [Core concepts](/docs/editor/concepts#crdt) explains why.</Callout>
+<Callout kind="note" title="Offline is not a special case.">
+  Disconnect, edit for an hour on a plane, reconnect. Your changes merge with
+  everyone else's, and everyone ends up with the same document. There is no
+  "resolve conflicts" dialog because there are no conflicts. [Core
+  concepts](/docs/editor/concepts#crdt) explains why.
+</Callout>
 
 <h2 id="schemas">Peers with different schemas</h2>
 
-Two people editing the same document do not need the same schema. A schema limits what you can *create*, not what you can *see* (see [restricting a schema](/docs/editor/api-schema#restrict)). If your schema only allows headings and someone else adds a bullet list, you still see the list. You just cannot make one yourself.
+Two people editing the same document do not need the same schema. A schema limits what you can _create_, not what you can _see_ (see [restricting a schema](/docs/editor/reference?pkg=editor#Schema.restrict)). If your schema only allows headings and someone else adds a bullet list, you still see the list. You just cannot make one yourself.
 
 The same goes for old versions. An older build that does not know a newer block type keeps that block's data, so saving never loses it. It shows the block once its schema learns the type.
 
@@ -90,7 +120,7 @@ If you write your own provider, never filter or drop edits you do not recognize.
 
 <CardGrid>
   <Card
-    to="editor/api-editor"
+    to="editor/reference?pkg=editor#createEditor"
     icon={<Icons.Braces />}
     title="Editor API"
     desc="Every option, method, and event on the Editor instance."
