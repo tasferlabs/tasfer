@@ -53,6 +53,7 @@ import {
   moveCursorPageUp,
   moveCursorRight,
   moveCursorToPosition,
+  updateSelectionFocus,
   verticalStepFromNestedCaret,
 } from "@tasfer/editor/selection";
 import type {
@@ -1149,9 +1150,9 @@ export function extendActiveInlineMathTreeSelectionHorizontally(
 
 /**
  * Extend OUT of the formula when a horizontal Shift+Arrow is already at its
- * edge: the nested selection degrades to a flat selection covering the chip
- * whole, so the next press continues into the host prose instead of the
- * keystroke dying at the formula boundary. In an RTL host block the visual
+ * edge: the nested selection hands over to a flat one that keeps the part of
+ * the formula it held and takes the first step into the host prose, instead
+ * of the keystroke dying at the formula boundary. In an RTL host block the visual
  * sides swap — the prose visually right of the chip is logically BEFORE it —
  * so the flat focus lands on the run's opposite offset.
  */
@@ -1169,7 +1170,18 @@ export function exitActiveInlineMathTreeSelectionHorizontally(
         ? context.run.endIndex
         : context.run.startIndex,
   });
-  return exited ? { state: exited, ops: [], handled: true } : undefined;
+  if (!exited) return undefined;
+  // The flat selection keeps the part of the formula the range inside held,
+  // so on its own the handover shows no change. Take this press's step into
+  // the host text too, or the keystroke would seem to do nothing.
+  const moved =
+    direction === "right" ? moveCursorRight(exited) : moveCursorLeft(exited);
+  const landed = moved.document.cursor?.position;
+  return {
+    state: landed ? updateSelectionFocus(moved, landed) : exited,
+    ops: [],
+    handled: true,
+  };
 }
 
 /** Whether a nested selection currently belongs to an attached inline tree. */

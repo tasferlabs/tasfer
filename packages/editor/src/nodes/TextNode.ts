@@ -71,6 +71,10 @@ import {
   type Point,
 } from "../rendering/nodes/Node";
 import { getBlockDirection } from "../rtl";
+import {
+  flatRangeOutsideParts,
+  selectionInsideParts,
+} from "../selection-inside";
 import type { InputCtx, NodeCodec } from "../serlization/codecs/types";
 import type {
   Block,
@@ -1801,6 +1805,10 @@ export class TextNode<
     // entire block instead of a zero-width slice, mirroring the math node.
     const localSel = state.document.selection;
     if (localSel && !localSel.isCollapsed) {
+      // A formula the selection takes only part of (it starts or ends inside
+      // the formula) is left out of the ribbon and filled through the
+      // formula's own geometry instead, like a range inside it.
+      const insideParts = selectionInsideParts(state);
       // The node-selection sentinel collapses anchor and focus onto one position
       // while staying non-collapsed (see `isNodeSelection` / the whole-block
       // branch of `deleteSelectedText`). Highlight the whole block in that case.
@@ -1814,15 +1822,28 @@ export class TextNode<
             focus: { blockIndex, textIndex: fullContent.length },
             isForward: true,
           }
-        : localSel;
-      const rects = this.selectionRects(layout, sel, blockIndex, x, y, true);
-      this.fillRects(
-        ctx,
-        rects,
-        styles.selection.backgroundColor,
-        styles.selection.opacity,
-        styles.selection.cornerRadius,
-      );
+        : insideParts.length > 0
+          ? flatRangeOutsideParts(localSel, insideParts)
+          : localSel;
+      if (sel) {
+        const rects = this.selectionRects(layout, sel, blockIndex, x, y, true);
+        this.fillRects(
+          ctx,
+          rects,
+          styles.selection.backgroundColor,
+          styles.selection.opacity,
+          styles.selection.cornerRadius,
+        );
+      }
+      for (const part of insideParts) {
+        this.fillRects(
+          ctx,
+          nestedSelectionRects(part.selection),
+          styles.selection.backgroundColor,
+          styles.selection.opacity,
+          styles.selection.cornerRadius,
+        );
+      }
     }
 
     // Nested selection held inside a replacement run (an inline chip's

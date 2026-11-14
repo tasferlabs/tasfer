@@ -23,11 +23,11 @@ import {
 } from "../actions/actions";
 import {
   buildClipboardPayload,
-  pastedPlainText,
   copySelectionToClipboard,
   cutSelectionToClipboard,
   getSelectionPlainText,
   type HostClipboard,
+  pastedPlainText,
   pasteFromSystemClipboard,
 } from "../actions/clipboard";
 import { DROP_TEXT, REMOVE_DRAGGED_TEXT } from "../actions/drag-actions";
@@ -140,6 +140,7 @@ import { updateFocus } from "../selection";
 import { updateCursor } from "../selection";
 import { clearSelection } from "../selection";
 import { updateSelection } from "../selection";
+import { selectionInsideParts } from "../selection-inside";
 import {
   type Block,
   type CharRun,
@@ -581,6 +582,8 @@ export interface EditorViewApi {
    * menu/typeahead builds on: e.g. a slash plugin anchors at the `/` position so
    * its popover stays put as the caret moves through the filter text; pass
    * `"caret"` to anchor an IME/autocomplete overlay to the current caret.
+   * For a selection whose moving end stops inside an inline formula, `"caret"`
+   * is that stop, not the formula's edge.
    */
   coordsAtPos: (point: DocPoint) => {
     x: number;
@@ -5405,6 +5408,17 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   coordsAtPos = (
     point: DocPoint,
   ): { x: number; y: number; height: number } | null => {
+    if (point === "caret") {
+      // A selection whose moving end stops inside a formula keeps its flat
+      // caret on the formula's edge, so the range covers the formula's
+      // character. The end the user sees and drags is the stop: anchored on
+      // the flat caret, a phone's magnifier showed the start of the formula
+      // while the handle was in the middle of it.
+      const stop = selectionInsideParts(this._state).find(
+        (part) => part.end === "focus",
+      );
+      if (stop) return this.coordsAtContentPoint(stop.selection.anchor);
+    }
     const resolved = resolvePoint(this._state, point);
     if (!resolved) {
       // A caret inside content a node owns (a table cell) has no flat offset;

@@ -1,3 +1,4 @@
+import { undrawnCompositionCaret } from "../composition";
 import {
   BLOCK_DRAG_HANDLE_GRIP_HEIGHT,
   BLOCK_DRAG_HANDLE_GRIP_WIDTH,
@@ -7,7 +8,6 @@ import type {
   IndicatorHitArea,
   InteractionSession,
 } from "../events/interaction-session";
-import { undrawnCompositionCaret } from "../composition";
 import { currentFontFamily, getFontStack } from "../fonts";
 import { caretMarkEdgeSide, contentCaretMarkEdge } from "../mark-edge";
 import {
@@ -22,6 +22,7 @@ import {
   isNodeSelection,
   selectionHighlightEdge,
 } from "../selection";
+import { selectionInsideParts } from "../selection-inside";
 import type { Block, Char, MarkSpan } from "../serlization/loadPage";
 import type {
   EditorState,
@@ -1765,7 +1766,7 @@ function getSelectionHandlePositionsForRender(
     return null;
   }
 
-  return {
+  const positions = {
     anchor: {
       x: anchorCoords.x,
       y: anchorCoords.y,
@@ -1779,6 +1780,21 @@ function getSelectionHandlePositionsForRender(
       isTop: !isForward,
     },
   };
+  // An end that stops inside a formula hangs its handle off the part of the
+  // formula it takes, at the stop — not off the formula's flat edge.
+  for (const part of selectionInsideParts(state)) {
+    const inside = getContentSelectionHandlePositionsForRender(
+      {
+        ...state,
+        document: { ...state.document, contentSelection: part.selection },
+      },
+      viewport,
+      styles,
+      heightIndex,
+    );
+    if (inside) positions[part.end] = inside.anchor;
+  }
+  return positions;
 }
 
 /**
@@ -1830,7 +1846,8 @@ function renderHandleCrossing(
 ) {
   const crossing = state.ui.selectionHandleDrag?.crossing;
   if (!crossing) return;
-  const { backgroundColor, opacity } = styles.selection;
+  const { backgroundColor } = styles.selection;
+  const opacity = crossing.opacity ?? styles.selection.opacity;
   ctx.save();
   ctx.globalAlpha = crossing.counted ? opacity : opacity / 2;
   ctx.fillStyle = backgroundColor;

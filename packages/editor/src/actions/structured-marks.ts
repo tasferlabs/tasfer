@@ -9,6 +9,11 @@ import {
   updateSelection,
   updateSelectionFocus,
 } from "../selection";
+import {
+  flatEndForInside,
+  insideEdgeRange,
+  structuredMarkRunForContentPoint,
+} from "../selection-inside";
 import type { Block, Mark, Page } from "../serlization/loadPage";
 import type {
   ContentEdit,
@@ -17,11 +22,8 @@ import type {
   Operation,
   Position,
 } from "../state-types";
-import {
-  type ContentPoint,
-  updateContentSelection,
-} from "../structured-selection";
-import { findBlock, findBlockIndex } from "../sync/block-lookup";
+import { updateContentSelection } from "../structured-selection";
+import { findBlock } from "../sync/block-lookup";
 import { isTextualBlock } from "../sync/block-registry";
 import {
   getCharIdsInRangeFromRuns,
@@ -41,6 +43,8 @@ import {
   type StructuredDocument,
 } from "../sync/structured-content";
 import { cloneDocumentMarkReferences } from "../sync/structured-mark-references";
+
+export { structuredMarkRunForContentPoint };
 
 export interface CreateFeatureMarkResult {
   readonly newPage: Page;
@@ -591,36 +595,6 @@ export function expandSelectionAroundStructuredMarks(
 }
 
 /**
- * The replacement-mark run whose structured attachment owns `point`, resolved
- * through the generic references facet (the core names no mark type). Returns
- * the run's flat projection bounds, or `null` when the point's block/content
- * no longer resolves — e.g. the attachment belongs to a whole-block node
- * rather than an inline mark.
- */
-export function structuredMarkRunForContentPoint(
-  state: EditorState,
-  point: ContentPoint,
-): { blockIndex: number; startIndex: number; endIndex: number } | null {
-  const blockIndex = findBlockIndex(state.document.page, point.blockId);
-  const block = state.document.page.blocks[blockIndex];
-  if (!block || block.deleted || !isTextualBlock(block)) return null;
-  const attachments = block.structuredContent;
-  for (const run of resolveMarkRuns(block)) {
-    const references = state.schema.structuredMarkReferences(run.name, {
-      mark: {
-        type: run.name,
-        ...(Object.keys(run.attrs).length > 0 ? { attrs: run.attrs } : {}),
-      },
-      attachments,
-    });
-    if (references.includes(point.contentId)) {
-      return { blockIndex, startIndex: run.startIndex, endIndex: run.endIndex };
-    }
-  }
-  return null;
-}
-
-/**
  * Degrade the active nested selection to a FLAT selection so a gesture can
  * continue into the host text — the text↔structured-mark crossing for drags
  * and Shift+Click. Interior nested stops have no flat counterpart (the run is
@@ -661,9 +635,61 @@ export function extendSelectionOutOfStructuredMark(
         ? run.endIndex
         : run.startIndex,
   };
+  // Keep the stop inside the formula the range was fixed at: outside, the
+  // selection takes the part of the formula between that stop and the edge it
+  // left by, not the formula whole. The stop before widening is the one the
+  // gesture really started from. A kind with no say over its parts (no
+  // `edgeRange` adapter) falls back to the whole run above.
+  const fixed = content.unsnapped?.anchor ?? content.anchor;
+  const insideAnchor = flatEndForInside(state, fixed, target);
   let next = updateContentSelection(state, null);
-  next = startSelection(updateCursor(next, anchor), anchor);
+  if (insideAnchor) {
+    next = startSelection(updateCursor(next, insideAnchor), insideAnchor);
+    next = updateSelection(next, {
+      anchor: insideAnchor,
+      focus: insideAnchor,
+      inside: { anchor: fixed },
+    });
+  } else {
+    next = startSelection(updateCursor(next, anchor), anchor);
+  }
   return updateSelectionFocus(next, target);
+}
+
+/**
+ * Hand a keyboard extension back to the formula its fixed end stops inside.
+ *
+ * Shift+Arrow walks the flat focus; once it comes to rest on an edge of the
+ * formula holding the fixed end, the selection is that formula's part alone
+ * again, and the next press should shrink or grow it INSIDE the formula —
+ * which only the formula's own range can do. So the flat selection turns back
+ * into a range inside: fixed end where it was, moving end at that edge.
+ * Unchanged state when the fixed end is not inside a formula, or the focus is
+ * anywhere else.
+ */
+export function continueSelectionInsideAnchorRun(
+  state: EditorState,
+): EditorState {
+  const selection = state.document.selection;
+  const fixed = selection?.inside?.anchor;
+  if (!selection || !fixed) return state;
+  const run = structuredMarkRunForContentPoint(state, fixed);
+  if (!run || selection.focus.blockIndex !== run.blockIndex) return state;
+  const edge =
+    selection.focus.textIndex === run.endIndex
+      ? "end"
+      : selection.focus.textIndex === run.startIndex
+        ? "start"
+        : null;
+  if (!edge) return state;
+  const resolved = insideEdgeRange(state, fixed, edge);
+  if (!resolved) return state;
+  const next = updateContentSelection(state, {
+    anchor: fixed,
+    focus: resolved.range.selection.focus,
+    lastUpdate: Date.now(),
+  });
+  return next.document.contentSelection ? next : state;
 }
 
 /** Whether flat typing would land inside (not merely beside) tree authority. */

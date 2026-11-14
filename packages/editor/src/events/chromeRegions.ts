@@ -21,6 +21,7 @@ import {
   MOVEMENT_THRESHOLD,
   SCROLLBAR_HOLD_DURATION,
   SCROLLBAR_TOUCH_BUFFER,
+  SELECTION_HANDLE_LINE_SLOP,
 } from "../constants";
 import { getOutOfViewIndicatorAtPoint } from "../rendering/renderer";
 import {
@@ -45,6 +46,7 @@ import {
   selectedBlockIds,
   snapSelectionToConstructs,
 } from "../selection";
+import { flatEndForInside } from "../selection-inside";
 import type {
   EditorState,
   ViewportState,
@@ -69,7 +71,11 @@ import {
   withScrollbarInteraction,
   withStoppedMomentum,
 } from "./interaction-session";
-import { extendDragSelectionToPoint } from "./mouseEvents";
+import {
+  dragFocusIntoRunAtPoint,
+  extendDragSelectionToPoint,
+  isPointerOnRunOf,
+} from "./mouseEvents";
 import type { RegionCtx, RegionPoint } from "./regions";
 import { type Region, RegionRegistry } from "./regions";
 import { revealCaretSideways } from "./sidewaysScroll";
@@ -230,10 +236,7 @@ export function dragContentHandleToPoint(
   // Over a piece the range takes whole (a √), follow the finger across it
   // and count the piece only past its middle — see crossWidenedPiece. The
   // tick below then fires at the middle, when the range really changes.
-  const next = rememberFixedInside(
-    state,
-    crossWidenedPiece(extended, x, viewport, visibility),
-  );
+  const next = crossWidenedPiece(extended, x, viewport, visibility);
   const focus = next.document.contentSelection?.focus;
   if (
     signalBoundary &&
@@ -245,35 +248,18 @@ export function dragContentHandleToPoint(
 }
 
 /**
- * When a move took the held handle out of an inline formula (`next` is flat,
- * `previous` had a range inside), keep that range's fixed end on the drag —
- * see `fixedInside` on the handle drag state.
- */
-function rememberFixedInside(
-  previous: EditorState,
-  next: EditorState,
-): EditorState {
-  const fixed = previous.document.contentSelection?.anchor;
-  const drag = next.ui.selectionHandleDrag;
-  if (!fixed || !drag || next.document.contentSelection) return next;
-  return {
-    ...next,
-    ui: { ...next.ui, selectionHandleDrag: { ...drag, fixedInside: fixed } },
-  };
-}
-
-/**
  * Bring back the range inside an inline formula when the held handle returns
- * over it after leaving: the fixed end is the one the range had when the
- * handle left (`fixedInside` on the handle drag state), the moving end
- * follows the finger. Without it the way back in started from the formula's
- * edge, so a trip outside moved the end the finger was not holding.
+ * over it after leaving. Outside, the selection is flat and keeps the stop
+ * inside the formula its fixed end rests on (`SelectionState.inside`); the
+ * range inside picks its fixed end up from there, and the moving end follows
+ * the finger.
  *
- * The finger counts as back by the same test it left by: an ordinary move of
- * a range inside the formula, from the fixed end, that stays inside.
+ * The finger counts as back once it is on the formula's own line and an
+ * ordinary move of a range inside the formula, from the fixed end, stays
+ * inside. Near the line is not enough (see isPointerOnRunOf).
  *
  * `x`/`y` are the point on the handle's text row, in viewport space. Null when
- * no such end is kept or the point is not over that formula.
+ * the fixed end is not inside a formula or the point is not over that formula.
  */
 function returnToLeftRunAtPoint(
   state: EditorState,
@@ -282,8 +268,11 @@ function returnToLeftRunAtPoint(
   viewport: ViewportState,
   visibility?: VisibleBlockRange,
 ): EditorState | null {
-  const fixed = state.ui.selectionHandleDrag?.fixedInside;
+  const fixed = state.document.selection?.inside?.anchor;
   if (!fixed || state.document.contentSelection) return null;
+  // On the formula's own line, not just near it: the handle is held on the
+  // line it is on until the finger has clearly left that line.
+  if (!isPointerOnRunOf(state, fixed, x, y, viewport, visibility)) return null;
   const caret = updateContentSelection(state, {
     anchor: fixed,
     focus: fixed,
@@ -300,6 +289,47 @@ function returnToLeftRunAtPoint(
   );
   if (!extended?.document.contentSelection) return null;
   return crossWidenedPiece(extended, x, viewport, visibility);
+}
+
+/**
+ * The row point's `y`, held on the line the held handle is on until the
+ * finger has clearly left that line.
+ *
+ * A finger sliding a handle along a line never moves dead level, and a line
+ * is only a few millimetres tall: read raw, a small drift up or down already
+ * lands on the neighbouring line and the selection jumps a whole line. So the
+ * point counts as on the handle's line until it is past the line by half the
+ * line's height ({@link SELECTION_HANDLE_LINE_SLOP} at the least). Changing
+ * lines then takes about one line of finger travel in either direction, and
+ * the point arrives in the middle of the new line, not on its edge.
+ *
+ * `y` and the result are in viewport space.
+ */
+function stickToHeldLine(
+  state: EditorState,
+  y: number,
+  viewport: ViewportState,
+  visibility?: VisibleBlockRange,
+): number {
+  const selection = state.document.selection;
+  if (!selection) return y;
+  // The handle's own geometry is the line it is drawn on; a range that has
+  // closed up for a moment draws none, so read the caret there instead.
+  const held =
+    getTouchSelectionHandlePositions(state, viewport, visibility)?.focus ??
+    getCursorDocumentCoords(
+      selection.focus,
+      state,
+      viewport,
+      undefined,
+      visibility,
+    );
+  if (!held) return y;
+  const top = held.y - viewport.scrollY;
+  const bottom = top + held.height;
+  const slop = Math.max(held.height / 2, SELECTION_HANDLE_LINE_SLOP);
+  if (y <= top - slop || y >= bottom + slop) return y;
+  return Math.min(Math.max(y, top + 1), bottom - 1);
 }
 
 /**
@@ -534,6 +564,17 @@ const selectionHandleRegion: Region = {
               isForward: !sel.isForward,
               isCollapsed: sel.isCollapsed,
               lastUpdate: Date.now(),
+              // The stops inside formulas swap ends with the flat ones.
+              ...(sel.inside
+                ? {
+                    inside: {
+                      ...(sel.inside.focus ? { anchor: sel.inside.focus } : {}),
+                      ...(sel.inside.anchor
+                        ? { focus: sel.inside.anchor }
+                        : {}),
+                    },
+                  }
+                : {}),
             },
             cursor: { position: sel.anchor, lastUpdate: Date.now() },
           },
@@ -586,7 +627,13 @@ const selectionHandleRegion: Region = {
       // flat hit lands on the paragraph's start or the next block, and a
       // nested one (rows only) misses.
       const rowX = p.x - (session.handleDragGrabOffset?.dx ?? 0);
-      const rowY = p.y - (session.handleDragGrabOffset?.dy ?? 0);
+      const rawRowY = p.y - (session.handleDragGrabOffset?.dy ?? 0);
+      // In flat text the handle stays on its line until the finger has clearly
+      // left it (see stickToHeldLine). A range inside a formula keeps the raw
+      // point: its own move holds it to the formula's box.
+      const rowY = state.document.selection
+        ? stickToHeldLine(state, rawRowY, viewport, ctx.visibility)
+        : rawRowY;
 
       // A handle dragged in over a wholly selected inline formula continues as
       // a range inside it (see enterSelectedRunAtPoint).
@@ -657,15 +704,42 @@ const selectionHandleRegion: Region = {
               ctx.visibility,
             )
           : state;
-      if (
+      // The held handle dragged in over a formula the fixed end is not in
+      // stops inside it, taking the part on the fixed end's side.
+      const into =
+        newPosition && state.document.selection && state.ui.selectionHandleDrag
+          ? dragFocusIntoRunAtPoint(
+              state,
+              rowX,
+              rowY,
+              viewport,
+              ctx.visibility,
+              "touch",
+            )
+          : null;
+      if (into) {
+        const before = state.document.selection?.inside?.focus;
+        const after = into.document.selection?.inside?.focus;
+        if (!before || !after || !contentPointsEqual(before, after)) {
+          state.actionBus.dispatch(CURSOR_DRAG_BOUNDARY);
+        }
+        session.handleDragPrevRawFocus = null;
+        next = into;
+      } else if (
         newPosition &&
         state.document.selection &&
         state.ui.selectionHandleDrag
       ) {
         // The dragged handle is always the focus (set up in onStart); the anchor
         // is the opposite, fixed endpoint.
-        const { anchor: rawAnchor, focus: prevFocus } =
-          state.document.selection;
+        const { focus: prevFocus } = state.document.selection;
+        // A fixed end that stops inside a formula keeps that stop, and its
+        // flat end follows the side the finger is on (see flatEndForInside).
+        const fixedInside = state.document.selection.inside?.anchor;
+        const insideAnchor = fixedInside
+          ? flatEndForInside(state, fixedInside, newPosition)
+          : null;
+        const rawAnchor = insideAnchor ?? state.document.selection.anchor;
 
         // Snap the raw hit-test focus so the drag never leaves a math construct
         // half-covered: descending out through a construct escalates level by
@@ -688,12 +762,14 @@ const selectionHandleRegion: Region = {
         // reference is pinned to where it entered, so the take-in/drop decision is
         // latched until the finger actually crosses out one side.
         const prevRawFocus = session.handleDragPrevRawFocus ?? undefined;
-        const { anchor, focus: newFocus } = snapSelectionToConstructs(
+        const snapped = snapSelectionToConstructs(
           state,
           rawAnchor,
           newPosition,
           prevRawFocus,
         );
+        const anchor = insideAnchor ?? snapped.anchor;
+        const newFocus = snapped.focus;
         const focusSettled =
           newFocus.blockIndex === newPosition.blockIndex &&
           newFocus.textIndex === newPosition.textIndex;
@@ -732,6 +808,9 @@ const selectionHandleRegion: Region = {
               isForward,
               isCollapsed,
               lastUpdate: Date.now(),
+              ...(fixedInside && insideAnchor
+                ? { inside: { anchor: fixedInside } }
+                : {}),
             },
             cursor: {
               position: newFocus,

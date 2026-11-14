@@ -265,6 +265,9 @@ export function captureCRDTSelection(
   return {
     anchor: anchorCRDT,
     focus: focusCRDT,
+    // Stops inside formulas are identity-based already, so they ride along
+    // as they are and a restore finds the same part of the same formula.
+    ...(selection.inside ? { inside: selection.inside } : {}),
   };
 }
 /**
@@ -299,7 +302,11 @@ export function restoreSelection(
     return updateSelection(state, null);
   }
 
-  return updateSelection(state, { anchor, focus });
+  return updateSelection(state, {
+    anchor,
+    focus,
+    ...(crdtSelection.inside ? { inside: crdtSelection.inside } : {}),
+  });
 } /**
  * Order blocks by their fractional-index `orderKey`.
  *

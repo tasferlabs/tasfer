@@ -14,6 +14,7 @@ import type { TextualBlock } from "../nodes/TextNode";
 import { invalidateBlockCache } from "../rendering/renderer";
 import { documentBlockTypes, visibleIndex } from "../schema-content";
 import { clearSelection, moveCursorToPosition } from "../selection";
+import { selectionInsideParts } from "../selection-inside";
 import { escapeHtml } from "../serlization/codecs/inline";
 import { serializeToHTMLFragment } from "../serlization/htmlSerializer";
 import type {
@@ -338,9 +339,40 @@ function autoLinkInRange(
 }
 
 /**
- * Get the selected content from the editor state
+ * Get the selected content from the editor state.
+ *
+ * A formula the selection takes only part of (it starts or ends inside the
+ * formula — see `selectionInsideParts`) is copied cut down to that part: the
+ * copied block carries a detached formula holding just the selected range in
+ * the whole one's place, so every flavor built from these blocks spells the
+ * part alone.
  */
 function getSelectedContent(
+  state: EditorState,
+  includeFormats = true,
+): ReturnType<typeof getFlatSelectedContent> {
+  const selected = getFlatSelectedContent(state, includeFormats);
+  const parts = selected ? selectionInsideParts(state) : [];
+  if (!selected || parts.length === 0) return selected;
+  const blocks = [...selected.blocks];
+  for (const part of parts) {
+    const source = state.document.page.blocks[part.run.blockIndex];
+    const index = blocks.findIndex((block) => block.id === source?.id);
+    const contentId = part.selection.anchor.contentId;
+    const whole = index === -1 ? undefined : blocks[index].structuredContent;
+    const document = whole?.[contentId];
+    if (!whole || !document) continue;
+    const sliced = state.schema.sliceContentSelection(document, part.selection);
+    if (!sliced) continue;
+    blocks[index] = {
+      ...blocks[index],
+      structuredContent: { ...whole, [contentId]: sliced },
+    } as Block;
+  }
+  return { ...selected, blocks };
+}
+
+function getFlatSelectedContent(
   state: EditorState,
   // Whether to extract the inline marks covering the selection. The copy/cut
   // payloads need them (markdown/HTML carry formatting); the plain-text mirror

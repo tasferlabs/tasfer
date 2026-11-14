@@ -174,12 +174,16 @@ export { getBaseDataSchema } from "./baseDataSchema";
 import { getBaseDataSchema as resolveBaseDataSchema } from "./baseDataSchema";
 export const baseDataSchema = resolveBaseDataSchema();
 export type {
+  ContentEdgeRange,
+  ContentEdgeRangeCtx,
+  ContentEdgeRangeResolver,
   ContentSelectionCtx,
   ContentSelectionPaste,
   ContentSelectionPasteCtx,
   ContentSelectionResolver,
   ContentSelectionSerializer,
   ContentSelectionSlice,
+  ContentSelectionSlicer,
   FeatureActionHook,
   FeatureFacets,
   FeatureInputPhase,

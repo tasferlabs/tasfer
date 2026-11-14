@@ -13,8 +13,13 @@
 import { enterInlineMathTreeAtPosition } from "./inline-tree-state";
 import { mathExtension } from "./math-extension";
 import {
+  deleteSelectedText,
+  deleteSelectionThroughOwner,
+} from "@tasfer/editor/actions/actions";
+import {
   EXTEND_SELECTION_LEFT,
   EXTEND_SELECTION_RIGHT,
+  MOVE_CURSOR_RIGHT,
 } from "@tasfer/editor/actions/keyboard-actions";
 import { TEXT_CLICK } from "@tasfer/editor/actions/pointer-actions";
 import { extendSelectionOutOfStructuredMark } from "@tasfer/editor/actions/structured-marks";
@@ -23,7 +28,9 @@ import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
 import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import { moveCursorToPosition } from "@tasfer/editor/selection";
+import { selectionInsideParts } from "@tasfer/editor/selection-inside";
 import { loadPage } from "@tasfer/editor/serlization/loadPage";
+import { serializeToMarkdown } from "@tasfer/editor/serlization/serializer";
 import type { EditorState } from "@tasfer/editor/state-types";
 import { createInitialState } from "@tasfer/editor/state-utils";
 import { createCRDTbinding } from "@tasfer/editor/sync/sync";
@@ -51,6 +58,12 @@ function chipState(peer: string): {
   return { state, chipStart: run.startIndex, chipEnd: run.endIndex };
 }
 
+function markdownOf(state: EditorState) {
+  return serializeToMarkdown(state.document.page.blocks, undefined, {
+    schema: state.schema,
+  }).trim();
+}
+
 function enterAt(state: EditorState, textIndex: number): EditorState {
   const entered = enterInlineMathTreeAtPosition(state, 0, textIndex, {
     allowBoundary: true,
@@ -60,8 +73,8 @@ function enterAt(state: EditorState, textIndex: number): EditorState {
 }
 
 describe("inline-math ↔ text selection crossing", () => {
-  it("Shift+Right at the formula's trailing edge exits to a flat whole-chip selection", () => {
-    const { state, chipStart, chipEnd } = chipState("crossing-right");
+  it("Shift+Right from a caret at the formula's trailing edge selects the text after it, not the formula", () => {
+    const { state, chipEnd } = chipState("crossing-right");
     const inside = enterAt(state, chipEnd);
     expect(inside.document.contentSelection).not.toBeNull();
 
@@ -71,20 +84,21 @@ describe("inline-math ↔ text selection crossing", () => {
     );
     expect(exited.claimed).toBe(true);
     expect(exited.state.document.contentSelection).toBeNull();
-    expect(exited.state.document.selection?.anchor.textIndex).toBe(chipStart);
-    expect(exited.state.document.selection?.focus.textIndex).toBe(chipEnd);
+    expect(exited.state.document.selection?.anchor.textIndex).toBe(chipEnd);
+    expect(exited.state.document.selection?.focus.textIndex).toBe(chipEnd + 1);
+    expect(selectionInsideParts(exited.state)).toEqual([]);
 
     // The NEXT press continues into the host prose through the flat model.
     const further = exited.state.actionBus.dispatchState(
       EXTEND_SELECTION_RIGHT,
       exited.state,
     );
-    expect(further.state.document.selection?.anchor.textIndex).toBe(chipStart);
-    expect(further.state.document.selection?.focus.textIndex).toBe(chipEnd + 1);
+    expect(further.state.document.selection?.anchor.textIndex).toBe(chipEnd);
+    expect(further.state.document.selection?.focus.textIndex).toBe(chipEnd + 2);
   });
 
-  it("Shift+Left at the formula's leading edge exits to a flat whole-chip selection", () => {
-    const { state, chipStart, chipEnd } = chipState("crossing-left");
+  it("Shift+Left from a caret at the formula's leading edge selects the text before it", () => {
+    const { state, chipStart } = chipState("crossing-left");
     const inside = enterAt(state, chipStart);
 
     const exited = inside.actionBus.dispatchState(
@@ -93,20 +107,67 @@ describe("inline-math ↔ text selection crossing", () => {
     );
     expect(exited.claimed).toBe(true);
     expect(exited.state.document.contentSelection).toBeNull();
-    expect(exited.state.document.selection?.anchor.textIndex).toBe(chipEnd);
-    expect(exited.state.document.selection?.focus.textIndex).toBe(chipStart);
+    expect(exited.state.document.selection?.anchor.textIndex).toBe(chipStart);
+    expect(exited.state.document.selection?.focus.textIndex).toBe(
+      chipStart - 1,
+    );
+    expect(selectionInsideParts(exited.state)).toEqual([]);
   });
 
-  it("extendSelectionOutOfStructuredMark covers the chip whole and reaches the target", () => {
-    const { state, chipStart, chipEnd } = chipState("crossing-drag");
-    const inside = enterAt(state, chipStart + 1);
+  it("Shift+Right past the formula's end keeps the part selected inside it", () => {
+    const { state, chipStart, chipEnd } = chipState("crossing-part");
+    // `x+y`: a caret after `x`, extended to the formula's end, then beyond.
+    let current = enterAt(state, chipStart);
+    current = current.actionBus.dispatchState(MOVE_CURSOR_RIGHT, current).state;
+    for (let i = 0; i < 2; i++) {
+      current = current.actionBus.dispatchState(
+        EXTEND_SELECTION_RIGHT,
+        current,
+      ).state;
+    }
+    expect(current.document.contentSelection).not.toBeNull();
+
+    const out = current.actionBus.dispatchState(
+      EXTEND_SELECTION_RIGHT,
+      current,
+    ).state;
+    expect(out.document.contentSelection).toBeNull();
+    expect(out.document.selection?.anchor.textIndex).toBe(chipStart);
+    expect(out.document.selection?.focus.textIndex).toBe(chipEnd + 1);
+    const [part] = selectionInsideParts(out);
+    expect(part).toMatchObject({ end: "anchor", side: "start" });
+    expect(markdownOf(deleteSelectedText(out).state)).toBe("aa $x$bb");
+
+    // Shift+Left steps back onto the formula's edge: the range is inside it
+    // again, and the next press shrinks it there instead of jumping sides.
+    const back = out.actionBus.dispatchState(EXTEND_SELECTION_LEFT, out).state;
+    expect(back.document.selection).toBeNull();
+    expect(back.document.contentSelection).toEqual(
+      expect.objectContaining({
+        anchor: current.document.contentSelection!.anchor,
+      }),
+    );
+    const shrunk = back.actionBus.dispatchState(
+      EXTEND_SELECTION_LEFT,
+      back,
+    ).state;
+    expect(shrunk.document.contentSelection).not.toBeNull();
+    expect(markdownOf(deleteSelectionThroughOwner(shrunk).state)).toBe(
+      "aa $xy$ bb",
+    );
+  });
+
+  it("extendSelectionOutOfStructuredMark takes the formula whole or not at all from a caret at its edge", () => {
+    const { state, chipEnd } = chipState("crossing-drag");
+    // A caret at the formula's end.
+    const inside = enterAt(state, chipEnd);
 
     const after = extendSelectionOutOfStructuredMark(inside, {
       blockIndex: 0,
       textIndex: chipEnd + 2,
     });
     expect(after?.document.contentSelection).toBeNull();
-    expect(after?.document.selection?.anchor.textIndex).toBe(chipStart);
+    expect(after?.document.selection?.anchor.textIndex).toBe(chipEnd);
     expect(after?.document.selection?.focus.textIndex).toBe(chipEnd + 2);
 
     const before = extendSelectionOutOfStructuredMark(inside, {
@@ -115,6 +176,7 @@ describe("inline-math ↔ text selection crossing", () => {
     });
     expect(before?.document.selection?.anchor.textIndex).toBe(chipEnd);
     expect(before?.document.selection?.focus.textIndex).toBe(0);
+    expect(selectionInsideParts(before!)).toEqual([]);
   });
 
   it("a Shift+Click on the chip with an active caret stays in the flat model", () => {

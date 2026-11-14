@@ -149,8 +149,10 @@ import {
 import type { MarkRegistry } from "@tasfer/editor/rendering/marks";
 import type {
   BlockRuntimeState,
+  NodeContentCaretCtx,
   NodeContentHitCtx,
   NodeContentHitOptions,
+  NodeContentSelectionGeometry,
   NodeLayout,
   NodeLayoutCtx,
   NodePaintCtx,
@@ -1919,6 +1921,61 @@ export class MathNode extends TextNode<MathBlock> {
       stop,
       Date.now(),
     );
+  }
+
+  /**
+   * Where the touch selection handles hang for a range inside a block
+   * equation. Built from the same rows `paint` fills, so the handles sit on
+   * the highlight the user sees. Without this a phone shows part of an
+   * equation selected with no handles to grab, and the range can't be
+   * adjusted.
+   */
+  override contentSelectionGeometry(
+    layout: NodeLayout,
+    selection: ContentSelection,
+    c: NodeContentCaretCtx<MathBlock>,
+  ): NodeContentSelectionGeometry | null {
+    if (selection.focus.blockId !== c.block.id) return null;
+    const l = layout as MathNodeLayout;
+    const document = getMathStructuredDocument(c.block);
+    if (!document || !l.mathLayout || !l.mathDocumentLayout) {
+      return super.contentSelectionGeometry(layout, selection, c);
+    }
+    const range = mathSourceRangeFromContentSelection(
+      document,
+      selection,
+      l.mathDocumentLayout,
+    );
+    if (!range) return null;
+    const drawX = c.origin.x + l.mathOffsetX;
+    const baselineY = c.origin.y + l.mathTop + l.mathLayout.height;
+    const rects = texSelectionRects(l.mathLayout, range.from, range.to).map(
+      (r) => ({
+        x: drawX + r.x,
+        y: baselineY + r.y,
+        width: r.width,
+        height: r.height,
+      }),
+    );
+    if (rects.length === 0) return null;
+    // Reading order: top row first, then left to right — an equation lays its
+    // rows out left to right whatever the page's direction.
+    const sorted = [...rects].sort((a, b) => a.y - b.y || a.x - b.x);
+    const first = sorted[0];
+    const last = sorted[sorted.length - 1];
+
+    // Which end is the anchor: by its place in the equation's source. An end
+    // the equation can't place falls back to forward, which only decides
+    // which handle is called the anchor.
+    const anchor = mathSourceOffsetFromContentPoint(document, selection.anchor);
+    const focus = mathSourceOffsetFromContentPoint(document, selection.focus);
+    return {
+      rects,
+      start: { x: first.x, y: first.y, height: first.height },
+      end: { x: last.x + last.width, y: last.y, height: last.height },
+      isForward: anchor === null || focus === null || anchor <= focus,
+      opacity: c.styles.blocks.math.selectionOpacity,
+    };
   }
 
   /** Legacy display-math click → LaTeX offset via the tex hit-test. */

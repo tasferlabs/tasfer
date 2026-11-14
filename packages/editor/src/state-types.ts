@@ -337,14 +337,6 @@ export interface SelectionHandleDragState {
    * finger left, and a handle that crossed the fixed end swapped the two.
    */
   readonly fixedEdge?: Position | null;
-  /**
-   * The fixed end of a range inside an inline mark run (a formula), kept from
-   * the moment the held handle leaves the run. Outside, the selection is flat
-   * and holds the run whole, so the point inside is gone from it; when the
-   * handle comes back over the run, the range inside picks its fixed end up
-   * from here instead of from the run's edge.
-   */
-  readonly fixedInside?: ContentPoint | null;
 }
 
 /**
@@ -369,6 +361,11 @@ export interface HandleCrossing {
   readonly counted: boolean;
   /** The range's end at the near edge: the highlight stops here, the fill takes over. */
   readonly near: ContentPoint;
+  /**
+   * How strongly the node fills its own highlight, when not the theme's
+   * `selection.opacity`: the fill matches it so the two read as one band.
+   */
+  readonly opacity?: number;
 }
 
 /**
@@ -959,12 +956,31 @@ export interface CursorState {
   readonly lastUpdate: number;
 }
 
+/**
+ * Where the ends of a text selection stop INSIDE an inline mark run (a
+ * formula) instead of at its edge.
+ *
+ * The flat text holds a formula as one character, so `anchor`/`focus` can
+ * only take it whole or leave it out. A selection that starts in the middle
+ * of a formula and runs out into the text keeps that middle here: the flat
+ * range still covers the formula's character, and this says how much of the
+ * formula that end really takes. Read it through `selectionInsideParts`, which
+ * also checks that the stop still belongs to the run at that end — never off
+ * the selection directly.
+ */
+export interface SelectionInside {
+  readonly anchor?: ContentPoint;
+  readonly focus?: ContentPoint;
+}
+
 export interface SelectionState {
   readonly anchor: Position;
   readonly focus: Position;
   readonly isForward: boolean;
   readonly isCollapsed: boolean;
   readonly lastUpdate?: number;
+  /** Stops inside the formulas at the selection's ends; see {@link SelectionInside}. */
+  readonly inside?: SelectionInside;
   /**
    * Tracks initial selection boundaries from double/triple-click gestures.
    *
@@ -1000,6 +1016,11 @@ export interface PartialSelectionState {
     readonly start: Position;
     readonly end: Position;
   } | null;
+  /**
+   * Stops inside the formulas at the selection's ends. Dropped unless given,
+   * so a selection set by code that knows nothing of them is a plain one.
+   */
+  readonly inside?: SelectionInside | null;
 }
 
 export interface Position {
@@ -1029,6 +1050,8 @@ export interface CRDTCursorState {
 export interface CRDTSelectionState {
   readonly anchor: CRDTPosition;
   readonly focus: CRDTPosition;
+  /** Stops inside the formulas at the selection's ends; already id-based. */
+  readonly inside?: SelectionInside;
 }
 
 export interface ViewportState {
