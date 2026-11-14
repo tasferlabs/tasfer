@@ -5,23 +5,27 @@ import { Callout, Card, CardGrid, Lede } from "../../docsComponents";
 
 <Lede>
   The schema declares what your document is made of. Extend it to add new block
-  types (*nodes*) and inline formatting (*marks*) — a callout block, an
-  @-mention, a highlight.
+  types (*nodes*) such as a callout block, and inline formatting (*marks*) such
+  as an @-mention or a highlight.
 </Lede>
 
-<h2 id="node">Define a node</h2>
+The editor follows the famous block methodology that was popularised by Notion and markdown. If you have been living under a rock, this is just a way to build a document out of blocks: every paragraph, heading, image or table is its own block, stacked from top to bottom.
 
-A node is a block type. It declares its attributes (replicated CRDT fields), how it serializes, and how it draws. A callout box:
+<h2 id="node">node (blocks)</h2>
+
+A node is a block type. It declares its attributes (fields synced through the [CRDT](/docs/editor/concepts#crdt)), how it is saved, and how it is drawn.
+
+There are several ways to define a node. Use the one that fits your use case.
+
+The shortest is `defineNode`. A callout box:
 
 ```ts
 import { defineNode } from "@tasfer/editor";
 
 const callout = defineNode("callout", {
-  // Replicated attributes — each becomes a CRDT-settable field with a default.
+  // Attributes: each one is synced and has a default.
   attrs: { tone: { default: "note" } },
-  // Declarative paint for the built-in box renderer (or pass `node` for a
-  // custom canvas Node). Round-trips through a generic <x-callout tone="…" />
-  // tag, so no tokenizer changes are needed.
+  // How the built-in box renderer paints it.
   render: {
     background: "rgba(29,185,132,0.10)",
     borderLeft: { width: 3, color: "#1db984" },
@@ -30,14 +34,18 @@ const callout = defineNode("callout", {
 });
 ```
 
-Prefer a class? Subclass a node and register the instance directly. The class owns its drawing, strings, and UI; a `static nodeConfig` supplies the same attrs/serialization `defineNode` takes. Both styles produce identical data, so they're interchangeable:
+It is saved to markdown as a generic `<x-callout tone="…" />` tag, so you do not write a parser.
+
+{/* TODO needs an engine change first: `render` only takes an object today. Uncomment once it can be a function.
+As you saw in the earlier example, there were two properties you defined to create a custom node, but you could also replace the render object with a function that takes in the canvas context. */}
+
+The other way is to use a class. Subclass a node and register the instance directly. The class owns its drawing, strings, and UI, and `static nodeConfig` takes the same attrs as `defineNode`. Both ways produce the same data, so you can switch between them:
 
 ```ts
 import { AtomicNode, baseSchema } from "@tasfer/editor";
 
 class CalloutNode extends AtomicNode {
   readonly type = "callout";
-  // Attrs + serialization, read when the class is registered directly.
   static nodeConfig = { attrs: { tone: { default: "note" } } };
 
   protected intrinsicHeight() {
@@ -52,142 +60,83 @@ class CalloutNode extends AtomicNode {
 const schema = baseSchema.extend({ nodes: [new CalloutNode()] });
 ```
 
+You can also look at the [reference](/docs/editor/api-schema#definenode) for more details.
+
 <h3 id="nested-caret">A caret inside a node's own content</h3>
 
-Most nodes hold their text in the block, and the editor's caret addresses it by index. A node whose content lives entirely in a [structured attachment](/docs/editor/api-schema#structured) — a table's cells, say — has no such index, so it owns both directions of the caret itself:
+Most nodes, such as the text node, hold their text in the block, and the caret points at it by index. Not all nodes can do that. A table keeps its cells in a structured attachment, a separate tree stored next to the block (see [tables](/docs/editor/api-schema#table)). There is no index there, so the node handles the caret itself, in both directions:
 
 ```ts
 class GridNode extends Node {
-  // point → address: where a click lands, as an identity-bearing ContentPoint.
-  contentSelectionFromPoint(layout, local, c, options) { … }
+  contentSelectionFromPoint(layout, local, c) {
+    const cell = cellAt(layout, local.x, local.y);
+    if (!cell) return null;
+    const point = {
+      kind: "text",
+      blockId: c.block.id,
+      contentId: cell.contentId,
+      nodeId: cell.id,
+      field: "text",
+      afterCharId: charBefore(cell, local.x),
+      affinity: "forward",
+    };
+    return { anchor: point, focus: point };
+  }
 
-  // address → point: the rect to draw the caret at. Without this a nested
-  // caret is simply never painted, because core's caret geometry ends at
-  // TextNode.caretRect, which takes a flat text index.
   contentCaretRect(layout, point, c) {
-    return { x: c.origin.x + …, y: c.origin.y + …, height: … };
+    if (point.kind !== "text") return null;
+    const cell = cellById(layout, point.nodeId);
+    if (!cell) return null;
+    return {
+      x: c.origin.x + cell.x + widthUpTo(cell, point.afterCharId),
+      y: c.origin.y + cell.y,
+      height: cell.textHeight,
+    };
   }
 }
 ```
 
-`c.origin` is the block's top-left in whichever space the caller works in (viewport when painting, document when scrolling the caret into view), so return the rect relative to it and both callers get what they need. Returning `null` — or leaving `contentCaretRect` unset, as every built-in node does — keeps the ordinary text-caret path.
+The first hook turns a click into an address (a `ContentPoint`). The second turns that address back into the place to draw the caret. Skip the second and the caret is never painted.
 
-Implementing the hook is also what makes the engine _paint_ a caret in a block that has no flat text of its own. Both cursor paths otherwise stop at blocks the schema marks as textual; a node that declares `contentCaretRect` is admitted past that gate, and `editor.view.coordsAtContent(point)` starts returning coordinates for the same point instead of `null`. Core never names the block type — the node's own hook is the credential.
+`cellAt`, `charBefore` and the others are your own layout code. Add `c.origin`, the block's top-left, to what you return.
 
-Collaborators come through the same gate. A remote peer's caret inside your content arrives as a [caret decoration](/docs/editor/collaboration#presence) carrying a `ContentPoint`, and core places it with `contentCaretRect` exactly as it places the local one — you write nothing extra for it. Their _selection_ is a **range** decoration, and range decorations are painted by the node that owns the geometry: in `paint`, walk `decorationsForBlock(state.ui.decorations, block.id)` and hand the rects your local selection already uses to `paintDecorationRects(ctx, rects, deco, styles)`. That one call renders whatever style the decoration carries — the translucent fill a peer's selection uses, or the solid/wavy/dotted/dashed underline another producer asks for (see [Decorations](/docs/editor/api-editor#decorations)) — so your node never branches on the style itself. Give each rect a `baseline` (the absolute y of the text it covers) so an underline hangs where prose puts it; for a box with no text of its own, build the rect with `boxDecorationRect(box, deco)` and the underline hugs its bottom edge. Skip all this and a peer's caret shows in your node while their highlight is the one thing missing from it.
+{/* TODO I ideally want the x and y to be relative so we do not have to do this awkward thing, but we can not just change the api just yet. Wait with it */}
 
-The rect is drawn verbatim, so the node owns how tall its caret looks. Return **text height** — ascent + descent — anchored at the top of the line, which is how prose measures its own caret. A line box is taller than that (it also carries the row's leading), so returning the full line height draws a caret noticeably taller than the one in the paragraph beside it.
+{/* `c.origin` is the block's top-left in whichever space the caller works in (viewport when painting, document when scrolling the caret into view), so return the rect relative to it and both callers get what they need. Returning `null` — or leaving `contentCaretRect` unset, as every built-in node does — keeps the ordinary text-caret path. */}
 
-A **range** inside your content needs one more hook, `contentSelectionGeometry`. It describes the band your node paints for a non-collapsed `ContentSelection`, plus the two edges the touch selection handles hang from:
+{/* Implementing the hook is also what makes the engine _paint_ a caret in a block that has no flat text of its own. Both cursor paths otherwise stop at blocks the schema marks as textual; a node that declares `contentCaretRect` is admitted past that gate, and `editor.view.coordsAtContent(point)` starts returning coordinates for the same point instead of `null`. Core never names the block type — the node's own hook is the credential. */}
+
+**Caret height.** Return the text height (ascent + descent), starting at the top of the line. The full line height is taller, and your caret would stick out next to the one in a paragraph.
+
+**A selected range.** For a range inside your content, add `contentSelectionGeometry`. It returns the highlighted band and its two ends:
 
 ```ts
 contentSelectionGeometry(layout, selection, c) {
   return {
     rects: [/* the band, relative to c.origin */],
-    start: { x, y, height }, // reading start: the start handle hangs above it
-    end: { x, y, height },   // reading end: the end handle hangs below it
-    isForward: true,         // whether the anchor is the start
-    opacity: 0.4,            // optional: how strongly you fill the band
+    start: { x, y, height },
+    end: { x, y, height },
+    isForward: true, // the anchor is the start
+    opacity: 0.4,    // optional: how strongly you fill the band
   };
 }
 ```
 
-With it, phones draw and grab selection handles on a range in your content, dragging a handle moves the range's focus through your `contentSelectionFromPoint` (the finger is shifted onto the row the handle hangs from, since the handle's ball sits below or above the text), and a tap or long-press on the band counts as touching the selection. When your content widens a range to take a piece whole (a formula's √), a handle crossing that piece is drawn under the finger with the covered part shaded, and the piece joins the range only once the finger is past its middle. That shade uses the theme's `selection.opacity`; return `opacity` when your node fills its band at another strength, so the two read as one highlight. A mouse press on the band can also start a text drag that carries the range out. Without it, a range in your content has no handles, and a tap on it collapses it.
+With it, phones show selection handles on the range and let you drag them, a tap on the band counts as touching the selection, and a mouse can drag the selected text out. Without it there are no handles, and a tap collapses the range.
 
-To draw the text itself, use `paintTextRun`: it is the engine's own marked-line renderer, so a node that lays out its own line boxes still resolves marks, batches for Arabic ligatures and paints replacement runs identically to prose.
+If your content takes some pieces whole (a formula's √), a handle crossing such a piece shades the covered part, and the piece joins the range once the finger is past its middle. The shade uses the theme's `selection.opacity`. Return `opacity` when your node fills its band at another strength, so the two look like one highlight.
 
-```ts
-import { paintTextRun } from "@tasfer/editor";
+**Collaborators.** A peer's caret in your content is placed with the same `contentCaretRect`, so you write nothing extra. Their selection is yours to paint. In `paint`, loop over `decorationsForBlock(state.ui.decorations, block.id)` and pass your rects to `paintDecorationRects(ctx, rects, deco, styles)`. It draws the fill or the underline, whichever the [decoration](/docs/editor/api-editor#decorations) asks for. Give each rect a `baseline` so an underline sits under the text. For a box with no text, build the rect with `boxDecorationRect(box, deco)`.
 
-paintTextRun({
-  ctx,
-  chars, // the field's document-order characters
-  formats, // its mark ranges
-  startIndex,
-  endIndex, // the visible range of this line
-  x, // the run's start edge — its RIGHT edge in RTL text
-  baselineY,
-  textStyle,
-  fontFamily,
-  styles,
-  marks,
-  isRTL,
-  requestRedraw,
-  attachments, // optional: your block's structuredContent, so an inline formula paints as itself
-  slices, // optional: layout.lineSlices[line], for a formula that wraps across lines
-  highlighted, // optional: { startIndex, endIndex } of a formula to draw lit (hovered, or holding the caret)
-});
-```
-
-To place the caret, resolve clicks and draw highlights over that text, use the text engine prose itself is laid out with. `layoutText` wraps and measures one run of text once; the other functions read that layout, so the caret, a click and a highlight all land on the glyphs `paintTextRun` draws — mixed Arabic and English lines included, and a click never lands between the two halves of an emoji. Coordinates are relative to the text box: add your own origin.
-
-```ts
-import {
-  layoutText,
-  lineEdges,
-  textCaretRect,
-  textOffsetAtPoint,
-  textRangeRects,
-} from "@tasfer/editor";
-
-const text = layoutText({
-  chars,
-  formats,
-  width, // the text area lines wrap to
-  textStyle,
-  fontFamily,
-  fonts: styles.fonts,
-  direction, // "ltr" | "rtl"
-  align, // optional: "left" | "center" | "right"; null hugs the reading start
-  marks,
-  structuredContent, // optional: your block's attachments, so an inline formula measures as itself
-});
-
-const caret = textCaretRect(text, offset); // { x, y, height }
-const offsetAtClick = textOffsetAtPoint(text, local.x - boxX, local.y - boxY);
-const highlight = textRangeRects(text, from, to); // one rect per line or bidi run
-
-for (const line of text.lines) {
-  const { left, right } = lineEdges(text, line); // after alignment
-  // paintTextRun({ …, x: boxX + (isRTL ? right : left), … })
-}
-```
-
-A formula in that text can hold the caret itself (its fraction's numerator, a matrix cell). The caret then is a nested selection in the formula's attachment, and these place it, highlight a range in it and resolve a click into it — the same code a paragraph's formula uses, in the same box-relative coordinates:
-
-```ts
-import {
-  replacementRunForContent,
-  textContentCaretRect,
-  textContentSelectionFromPoint,
-  textContentSelectionRects,
-} from "@tasfer/editor";
-
-// A click on the formula lands inside it; null anywhere else, so fall back to
-// textOffsetAtPoint.
-const inside = textContentSelectionFromPoint(text, x - boxX, y - boxY, blockId, {
-  pointerType, // "mouse" | "touch"
-});
-
-const point = state.document.contentSelection.focus;
-const nestedCaret = textContentCaretRect(text, point, blockId); // { x, y, height } | null
-const nestedHighlight = textContentSelectionRects(text, selection, blockId);
-
-// The run holding attachment `contentId`, to pass to paintTextRun as `highlighted`.
-const run = replacementRunForContent(text, point.contentId); // { start, end, … }
-```
-
-On the formula's own row the caret and the highlight fill the text line, like prose. On a row inside it (a numerator, an exponent) they take that row's height, the same for every piece on the row.
-
-For text still being composed through an IME, `foldComposition(chars, offset, preview)` returns the characters with the preview folded in and its `compositionRange`; lay those out (passing the range to `layoutText`) and underline `compositionRects(text)`. Nothing it returns is stored.
+**Text.** To draw and measure text the way paragraphs do (marks, Arabic, formulas, IME), use the engine's own helpers such as `paintTextRun` and `layoutText`. See [Text inside a custom node](/docs/editor/api-schema#text-helpers).
 
 <h3 id="document-edge">Leaving a node at the document's edge</h3>
 
-A block that stores no flat text has no caret position to offer at its own top or bottom edge. So when one sits first or last in the document, the editor grows an empty paragraph there rather than trapping the caret: clicking or tapping the blank page above or below it starts that paragraph and puts the caret in it, and so do ArrowUp/ArrowDown and PageUp/PageDown. A document whose only block is your node is never a document with nowhere to type.
+A node without text has no place for a caret above or below it. So when your node is the first or last block, the editor adds an empty paragraph next to it when the user clicks the blank space there, or presses ArrowUp/ArrowDown or PageUp/PageDown. A document with only your node is never a dead end.
 
-Custom nodes get this without opting in — the engine asks whether the block type stores text, and a type it has never seen does not. Registered text blocks opt in per type instead, since the end of a paragraph is a perfectly good place for a caret.
+Custom nodes get this for free.
 
-The one thing to implement yourself is the keyboard half of a node with a **nested caret**. Claiming the vertical moves (as the [nested-caret hooks](#nested-caret) above describe) means claiming them at your node's edges too: while a nested selection is live the engine stands aside, because only your node knows whether the caret is on its last row or merely somewhere in the middle. When your own walk runs out of content, hand the caret on:
+The one exception is a node with a [nested caret](#nested-caret). While the caret is inside your content, your node handles the arrow keys. So when the caret runs out of rows, hand it on yourself:
 
 ```ts
 import {
@@ -195,16 +144,17 @@ import {
   prependLeadingParagraph,
 } from "@tasfer/editor";
 
-// No block after this one: grow the paragraph to land in. Both helpers clamp
-// to the schema's `content` expression and return `{ kind: "fallthrough" }`
-// when it forbids a block there — leave the caret put in that case.
 const edge = appendTrailingParagraph(state, block);
 if (edge.kind === "break") return { state: edge.state, ops: edge.ops };
 ```
 
+Both helpers return `{ kind: "fallthrough" }` when the schema allows no paragraph there. Leave the caret where it is in that case.
+
 <h3 id="enter">Enter and Shift+Enter</h3>
 
-Enter dispatches `SPLIT_BLOCK` and Shift+Enter dispatches `EXIT_BLOCK`. A text node gets the paragraph behavior for free: Enter splits the block, and `EXIT_BLOCK` falls back to the same split. A node that holds several lines of its own should keep Enter for those lines and claim `EXIT_BLOCK` to leave. Either way, start the paragraph with `insertParagraphBeside`, which picks the order key, clamps to the schema's `content` expression and moves the caret:
+Enter dispatches `SPLIT_BLOCK`, and Shift+Enter dispatches `EXIT_BLOCK`. A text node needs nothing: both split the block like a paragraph.
+
+A node with several lines of its own should keep Enter for its lines and use `EXIT_BLOCK` to leave. Create the paragraph with `insertParagraphBeside`. It takes care of the position, the schema rules and the caret:
 
 ```ts
 import { EXIT_BLOCK, insertParagraphBeside } from "@tasfer/editor";
@@ -220,11 +170,13 @@ bus.registerState(EXIT_BLOCK, (state) => {
 });
 ```
 
-A selected text range has already been deleted by the time your handler runs, so it only ever sees a caret.
+If text was selected, it is already deleted when your handler runs. You only ever see a caret.
 
 <h3 id="expand-selection">Expand selection</h3>
 
-Expand selection (⌃⇧⌘→ on Apple, Shift+Alt+→ elsewhere) grows the selection one step per press, and shrink (← with the same modifiers) steps back. The engine's own steps are word → whole block → whole document. A node with structure of its own adds steps in front by claiming `EXPAND_SELECTION_STEP`: list every range it would ever select around the current one, and `nextEnclosingRange` picks the smallest that is wider. Return nothing once your block is selected whole, so the engine's next step takes the document. Shrink needs nothing from you: the engine remembers the steps it took.
+Expand selection (⌃⇧⌘→ on Apple, Shift+Alt+→ elsewhere) grows the selection one step per press: word → block → document. The same keys with ← shrink it back.
+
+A node with its own structure can add steps before these. Handle `EXPAND_SELECTION_STEP`, list every range you could select around the current one, and let `nextEnclosingRange` pick the smallest one that is wider:
 
 ```ts
 import {
@@ -252,11 +204,15 @@ bus.registerState(
 );
 ```
 
-A node with a nested caret selects through its own content selection instead of `selectFlatRange`; the built-in math, code and table nodes are worked examples of each.
+Shrinking needs no code. The engine remembers the steps it took.
 
-<h2 id="strings">Localized strings live on the node</h2>
+A node with a nested caret selects through its own content selection instead of `selectFlatRange`. The built-in math, code and table nodes are good examples to read.
 
-A node owns the canvas strings it paints — status labels, prompts — as a `strings` catalog of English defaults. The editor ships no i18n library; a localized host overrides per type via `theme.nodeStrings`. Read them inside `draw` with the protected `str(state, key)` helper. (The core image node and the opt-in math node own their labels exactly this way — they're no longer in a global string table.)
+<h2 id="strings">Localized strings</h2>
+
+A node keeps the text it paints (labels, prompts) in a `strings` object with English defaults. Read one inside `draw` with `this.str(state, key)`.
+
+The editor ships no i18n library. The host translates through `theme.nodeStrings`, keyed by block type and then by your string key:
 
 ```ts
 class CalloutNode extends AtomicNode {
@@ -268,7 +224,6 @@ class CalloutNode extends AtomicNode {
   }
 }
 
-// Host overrides, keyed by block type then the node's local string key:
 createEditor({
   element,
   schema,
@@ -276,21 +231,19 @@ createEditor({
 });
 ```
 
-<h2 id="overlays">Node-owned UI (overlay slots)</h2>
+<h2 id="overlays">Node-owned UI (overlays)</h2>
 
-A node can ask the host to float real UI — a popover, an inline editor — over one of its blocks, without the engine ever importing your UI framework. `overlays()` returns renderer-agnostic _descriptors_ (identity + geometry, derived from the block's data and the current UI state); the host maps each `key` to a component and mounts it at the descriptor's `rect`.
+A node can ask the host to show real UI over one of its blocks, such as a popover or an inline editor. The node does not render it. `overlays()` returns plain data: a `key`, the block id and a `rect`.
 
 ```ts
 class CalloutNode extends AtomicNode {
   readonly type = "callout";
   overlays(c) {
-    // Show an editor overlay while this block holds the caret.
+    // Only while this block holds the caret.
     if (c.state.document.cursor?.position.blockIndex !== c.blockIndex)
       return [];
     return [
       {
-        // Overlays are addressed by stable block id — the host component may
-        // act on it after remote edits have shifted every index.
         key: "callout-editor",
         blockId: c.block.id,
         rect: { x: c.origin.x, y: c.origin.y, width: c.maxWidth, height: 48 },
@@ -300,7 +253,9 @@ class CalloutNode extends AtomicNode {
 }
 ```
 
-The host drives them through one registry — no per-type `if` ladder. Recompute each frame and mount the registered keys at their rect:
+Use the block id, not the index. Indexes shift when someone else edits.
+
+The host maps each `key` to a component and mounts it at the `rect`, every frame:
 
 ```tsx
 const OVERLAYS = { "callout-editor": CalloutEditor };
@@ -312,28 +267,25 @@ editor.host.collectOverlays().forEach((o) => {
 ```
 
 <Callout kind="note" title="The engine stays headless.">
-  `overlays()` returns data, never JSX — so the same node works in a React host,
-  a vanilla-DOM host, or none at all. It's the seam the core image and opt-in
-  math popovers are migrating onto.
+  `overlays()` returns data, never JSX. The same node works in a React host, a
+  plain DOM host, or with no UI at all.
 </Callout>
 
 <h2 id="sideways-scroll">Content wider than the page</h2>
 
-The page scrolls up and down only. A block that can be wider than the page — the
-table package's grid, once it has too many columns — keeps its own sideways
-offset, and the engine routes the sideways gestures to it: a sideways trackpad
-swipe or Shift + wheel, a finger drag that starts out mostly sideways (and the
-fling after it). Three optional methods opt a node in:
+The page only scrolls up and down. A block that is wider than the page, such as a table with many columns, scrolls sideways on its own. The engine sends it the sideways gestures: a trackpad swipe, Shift + wheel, or a finger drag that starts out sideways.
+
+Three optional methods turn this on:
 
 ```ts
 class WideNode extends Node<WideBlock> {
-  // Is there content past the block's sides right now?
+  // Is there content past the sides right now?
   canScrollSideways(c) {
     return contentWidth(this.layout(c)) > c.maxWidth;
   }
 
   // Move by deltaX px (positive shows more on the right). Return null at the
-  // end it is pushed toward, so the gesture falls through to the page.
+  // end, so the gesture goes to the page.
   scrollSideways(c, deltaX) {
     const max = contentWidth(this.layout(c)) - c.maxWidth;
     const now = scrollOf(c.state, c.block.id);
@@ -341,54 +293,64 @@ class WideNode extends Node<WideBlock> {
     return next === now ? null : withScroll(c.state, c.block.id, next);
   }
 
-  // A caret at `point`, a ContentPoint this node owns, should show — the
-  // local caret moved there, or a peer's edge marker was tapped. Scroll so it
-  // shows, or return null when it already does.
+  // Scroll so the caret at `point` shows. Return null when it already does.
   revealSideways(c, point) {
-    /* … */
+    const now = scrollOf(c.state, c.block.id);
+    const next = scrollThatShows(this.layout(c), point, now);
+    return next === now ? null : withScroll(c.state, c.block.id, next);
   }
 }
 ```
 
-Keep the offset in `c.state.ui.nodeViewState[c.block.id]`: it is this device's
-view of the block, like the page scroll, so it never belongs in the document or
-on the wire, and a change to it repaints the block. The node owns everything
-else — painting through the offset, clipping at the page edge, and mapping
-clicks and carets through it. For a point scrolled out of sight,
-`contentCaretRect` should not return `null`: return the rect with `x` pinned to
-the window edge it is past and `offscreen: "left"` or `"right"`. Core then
-draws no local caret there, and marks a collaborator's with a pill at that edge
-on their row — tapping it calls `revealSideways` with their point — so a peer
-working in a hidden column is never invisible. `paint` also gets `c.viewport` (in the same space
-as `c.origin`), so chrome like a scrollbar can stay on screen while the rest of
-the block runs past an edge. A touch that starts on a block whose
-`canScrollSideways` is true counts as a gesture the editor owns (see
-`editor.host.ownsPointerGesture()`), so a host's page-level swipe does not take
-it.
+Keep the offset in `c.state.ui.nodeViewState[c.block.id]`. It belongs to this device only, like the page scroll, so it is never saved or synced. Changing it repaints the block.
 
-<h2 id="mark">Define a mark</h2>
+Your node does the rest: paint with the offset, clip at the page edge, and map clicks and carets through it.
 
-A mark is inline formatting. The bare call registers a valid, replicated format name; pass `render` to paint it on the canvas (a `Mark` subclass) and `codec` to give it markdown delimiters and an HTML tag. Omit `render` and it survives via the CRDT but paints as plain text; omit `codec` and it's dropped on markdown export.
+**A caret scrolled out of sight.** Do not return `null` from `contentCaretRect`. Return the rect with `x` pinned to the edge it is past, and `offscreen: "left"` or `"right"`. The editor then hides your own caret, and shows a small pill at that edge for a collaborator's. Tapping the pill calls `revealSideways`.
+
+**Two extras.** `paint` gets `c.viewport`, so a scrollbar can stay on screen while the block runs past the edge. And a touch that starts on a block that can scroll sideways belongs to the editor (see `editor.host.ownsPointerGesture()`), so a host's page swipe does not take it.
+
+<h2 id="mark">mark (inline)</h2>
+
+A mark is inline formatting such as bold, a link or a highlight. How much you hand to `defineMark` decides how much the mark can do.
+
+With only a name, the mark is saved and synced to other peers, but it paints as plain text and is dropped on markdown export:
 
 ```ts
 import { defineMark } from "@tasfer/editor";
 
-// minimal — replicates, but paints as plain text and doesn't serialize
 const highlight = defineMark("highlight");
+```
 
-// full — on-canvas paint + a `==text==` round-trip
-const marked = defineMark("highlight", {
-  render: new HighlightMark(), // a Mark subclass; style() returns the paint
-  codec: highlightCodec, // delimiters + HTML tag
+To see it on the canvas, write a `Mark` subclass. Its `style()` returns the paint:
+
+```ts
+import { Mark } from "@tasfer/editor";
+
+class HighlightMark extends Mark {
+  readonly type = "highlight";
+  style() {
+    return { background: { color: "#fde68a", padding: 2, borderRadius: 3 } };
+  }
+}
+```
+
+Then pass it as `render`. Add a `codec` as well, and the mark gets its markdown delimiters (`==text==`) and an HTML tag, so it survives export and import:
+
+```ts
+const highlight = defineMark("highlight", {
+  render: new HighlightMark(),
+  codec: highlightCodec,
 });
 ```
 
-A `Mark` subclass can also declare `selectionWrap` — the typed delimiters that apply it over a held selection, VS Code-style auto-surround with markdown meaning. Typing a trigger char while text is selected applies the mark instead of replacing the selection (the core marks declare `` ` `` → code and `~` → strike; the optional math extension declares `$` → inline math). Marks sharing a char at different `level`s cycle with the delimiter count on repeated presses, the way emphasis (`*`, level 1) and strong (`*`, level 2) walk _em_ → **strong** → **_both_** → plain:
+<h3 id="selection-wrap">Wrap a selection by typing</h3>
+
+A mark can also wrap a selection when you type its character, the way VS Code wraps a selection in quotes. Select some text, type `=`, and the text is highlighted instead of replaced. Declare it with `selectionWrap`:
 
 ```ts
 class HighlightMark extends Mark {
   readonly type = "highlight";
-  // `=` typed over a selection toggles the highlight (think `==text==`).
   readonly selectionWrap = [{ char: "=" }];
   style() {
     return { background: { color: "#fde68a", padding: 2, borderRadius: 3 } };
@@ -396,11 +358,19 @@ class HighlightMark extends Mark {
 }
 ```
 
-Where a mark starts or ends, one screen spot is two places to type: with the text before it or with the text after it. The caret shows which with a small flag at its top, pointing to the side typing goes to, and the arrow keys step between the two before moving on. Ordinary marks get this for free. A mark that keeps its own caret stops — like an inline formula, which you enter and leave through its own navigation — answers `caretEdgeFlag(state)` instead: return `"left"` or `"right"` when the caret is on one of its edges, or `null` when it is not. It runs every time the caret is drawn, so keep it cheap.
+The built-in marks already do this: `` ` `` gives code, `~` gives strikethrough, and the optional math extension adds `$` for inline math.
+
+Two marks can share one character if you give them different `level`s. Each press then steps to the next one. Emphasis (`*`, level 1) and strong (`*`, level 2) work this way: _em_ → **strong** → **_both_** → plain.
+
+<h3 id="caret-edge">The caret at a mark's edge</h3>
+
+Where a mark starts or ends, one spot on screen is two places to type: with the text before it, or with the text after it. The caret shows which one with a small flag at its top, pointing to the side your typing goes to. The arrow keys step between the two before moving on.
+
+Ordinary marks get this for free. A mark with its own caret stops, like an inline formula, answers `caretEdgeFlag(state)` instead. Return `"left"` or `"right"` when the caret is on one of its edges, and `null` when it is not. It runs every time the caret is drawn, so keep it cheap.
 
 <h2 id="register">Register them</h2>
 
-`extend` returns a _new_ immutable schema — the base is never mutated, so two editors on one page can run different schemas.
+`extend` returns a new schema. The base is never changed, so two editors on one page can use different schemas.
 
 ```ts
 import { createEditor, baseSchema } from "@tasfer/editor";
@@ -412,11 +382,10 @@ const schema = baseSchema.extend({
 
 const editor = createEditor({ element, schema });
 
-// The doc carries the data half of the schema, so persistence and markdown
-// round-trip the custom block losslessly:
+// Saving and markdown keep the custom block:
 editor.getMarkdown(); // …  <x-callout tone="warn" />  …
 
-// The inferred schema type also reaches every editor operation:
+// TypeScript knows your types in every editor call:
 editor.change((c) => {
   c.insertBlock({ type: "callout", tone: "note" });
   c.setBlock({ type: "callout", tone: "warning" });
@@ -429,41 +398,20 @@ if (block?.type === "callout") {
 }
 ```
 
-A spec carries every facet its type owns — there is no separate facet registry.
-Both `defineNode` and `defineMark` accept `markdownSyntax`, the Markdown
-recognizers for the type's own syntax, and `defineMark` also accepts
-`structured` for structured-content behavior (eager attachment
-initialization, canonical-source resolution from the attachment, attachment
-references, clone rewrites). A structured mark stores no source text in block
-characters: it anchors on a single placeholder character and its attachment is
-the only content authority. The same mark can also sit in a text field inside
-a structured document (in its `markFields`), pointing at another attachment on
-the same block — that is how a table cell holds an inline formula.
-`runFieldAsParagraph` lends those attachments to the paragraph code, so a field
-gets the paragraph's whole formula editing: it writes a new attachment when the
-paragraph code creates the mark (a typed `$x$`, or `setMark("math")` over a selection), and carries a caret inside one
-in and out (see [Editing a field with the paragraph's code](api-schema#field-as-paragraph)). The engine
-re-addresses those references whenever it copies a block (paste, snapshot
-restore) and carries the referenced attachments onto clipboard slices, so a
-custom node with rich-text fields gets this without extra code. A custom syntax rule only takes
-effect when a codec claims the tokens it emits; the generic `<x-type/>`
-round-trip claims none, so pair the rule with a hand-written codec — the way
-the optional math specs carry the `$$…$$` and `$…$` recognizers next to the
-codecs that read them.
+Two more things live in the reference, because most nodes never need them:
+
+- Your own markdown syntax: `markdownSyntax` on [`defineNode`](/docs/editor/api-schema#definenode) and [`defineMark`](/docs/editor/api-schema#definemark).
+- Marks whose content lives in an attachment, like an inline formula: [Marks inside structured content](/docs/editor/api-schema#structured-marks).
 
 <Callout kind="tip" title="Schema changes are CRDT-safe.">
-  Blocks are addressed by type *name* in the replicated log, so a peer running
-  the same schema merges your callouts cleanly. A peer that *doesn't* have the
-  type doesn't crash or lose data — it keeps the ops and renders an "unsupported
-  block" placeholder until it's upgraded. Ship schema changes to all peers
-  together, the way you'd ship a database migration.
+  Blocks are stored by type *name*, so a peer on the same schema merges your
+  callouts cleanly. A peer *without* the type does not crash or lose data. It
+  keeps the block and shows an "unsupported block" placeholder until it
+  upgrades. Ship schema changes to all peers together, like a database
+  migration.
 </Callout>
 
-To constrain which of these registered types a given editor may _author_ — a
-one-line title, a comment box — narrow the schema with
-[`restrict`](/docs/editor/api-schema#restrict). It gates creation only: a
-restricted editor still _renders_ a `callout` that a collaborator (or a paste)
-brings in, because the type stays registered.
+To limit which types an editor may _create_ (a one-line title, a comment box), use [`restrict`](/docs/editor/api-schema#restrict). It only blocks creating: the editor still shows a `callout` that a collaborator or a paste brings in.
 
 <h2 id="next">What to read next</h2>
 

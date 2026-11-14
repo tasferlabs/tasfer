@@ -4,25 +4,35 @@ import { Icons } from "../../docsIcons";
 import { Callout, Card, CardGrid, Lede, PropsTable } from "../../docsComponents";
 
 <Lede>
-  A provider connects your editor's CRDT to other replicas. Swap providers to
-  change *how* peers reach each other — the document model and your UI stay
-  identical.
+  A provider sends edits between people. Swap the provider to change *how*
+  people connect. Your document and your UI stay the same.
 </Lede>
 
 <h2 id="providers">Choosing a provider</h2>
 
-<PropsTable cols={["Provider", "Transport", "Use it when"]} rows={[
-  { name: "provider-relay", type: "WebSocket relay", desc: "Peers behind NATs/firewalls. The relay introduces peers and forwards their updates, sealed under a room secret it does not hold." },
-  { name: "provider-webrtc", type: "Peer-to-peer", desc: "Direct browser-to-browser once introduced. Lowest latency; needs a small signaling step. Data channels are encrypted end to end." },
-  { name: "provider-indexeddb", type: "Local disk", desc: "Not a network provider — persists the CRDT to IndexedDB so reloads are instant and offline-complete." },
-  { name: "custom", type: "Anything", desc: "Implement the Transport interface (from @tasfer/provider-core) and hand it to createProvider — sync over your own backend, BroadcastChannel, or a file watcher." },
+<PropsTable cols={["Provider", "How it connects", "Use it when"]} rows={[
+  { name: "provider-relay", type: "WebSocket relay", desc: "People are behind firewalls or home routers. A small server passes the edits along, encrypted with a room secret it never gets." },
+  { name: "provider-webrtc", type: "Peer-to-peer", desc: "Browsers talk to each other directly, so it is the fastest. A small signaling server is needed only to introduce them." },
+  { name: "provider-indexeddb", type: "Local disk", desc: "Not a network provider. It saves the document in the browser, so a reload is instant and works offline." },
+  { name: "custom", type: "Anything", desc: "Write a Transport (from @tasfer/provider-core) and give it to createProvider. Sync over your own backend, a BroadcastChannel, or a file watcher." },
 ]} />
 
-<Callout kind="note" title="What the relay still learns.">Document frames are sealed with AES-256-GCM under a key derived from your `secret`, so a relay operator forwards bytes they can neither read nor alter undetected. What they *do* see is the room name, peer ids, and the size and timing of every frame. Two more limits: peers in a room share one key, so the `from` field is unforgeable to the relay but not to another peer holding that key; and `secret: null` disables all of it and sends plaintext. `provider-webrtc` keeps the server out of the data path entirely — once ICE completes, bytes flow peer-to-peer over DTLS and the signaling server sees only connection metadata.</Callout>
+<h3 id="relay-privacy">What the relay can see</h3>
 
-<h2 id="stack">Stack them</h2>
+Edits are encrypted with a key made from your `secret` before they leave the browser. The relay passes them along. It cannot read them, and it cannot change them without that being noticed.
 
-Providers compose. A typical setup persists locally *and* syncs over the network — the editor merges all of them into one converging document:
+It still sees the room name, who is connected, and the size and timing of every message.
+
+Two things to know:
+
+- Everyone in a room shares one key. So anyone who has the secret can pretend to be someone else in that room.
+- `secret: null` turns encryption off, and the relay can then read everything. Only do that on a relay you run yourself.
+
+With `provider-webrtc` the document never goes through a server. Edits go from browser to browser, encrypted, and the signaling server only helps the browsers find each other.
+
+<h2 id="stack">Use several at once</h2>
+
+You can put several providers on one document. A common setup saves locally and syncs over the network:
 
 ```ts
 import { createIndexedDBProvider } from "@tasfer/provider-indexeddb";
@@ -33,44 +43,48 @@ const net = createRelayProvider({
   doc: editor.doc,
   room: "team-notes",
   relay: "wss://relay.tasfer.app",
-  secret: roomSecret,   // shared with peers out of band, never with the relay
+  secret: roomSecret,   // share it with people yourself, never with the relay
 });
 ```
 
 <h2 id="presence">Presence & remote cursors</h2>
 
-Presence is ephemeral state that travels alongside the document but is never persisted — who is here, where their cursor is, what color to draw them. The protocol just routes whatever object you publish:
+Presence is the live information that is not part of the document: who is here, where their caret is, what color they are. It travels with the edits but is never saved. You can publish any object you like:
 
 ```ts
 net.presence.set({ name: "Ada", color: "#1db984" });
 
-// each entry is { peerId, state } — the state is what that peer published:
+// each entry is { peerId, state }; state is what that person published
 net.presence.on("change", (peers) => {
   avatars.render(peers.map((p) => p.state.name));
 });
 ```
 
-The editor engine itself has no concept of "peers" — it paints generic [decorations](/docs/editor/api-editor#decorations) you feed it: a peer's caret is a **caret** decoration, their selection a **range** decoration in the default fill style. To turn presence into remote carets and selections, bind the two together with the helper from `@tasfer/provider-core/cursors`:
+The editor itself does not know about other people. It only draws [decorations](/docs/editor/api-editor#decorations): a caret decoration for someone's caret, and a range decoration for their selection. `bindPresenceCursors` connects presence to decorations for you:
 
 ```ts
 import { bindPresenceCursors } from "@tasfer/provider-core/cursors";
 
-// publishes your selection on every change, and renders every peer's cursor
-// as a `presence:<peerId>` decoration layer. Returns an unsubscribe.
+// sends your selection on every change, and draws everyone else's.
+// Returns a function that stops it.
 const stop = bindPresenceCursors(editor, net, {
   user: { peerId, name: "Ada", color: "#1db984" },
 });
 ```
 
-Syncing presence over your own transport instead of a provider? Call the pure mappers directly — `selectionToCursorPresence(editor.state.selection.range, user)` to publish, and `cursorPresenceToDecorations(peerId, state)` → ``editor.view.setDecorations(`presence:${peerId}`, …)`` to display.
+Each person gets their own decoration layer, named `presence:<peerId>`.
 
-<Callout kind="note" title="Offline is not a special case.">Disconnect, edit for an hour on a plane, reconnect — the CRDT merges your changes with everyone else's deterministically. There is no "resolve conflicts" dialog because there are no conflicts to resolve.</Callout>
+Sending presence over your own transport? Use the two functions underneath. `selectionToCursorPresence(editor.state.selection.range, user)` makes the object to send. `cursorPresenceToDecorations(peerId, state)` turns a received one into decorations for ``editor.view.setDecorations(`presence:${peerId}`, …)``.
+
+<Callout kind="note" title="Offline is not a special case.">Disconnect, edit for an hour on a plane, reconnect. Your changes merge with everyone else's, and everyone ends up with the same document. There is no "resolve conflicts" dialog because there are no conflicts. [Core concepts](/docs/editor/concepts#crdt) explains why.</Callout>
 
 <h2 id="schemas">Peers with different schemas</h2>
 
-Two peers editing the same document do not need identical schemas. The CRDT log and the reducer are schema-agnostic about the [authoring allow-list](/docs/editor/api-schema#restrict): a peer records and materializes every well-formed op regardless of what its own schema permits it to _create_. So a peer whose schema is `restrict`ed to headings-only still renders a bullet list a collaborator produced — it just can't mint one locally. Convergence is unaffected because the allow-list never changes how the shared log is projected.
+Two people editing the same document do not need the same schema. A schema limits what you can *create*, not what you can *see* (see [restricting a schema](/docs/editor/api-schema#restrict)). If your schema only allows headings and someone else adds a bullet list, you still see the list. You just cannot make one yourself.
 
-The same rule covers version skew: a peer running an older build that doesn't recognize a newer block type keeps the op in its log (so re-saving never drops a newer peer's content) and renders the block once its schema learns the type. Never enforce an allow-list — or drop an "unknown" op — inside a provider or the reducer; that is the one change that _would_ diverge replicas.
+The same goes for old versions. An older build that does not know a newer block type keeps that block's data, so saving never loses it. It shows the block once its schema learns the type.
+
+If you write your own provider, never filter or drop edits you do not recognize. That is the one thing that makes people's copies drift apart.
 
 <h2 id="next">What to read next</h2>
 
@@ -85,6 +99,6 @@ The same rule covers version skew: a peer running an older build that doesn't re
     to="app/self-hosting"
     icon={<Icons.Server />}
     title="Self-hosting the relay"
-    desc="Run the signaling relay as your own Cloudflare Worker — configuration and operational notes."
+    desc="Run the relay as your own Cloudflare Worker: setup and day-to-day notes."
   />
 </CardGrid>
