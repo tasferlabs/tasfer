@@ -36,7 +36,7 @@ import {
   findWordBoundary,
   findWordEnd,
   findWordStart,
-  isWordChar,
+  isWordCharAt,
 } from "@tasfer/editor/word-chars";
 
 /** A caret inside one cell: the cell node's id and a visible UTF-16 offset. */
@@ -517,14 +517,15 @@ export function cellWordRange(
   const text = getVisibleTextFromRuns(runs);
   const at = Math.max(0, Math.min(caret.offset, text.length));
   const span =
-    at < text.length && isWordChar(text[at])
+    at < text.length && isWordCharAt(text, at)
       ? { from: findWordStart(text, at), to: findWordEnd(text, at) }
       : // Not on a word but just after one — a double-click on the space that
         // follows it, or past the end of the cell's text. Native text fields
         // take the word that ended there, and so does the prose beside the
-        // table.
-        at > 0 && isWordChar(text[at - 1])
-        ? { from: findWordStart(text, at), to: at }
+        // table. Asked from the last character, so an emoji or a Chinese
+        // character (a word by itself) is found too.
+        at > 0 && isWordCharAt(text, at - 1)
+        ? { from: findWordStart(text, at - 1), to: at }
         : undefined;
   if (!span || span.from === span.to) return undefined;
   return {
