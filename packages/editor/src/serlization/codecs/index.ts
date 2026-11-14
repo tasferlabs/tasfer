@@ -10,7 +10,6 @@
  * editor/parser/serializers already hold.
  */
 
-export { codecFromNode, type SerializableNode } from "./from-node";
 export type {
   BlockCodec,
   HtmlCodec,

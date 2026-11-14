@@ -22,4 +22,3 @@ export {
   createRelayProvider,
   type CreateRelayProviderOptions,
 } from "./provider";
-export { RelayTransport, type RelayTransportOptions } from "./transport";

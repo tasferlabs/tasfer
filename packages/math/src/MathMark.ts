@@ -10,20 +10,18 @@
  */
 
 import { INSERT_MATH_COMMAND, RESIZE_MATH_MATRIX } from "./actions";
+import { mathMarkCodec } from "./codecs";
+import { commonRowId, fitToRowBand, inlineRowBand } from "./inline-row-band";
 import {
   getInlineMathStructuredDocument,
   getStructuredMathMarkSource,
-  mathMarkCodec,
   mathMarkContentId,
-  structuredToMathDocument,
-} from "./data";
-import { commonRowId, fitToRowBand, inlineRowBand } from "./inline-row-band";
+} from "./inline-structured";
 import {
   deleteActiveInlineMathTree,
   enterAdjacentInlineMathTreeByUnit,
   enterAdjacentInlineMathTreeHorizontally,
   enterInlineMathTreeAtPosition,
-  insertEmptyInlineMathAtCaret,
   exitActiveInlineMathTreeHorizontally,
   exitActiveInlineMathTreeSelectionHorizontally,
   exitActiveInlineMathTreeToLineEdge,
@@ -35,6 +33,7 @@ import {
   hasActiveInlineMathTreeCaret,
   inlineMathCaretEdgeFlag,
   insertActiveInlineMathTreeCommand,
+  insertEmptyInlineMathAtCaret,
   moveActiveInlineMathTreeCaret,
   moveActiveInlineMathTreeCaretByUnit,
   moveActiveInlineMathTreeCaretVertically,
@@ -52,6 +51,7 @@ import {
   mathCommandRanges,
 } from "./math";
 import { getInlineMathSpans } from "./spans";
+import { structuredToMathDocument } from "./structured";
 // Host-wired layout so `\text{…}` CJK/unsupported glyphs typeset (see tex-host).
 import {
   layoutMathDocumentHost,

@@ -15,7 +15,6 @@
  */
 
 export {
-  COMPACTION_THRESHOLD,
   createIndexedDBProvider,
   type CreateIndexedDBProviderOptions,
   type IndexedDBProvider,

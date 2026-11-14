@@ -355,7 +355,6 @@ export {
 } from "./edit/normalize";
 export {
   enclosingSelectionRanges,
-  isInsideConstruct,
   type MathUnit,
   resolveSelectionRange,
   scriptAttachOffset,
@@ -364,7 +363,7 @@ export {
   unitBefore,
 } from "./edit/unit";
 export type { LoadFontsOptions } from "./fonts/fonts";
-export { ALL_VARIANTS, fontFamily, loadFonts } from "./fonts/fonts";
+export { ALL_VARIANTS, loadFonts } from "./fonts/fonts";
 export { paintMath, type PaintOptions } from "./paint/canvas";
 export { toSVG, type ToSvgOptions } from "./paint/svg";
 export type { TextFallbackChar } from "./parse/ast";

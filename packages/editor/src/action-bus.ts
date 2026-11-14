@@ -53,9 +53,6 @@ export type MutationHandler<P = void> = (
   payload: P,
 ) => boolean | void;
 
-/** The default mutation carried by a {@link MutationAction} (handler-shaped). */
-export type Mutator<P = void> = MutationHandler<P>;
-
 /**
  * An action whose default behavior edits the document. Unlike a plain
  * {@link Action}, dispatching it runs every handler and the default inside one
@@ -64,7 +61,7 @@ export type Mutator<P = void> = MutationHandler<P>;
  * still an {@link Action}, so a schema shortcut can point at it.
  */
 export interface MutationAction<P = void> extends Action<P> {
-  readonly mutate: Mutator<P>;
+  readonly mutate: MutationHandler<P>;
 }
 
 /**
@@ -87,11 +84,11 @@ export interface MutationAction<P = void> extends Action<P> {
 export function action<P = void>(name: string): Action<P>;
 export function action<P = void>(
   name: string,
-  mutate: Mutator<P>,
+  mutate: MutationHandler<P>,
 ): MutationAction<P>;
 export function action<P = void>(
   name: string,
-  mutate?: Mutator<P>,
+  mutate?: MutationHandler<P>,
 ): Action<P> | MutationAction<P> {
   return mutate ? { name, mutate } : { name };
 }

@@ -27,30 +27,16 @@ import { Node, NodeRegistry } from "./Node";
 
 export type { CodeBlock } from "../../nodes/code-block";
 export {
-  CANCEL_IMAGE_HANDLE_DRAG,
-  cancelImageHandleDrag,
   canRepositionImage,
   canRepositionImageAt,
-  CREATE_PARAGRAPH_BELOW_IMAGE,
-  END_IMAGE_HANDLE_DRAG,
-  endImageHandleDrag,
   ENTER_IMAGE_REPOSITION,
   EXIT_IMAGE_REPOSITION,
-  getDragHandleAtPoint,
   ImageNode,
-  imageObjectPosition,
   isRepositioning,
-  SET_IMAGE_HOVER,
-  START_IMAGE_HANDLE_DRAG,
-  startImageHandleDrag,
-  UPDATE_IMAGE_HANDLE_DRAG,
-  UPDATE_IMAGE_REPOSITION,
-  updateImageHandleDrag,
 } from "../../nodes/ImageNode";
 export { LineNode } from "../../nodes/LineNode";
 export {
   INDENT_LIST_ITEM,
-  LIST_BLOCK_TYPES,
   ListNode,
   OUTDENT_LIST_ITEM,
   TOGGLE_TODO_CHECKED,
@@ -60,19 +46,16 @@ export {
   getContentWithComposition,
   paintTextRun,
   type PaintTextRunArgs,
-  TEXT_BLOCK_TYPES,
   TextNode,
   type TextNodeLayout,
 } from "../../nodes/TextNode";
 export { AtomicNode } from "./AtomicNode";
 export type { CaretModel, CaretMotion, TextSpan } from "./caret-model";
-export { contentPointCaretRect } from "./content-caret";
 export {
   hitRegion,
   Node,
   type NodeActivateCtx,
   type NodeActivation,
-  type NodeAtomicHit,
   type NodeCaretRect,
   type NodeContentCaretCtx,
   type NodeContentHitCtx,
@@ -89,7 +72,6 @@ export {
   type NodeScrollCtx,
   type Point,
 } from "./Node";
-export { UnknownNode } from "./UnknownNode";
 
 /**
  * Returns the built-in nodes, made new on each call: paragraph and headings

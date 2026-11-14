@@ -18,7 +18,7 @@
  */
 
 import { INSERT_MATH_COMMAND, RESIZE_MATH_MATRIX } from "./actions";
-import { mathBlockNodeCodec } from "./data";
+import { mathBlockNodeCodec } from "./codecs";
 import { getInlineMathAtPosition, getInlineMathSpans } from "./inline-math";
 import { resolveStructuredInlineMathRuns } from "./inline-structured";
 import { rejoinAdjacentInlineMathChips } from "./inline-tree-state";

@@ -130,14 +130,6 @@ export type MarkInfoFor<S extends SchemaDefinition, T extends MarkNameOf<S>> = {
   readonly content?: ContentSelection;
 };
 
-/**
- * A {@link MarkInfoFor} for any mark type in schema `S`, as one union. Checking
- * `name` narrows `attrs` to that mark's data.
- */
-export type SchemaMarkInfo<S extends SchemaDefinition> = {
-  [T in MarkNameOf<S>]: MarkInfoFor<S, T>;
-}[MarkNameOf<S>];
-
 export type MergeRecords<A, B> = Omit<A, keyof B> & B;
 
 /**

@@ -125,10 +125,10 @@ import type {
   BlockAttrs,
   BlockName,
   MarkAttrs,
+  MarkInfoFor,
   MarkNameOf,
   SchemaBlockData,
   SchemaDefinition,
-  SchemaMarkInfo,
 } from "../schema-types";
 import { getCursorCoordinatesWithComposition } from "../selection";
 import { getTextPositionFromViewport } from "../selection";
@@ -327,22 +327,6 @@ export interface ChangeTransaction {
   readonly ops: readonly Operation[];
 }
 
-/**
- * The name of an inline mark that a plain {@link ChangeApi.setMark} call can
- * toggle on and off. It is any mark on the editor's schema whose
- * {@link Mark.togglable} is true: the built-ins `strong`, `emphasis`, `strike`
- * and `code`, plus custom marks you register. `math` from `@tasfer/math` can be
- * toggled too.
- *
- * `link` cannot be toggled, because it needs a url. Apply it with
- * `setMark("link", { attrs, range })`. A plain `setMark("link")` does nothing.
- *
- * The type is `string`, so custom marks fit. The editor checks the name against
- * the schema when you call it.
- */
-export type MarkName<S extends SchemaDefinition = AnySchemaDefinition> =
-  MarkNameOf<S>;
-
 // The DocPoint / DocRange / BlockData position vocabulary — and the pure resolvers
 // that consume it — live in `../positions` (free functions over EditorState, so
 // they're unit-testable without a canvas). Re-exported here because they're part
@@ -360,8 +344,9 @@ export type BlockData<S extends SchemaDefinition = BaseSchemaDefinition> =
  * its `name`, its data in `attrs` (a link's `url`, for example), and the block,
  * offsets and text of the run it covers.
  */
-export type MarkInfo<S extends SchemaDefinition = BaseSchemaDefinition> =
-  SchemaMarkInfo<S>;
+export type MarkInfo<S extends SchemaDefinition = BaseSchemaDefinition> = {
+  [T in MarkNameOf<S>]: MarkInfoFor<S, T>;
+}[MarkNameOf<S>];
 
 type BlockInsertInput<S extends SchemaDefinition, T extends BlockName<S>> = {
   readonly id?: string;
@@ -5840,11 +5825,11 @@ export class Editor implements EditorApi<AnySchemaDefinition>, EditorWiring {
   // its own content works from the keyboard and silently does nothing from the
   // menu. `TOGGLE_MARK` falls through to `toggleFormat` when nothing claims it.
   private toggleMarkAction =
-    (name: MarkName): StateAction =>
+    (name: MarkNameOf<AnySchemaDefinition>): StateAction =>
     (s) =>
       s.actionBus.dispatchState(TOGGLE_MARK, s, { name });
 
-  private canToggleMark = (name: MarkName): boolean =>
+  private canToggleMark = (name: MarkNameOf<AnySchemaDefinition>): boolean =>
     this._state.marks.get(name)?.togglable === true;
 
   // setBlock accepts the concrete block types plus the convenience "heading",

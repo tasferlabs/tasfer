@@ -11,4 +11,3 @@ export {
   createWebrtcProvider,
   type CreateWebrtcProviderOptions,
 } from "./provider";
-export { WebrtcTransport, type WebrtcTransportOptions } from "./transport";

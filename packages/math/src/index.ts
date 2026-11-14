@@ -12,12 +12,8 @@
  * `@tasfer/math/data` instead, which carries no renderer and no layout call.
  */
 
-export { getCompatibilityDataSchema, mathReplacementRenderer } from "./compat";
-export {
-  mathContentSelectionKind,
-  resolveMathContentSelection,
-  serializeMathContentSelection,
-} from "./content-selection";
+export { mathReplacementRenderer } from "./compat";
+export { mathContentSelectionKind } from "./content-selection";
 export * from "./data";
 export {
   type TrailingMathCommandRun,
@@ -25,7 +21,6 @@ export {
 } from "./input-controller";
 export { mathInputRules } from "./input-rules";
 export {
-  isValidLatex,
   mathMatrixContext,
   mathMatrixContextInRange,
   mathMatrixResize,
@@ -39,9 +34,7 @@ export {
   filterMathCommands,
   MATH_COMMANDS,
   type MathCommand,
-  mathCommandCaretOffset,
   mathCommandInsertion,
-  unambiguousMathCommandCompletion,
 } from "./math-commands";
 export {
   type MathBlockAttrs,
@@ -55,13 +48,12 @@ export {
   type MathBlock,
   MathNode,
   RESIZE_MATH_MATRIX,
-  SET_INLINE_MATH_HOVER,
-  SET_MATH_BLOCK_HOVER,
 } from "./MathNode";
-export { isUnambiguousLatexPaste, mathPasteRule } from "./paste";
+export { mathPasteRule } from "./paste";
+export { getInlineMathSpans, type InlineMathSpan } from "./spans";
 export {
-  getCrossedInlineMathSpan,
-  getInlineMathSpans,
-  type InlineMathSpan,
-} from "./spans";
-export * from "./tree-selection";
+  contentPointToMathTreeCaret,
+  mathContentSelectionFromSourceOffset,
+  mathSourceOffsetFromContentPoint,
+  mathTreeCaretToContentSelection,
+} from "./tree-selection";
