@@ -108,7 +108,28 @@ interface EngineReplicator {
 
 // v1 — give each page's initial heading block a page-scoped operation identity
 // (see `initBlockOp`) and rebuild the ones an earlier collision swallowed.
-const SCHEMA_VERSION = 1;
+// v2 — re-apply the winning value of every replicated page and space field
+// from the op log (see `rematerializeSpaceFields`).
+const SCHEMA_VERSION = 2;
+
+/** Whether clock `a` beats `b` under the space LWW rule (see `lwwCheck`). */
+function clockWins(a: HLC, b: HLC): boolean {
+  return (
+    a.counter > b.counter || (a.counter === b.counter && a.peerId > b.peerId)
+  );
+}
+
+/**
+ * The LWW register a `space_set` / `page_set` writes, or null for ops that are
+ * not field writes. `personal` is monotonic, not LWW (see applySpaceOp).
+ */
+function lwwSlot(op: SpaceOperation): string | null {
+  if (op.op === "space_set") {
+    return op.field === "personal" ? null : `space\0${op.field}`;
+  }
+  if (op.op === "page_set") return `page:${op.pageId}\0${op.field}`;
+  return null;
+}
 
 /**
  * Whether an incoming person-private decision supersedes the one recorded.
@@ -681,7 +702,47 @@ export class Engine implements Platform {
    * a crash part-way through replays the whole step on the next boot.
    */
   private migrationSteps(): { version: number; run: () => Promise<void> }[] {
-    return [{ version: 1, run: () => this.migrateInitBlockIdentity() }];
+    return [
+      { version: 1, run: () => this.migrateInitBlockIdentity() },
+      // Until v2 a device's own field changes did not count as the latest
+      // value it held, so an older change arriving later from a peer replaced
+      // them here while the peers kept the newer one. The log always had the
+      // right answer; this writes it back.
+      { version: 2, run: () => this.rematerializeSpaceFields() },
+    ];
+  }
+
+  /**
+   * Write back the winning value of every replicated page and space field as
+   * the op log decides it. Safe to re-run: it only ever lands on what the log
+   * says.
+   *
+   * Re-run this as a new migration step whenever a build learns a page field
+   * an older build kept in its log without applying it.
+   */
+  private async rematerializeSpaceFields(): Promise<void> {
+    const scopes = await this.driver.db.query<{ scope_id: string }>(
+      "SELECT DISTINCT scope_id FROM ops WHERE scope_id LIKE 'space:%'",
+    );
+    for (const s of scopes) {
+      const ops = await this.getSpaceOps(s.scope_id.slice(6));
+      const winners = new Map<string, SpaceOperation>();
+      for (const op of ops) {
+        const key = lwwSlot(op);
+        if (!key) continue;
+        const current = winners.get(key);
+        if (!current || clockWins(op.clock, current.clock)) {
+          winners.set(key, op);
+        }
+      }
+      // Every statement on the handle the transaction hands us — see
+      // migrateInitBlockIdentity.
+      await this.driver.db.transaction(async (db) => {
+        for (const op of winners.values()) {
+          await this.writeSetOp(db, op, new Date().toISOString());
+        }
+      });
+    }
   }
 
   /** Apply all pending migrations. Safe to call multiple times. */
@@ -5149,6 +5210,11 @@ export class Engine implements Platform {
       at: Date.now(),
     } as SpaceOperation;
     await this.storeSpaceOp(op);
+    // The caller already wrote this change locally. Record it as the value
+    // this device holds, or an older op from a peer that arrives next would
+    // pass the check and replace it here only — the two devices would then
+    // show different values for good.
+    this.lwwCheckFromOp(op);
 
     // When we locally add a member, recompute shared spaces so
     // broadcastToSpacePeers can reach them for this space.
@@ -5270,6 +5336,56 @@ export class Engine implements Platform {
     return true;
   }
 
+  /**
+   * Write a winning `space_set` / `page_set` into the tables. The LWW check is
+   * the caller's: live ops check against the winners map, the migrations
+   * against the whole log. Takes the db handle so it can run in a transaction.
+   */
+  private async writeSetOp(
+    db: DbDriver,
+    op: SpaceOperation,
+    now: string,
+  ): Promise<void> {
+    if (op.op === "space_set") {
+      if (op.field !== "name") return;
+      // Upsert so the space row is created when receiving ops for a space
+      // we don't yet have locally (bootstrapping from a remote peer).
+      await db.mutate(
+        `INSERT INTO spaces (id, name, created_at) VALUES (?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET name = ?`,
+        [op.spaceId, op.value, now, op.value],
+      );
+      return;
+    }
+    if (op.op !== "page_set") return;
+    // No title fields here: titles are derived locally from doc content
+    // ops, never accepted as replicated metadata (see PageAdd docs).
+    const fieldMap: Record<string, string> = {
+      parentId: "parent_id",
+      order: '"order"',
+      color: "color",
+      task: "task",
+      scheduledAt: "scheduled_at",
+      duration: "duration",
+      allDay: "all_day",
+    };
+    const col = fieldMap[op.field];
+    if (!col) return;
+    let val = op.value;
+    if (op.field === "task") {
+      val = val ? 1 : 0;
+    } else if (op.field === "allDay") {
+      val = val === null ? null : val ? 1 : 0;
+    }
+    // Only a real change touches updated_at, so the migration re-writing
+    // every field leaves pages that were right as they were.
+    await db.mutate(
+      `UPDATE pages SET ${col} = ?, updated_at = ?
+        WHERE id = ? AND archived_at IS NULL AND ${col} IS NOT ?`,
+      [val, now, op.pageId, val],
+    );
+  }
+
   private async applySpaceOp(op: SpaceOperation): Promise<void> {
     const now = new Date().toISOString();
     switch (op.op) {
@@ -5291,15 +5407,7 @@ export class Engine implements Platform {
           break;
         }
         if (!this.lwwCheck(op.spaceId, "space", op.field, op.clock)) break;
-        if (op.field === "name") {
-          // Upsert so the space row is created when receiving ops for a space
-          // we don't yet have locally (bootstrapping from a remote peer).
-          await this.driver.db.mutate(
-            `INSERT INTO spaces (id, name, created_at) VALUES (?, ?, ?)
-             ON CONFLICT(id) DO UPDATE SET name = ?`,
-            [op.spaceId, op.value, now, op.value],
-          );
-        }
+        await this.writeSetOp(this.driver.db, op, now);
         break;
 
       case "member_add": {
@@ -5437,30 +5545,7 @@ export class Engine implements Platform {
       case "page_set": {
         if (!this.lwwCheck(op.spaceId, `page:${op.pageId}`, op.field, op.clock))
           break;
-        // No title fields here: titles are derived locally from doc content
-        // ops, never accepted as replicated metadata (see PageAdd docs).
-        const fieldMap: Record<string, string> = {
-          parentId: "parent_id",
-          order: '"order"',
-          color: "color",
-          task: "task",
-          scheduledAt: "scheduled_at",
-          duration: "duration",
-          allDay: "all_day",
-        };
-        const col = fieldMap[op.field];
-        if (col) {
-          let val = op.value;
-          if (op.field === "task") {
-            val = val ? 1 : 0;
-          } else if (op.field === "allDay") {
-            val = val === null ? null : val ? 1 : 0;
-          }
-          await this.driver.db.mutate(
-            `UPDATE pages SET ${col} = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL`,
-            [val, now, op.pageId],
-          );
-        }
+        await this.writeSetOp(this.driver.db, op, now);
         break;
       }
       default: {
