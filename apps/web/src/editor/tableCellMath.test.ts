@@ -304,13 +304,14 @@ describe("editing a cell that holds a formula", () => {
     expect(cellView(editorOver(EDIT_SOURCE))).toBe("a [x] b");
   });
 
-  it("types flush against the formula into it, as a paragraph does", () => {
+  it("types flush after the formula into it, as a paragraph does", () => {
     const state = editorOver(EDIT_SOURCE);
     expect(cellView(insertText(select(state, CHIP + 1), "z").state)).toBe(
       "a [xz] b",
     );
+    // Just before the formula the caret is outside it: the letter is prose.
     expect(cellView(insertText(select(state, CHIP), "z").state)).toBe(
-      "a [zx] b",
+      "a z[x] b",
     );
     // A space is prose: it leaves the formula alone.
     expect(cellView(insertText(select(state, CHIP + 1), " ").state)).toBe(
