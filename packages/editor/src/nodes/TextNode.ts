@@ -924,7 +924,10 @@ function renderLine(
   const savedAlign = ctx.textAlign;
 
   type PreparedPiece = {
+    batch: TextBatch;
     width: number;
+    /** The code chip behind the piece; painted per batch, see below. */
+    chip?: NonNullable<ReturnType<typeof composeMarkStyle>["background"]>;
     paint: (left: number) => void;
   };
 
@@ -1000,6 +1003,7 @@ function renderLine(
       );
       if (dims) {
         return {
+          batch,
           width: dims.width,
           paint: (left) => {
             // The replacement keeps its contract: `x` is its start edge in the
@@ -1029,30 +1033,12 @@ function renderLine(
     const textWidth = ctx.measureText(drawn).width;
 
     return {
+      batch,
       width: textWidth,
+      ...(style.background ? { chip: style.background } : {}),
       paint: (left) => {
         ctx.font = font;
         ctx.textBaseline = "alphabetic";
-
-        // Background chip (code).
-        if (style.background) {
-          const chip = style.background;
-          ctx.save();
-          ctx.fillStyle = chip.color;
-          const rectY = y - textStyle.fontSize - chip.padding;
-          const rectWidth = textWidth + chip.padding * 2;
-          const rectHeight = textStyle.fontSize * textStyle.lineHeight;
-          ctx.beginPath();
-          ctx.roundRect(
-            left - chip.padding,
-            rectY,
-            rectWidth,
-            rectHeight,
-            chip.borderRadius,
-          );
-          ctx.fill();
-          ctx.restore();
-        }
 
         // Every piece holds one direction, so the browser only orders the
         // glyphs inside it; drawing it in that direction keeps its edge spaces
@@ -1095,7 +1081,40 @@ function renderLine(
   for (const p of prepared) lineWidth += p.width;
   // `currentX` is the text's start edge (past any continuation row): the left
   // edge in LTR, the right edge in RTL.
-  let left = isRTL ? currentX - lineWidth : currentX;
+  const lineLeft = isRTL ? currentX - lineWidth : currentX;
+
+  // Code chips first, one per batch: a code span that mixes directions
+  // (`foo بار`) is cut into several pieces, and a chip per piece would draw
+  // overlapping rounded boxes with a darker band where they meet. Pieces of
+  // one batch that sit side by side share one chip across their total width.
+  let chipLeft = lineLeft;
+  for (let i = 0; i < prepared.length; ) {
+    const { chip, batch } = prepared[i];
+    let width = prepared[i].width;
+    let j = i + 1;
+    while (j < prepared.length && prepared[j].batch === batch) {
+      width += prepared[j].width;
+      j++;
+    }
+    if (chip) {
+      ctx.save();
+      ctx.fillStyle = chip.color;
+      ctx.beginPath();
+      ctx.roundRect(
+        chipLeft - chip.padding,
+        y - textStyle.fontSize - chip.padding,
+        width + chip.padding * 2,
+        textStyle.fontSize * textStyle.lineHeight,
+        chip.borderRadius,
+      );
+      ctx.fill();
+      ctx.restore();
+    }
+    chipLeft += width;
+    i = j;
+  }
+
+  let left = lineLeft;
   for (const p of prepared) {
     p.paint(left);
     left += p.width;

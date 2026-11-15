@@ -315,6 +315,27 @@ describe("formatted pieces of a mixed-direction line paint in visual order", () 
     }
   });
 
+  it("inline code that mixes directions gets one chip, not one per piece", () => {
+    for (const markdown of [
+      "Hello `foo بار baz` there",
+      "نص `abc عربي` نهاية",
+    ]) {
+      const r = paint(markdown);
+      const chips = r.spans.filter((s) => s.kind === "chip");
+      expect(chips).toHaveLength(1);
+      const code = markdown.slice(
+        markdown.indexOf("`") + 1,
+        markdown.lastIndexOf("`"),
+      );
+      const start = r.text.indexOf(code);
+      const hl = r.highlight(start, start + code.length);
+      const pad = styles.textFormats.code.padding;
+      expect(chips[0].left).toBeCloseTo(hl.left - pad, 3);
+      expect(chips[0].right).toBeCloseTo(hl.right + pad, 3);
+      expectPaintMatchesHighlight(r);
+    }
+  });
+
   it("an Arabic word split by a mark keeps its pieces in typing order", () => {
     // مر**حب**ا: one direction only, so the pieces still run right to left.
     const r = paint("مر**حب**ا");
