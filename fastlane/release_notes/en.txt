@@ -1,5 +1,5 @@
-- Copy as Markdown from the menu or with ⌘⇧C.
-- Type formulas inside table cells.
-- Steadier typing and keyboard suggestions in long notes.
-- Update Tasfer on all your devices to keep them syncing.
+- Select part of a formula with the selection handles.
+- Make formulas and edit matrices inside table cells.
+- Lines mixing Arabic and English show in the right order.
+- Your scroll spot stays put when iOS closes the app.
 - Bug fixes and improvements.

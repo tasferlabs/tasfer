@@ -1,3 +1,16 @@
+# 2026-11-15
+
+- On phones, the selection handles can select part of a formula, or a formula along with the text around it, in a line or in a block equation
+- The phone toolbar has caret arrows beside bold, links and formulas, and its edges fade where more buttons are hidden
+- Press Math in a table cell to make a formula there, and Edit matrix works on a matrix in a table cell
+- Enter inside a formula moves its right half to the new line
+- Lines that mix Arabic and English show brackets, numbers, bold words, links and formulas in the right order, and quotes and code blocks mirror for right-to-left text
+- Arrow keys, Backspace, Delete and double-click treat an emoji as one piece, and keep words like L'été whole
+- A collaborator's caret shows inside a block equation again
+- On iPhone, a page keeps its scroll spot when iOS closes the app in the background
+- After a paste, the view lands on the pasted text's last line
+- Bug fixes and other UI changes
+
 # 2026-11-10
 
 - Copy as Markdown with ⌘⇧C (Ctrl+Shift+C on Windows and Linux) or from the right-click menu; a normal copy pastes as plain words outside Tasfer
