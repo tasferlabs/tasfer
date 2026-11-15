@@ -60,7 +60,13 @@ import {
 } from "./sync/schema";
 import { invariant } from "@shared/invariant";
 
-/** A full block spec: the canvas-free facets plus the rendering Node. */
+/**
+ * A custom block type, as returned by {@link defineNode}. Pass it in `nodes` to
+ * `Schema.extend()`. It holds the type's data rules and save format, plus
+ * `node`, the {@link Node} that draws it.
+ *
+ * @group Schema
+ */
 export interface BlockSpec<
   T extends string = string,
   A extends Record<string, unknown> = Record<string, unknown>,
@@ -69,11 +75,12 @@ export interface BlockSpec<
 }
 
 /**
- * A full mark spec: the canvas-free data facet ({@link MarkSpec}) plus the
- * rendering {@link Mark}. The inline analogue of {@link BlockSpec} — `render` is
- * the mark's on-canvas paint, stripped before the spec reaches the canvas-free
- * `DataSchema`. Omit `render` for a data-only mark (it replicates and serializes
- * but paints as plain text).
+ * A custom mark type, as returned by {@link defineMark}. Pass it in `marks` to
+ * `Schema.extend()`. It is a {@link MarkSpec} plus `render`, the {@link Mark}
+ * that draws it. Without `render`, the mark is still kept and synced, but looks
+ * like plain text.
+ *
+ * @group Schema
  */
 export interface MarkDef<
   T extends string = string,
@@ -82,48 +89,48 @@ export interface MarkDef<
   readonly render?: Mark;
 }
 
+/**
+ * What you pass to `Schema.extend()`, for example
+ * `baseSchema.extend({ nodes, marks })`: the custom block types and marks to
+ * add to a schema.
+ *
+ * @group Schema
+ */
 export interface SchemaExtension {
   /**
-   * Custom block types to add. Each entry is either a {@link BlockSpec} (built
-   * by `defineNode`) or — the class-first style — a {@link Node} subclass
-   * instance that carries its own facets: its `type`, optional `static
-   * nodeConfig` (attrs + serialization), plus its draw/overlays/strings. A bare
-   * Node is normalized to a leaf BlockSpec with the same generic round-trip
-   * `defineNode` produces, so both styles are interchangeable.
+   * Custom block types to add. Each entry is a {@link BlockSpec} from
+   * `defineNode`, or an instance of your own {@link Node} subclass. A subclass
+   * can set `static nodeConfig` with the same fields as `defineNode`'s config.
+   * Both styles give the same result.
    */
   readonly nodes?: readonly (BlockSpec | Node)[];
   /**
-   * Custom inline marks to add, built by `defineMark`. Each {@link MarkDef}
-   * carries the data facet (CRDT type + optional serialization codec) and,
-   * optionally, the rendering {@link Mark} — `extend()` folds the render facet
-   * into the schema's mark list so `createEditor({ schema })` paints it without
-   * a separate `marks` option.
+   * Custom marks to add, made with `defineMark`. Each {@link MarkDef} may carry
+   * a {@link Mark} in `render`. `extend()` adds it to the schema, so
+   * `createEditor({ schema })` draws the mark with no extra option.
    */
   readonly marks?: readonly MarkDef[];
   /**
-   * Adapters for structured document KINDS this extension brings (clipboard
-   * selection serialization, snapshot clone re-addressing). A kind is its own
-   * registration axis — display math and inline math share one kind — so
-   * these ride the extension rather than a single node or mark spec.
+   * Helpers for each kind of nested content this extension brings, such as math
+   * or tables. They tell the editor how to select, copy, paste and duplicate
+   * content inside it, and how to read its text. One kind can serve several
+   * types: display math and inline math share one, so these live here and not
+   * on a single node or mark.
    */
   readonly structuredKinds?: readonly StructuredKindSpec[];
 }
 
 /**
- * A reusable editor feature installed with {@link Schema.use}.
+ * A reusable feature you install with {@link Schema.use}. It can hold
+ * everything `extend()` takes (nodes, marks, `structuredKinds`). It can also
+ * add typing rules (`inputRules`), paste handling (`pasteRules`), `actions` and
+ * `theme` defaults.
  *
- * A feature contributes the block-node, inline-mark, and structured-kind
- * facets accepted by the lower-level {@link Schema.extend} API plus the
- * cross-type input, action, and theme facets. This distinct public shape is
- * the stable composition boundary for extension packages; new feature
- * capabilities can be added here without changing how consumers install them.
+ * `name` is optional and only for tooling. It is not a unique key: two features
+ * with the same name are both installed.
  *
- * `name` is optional metadata for tooling and diagnostics. Composition is
- * structural and immutable; a name is not a global registration key and does
- * not cause features to be deduplicated.
- *
- * Preserve literal node and mark types when exporting a feature by using
- * `satisfies` rather than widening the value with a type annotation:
+ * Use `satisfies`, not a type annotation, so the exact node and mark names stay
+ * typed:
  *
  * ```ts
  * export const callouts = {
@@ -133,23 +140,29 @@ export interface SchemaExtension {
  *
  * const schema = baseSchema.use(callouts);
  * ```
+ *
+ * @group Features
  */
+// This distinct shape is the stable composition boundary for extension
+// packages; new feature capabilities can be added here without changing how
+// consumers install them.
 export interface FeatureExtension extends SchemaExtension, FeatureFacets {
   readonly name?: string;
 }
 
 /**
- * The authoring allow-list passed to {@link Schema.restrict}. Names are the
- * schema's own registered block/mark types (so they autocomplete). Omit a key to
- * leave that dimension unrestricted; `marks: []` yields a format-free field. The
- * fallback block type (`paragraph`) is always kept creatable and need not be
- * listed — unless a `content` expression is supplied, which carries its own
- * guarantee that a document can be built. The full registry is preserved — a
- * restricted editor still RENDERS a
- * disallowed type that arrives via sync or an older document; it only stops the
- * local user from creating one.
+ * What you pass to {@link Schema.restrict}: the block and mark types the user
+ * may create. Names autocomplete from the schema. Leave out `blocks` or `marks`
+ * to allow every type. `marks: []` allows no formatting at all. `paragraph` is
+ * always allowed, so you need not list it. When you set `content`, it is not
+ * added for you. A blocked type that arrives from another person or an older
+ * document still shows.
  *
- *   const titleSchema = baseSchema.restrict({ blocks: ["heading1"], marks: [] });
+ * ```ts
+ * const titleSchema = baseSchema.restrict({ blocks: ["heading1"], marks: [] });
+ * ```
+ *
+ * @group Schema
  */
 export interface SchemaRestriction<
   D extends SchemaDefinition = BaseSchemaDefinition,
@@ -157,23 +170,58 @@ export interface SchemaRestriction<
   readonly blocks?: readonly BlockName<D>[];
   readonly marks?: readonly MarkNameOf<D>[];
   /**
-   * The document's SHAPE — a ProseMirror-style content expression over the flat
-   * block sequence, constraining order and count where `blocks` constrains
-   * identity:
+   * The order and number of blocks the document must follow. `blocks` says
+   * which types are allowed. `content` says in what order and how many.
    *
-   *   "heading1 paragraph+"              a heading, then one or more paragraphs
-   *   "heading1 (paragraph|image){1,3}"  a heading, then one to three of either
-   *   "heading1 block*"                  a heading, then anything
+   * ```text
+   * "heading1 paragraph+"              a heading, then one or more paragraphs
+   * "heading1 (paragraph|image){1,3}"  a heading, then one to three of either
+   * "heading1 block*"                  a heading, then anything
+   * ```
    *
-   * A name is a registered block type or a group — `block`, `text`, `heading`,
-   * `list`, `void`, plus any extra names a spec declares via `groups`. Grammar:
-   * alternation `|`, grouping `(…)`, and the repetitions `+`, `*`, `?`,
-   * `{n}`, `{n,}`, `{n,m}`.
+   * A name is a block type or a group: `block`, `text`, `heading`, `list`,
+   * `void`, or a name from a node's `groups`. Use `|` for "or", `( )` to group,
+   * and `+`, `*`, `?`, `{n}`, `{n,}`, `{n,m}` to repeat. Spaces separate names.
    *
-   * Enforced at the same authoring boundaries as the allow-list: an edit that
-   * would leave the document unable to satisfy the expression is refused, and
-   * paste/import are repaired to it. Rendering, the reducer and the op log are
-   * untouched, so peers on different expressions still converge.
+   * The groups come from the registered types, so there is no list to keep up:
+   *
+   * - `block`: every type.
+   * - `text`: every type that holds text (paragraph, headings, quote, lists,
+   *   code).
+   * - `void`: every type with no text (image, divider, custom nodes).
+   * - `heading`: `heading1`, `heading2` and `heading3`.
+   * - `list`: bullet, numbered and todo lists.
+   *
+   * An edit that would break this shape is refused. Paste and import are fixed
+   * up to fit it. Edits from other people are not checked, so everyone still
+   * ends up with the same document.
+   *
+   * Where an edit can adapt, it does. Enter makes the new block a type the
+   * shape allows there, and does nothing when none is allowed. A paste is fixed
+   * to fit where it lands. Other edits that would break the shape do nothing:
+   * turning a block into another type, a Backspace that joins two blocks,
+   * deleting a selected block, or `deleteBlock()`. {@link Editor.change}
+   * returns `false` when it refuses a batch, and {@link Editor.canChange}
+   * tells you ahead of time.
+   *
+   * A loaded document is fixed as a whole. A block that does not fit becomes a
+   * type that does, keeping its text, or is dropped. Blocks missing at the end
+   * are added.
+   *
+   * A document that already breaks the shape is never locked. It may come from
+   * someone on a looser schema, or be saved before you added the rule. It
+   * still edits normally. Only an edit that breaks a document that fit is
+   * refused.
+   *
+   * The shape is a guard on what this user types, not a promise about the
+   * document. Two people's edits can each be fine and still break the shape
+   * once they merge. If your code depends on the shape, for export or
+   * rendering, check it with `schema.data.contentAccepts()` at that point, and
+   * fix a document that fails.
+   *
+   * Every name must already be registered, so call `restrict()` after
+   * `extend()` and `use()`. A bad expression, an unknown name, or a shape no
+   * document can meet throws when you call `restrict()`, not later.
    */
   readonly content?: string;
 }
@@ -200,9 +248,22 @@ type ExtensionDefinition<E extends SchemaExtension> = {
 };
 
 /**
- * An immutable editor schema: the data facets (`data`) plus the nodes the
- * editor renders (`nodes`). Build the default with `baseSchema`, derive
- * variants with `extend()` or compose reusable features with `use()`.
+ * The block and mark types an editor knows, and the nodes and marks that draw
+ * them. A schema never changes: `extend()`, `use()` and `restrict()` each
+ * return a new one. Start from `baseSchema`. Two editors on one page can use
+ * different schemas.
+ *
+ * TypeScript carries the schema's block and mark names into the editor, its
+ * `change()` and `query` APIs, and the React bindings, with no type argument
+ * to write. So `setBlock({ type: "calluot" })` is a type error.
+ *
+ * ```ts
+ * const callout = defineNode("callout");
+ * const schema = baseSchema.extend({ nodes: [callout] });
+ * const editor = createEditor({ element, schema });
+ * ```
+ *
+ * @group Schema
  */
 export class Schema<D extends SchemaDefinition = BaseSchemaDefinition> {
   readonly data: DataSchema<D>;
@@ -219,7 +280,15 @@ export class Schema<D extends SchemaDefinition = BaseSchemaDefinition> {
     this.marks = marks;
   }
 
-  /** Derive a new schema with extra custom node and mark types. */
+  /**
+   * Derive a new schema with extra custom node and mark types. `nodes` and
+   * `marks` are arrays. A type whose name is already in the schema replaces the
+   * old one. Use {@link Schema.use} for a reusable feature bundle.
+   *
+   * ```ts
+   * const schema = baseSchema.extend({ nodes: [defineNode("one_off")] });
+   * ```
+   */
   extend<const E extends SchemaExtension>(
     ext: E,
   ): Schema<MergeSchema<D, ExtensionDefinition<E>>> {
@@ -258,14 +327,10 @@ export class Schema<D extends SchemaDefinition = BaseSchemaDefinition> {
   }
 
   /**
-   * Install one reusable feature and return a new schema.
-   *
-   * `use()` is the public composition boundary for extension packages. Today a
-   * {@link FeatureExtension} registers nodes and marks through the same
-   * normalization as {@link extend}, including exact schema type inference, then
-   * installs its cross-type facets on the derived data schema. Keeping the
-   * methods separate prevents the low-level node/mark registration API from
-   * becoming a framework-wide hook bag.
+   * Installs one reusable feature, such as math or tables, and returns a new
+   * schema. A {@link FeatureExtension} adds nodes and marks the same way
+   * `extend()` does, with the same exact types. It can also add typing rules,
+   * paste handling, actions and theme defaults.
    *
    * ```ts
    * const callouts = {
@@ -276,6 +341,9 @@ export class Schema<D extends SchemaDefinition = BaseSchemaDefinition> {
    * const schema = baseSchema.use(callouts);
    * ```
    */
+  // use() is the public composition boundary for extension packages. Keeping
+  // use() and extend() separate prevents the low-level node/mark registration
+  // API from becoming a framework-wide hook bag.
   use<const F extends FeatureExtension>(
     feature: F,
   ): Schema<MergeSchema<D, ExtensionDefinition<F>>> {
@@ -288,15 +356,27 @@ export class Schema<D extends SchemaDefinition = BaseSchemaDefinition> {
   }
 
   /**
-   * Derive a schema that restricts which registered types the local user may
-   * author — the ProseMirror-style whitelist. Rendering is untouched (the same
-   * nodes/marks), so this only gates creation: a restricted editor still paints
-   * a disallowed block that arrives via sync or an older document. Immutable —
-   * returns a new schema. Apply after `extend()` (register types first, then
-   * restrict).
+   * Returns a new schema that limits which block and mark types the user can
+   * create. It only blocks creating them. A blocked type that arrives from
+   * another person or an older document still shows. Call it after `extend()`,
+   * so your custom types exist first. It throws if a name is not in the schema,
+   * or if `content` can never be met.
    *
-   *   const titleSchema = baseSchema.restrict({ blocks: ["heading1"], marks: [] });
-   *   const editor = createEditor({ element, schema: titleSchema });
+   * Every way of making a blocked type is stopped: menu conversions, Enter,
+   * Markdown shortcuts like `# `, and `change()` calls. Each one does nothing
+   * or makes a plain paragraph instead. A blocked mark does nothing. Paste and
+   * import are cut down to fit: a blocked heading pastes as plain text, and a
+   * blocked image is dropped. Content already in the document is not changed.
+   *
+   * Edits from other people are never checked against it, so editors with
+   * different limits (a locked title and a full body) still share one
+   * document. To hide your own controls for blocked types, ask
+   * `schema.data.isBlockAllowed(type)` and `schema.data.isMarkAllowed(type)`.
+   *
+   * ```ts
+   * const titleSchema = baseSchema.restrict({ blocks: ["heading1"], marks: [] });
+   * const editor = createEditor({ element, schema: titleSchema });
+   * ```
    */
   restrict(restriction: SchemaRestriction<D>): Schema<D> {
     return new Schema(
@@ -307,7 +387,11 @@ export class Schema<D extends SchemaDefinition = BaseSchemaDefinition> {
   }
 }
 
-/** Extract the compile-time document definition carried by a {@link Schema}. */
+/**
+ * Extract the compile-time document definition carried by a {@link Schema}.
+ *
+ * @group Schema
+ */
 export type SchemaDefinitionOf<S> = S extends Schema<infer D> ? D : never;
 
 /**
@@ -352,12 +436,26 @@ function toBlockSpec(entry: BlockSpec | Node): BlockSpec {
 }
 
 /**
- * The default schema — every core block and mark type, and the core nodes.
- * Optional features such as math are absent. The node/mark instances come
- * straight from `defaultNodes()` / `defaultMarks()` (the single source of truth
- * for the core set), so this
- * never drifts from them. Immutable; derive variants with `baseSchema.extend(...)`.
+ * The default schema: every built-in block and mark type, ready to draw.
+ * Optional features such as math are not included. It has no `restrict()`
+ * limits, so the user can create every type. `baseSchema` never changes.
+ * Add types with `baseSchema.extend()` or `baseSchema.use()`, which return a
+ * new schema.
+ *
+ * The blocks are `paragraph`, `heading1` to `heading3`, `bullet_list`,
+ * `numbered_list`, `todo_list`, `quote`, `code`, `image` and `line`. The marks
+ * are `strong`, `emphasis`, `strike`, `code` and `link`. Note the mark names:
+ * `strong`, not bold; `emphasis`, not italic; `strike`, not strikethrough.
+ *
+ * The `code` block is the one type that is not drawn here. It still loads,
+ * saves, syncs and exports, but it shows as a placeholder until you add
+ * `codeExtension()` from `@tasfer/code`.
+ *
+ * @group Schema
  */
+// The node/mark instances come straight from defaultNodes() / defaultMarks()
+// (the single source of truth for the core set), so this never drifts from
+// them.
 export const baseSchema: Schema<BaseSchemaDefinition> = new Schema(
   getBaseDataSchema(),
   defaultNodes(),
@@ -366,54 +464,72 @@ export const baseSchema: Schema<BaseSchemaDefinition> = new Schema(
 
 // ─── defineMark ──────────────────────────────────────────────────────────────
 
+/**
+ * Options for {@link defineMark}: how the custom mark looks on the canvas, how
+ * it is written to and read from Markdown and HTML, and the data it carries.
+ * Every field is optional.
+ *
+ * @group Schema
+ */
 export interface DefineMarkConfig<
   A extends Record<string, unknown> = Record<string, never>,
 > {
   /**
-   * On-canvas appearance — a {@link Mark} subclass instance. Omit and the mark
-   * still replicates and serializes, but paints as plain text. Folded into the
-   * schema's render list by `extend()`, so no separate `createEditor({ marks })`
-   * is needed.
+   * How the mark looks on the canvas: an instance of a {@link Mark} subclass.
+   * Its `type` must match the name given to `defineMark`, or `extend()` throws.
+   * Without `render`, the mark is still kept and synced but looks like plain
+   * text. `extend()` adds it to the schema, so `createEditor` needs no `marks`
+   * option.
    */
   readonly render?: Mark;
   /**
-   * Markdown/HTML round-trip for a *data-only* mark (one with no `render` Mark).
-   * When `render` is supplied, its `codec` is authoritative and this is ignored
-   * (set both to disagreeing codecs and `extend()` throws) — the Mark instance is
-   * the single source of truth for its facets. Omit on a data-only mark and it
-   * survives only via the CRDT, dropped on markdown export; provide one to give
-   * it delimiters (`==text==`) and an HTML tag.
+   * How the mark is written as Markdown and HTML, for example `==text==` and an
+   * HTML tag. It is used only when the `render` Mark has no `codec` of its own.
+   * If both have a codec and they differ, `extend()` throws. With no codec at
+   * all, the mark stays in the document but is lost on Markdown export.
    */
   readonly codec?: MarkCodec;
   /**
-   * Markdown recognizers owned by this mark type (inline scope, normally).
-   * Emitted tokens are only consumed when a codec claims them, so a custom
-   * syntax rule needs a hand-written `codec` with matching `tokens`.
+   * Rules that find this mark's own delimiters when Markdown is read. These
+   * are usually `scope: "inline"` rules. They only take effect when the mark's
+   * codec lists matching `tokens`, so a custom rule needs a codec you write.
    */
   readonly markdownSyntax?: readonly SyntaxRule[];
   /**
-   * Structured-content behavior of this mark type (attachment initialization,
-   * canonical-source resolution, clone rewrites), dispatched by the declared
-   * mark type.
+   * For a mark whose content lives in its own nested document, such as inline
+   * math. It tells the editor how to create that content, read its source, copy
+   * it and clean it up. Most marks do not need it.
+   *
+   * Such a mark covers one placeholder character in the text. The nested
+   * document is the only real copy of what it holds.
    */
   readonly structured?: StructuredMarkFacet;
   /**
-   * Compile-time declaration of data carried in `mark.attrs`. Runtime mark
-   * validation remains owned by the mark/action using it; this declaration
-   * makes `ChangeApi.setMark` and `query.marks` schema-aware.
+   * The data this mark carries in `mark.attrs`, declared like node attributes,
+   * for example `{ color: { default: "yellow" } }`. It is for TypeScript only:
+   * it types `setMark` and `query.marks`. It does not set defaults or check
+   * values at runtime.
    */
   readonly attrs?: A;
 }
 
 /**
- * Declare an inline mark. Returns a {@link MarkDef} for `baseSchema.extend({
- * marks })` — carrying the data facet (the mark type), and optionally how it
- * paints (`render`) and serializes (`codec`):
+ * Declares a custom inline mark. It returns a {@link MarkDef} to pass to
+ * `baseSchema.extend({ marks })`, or to list in a {@link FeatureExtension}
+ * you install with `use()`. Set `render` to choose how it looks, and `codec`
+ * to save it as Markdown and HTML.
  *
- *   const schema = baseSchema.extend({
- *     marks: [defineMark("highlight", { render: new HighlightMark() })],
- *   });
- *   const editor = createEditor({ element, schema }); // paints, no `marks` option
+ * With only a name, you get a format the user can turn on and off. It is kept
+ * and synced, but draws as plain text and is lost on Markdown export.
+ *
+ * ```ts
+ * const schema = baseSchema.extend({
+ *   marks: [defineMark("highlight", { render: new HighlightMark() })], // your Mark subclass
+ * });
+ * const editor = createEditor({ element, schema }); // draws it, no `marks` option needed
+ * ```
+ *
+ * @group Schema
  */
 export function defineMark<
   const T extends string,
@@ -430,48 +546,76 @@ export function defineMark<
 
 // ─── defineNode ──────────────────────────────────────────────────────────────
 
-/** One declared attribute of a custom node. */
+/**
+ * One declared attribute of a custom node.
+ *
+ * @group Schema
+ */
 export interface AttrSpec<T = unknown> {
   /** Default value, applied when the block is created. */
   default?: T;
-  /** Validate a value before a `block_set` is accepted. Default: string/number/boolean. */
+  /**
+   * Checks a new value for this attribute. A value that fails is not applied.
+   * By default any string, number or boolean passes.
+   */
   validate?: (value: unknown) => boolean;
 }
 
+/**
+ * Options for {@link defineNode}: the custom block's attributes, how it is
+ * drawn (a styled box or your own node), and how it is written as Markdown,
+ * HTML and plain text. A node class can supply the same fields as its
+ * `static nodeConfig`.
+ *
+ * @group Schema
+ */
 export interface DefineNodeConfig<
   A extends Record<string, AttrSpec> = Record<string, AttrSpec>,
 > {
   /**
-   * What the node contains. v1 supports only `"none"` (a leaf void block).
-   * Declared explicitly so the value reads as a deliberate choice.
+   * What the block holds. Only `"none"` is supported: the block has no text and
+   * no child blocks.
    */
   content?: "none";
-  /** Declared attributes (replicated as top-level fields via `block_set`). */
+  /**
+   * The block's attributes, by name. Each one is an {@link AttrSpec}. They sync
+   * to other people like the rest of the document.
+   *
+   * TypeScript reads each attribute's type from its `default`. A `validate`
+   * written as a type guard gives a narrower type, such as
+   * `(v): v is "note" | "warn" => v === "note" || v === "warn"`.
+   */
   attrs?: A;
   /**
-   * Extra names this type answers to inside a `restrict({ content })`
-   * expression, on top of the capability-derived `block` / `void` groups — so a
-   * family of custom types can be addressed as one (`"heading1 card+"`).
+   * Extra group names for this block type, used in a `restrict({ content })`
+   * expression. Custom blocks are already in the `block` and `void` groups.
+   * Give several types one group to name them all at once, as in `"heading1
+   * card+"`.
    */
   groups?: readonly string[];
-  /** Style for the generated {@link BoxNode}. Ignored when `node` is supplied. */
+  /**
+   * Style for the generated {@link BoxNode}: background, border, left accent
+   * bar and label. Ignored when `node` is supplied.
+   */
   render?: BoxRenderStyle;
-  /** A custom Node to render with, instead of the generated BoxNode. */
+  /**
+   * A custom Node to render with, instead of the generated BoxNode. It does its
+   * own drawing, hit testing and overlays.
+   */
   node?: Node;
   /**
-   * Markdown recognizers owned by this block type (block scope, normally).
-   * Emitted tokens are only consumed when a codec claims them, so a custom
-   * syntax rule requires a node that supplies its own serialization codec with
-   * matching `markdown.tokens` — the generated `<x-type/>` round-trip claims
-   * none.
+   * Rules that find this block's own syntax when Markdown is read. These are
+   * usually `scope: "block"` rules. They only take effect when `node` has its
+   * own `codec` whose `markdown.tokens` match.
+   * The default `<x-type />` tag format does not use them.
    */
   markdownSyntax?: readonly SyntaxRule[];
   /**
-   * Markdown output for the generic box/config style. Defaults to the generic
-   * `<x-type …attrs>` round-trip that `parseMarkdown` (also generated) reads
-   * back. Override only if you also ensure the result re-parses. Rejected when
-   * the supplied `node` implements its own serialization methods — that node is
-   * the source of truth, so the two can't both be set.
+   * Writes the block as Markdown. By default it writes a tag such as
+   * `<x-callout tone="note" />`, which loads back as the same block. If you
+   * override it, make sure the result still loads back. If `node` (or a node
+   * class you register) has its own `codec` and you also set `toMarkdown`,
+   * `toHtml` or `toText`, it throws.
    */
   toMarkdown?: (block: CustomBlock) => string;
   /** HTML output. Defaults to the same generic tag. */
@@ -503,27 +647,35 @@ function coerceAttr(raw: string, def: unknown): unknown {
 }
 
 /**
- * Define a custom leaf block type — its CRDT shape, its markdown/HTML/text
- * round-trip, and how it draws. Two interchangeable authoring styles:
- *  ```ts
- *   // 1. Config style — a styled box with no canvas code:
- *   const callout = defineNode("callout", {
- *     attrs: { tone: { default: "note" } },
- *     render: { background: "rgba(0,0,0,0.04)", borderLeft: { width: 3, color: "#1db984" } },
- *   });
- *   const schema = baseSchema.extend({ nodes: [callout] });
+ * Defines a custom block type with no text, such as a callout box or an embed.
+ * You choose its attributes, how it draws, and how it is saved as Markdown,
+ * HTML and plain text. Pass the result to `baseSchema.extend({ nodes })`, or
+ * list it in a {@link FeatureExtension} you install with `use()`. With no
+ * serialization of your own, it is saved as a `<x-type …attrs />` tag that
+ * loads back as the same block.
  *
- *   // 2. Class-first style — subclass a Node and register it directly. The
- *   //    class owns its draw/overlays/strings; `static nodeConfig` supplies
- *   //    attrs + serialization (same fields as this config):
- *   class Callout extends AtomicNode {
- *     readonly type = "callout";
- *     static nodeConfig = { attrs: { tone: { default: "note" } } };
- *     protected intrinsicHeight() { return 48; }
- *     protected draw(box, c) {  ... }
- *   }
- *   const schema = baseSchema.extend({ nodes: [new Callout()] });
- *   ```
+ * There are two ways to write one, and both give the same result:
+ *
+ * ```ts
+ * // 1. Config: a styled box, no drawing code.
+ * const callout = defineNode("callout", {
+ *   attrs: { tone: { default: "note" } },
+ *   render: { background: "rgba(0,0,0,0.04)", borderLeft: { width: 3, color: "#1db984" } },
+ * });
+ * const schema = baseSchema.extend({ nodes: [callout] });
+ *
+ * // 2. Class: your own node draws it. `static nodeConfig` takes the same
+ * //    fields as the config above.
+ * class Callout extends AtomicNode {
+ *   readonly type = "callout";
+ *   static nodeConfig = { attrs: { tone: { default: "note" } } };
+ *   protected intrinsicHeight() { return 48; }
+ *   protected draw(box, c) { … }
+ * }
+ * const schema = baseSchema.extend({ nodes: [new Callout()] });
+ * ```
+ *
+ * @group Schema
  */
 export function defineNode<
   const T extends string,

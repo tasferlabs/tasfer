@@ -13,6 +13,12 @@
  */
 import { isValidLatex, operatorCommands, symbolCommands } from "@tasfer/tex";
 
+/**
+ * One entry in the `\` command list: a piece of LaTeX the user can insert into
+ * a formula, with a label and search words for an autocomplete menu.
+ *
+ * @group Actions and commands
+ */
 export interface MathCommand {
   /** Stable id (also the canonical command keyword, e.g. `int`). */
   readonly id: string;
@@ -25,10 +31,10 @@ export interface MathCommand {
 }
 
 /**
- * Offset within a command's `latex` to place the caret after inserting — the
- * inside of the first empty `{}` slot, or the end if the command has no slots
- * (e.g. `\alpha`). Computed rather than stored so the catalog stays terse.
+ * Where the caret goes in a command's `latex` after it is inserted: inside its
+ * first empty `{}`, or at the end when it has none (like `\alpha`).
  */
+// Computed rather than stored so the catalog stays terse.
 export function mathCommandCaretOffset(latex: string): number {
   const i = latex.indexOf("{}");
   return i >= 0 ? i + 1 : latex.length;
@@ -49,19 +55,22 @@ function endsInControlWord(latex: string): boolean {
 }
 
 /**
- * The exact text to insert when committing a command's `latex` at a caret whose
- * next character *within the same formula* is `following` (empty string at the
- * formula's end), plus the caret offset within that text.
+ * The text to insert for a command's `latex`, and where the caret goes in it.
+ * `following` is the next character in the same formula, or `""` at the
+ * formula's end.
  *
- * Committing a command that ends in a control word (`\pi`, `\degree`, `\int`)
- * directly before a letter would fuse them into one unknown command (`a\pi|a` +
- * Enter → `\pia`, rendered as raw red source instead of πa) — the same fusion
- * the typing path guards against with `mathNeedsCommandSeparator`. So a
- * separator space is appended, and the caret lands after it: the spot between a
- * command and its separator is a dead position with no caret stop (the space is
- * absorbed into the command's token). Otherwise the text is `latex` verbatim
- * and the caret sits in its first empty `{}` slot, or at its end.
+ * When the command ends in a name like `\pi` and `following` is a letter, a
+ * space is added after it. Without the space, `\pi` and `a` would read as one
+ * unknown command, `\pia`. Otherwise the text is `latex` as is. The caret goes
+ * in the first empty `{}`. When there is none, it goes at the end, after the
+ * added space if there is one.
+ *
+ * @group Actions and commands
  */
+// The caret goes after the separator space because the spot between a command
+// and its separator has no caret stop (the space is absorbed into the command's
+// token). Same fusion the typing path guards against with
+// `mathNeedsCommandSeparator`.
 export function mathCommandInsertion(
   latex: string,
   following: string,
@@ -678,19 +687,29 @@ const GENERATED: readonly MathCommand[] = [
     })),
 ];
 
+/**
+ * Every command the `\` autocomplete can offer inside a formula. The
+ * hand-picked templates come first (fractions, roots, Greek letters…), then
+ * every other symbol and named operator the renderer supports. Search it with
+ * {@link filterMathCommands}.
+ *
+ * @group Actions and commands
+ */
 export const MATH_COMMANDS: readonly MathCommand[] = [
   ...COMMANDS,
   ...GENERATED,
 ];
 
 /**
- * Resolve a fully typed command when no longer catalog id shares it as a
- * prefix, or when `following` proves that no longer match can be typed. An
- * unambiguous case-folded match also accepts the catalog's display casing
- * (`\\Degree` → `\\degree`), while exact casing wins for distinct commands
- * such as `\\Gamma` and `\\gamma`. The tree editor can therefore keep `\\in`
- * scratch while the user types `\\int`, but commits `\\sin` before `(` or an
- * unrelated following letter.
+ * Checks whether a typed command name (`command`, without the `\`) can be
+ * committed now. Returns the catalog command's `id` and `latex` when no longer
+ * command starts with `command`. It also returns them when `following`, the
+ * next typed character, rules out every longer one. Otherwise it returns
+ * undefined.
+ *
+ * Case matters only when two commands differ by case. `Degree` finds `\degree`,
+ * but `Gamma` and `gamma` stay apart. So `in` waits while the user may still be
+ * typing `int`, and `sin` commits before `(`.
  */
 export function unambiguousMathCommandCompletion(
   command: string,
@@ -760,13 +779,16 @@ export function isMathEnvironmentCommandPrefix(prefix: string): boolean {
 }
 
 /**
- * Filter + rank the catalog by `query` (the text typed after `\`, letters only).
- * An empty query returns the curated tier in its curated order — the browse
- * list. A non-empty query searches the full catalog (curated + generated), so
- * every engine-supported command is reachable by typing. Rank:
- * exact id > id prefix > name word-prefix > keyword prefix > substring — so
- * typing `int` surfaces `\int` first, then `\iint`/`\iiint`, etc. Curated
- * entries come before generated ones at equal score.
+ * Searches {@link MATH_COMMANDS} for `query`, the letters typed after `\`. Case
+ * does not matter. An empty query returns the hand-picked commands in their own
+ * order, for browsing.
+ *
+ * Otherwise the best matches come first, in this order: exact id, id start, a
+ * word in the name that starts with the query, a keyword that starts with it,
+ * then the query found anywhere. So `int` puts `\int` first. On a tie,
+ * hand-picked commands come first.
+ *
+ * @group Actions and commands
  */
 export function filterMathCommands(query: string): MathCommand[] {
   const q = query.toLowerCase();

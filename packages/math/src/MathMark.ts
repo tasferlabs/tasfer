@@ -10,20 +10,18 @@
  */
 
 import { INSERT_MATH_COMMAND, RESIZE_MATH_MATRIX } from "./actions";
+import { mathMarkCodec } from "./codecs";
+import { commonRowId, fitToRowBand, inlineRowBand } from "./inline-row-band";
 import {
   getInlineMathStructuredDocument,
   getStructuredMathMarkSource,
-  mathMarkCodec,
   mathMarkContentId,
-  structuredToMathDocument,
-} from "./data";
-import { commonRowId, fitToRowBand, inlineRowBand } from "./inline-row-band";
+} from "./inline-structured";
 import {
   deleteActiveInlineMathTree,
   enterAdjacentInlineMathTreeByUnit,
   enterAdjacentInlineMathTreeHorizontally,
   enterInlineMathTreeAtPosition,
-  insertEmptyInlineMathAtCaret,
   exitActiveInlineMathTreeHorizontally,
   exitActiveInlineMathTreeSelectionHorizontally,
   exitActiveInlineMathTreeToLineEdge,
@@ -35,6 +33,7 @@ import {
   hasActiveInlineMathTreeCaret,
   inlineMathCaretEdgeFlag,
   insertActiveInlineMathTreeCommand,
+  insertEmptyInlineMathAtCaret,
   moveActiveInlineMathTreeCaret,
   moveActiveInlineMathTreeCaretByUnit,
   moveActiveInlineMathTreeCaretVertically,
@@ -52,6 +51,7 @@ import {
   mathCommandRanges,
 } from "./math";
 import { getInlineMathSpans } from "./spans";
+import { structuredToMathDocument } from "./structured";
 // Host-wired layout so `\text{…}` CJK/unsupported glyphs typeset (see tex-host).
 import {
   layoutMathDocumentHost,
@@ -64,6 +64,7 @@ import {
   mathSourceRangeFromContentSelection,
   mathTreeCaretToContentSelection,
 } from "./tree-selection";
+import { TOGGLE_MARK } from "@tasfer/editor";
 import type { ActionBus } from "@tasfer/editor/action-bus";
 import {
   DELETE_BACKWARD,
@@ -95,7 +96,6 @@ import {
   type ViewportPayload,
 } from "@tasfer/editor/actions/keyboard-actions";
 import { TEXT_CLICK } from "@tasfer/editor/actions/pointer-actions";
-import { TOGGLE_MARK } from "@tasfer/editor/rendering/marks";
 import {
   Mark,
   type MarkReplacement,
@@ -427,6 +427,23 @@ const inlineMathReplacement: MarkReplacement = {
   },
 };
 
+/**
+ * The inline math mark: draws a formula inside a line of text and handles the
+ * caret and typing inside it. {@link mathExtension} installs it for you; create
+ * one yourself only when you put a schema together by hand.
+ *
+ * `c.setMark("math")` over a selection makes a new formula: the selected text
+ * becomes its LaTeX. With no selection, it adds an empty formula at the caret,
+ * shown as an empty box, with the caret inside. An empty formula exports as
+ * nothing. In a table, this works when the selection stays in one cell. Across
+ * cells it does nothing.
+ *
+ * In the line's text, a formula is one character. So a `{ block, offset }`
+ * range cannot point inside a formula. A range that cuts into one replaces the
+ * whole formula. To change the LaTeX itself, use `c.editContent(...)`.
+ *
+ * @group Setup
+ */
 export class MathMark extends Mark {
   constructor() {
     super();

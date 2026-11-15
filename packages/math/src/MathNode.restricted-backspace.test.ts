@@ -15,11 +15,10 @@ import {
   mathContentIdForBlock,
 } from "./structured";
 import { mathContentSelectionFromSourceOffset } from "./tree-selection";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import { createChromeRegionRegistry } from "@tasfer/editor/events/chromeRegions";
 import { handleEvents } from "@tasfer/editor/events/events";
 import { createInteractionSession } from "@tasfer/editor/events/interaction-session";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import { loadPage } from "@tasfer/editor/serlization/loadPage";
 import type { EditorState, ViewportState } from "@tasfer/editor/state-types";

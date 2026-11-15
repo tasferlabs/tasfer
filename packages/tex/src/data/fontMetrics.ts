@@ -6,7 +6,12 @@ import type { AtomClass } from "./constants";
 import fontMetricsData from "./fontMetricsData.js";
 import type { SymbolInfo, SymGroup } from "./symbols";
 
-/** A concrete font face — matches both a metric-table key and a WOFF2 basename. */
+/**
+ * One face of the math fonts, such as `"Main-Bold"`. Its font file is
+ * `KaTeX_<variant>.woff2`, for example `KaTeX_Main-Bold.woff2`.
+ *
+ * @group Rendering
+ */
 export type FontVariant =
   | "Main-Regular"
   | "Main-Bold"

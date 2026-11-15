@@ -100,6 +100,14 @@ type NewLineToken = {
 
 export type Token = NewLineToken | VisibleToken;
 
+/**
+ * Splits Markdown text into the list of tokens that {@link parsePage} turns
+ * into blocks. Pass the schema so Markdown syntax added by custom nodes, marks
+ * and features is recognized; without one, only the built-in syntax and the
+ * older `$…$` / `$$…$$` math syntax are.
+ *
+ * @group Serialization
+ */
 export default function tokenizePage(content: string, schema?: DataSchema) {
   const state = {
     index: 0,

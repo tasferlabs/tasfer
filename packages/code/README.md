@@ -52,7 +52,7 @@ Highlighting is powered by [lowlight](https://github.com/wooorm/lowlight)
 
 ## Documentation
 
-[tasfer.app/docs/editor/api-schema#code](https://www.tasfer.app/docs/editor/api-schema#code)
+[tasfer.app/docs/editor/reference?pkg=code](https://www.tasfer.app/docs/editor/reference?pkg=code)
 
 ## License
 

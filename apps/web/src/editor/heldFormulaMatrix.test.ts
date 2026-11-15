@@ -21,9 +21,8 @@ import {
   getStructuredMathMarkSource,
   mathMarkContentId,
 } from "@tasfer/math/data";
-import { createNodeRegistry } from "@tasfer/editor";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import { loadPage, type Block } from "@tasfer/editor/serlization/loadPage";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
 import type { EditorState } from "@tasfer/editor/state-types";
 import { createInitialState } from "@tasfer/editor/state-utils";
 import { updateContentSelection } from "@tasfer/editor/structured-selection";

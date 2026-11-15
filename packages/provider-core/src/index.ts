@@ -23,9 +23,11 @@ export type {
   Transport,
   TransportPeer,
 } from "./types";
-export { decodeMessage, encodeMessage, type WireMessage } from "./wire";
 
 // Remote cursors & selections as editor decorations live in the `/cursors`
 // subpath (it depends on @tasfer/editor; kept out of the base entry so a
 // non-editor consumer of the protocol pays no editor coupling):
 //   import { bindPresenceCursors } from "@tasfer/provider-core/cursors";
+
+// Old exports kept for one more release, each marked `@deprecated`.
+export * from "./deprecated/root";

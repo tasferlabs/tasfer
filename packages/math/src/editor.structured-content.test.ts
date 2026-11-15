@@ -1,6 +1,7 @@
 import { resolveStructuredInlineMathRuns } from "./inline-structured";
 import { mathExtension } from "./math-extension";
 import { mathContentSelectionFromSourceOffset } from "./tree-selection";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import {
   convertBlockAtCursor,
   deleteForward,
@@ -14,8 +15,6 @@ import {
 } from "@tasfer/editor/entries/editor";
 import type { CanvasLayers } from "@tasfer/editor/entries/layers";
 import { STRUCTURED_MARK_ANCHOR_CHAR } from "@tasfer/editor/feature-facets";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import {
   moveCursorToPosition,

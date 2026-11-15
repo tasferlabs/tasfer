@@ -19,12 +19,29 @@ import { CodeNode } from "./CodeNode";
 import { codeBlockSpec } from "@tasfer/editor/nodes/code-block";
 import type { BlockSpec } from "@tasfer/editor/schema";
 
+/**
+ * What {@link codeExtension} returns: the code block with its canvas painter
+ * and syntax highlighting, ready to pass to `schema.use(...)`.
+ */
 export type CodeFeatureExtension = {
   readonly name: "code";
   readonly nodes: readonly [BlockSpec<"code">];
 };
 
-/** Build a fresh, instance-safe code feature bundle. */
+/**
+ * Adds code blocks with syntax highlighting to a schema. Without it, code
+ * blocks still load, save, sync and export, but they show as a placeholder.
+ * The `code` block type is already in `baseSchema`; this adds how it looks
+ * and how typing in it works.
+ *
+ * ```ts
+ * import { baseSchema, createEditor } from "@tasfer/editor";
+ * import { codeExtension } from "@tasfer/code";
+ *
+ * const schema = baseSchema.use(codeExtension());
+ * const editor = createEditor({ element, schema });
+ * ```
+ */
 export function codeExtension(): CodeFeatureExtension {
   return {
     name: "code",

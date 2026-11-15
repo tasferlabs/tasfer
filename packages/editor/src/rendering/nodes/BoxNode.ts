@@ -14,13 +14,17 @@ import type { BlockBounds } from "../../state-types";
 import { AtomicNode } from "./AtomicNode";
 import type { NodeLayoutCtx, NodePaintCtx } from "./Node";
 
-/** Declarative paint style for a {@link BoxNode}. All fields optional. */
+/**
+ * Declarative paint style for a {@link BoxNode}. All fields optional.
+ *
+ * @group Nodes
+ */
 export interface BoxRenderStyle {
   /** Box height in px (intrinsic). Default 40. */
   height?: number;
   /** Inner padding in px applied to the label. Default 12. */
   padding?: number;
-  /** Trailing flow padding below the box in px. Default 8. */
+  /** Space below the box in px. Default 8. */
   marginBottom?: number;
   /** Fill color (any canvas color string). Default none. */
   background?: string;
@@ -28,7 +32,9 @@ export interface BoxRenderStyle {
   borderColor?: string;
   /** Left accent bar. */
   borderLeft?: { width: number; color: string };
-  /** Text color for the label. Default a muted gray. */
+  /**
+   * Text color for the label. Defaults to the theme's unknown-block text color.
+   */
   color?: string;
   /**
    * Produce the label drawn inside the box from the block. Default shows the
@@ -43,6 +49,12 @@ const DEFAULTS = {
   marginBottom: 8,
 } as const;
 
+/**
+ * The ready-made node {@link defineNode} uses when you describe a custom block
+ * with a `render` style instead of your own node class. It draws a block with
+ * no text as a simple box: optional background, border, left accent bar and a
+ * label. See {@link BoxRenderStyle}.
+ */
 export class BoxNode extends AtomicNode<Block> {
   readonly type: Block["type"];
   private readonly style: BoxRenderStyle;

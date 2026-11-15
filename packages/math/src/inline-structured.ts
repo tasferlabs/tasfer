@@ -35,13 +35,26 @@ import type {
 } from "@tasfer/editor/sync/structured-content";
 import { needsCommandSeparator, printMathDocument } from "@tasfer/tex/data";
 
-/** Persisted attributes accepted by the structured and legacy MathMark paths. */
+/**
+ * The attributes stored on an inline math mark.
+ *
+ * An inline formula keeps no LaTeX in the block's text. The mark covers one
+ * placeholder character (U+FFFC), and the formula lives in the math document
+ * that `contentId` names. An editor without math shows that placeholder
+ * character. Read the LaTeX with {@link getStructuredMathMarkSource}.
+ *
+ * @group Setup
+ */
 export type MathMarkAttrs = {
-  /** Stable root/address of this mark's supplemental MathDocument. */
+  /** Id of the math document that holds this formula. */
   readonly contentId?: string;
 };
 
-/** Minimal textual-block shape needed by the data-only resolver. */
+/**
+ * The parts of a text block that {@link resolveStructuredInlineMathRuns} reads.
+ *
+ * @group Structured content
+ */
 export interface InlineMathHostBlock {
   readonly id: string;
   readonly charRuns: readonly CharRun[];
@@ -49,7 +62,12 @@ export interface InlineMathHostBlock {
   readonly structuredContent?: StructuredContentMap;
 }
 
-/** One surviving inline-math run resolved against CRDT tombstones. */
+/**
+ * One inline formula in a block, as returned by
+ * {@link resolveStructuredInlineMathRuns}. Deleted text is not counted.
+ *
+ * @group Structured content
+ */
 export interface ResolvedInlineMathRun {
   readonly startIndex: number;
   readonly endIndex: number;
@@ -59,30 +77,41 @@ export interface ResolvedInlineMathRun {
   readonly contentId?: string;
   /** Valid referenced math attachment, when it resolves. */
   readonly document?: StructuredDocument;
-  /** Canonical tree source; undefined when the attachment is missing/invalid. */
+  /**
+   * The formula's LaTeX. Undefined when its math document is missing or not
+   * valid.
+   */
   readonly latex?: string;
 }
 
+/**
+ * Everything needed to add a new inline formula: the id of its math document,
+ * the mark to put on the text, and the edit that creates the document.
+ * Returned by {@link createStructuredMathMarkAttachment}.
+ */
 export interface StructuredMathMarkAttachment {
   readonly contentId: string;
   readonly format: Mark & { readonly attrs: MathMarkAttrs };
   readonly init: MathDocumentInitMutation;
 }
 
-/** Read a valid structured attachment reference from arbitrary mark attrs. */
+/**
+ * Read a valid structured attachment reference from arbitrary mark attrs.
+ *
+ * @group Structured content
+ */
 export function mathMarkContentId(mark: Mark): string | undefined {
   const value = mark.attrs?.contentId;
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 /**
- * Allocate a structured MathMark for newly-authored inline content.
- *
- * Live callers pass the editor's CRDT binding directly; parse-time callers
- * (markdown import) pass their deterministic import allocator. This is
- * construction, not an ID-generator factory: one allocator supplies the mark
- * attachment, math node, and math character identities in a single collision
- * domain.
+ * Creates what a new inline formula needs from its LaTeX: the math document's
+ * id, the mark that points to it, and the edit that creates the document (see
+ * {@link StructuredMathMarkAttachment}). Every new id comes from `identities`.
+ * When editing live, pass the editor's `state.CRDTbinding`. When reading
+ * Markdown, pass the importer's id allocator. Throws when `identities` returns
+ * an id that is not an allocated id.
  */
 export function createStructuredMathMarkAttachment(
   latex: string,
@@ -106,8 +135,9 @@ export function createStructuredMathMarkAttachment(
 }
 
 /**
- * Structured-content behavior of the math mark, carried on its spec
- * (`MarkSpec.structured`) and dispatched by the spec's own type.
+ * How the math mark creates, joins, reads and copies its math documents.
+ * {@link mathDataExtension} sets it as the math mark spec's `structured` field.
+ * You need it only when you build that mark spec by hand.
  */
 export const mathStructuredMarkFacet = {
   create: ({ text, identities }) => {
@@ -141,7 +171,13 @@ export const mathStructuredMarkFacet = {
   },
 } satisfies StructuredMarkFacet;
 
-/** Canonical source for a referenced supplemental MathDocument. */
+/**
+ * The LaTeX of the formula an inline math mark points to. Returns undefined
+ * when the mark has no `contentId`, or when its math document is missing or not
+ * valid.
+ *
+ * @group Structured content
+ */
 export function getStructuredMathMarkSource(
   mark: Mark,
   attachments: StructuredContentMap | undefined,
@@ -154,7 +190,10 @@ export function getStructuredMathMarkSource(
   return math ? printMathDocument(math) : undefined;
 }
 
-/** Resolve the valid supplemental document referenced by one MathMark. */
+/**
+ * The math document an inline math mark points to. Returns undefined when the
+ * mark has no `contentId`, or when its document is missing or not valid.
+ */
 export function getInlineMathStructuredDocument(
   mark: Mark,
   attachments: StructuredContentMap | undefined,
@@ -165,7 +204,14 @@ export function getInlineMathStructuredDocument(
     : undefined;
 }
 
-/** Resolve every surviving MathMark without importing rendering/editor state. */
+/**
+ * Finds every inline formula in a block. Each run gives its place in the
+ * visible text, its characters, and its math document and LaTeX when they
+ * resolve. Deleted text is skipped. Works without the editor or any canvas
+ * code.
+ *
+ * @group Structured content
+ */
 export function resolveStructuredInlineMathRuns(
   block: InlineMathHostBlock,
 ): ResolvedInlineMathRun[] {
@@ -215,7 +261,10 @@ export function resolveStructuredInlineMathRuns(
   return runs;
 }
 
-/** Runtime discriminator used by generic attachment tooling. */
+/**
+ * Whether `document` is the math document of an inline formula. Returns false
+ * for a block equation's math document.
+ */
 export function isInlineMathStructuredDocument(
   document: StructuredDocument | undefined,
 ): document is StructuredDocument {

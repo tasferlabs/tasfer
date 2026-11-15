@@ -35,9 +35,8 @@ vi.hoisted(() => {
 });
 
 import { appSchema } from "../editorSchema";
-import { createNodeRegistry } from "@tasfer/editor";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import { currentFontFamily } from "@tasfer/editor/fonts";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
 import { loadPage } from "@tasfer/editor/serlization/loadPage";
 import { createInitialState } from "@tasfer/editor/state-utils";
 import { getEditorStyles } from "@tasfer/editor/styles";

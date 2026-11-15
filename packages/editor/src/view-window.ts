@@ -1,7 +1,7 @@
 /**
  * View-window builders — construct a {@link ViewWindow} that scopes an editor to
  * a subset of a shared document's blocks (see `ViewWindow` and the `window`
- * option on `mountEditor`/`createEditor`/`useEditor`).
+ * option on `createEditor`/`useEditor`).
  *
  * A window is node/mark-agnostic in the CORE (`getVisibleBlocks` just applies
  * `window.select`); these builders are the host-facing helpers that encode a
@@ -21,16 +21,12 @@ import {
 const EMPTY: ReadonlySet<number> = new Set<number>();
 
 /**
- * Index of the block a document treats as its TITLE: the first non-deleted
- * text-bearing block in document order (heading, paragraph, list, quote, code,
- * math — anything that holds text), skipping non-text blocks (image, divider).
- * Returns -1 when the document has no text block.
+ * Finds the index of the title block: the first block that holds text (heading,
+ * paragraph, list, quote, code, math and so on). Deleted blocks, images and
+ * dividers are skipped. Returns -1 when no block holds text.
  *
- * This is the block a `TitleEditor` binds to and the reader sees as the top
- * line. Unlike {@link extractTitleFromBlocks} — which returns the title STRING,
- * skips empty blocks, and prefers a heading — this identifies a stable block
- * even while the title is empty, so an editor window does not jump as the user
- * clears or retypes the title.
+ * An empty block still counts. So an editor that shows only the title stays on
+ * the same block while the user clears and retypes the title.
  */
 export function titleBlockIndex(blocks: readonly Block[]): number {
   for (let i = 0; i < blocks.length; i++) {
@@ -42,11 +38,30 @@ export function titleBlockIndex(blocks: readonly Block[]): number {
 }
 
 /**
- * A single-block {@link ViewWindow} scoped to the document's title block (see
- * {@link titleBlockIndex}). Pair it with `schema.restrict({ blocks: ["heading1"],
- * marks: [...] })` to build a title surface over a shared `Doc`: it renders and
- * edits only the title block and can never create, split, or merge blocks. An
- * empty document (no text block) yields an empty window (nothing rendered).
+ * A {@link ViewWindow} that shows only the document's title block (see
+ * {@link titleBlockIndex}). An editor with this window edits the title and
+ * nothing else. It can never add, split or merge blocks. When the document has
+ * no text block, the window is empty and nothing renders.
+ *
+ * The title block is the first block that holds text: a heading, paragraph,
+ * list and so on. Leading images and dividers are skipped. It stays the same
+ * block while the user clears and retypes the title.
+ *
+ * Pair it with a restricted schema, and a {@link bodyBlocksWindow} editor on
+ * the same doc:
+ *
+ * ```ts
+ * const doc = createDoc({ markdown: saved });
+ * createEditor({
+ *   element: titleEl,
+ *   doc,
+ *   schema: baseSchema.restrict({ blocks: ["heading1"], marks: [] }),
+ *   window: titleBlockWindow(),
+ * });
+ * createEditor({ element: bodyEl, doc, window: bodyBlocksWindow() });
+ * ```
+ *
+ * @group Editor
  */
 export function titleBlockWindow(): ViewWindow {
   return {
@@ -59,16 +74,24 @@ export function titleBlockWindow(): ViewWindow {
 }
 
 /**
- * A {@link ViewWindow} over every block AFTER the document's title block (see
- * {@link titleBlockIndex}) — the body half of a split view, paired with a
- * {@link titleBlockWindow} editor on the same doc. A document with no text block
- * is all body. Blocks before the title (a leading image or divider) belong to
- * neither half, so the window is one contiguous run and no selection inside it
- * can span the title. Merges never cross a window edge, so Backspace at the
- * start of the body leaves the title alone.
+ * A {@link ViewWindow} that shows every block after the title block (see
+ * {@link titleBlockIndex}). Use it for the body editor next to a
+ * {@link titleBlockWindow} editor on the same doc. A document with no text
+ * block is all body. Blocks before the title, like a leading image or divider,
+ * are in neither editor.
  *
- * A document holding only its title yields an empty window: nothing renders and
- * the editor holds no caret until the host inserts a first body block.
+ * Blocks never merge across the window edge, so Backspace at the start of the
+ * body leaves the title alone. A document with only a title gives an empty
+ * window. Nothing renders and there is no caret until the host adds a first
+ * body block.
+ *
+ * @example
+ * ```ts
+ * body.change((c) =>
+ *   c.insertBlock({ type: "paragraph" }, { block: titleId, side: "after" }),
+ * );
+ * ```
+ * @group Editor
  */
 export function bodyBlocksWindow(): ViewWindow {
   return {
@@ -127,6 +150,8 @@ export function nextBlockInWindow(
  * A single-block {@link ViewWindow} scoped to the block with the given id, or an
  * empty window if that block is absent or deleted. Binds an editor to one
  * specific block of a shared doc (e.g. a card field or a comment body).
+ *
+ * @group Editor
  */
 export function blockIdWindow(id: string): ViewWindow {
   return {

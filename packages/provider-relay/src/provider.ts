@@ -24,28 +24,51 @@ import { createProvider, type Provider } from "@tasfer/provider-core";
 
 import { RelayTransport } from "./transport";
 
+/**
+ * Options for {@link createRelayProvider}: the document, the room, the relay
+ * server and the room's shared secret.
+ */
 export interface CreateRelayProviderOptions {
   /** The document to sync. Use `editor.doc`, or a standalone `createDoc(...)`. */
   doc: Doc;
-  /** Logical room — replicas sharing a room (and relay server) converge. */
+  /**
+   * The room name. Everyone in the same room on the same relay server edits the
+   * same document. The relay sees this name.
+   */
   room: string;
   /** Relay base URL, e.g. "wss://relay.tasfer.app". */
   relay: string;
   /** This replica's stable id. Defaults to `doc.peerId`. */
   peerId?: string;
   /**
-   * Shared room secret — a passphrase or raw key bytes, distributed to peers
-   * out of band (an invite link, your own auth). Document frames are sealed
-   * with AES-256-GCM under a key derived from it, so the relay forwards bytes
-   * it cannot read.
+   * The room's shared secret: a passphrase or raw key bytes. Share it with the
+   * other peers yourself, for example in an invite link. Document data is
+   * encrypted with AES-256-GCM using a key made from it, so the relay cannot
+   * read it.
    *
-   * `null` opts out and sends plaintext, which hands the relay operator every
-   * document in the room. Only reasonable when you run the relay yourself, or
-   * already encrypt above this provider.
+   * `null` turns encryption off. Whoever runs the relay can then read and
+   * change every document in the room. Only do this when you run the relay
+   * yourself, or you already encrypt the data before this provider.
    */
   secret: string | Uint8Array | null;
 }
 
+/**
+ * Sync a document with everyone in the same room through a WebSocket relay
+ * server. Use it when peers cannot connect to each other directly. Document
+ * data is encrypted with `secret` before it is sent, unless you pass `secret:
+ * null`.
+ *
+ * ```ts
+ * const provider = createRelayProvider({
+ *   doc: editor.doc,
+ *   room: "team-notes",
+ *   relay: "wss://relay.example.com",
+ *   secret: roomSecret, // every peer in the room uses the same one
+ * });
+ * provider.on("sync", (s) => console.log(s.connected, s.peers));
+ * ```
+ */
 export function createRelayProvider(
   options: CreateRelayProviderOptions,
 ): Provider {

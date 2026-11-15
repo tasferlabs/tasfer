@@ -1,0 +1,194 @@
+{
+ "name": "@tasfer/provider-webrtc",
+ "entries": [
+  {
+   "id": "@tasfer/provider-webrtc",
+   "symbols": [
+    {
+     "name": "createWebrtcProvider",
+     "kind": "function",
+     "sigs": [
+      "function createWebrtcProvider(\n  options: CreateWebrtcProviderOptions,\n): Provider"
+     ],
+     "summary": "Sync a document with everyone in the same room over direct WebRTC connections.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "Sync a document with everyone in the same room over direct WebRTC\nconnections. The signaling server only introduces peers to each other. It\nsees a hash of the room name, and the document does not pass through it.\nAnyone who knows the room name can join, so use one that is hard to guess.\nTwo peers whose direct connection fails do not sync with each other."
+        }
+       ]
+      },
+      {
+       "type": "code",
+       "value": "const provider = createWebrtcProvider({\n  doc: editor.doc,\n  room: \"team-notes-7f3k2q\",\n  signaling: \"wss://signal.example.com\",\n});\nprovider.on(\"sync\", (s) => console.log(s.connected, s.peers));",
+       "lang": "ts"
+      }
+     ],
+     "src": "packages/provider-webrtc/src/provider.ts",
+     "from": [
+      "@tasfer/provider-webrtc"
+     ]
+    },
+    {
+     "name": "CreateWebrtcProviderOptions",
+     "kind": "interface",
+     "sigs": [
+      "interface CreateWebrtcProviderOptions"
+     ],
+     "summary": "Options for `createWebrtcProvider`: the document, the room, the signaling server and, if you need them, your own ICE servers.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "Options for "
+        },
+        {
+         "type": "link",
+         "url": "ref:createWebrtcProvider",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "createWebrtcProvider"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": ": the document, the room, the\nsignaling server and, if you need them, your own ICE servers."
+        }
+       ]
+      }
+     ],
+     "members": [
+      {
+       "name": "doc",
+       "kind": "property",
+       "sig": "doc: Doc",
+       "summary": "The document to sync.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "The document to sync. Use "
+          },
+          {
+           "type": "inlineCode",
+           "value": "editor.doc"
+          },
+          {
+           "type": "text",
+           "value": ", or a standalone "
+          },
+          {
+           "type": "inlineCode",
+           "value": "createDoc(...)"
+          },
+          {
+           "type": "text",
+           "value": "."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "room",
+       "kind": "property",
+       "sig": "room: string",
+       "summary": "The room name.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "The room name. Everyone in the same room on the same signaling server edits\nthe same document. The server sees only a hash of it. Anyone who knows the\nname can join, so make it hard to guess."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "signaling",
+       "kind": "property",
+       "sig": "signaling: string",
+       "summary": "Signaling base URL, e.g. \"wss://relay.example.com\".",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Signaling base URL, e.g. \"wss://relay.example.com\"."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "peerId",
+       "kind": "property",
+       "sig": "peerId?: string",
+       "summary": "This replica's stable id.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "This replica's stable id. Defaults to "
+          },
+          {
+           "type": "inlineCode",
+           "value": "doc.peerId"
+          },
+          {
+           "type": "text",
+           "value": "."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "iceServers",
+       "kind": "property",
+       "sig": "iceServers?: RTCIceServer[]",
+       "summary": "ICE servers that help peers find a direct route to each other.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "ICE servers that help peers find a direct route to each other. Defaults to\nGoogle's public STUN server, "
+          },
+          {
+           "type": "inlineCode",
+           "value": "stun:stun.l.google.com:19302"
+          },
+          {
+           "type": "text",
+           "value": "."
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "src": "packages/provider-webrtc/src/provider.ts",
+     "from": [
+      "@tasfer/provider-webrtc"
+     ]
+    }
+   ]
+  }
+ ]
+}

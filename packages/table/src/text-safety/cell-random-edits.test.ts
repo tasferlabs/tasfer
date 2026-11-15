@@ -28,6 +28,7 @@ import {
   tableOn,
   tableSource,
 } from "./harness";
+import { TOGGLE_EMPHASIS, TOGGLE_STRONG } from "@tasfer/editor";
 import { insertText } from "@tasfer/editor/actions/actions";
 import {
   DELETE_BACKWARD,
@@ -42,7 +43,6 @@ import {
   COMPOSITION_START,
   COMPOSITION_UPDATE,
 } from "@tasfer/editor/actions/input-actions";
-import { TOGGLE_EMPHASIS, TOGGLE_STRONG } from "@tasfer/editor/rendering/marks";
 import type { EditorState } from "@tasfer/editor/state-types";
 import { getVisibleOffsetAfterChar } from "@tasfer/editor/sync/char-runs";
 import type { Operation } from "@tasfer/editor/sync/sync";

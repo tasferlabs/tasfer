@@ -204,7 +204,26 @@ function cellSliceParagraph(
   } as Block;
 }
 
-/** The table kind's clipboard adapters, for hand-assembled interactive schemas. */
+/**
+ * The table's copy and paste handlers. `tableExtension` already includes them.
+ * Use this only when you build an editor schema by hand: add it to the
+ * schema's `structuredKinds`. `tableDataExtension` leaves it out.
+ *
+ * Copy inside one cell takes the selected characters. Copy across cells takes
+ * the selected rectangle of cells. As plain text, cells are split by tabs and
+ * rows by line breaks, so a spreadsheet reads it as a grid. As HTML it is a
+ * `<table>`, and as Markdown a GFM table. Pasted into prose, copied cells
+ * become a table of their own.
+ *
+ * Pasting a grid, from Tasfer or a spreadsheet, puts its top-left cell on the
+ * selection's top-left cell, or the caret's cell. It overwrites the cells it
+ * covers, and the table grows when the grid runs past its last row or column.
+ * The pasted cells are left selected. Text with no tab or line break goes in
+ * at the caret like typing. Formatting survives only text copied in Tasfer.
+ * Text from elsewhere is pasted as typed, so `*.ts` never turns italic.
+ *
+ * @group Setup
+ */
 export const tableContentSelectionKind = {
   kind: TABLE_STRUCTURED_KIND,
   contentSelection: serializeTableContentSelection,

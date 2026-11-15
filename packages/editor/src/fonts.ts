@@ -195,12 +195,14 @@ export function onFontsReady(cb: () => void): () => void {
 }
 
 /**
- * Notify the editor that the base font faces have finished loading.
- * Flushes cached metrics so text is re-measured with the real fonts and fires
- * any `onFontsReady` listeners (e.g. to trigger a re-render).
+ * Tell the editor that your base fonts have finished loading. The editor clears
+ * its saved text measurements and redraws, so text is measured with the real
+ * fonts. Only the first call does anything. For fonts that load later, call
+ * {@link notifyFontsChanged}.
  *
- * Loading the fonts themselves is the host application's responsibility — the
- * editor only needs to know when they're ready.
+ * The editor does not load fonts. Your app loads them and then calls this.
+ *
+ * @group Theme
  */
 export function notifyFontsLoaded(): void {
   if (fontsLoaded) return;
@@ -217,11 +219,14 @@ export function notifyFontsLoaded(): void {
 }
 
 /**
- * Notify the editor that the set of available font faces or their stacks has
- * changed after the initial load — e.g. a script-specific font (Arabic, CJK…)
- * finished loading and the host updated `EditorStyles.fonts` to reference it.
- * Flushes cached metrics so measurements use the new stacks and fires
- * `onFontsReady` listeners so the editor re-renders.
+ * Tell the editor that fonts changed after the first load. For example, an
+ * Arabic font finished loading and you added it to the theme's `fonts`.
+ *
+ * It clears the saved text measurements, so text is measured again with the new
+ * fonts. It does not redraw open editors by itself. Pass the new fonts with
+ * `editor.setTheme(...)`, which redraws.
+ *
+ * @group Theme
  */
 export function notifyFontsChanged(): void {
   // Flush metrics/width caches so measurements use the (possibly new) font

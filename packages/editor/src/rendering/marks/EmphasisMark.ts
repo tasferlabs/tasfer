@@ -21,6 +21,11 @@ const EMPHASIS_CODEC: MarkCodec = {
   html: { priority: 2, render: (inner) => `<em>${inner}</em>` },
 };
 
+/**
+ * The built-in `emphasis` mark: italic text, written as `*text*` in Markdown.
+ *
+ * @group Marks
+ */
 export class EmphasisMark extends Mark {
   readonly type = "emphasis";
   readonly metrics: MarkMetrics = { italic: true };

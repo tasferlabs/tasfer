@@ -33,11 +33,21 @@ import { BLOCK_REGISTRY } from "../sync/block-registry";
 import { getVisibleTextFromRuns } from "../sync/char-runs";
 import type { BlockSpecCore } from "../sync/schema";
 
-/** A code block: editable monospace text (with embedded "\n") plus a language tag. */
+/**
+ * A code block: editable monospace text (with embedded "\n") plus a language
+ * tag. It is written as a fence of three backticks in Markdown. The `code` type is
+ * built in, so it loads, saves and syncs with `baseSchema` alone. Drawing it on
+ * the canvas, with syntax colors, needs `codeExtension()` from `@tasfer/code`.
+ *
+ * @group Nodes
+ */
 export interface CodeBlock extends BlockRuntimeState {
   type: "code";
   charRuns: CharRun[];
-  /** Always empty — code carries no inline marks — but kept for the textual shape. */
+  /**
+   * Always empty, because code has no inline marks. The field is kept so code
+   * has the same shape as other text blocks.
+   */
   formats: MarkSpan[];
   /** Highlighting language hint (e.g. "javascript"); empty when unset. */
   language?: string;

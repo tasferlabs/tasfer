@@ -13,6 +13,12 @@ export function fontFamily(variant: FontVariant): string {
   return FAMILY_PREFIX + variant;
 }
 
+/**
+ * Every font face the engine can draw with. {@link loadFonts} loads all of
+ * them unless you pass a shorter `variants` list.
+ *
+ * @group Rendering
+ */
 export const ALL_VARIANTS: FontVariant[] = [
   "Main-Regular",
   "Main-Bold",
@@ -32,6 +38,12 @@ export const ALL_VARIANTS: FontVariant[] = [
   "Typewriter-Regular",
 ];
 
+/**
+ * Options for {@link loadFonts}: where the font files are served from and
+ * which faces to load. You must give either `baseUrl` or `urlFor`.
+ *
+ * @group Rendering
+ */
 export interface LoadFontsOptions {
   /**
    * Base URL the `KaTeX_<Variant>.woff2` files are served from. Used to build
@@ -53,10 +65,13 @@ export interface LoadFontsOptions {
 }
 
 /**
- * Load the WOFF2 faces via the `FontFace` API and add them to the document's
- * font set. Resolves once every requested face is ready, so a caller can paint
- * crisp glyphs immediately afterward (before that, `paintMath` simply draws
- * nothing for not-yet-loaded faces — drive a redraw on completion).
+ * Load the math fonts and add them to the page, so {@link paintMath} and
+ * {@link toSVG} can draw with them. Resolves when every requested face is
+ * ready. Formulas painted before that will not use the math fonts, so redraw
+ * when it resolves. Rejects if you give neither `baseUrl` nor `urlFor`, or if a
+ * face fails to load.
+ *
+ * @group Rendering
  */
 export async function loadFonts(opts: LoadFontsOptions): Promise<void> {
   const set = opts.fontSet ?? document.fonts;

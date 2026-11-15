@@ -47,6 +47,10 @@ import type {
 } from "./types";
 import { decodeMessage, encodeMessage, type WireMessage } from "./wire";
 
+/**
+ * Options for {@link createProvider}: the document to sync and the transport
+ * that carries it to other peers.
+ */
 export interface CreateProviderOptions {
   /** The document to keep in sync. */
   doc: Doc;
@@ -54,6 +58,24 @@ export interface CreateProviderOptions {
   transport: Transport;
 }
 
+/**
+ * Keep a document in sync with every peer a transport reaches. It sends each
+ * new peer the edits that peer is missing, shares local edits as they happen,
+ * and carries presence such as cursors and names. Call `destroy()` on the
+ * result to stop.
+ *
+ * It assumes every peer is connected to every other. If two peers cannot reach
+ * each other directly, they can miss each other's edits.
+ *
+ * ```ts
+ * const provider = createProvider({
+ *   doc: editor.doc,
+ *   transport: createBroadcastChannelTransport("notes/today", editor.doc.peerId),
+ * });
+ * provider.on("sync", ({ peers }) => console.log(`${peers} peers`));
+ * provider.presence.set({ name: "Sam" });
+ * ```
+ */
 export function createProvider(options: CreateProviderOptions): Provider {
   const { doc, transport } = options;
 

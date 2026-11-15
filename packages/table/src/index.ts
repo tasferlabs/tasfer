@@ -19,20 +19,7 @@
  * column-resize drag, the outer-edge "add" strips — the node owns.
  */
 
-export { registerTableActions } from "./actions";
 export {
-  deleteColumn,
-  deleteRow,
-  emptyTableSeed,
-  insertColumn,
-  insertRow,
-  moveColumn,
-  NEW_TABLE_COLUMNS,
-  NEW_TABLE_ROWS,
-  registerTableCommands,
-  setColumnAlign,
-  setColumnWidths,
-  setTableWidth,
   TABLE_DELETE_COLUMN,
   TABLE_DELETE_ROW,
   TABLE_INSERT_COLUMN,
@@ -41,41 +28,19 @@ export {
   TABLE_SELECT_COLUMN,
   TABLE_SELECT_ROW,
   TABLE_SET_COLUMN_ALIGN,
-  type TableCommand,
   type TableInsertSide,
   type TableShape,
   tableShapeAt,
   type TableTargetPayload,
 } from "./commands";
-export {
-  serializeTableContentSelection,
-  tableContentSelectionKind,
-} from "./content-selection";
-export {
-  activeTableContext,
-  commitTableEdits,
-  type TableContext,
-  type TableTarget,
-  tableTargetForBlock,
-} from "./context";
+export { tableContentSelectionKind } from "./content-selection";
+export { activeTableContext, type TableContext } from "./context";
 export {
   type TableBlockAttrs,
-  tableBlockCodec,
-  tableBlockNodeCodec,
-  tableBlockSpec,
   type TableDataExtension,
   tableDataExtension,
-  tableStructuredKind,
 } from "./data";
 export {
-  type TableEdge,
-  type TableEdgeBox,
-  type TableEdgeStrip,
-  tableEdgeStrips,
-  withinEdgeBox,
-} from "./edge-adders";
-export {
-  fitColumnWidths,
   layoutTable,
   type TableCellLayout,
   type TableColumnLayout,
@@ -83,91 +48,25 @@ export {
   type TableLayoutCtx,
   type TableRowLayout,
 } from "./geometry";
+export { createTableInputRule, type TableInputOptions } from "./input";
+export { TABLE_TOOLS_OVERLAY, type TableToolsOverlayData } from "./overlays";
 export {
-  createTableInputRule,
-  registerTableInputActions,
-  type TableInputOptions,
-  tableInputRule,
-} from "./input";
-export {
-  decodeTableToken,
-  escapeCell,
-  type GfmTable,
-  matchGfmTable,
-  printGfmTable,
-  TABLE_BLOCK,
-  tableSeedFromToken,
-  tableSyntaxRule,
-} from "./markdown";
-export {
-  TABLE_TOOLS_OVERLAY,
-  tableToolsOverlay,
-  type TableToolsOverlayData,
-} from "./overlays";
-export {
-  parseClipboardGrid,
-  readTableClipboard,
-  type TableClipboard,
-  tableContentPaste,
-} from "./paste";
-export {
-  cellCaretX,
-  cellFromPoint,
-  cellLength,
-  cellLineAtOffset,
-  cellOffsetFromPoint,
-  cellRangeRects,
-  cellRect,
-  cellRuns,
-  cellsInRect,
-  cellTextRange,
-  cellWordRange,
-  coveredCellIds,
-  moveTableCaretVertically,
-  rowNeighbourCell,
-  stepTableCaret,
   type TableCaret,
   tableCaretFromContentPoint,
-  type TableCaretStep,
   tableCaretToContentPoint,
   tableCaretToContentSelection,
   tableCellIds,
-  type TableCellRange,
-  type TableCellRect,
-  tableEntryCaret,
-  tableLineRange,
-  tableRangeToContentSelection,
-  tableSelectionFromPoint,
 } from "./selection";
 export {
-  buildTableDocument,
-  CELL_NODE,
   CELL_TEXT_FIELD,
-  cellColumnId,
-  cellRunsFromText,
-  CELLS_SLOT,
   cellText,
-  cloneTableDocument,
-  COLUMN_NODE,
   columnAlign,
-  COLUMNS_SLOT,
-  columnWidth,
   getTableDocument,
-  MAX_TABLE_WIDTH,
   readTable,
-  ROW_NODE,
-  ROWS_SLOT,
-  TABLE_NODE,
   TABLE_STRUCTURED_KIND,
   type TableAlign,
-  type TableCellSeed,
-  tableContentIdForBlock,
-  tableDocumentInit,
   type TableRowView,
-  type TableSeed,
   type TableView,
-  tableWidth,
-  validateTableDocument,
 } from "./structured";
 export {
   tableExtension,
@@ -175,3 +74,6 @@ export {
   type TableFeatureOptions,
 } from "./table-extension";
 export { type TableBlock, TableNode } from "./TableNode";
+
+// Old exports kept for one more release, each marked `@deprecated`.
+export * from "./deprecated/root";

@@ -20,9 +20,9 @@ import {
   type RichText,
   type TextSurface,
 } from "./harness";
+import { TOGGLE_EMPHASIS, TOGGLE_STRONG } from "@tasfer/editor";
 import type { StateAction } from "@tasfer/editor/action-bus";
 import { insertText } from "@tasfer/editor/actions/actions";
-import { TOGGLE_EMPHASIS, TOGGLE_STRONG } from "@tasfer/editor/rendering/marks";
 import type { EditorState } from "@tasfer/editor/state-types";
 import { describe, expect, it } from "vitest";
 

@@ -34,18 +34,31 @@ import {
   resizeCanvasLayers,
 } from "./layers";
 
+/**
+ * A mounted editor: the `editor` you drive, the document it shows (when you
+ * passed one), a container for your own floating UI, and the calls to refocus,
+ * blur and `destroy` it.
+ *
+ * @group Editor
+ */
 export interface MountedEditor<
   D extends SchemaDefinition = BaseSchemaDefinition,
 > {
   readonly editor: EditorApi<D>;
   /**
-   * The CRDT document this editor renders, when one was supplied via
-   * {@link MountEditorOptions.doc}. Sync and persistence go through it
-   * (`doc.applyUpdate` inbound, `doc.on("update")` outbound, `doc.load` for
-   * persisted tail ops). Undefined for standalone editors mounted without a doc.
+   * The document this editor shows, when you passed one in
+   * {@link MountEditorOptions.doc}. `undefined` when you mounted without a doc.
+   *
+   * Sync and saving go through it. Use `doc.applyUpdate` for changes coming in,
+   * `doc.on("update")` for changes going out, and `doc.load` for saved changes
+   * that are already in its blocks.
    */
   readonly doc?: Doc<D>;
-  /** Container for React portals (e.g., slash action menu) */
+  /**
+   * A layer on top of the editor for your own floating UI, such as a slash
+   * menu. Use it as a React portal target. It ignores pointer events, so set
+   * `pointer-events: auto` on what you put inside.
+   */
   readonly portalContainer: HTMLDivElement;
   /** Refocus the hidden input (useful after closing drawers/modals) */
   refocus: () => void;
@@ -86,6 +99,8 @@ function createCanvasContainer(parentContainer: HTMLElement): HTMLDivElement {
 /**
  * Block types that render placeholder ghost text when empty. `bullet_list` and
  * `numbered_list` both render through the same list-item placeholder slot.
+ *
+ * @group Editor
  */
 export type PlaceholderBlockType =
   | "paragraph"
@@ -101,62 +116,74 @@ export type PlaceholderBlockType =
  * Placeholder ghost text for empty blocks: either one generic string applied to
  * every block type, or a per-block-type map (e.g.
  * `{ paragraph: "Write…", heading1: "Title" }`).
+ *
+ * @group Editor
  */
 export type PlaceholderOption =
   string | Partial<Record<PlaceholderBlockType, string>>;
 
+/**
+ * The mount options `CreateEditorOptions` builds on: whether the editor
+ * is editable, how it sizes itself, accessibility and keyboard behavior,
+ * placeholders, theme, fonts, the schema and the document to show. Every field
+ * is optional.
+ *
+ * @group Editor
+ */
 export interface MountEditorOptions<
   D extends SchemaDefinition = BaseSchemaDefinition,
 > {
-  /** Whether the document can be edited. Default `true`; `false` mounts a
-   *  read-only renderer (no caret edits, no sync writes). */
+  /**
+   * Whether the user can edit the document. Default `true`. With `false` the
+   * document is read-only: the user cannot type, but changes that come in
+   * through the doc still show up.
+   */
   editable?: boolean;
   /**
-   * Grow the canvas to fit its content height instead of filling the container
-   * (which stays width-sized to its box). The scrollbar is never rendered —
-   * there is no scroll region. Use for compact, self-sizing surfaces such as a
-   * title field or a single-line editor in a drawer. The host container must be
-   * free to grow vertically (don't give it a fixed height). Default `false`.
+   * Makes the editor grow with its content instead of filling the container.
+   * The width still follows the container. There is no scrollbar. Use it for
+   * small fields, such as a title or a one-line editor in a drawer. The
+   * container must be free to grow, so do not give it a fixed height. Default
+   * `false`.
    */
   autoHeight?: boolean;
   /** Accessible name for the editor's input surface, announced by screen
    *  readers. Defaults to `"Text editor"`. */
   ariaLabel?: string;
   /**
-   * Whether to maintain a hidden, semantic DOM mirror of the document for
-   * assistive tech to read and navigate (the canvas itself is opaque to screen
-   * readers). Kept surgically in sync with the document — only changed blocks
-   * are re-serialized. Default `true`; set `false` to opt a host out entirely.
+   * Keeps a hidden HTML copy of the document so screen readers can read and
+   * move through it. Screen readers cannot see the canvas. Only changed blocks
+   * are updated. Default `true`. Set `false` to turn it off.
    */
   accessibilityTree?: boolean;
   /**
-   * Whether the OS keyboard's native predictive text / autocorrect / sentence
-   * autocapitalization is enabled on the input surface. Default `true`. When on,
-   * the hidden contenteditable advertises `spellcheck`, `autocorrect`, and
-   * `autocapitalize="sentences"`, and the editor keeps the in-progress word in
-   * that surface so suggestions appear and can be committed. Set `false` for
-   * fields that should suppress all of it (e.g. code-only or token input).
-   * (Grammarly-style DOM injectors stay disabled regardless, since they would
-   * mutate the input surface.) Even when on, it is withheld automatically while
-   * the caret sits in verbatim source — a math/code block or an inline math chip
-   * — so the mobile suggestion strip can't offer nonsense fixes for LaTeX.
+   * Turns on the keyboard's own suggestions, autocorrect and capital letters at
+   * the start of a sentence. Default `true`. Set `false` for fields where these
+   * get in the way, such as code-only or token input.
+   *
+   * Even when on, they are paused while the caret is in a code block, a math
+   * block or inline math. Tools like Grammarly are always kept off.
    */
+  // When on, the hidden contenteditable gets spellcheck, autocorrect and
+  // autocapitalize="sentences", and the editor keeps the in-progress word in it
+  // so suggestions can be committed. data-gramm=false is always set because
+  // such injectors would mutate the input surface.
   nativeAutocomplete?: boolean;
   /**
-   * How the hidden contenteditable input surface relates to the document.
+   * How the editor's hidden text field takes keyboard input.
    *
-   * - `"managed"` (legacy): the surface is a puppet holding only a sentinel plus
-   *   the in-progress word/sentence; the engine re-seeds it every keystroke.
-   * - `"faithful"`: the surface is a real per-block field holding the focused
-   *   block's full text with a real caret, edited by the browser and reconciled
-   *   to CRDT ops. This lets the OS keyboard own autocapitalization (including on
-   *   new lines), autocorrect, and predictions natively.
+   * - `"managed"`: the hidden field holds only the word you are typing (on
+   *   phones, the sentence). The editor refills it on every key.
+   * - `"faithful"`: the hidden field holds the whole text of the block you are
+   *   in, with a real caret. The OS keyboard then handles capital letters (also
+   *   on new lines), autocorrect and suggestions by itself.
    *
-   * Defaults to `"faithful"` on iOS (where the managed surface cannot satisfy
-   * WebKit's stateful autocapitalization) and `"managed"` elsewhere. Blocks that
-   * embed verbatim source (code/math, inline math chips) always use the managed
-   * representation regardless. See `docs/input-surface-rebuild.md`.
+   * Default: `"faithful"` on iOS, `"managed"` everywhere else. Code blocks,
+   * math blocks and any block with inline math always use `"managed"`.
    */
+  // iOS defaults to faithful because the managed surface cannot satisfy
+  // WebKit's stateful autocapitalization. Design notes were in
+  // docs/input-surface-rebuild.md, which is not in the repo.
   inputStrategy?: "managed" | "faithful";
   /**
    * Ghost text shown on empty blocks. Either one generic string applied to
@@ -165,18 +192,24 @@ export interface MountEditorOptions<
    * value fills both the keyboard and touch variants; `bullet_list` and
    * `numbered_list` share the rendered list-item slot (`bullet_list` wins if
    * both are given). Wins over `placeholderOverrides` for any slot it sets.
+   *
+   * By default it shows only in the empty block that holds the caret. Set
+   * `theme.styles.placeholder.showUnfocused` to show it in every empty block.
+   * Change its color, size or weight per block with
+   * `theme.styles.blocks.<block>.placeholder`. Those style keys are camelCase
+   * (`bulletList`, `numberedList`, `todoList`).
    */
   placeholder?: PlaceholderOption;
   pageId?: string;
   /**
-   * The headless theming surface for this instance — semantic `tokens`, a
-   * deep-partial `styles` override of any leaf, `fonts`, the selected
-   * `fontFamily`, and localized `strings`. Resolved once into per-instance
-   * styles (no DOM reads, no globals). Update later with `editor.setTheme`.
+   * How this editor looks (see {@link EditorTheme}): color `tokens`, `styles`
+   * to change any single style, `fonts`, the chosen `fontFamily`, and
+   * translated `strings` and `nodeStrings`. Each editor has its own theme, and
+   * the editor never reads your CSS. Change it later with `editor.setTheme`.
+   * Omit it for the default neutral colors.
    *
-   * Wins over the legacy `padding` / `blockStyleOverrides` /
-   * `placeholderOverrides` / `strings` / `fonts` options below, which are
-   * folded into a theme for backwards compatibility.
+   * It wins over the old `padding`, `blockStyleOverrides`,
+   * `placeholderOverrides`, `strings` and `fonts` options.
    */
   theme?: EditorTheme;
   /** @deprecated Use `theme.styles.canvas`. */
@@ -198,66 +231,81 @@ export interface MountEditorOptions<
    */
   strings?: Partial<EditorStrings> | null;
   /**
-   * Host font registry (family key → CSS font-stack + default family). The host
-   * is responsible for loading the corresponding font faces. Omit to leave any
-   * globally-configured registry untouched; the editor defaults to system fonts.
+   * Your font families: a name for each CSS font stack, plus the one to use by
+   * default. You load the font files yourself. Omit it to use system fonts.
    * @deprecated Use `theme.fonts`.
    */
   fonts?: Partial<FontStyles> | null;
   /**
-   * The set of block views this editor instance supports. Each editor owns its
-   * own registry, so different editors can opt into different block types.
-   * Omit to use the built-in set (`createDefaultNodeRegistry`).
+   * The block types this editor can show. Each editor has its own list, so two
+   * editors can support different blocks. Omit it to use the built-in blocks.
    *
-   * Example — an editor without the image block:
-   *   import { LineNode, TextNode } from "@tasfer/editor";
-   *   mountEditor(el, blocks, { nodes: [new LineNode(), new TextNode()] });
+   * An editor without the image block:
+   *
+   * ```ts
+   * import { createEditor, LineNode, ListNode, QuoteNode, TextNode } from "@tasfer/editor";
+   *
+   * createEditor({
+   *   element: el,
+   *   blocks,
+   *   nodes: [new LineNode(), new QuoteNode(), new TextNode(), new ListNode()],
+   * });
+   * ```
    */
   nodes?: readonly Node[];
   /**
-   * The set of inline marks this editor instance renders. Each editor owns its
-   * own registry, so different editors can opt into different mark types.
-   * Omit to use the built-in set (`createDefaultMarkRegistry`). Mirrors `nodes`.
+   * The inline marks this editor can show, such as bold or links. Each editor
+   * has its own list, so two editors can support different marks. Omit it to
+   * use the built-in marks. Works like `nodes`.
    */
   marks?: readonly Mark[];
   /**
-   * The canvas-free document schema (`schema.data`) that governs local
-   * AUTHORING — its allow-list decides which registered block/mark types the
-   * user may create (see `Schema.restrict`). Omit for the unrestricted base
-   * schema. `createEditor({ schema })` forwards this automatically; pass it here
-   * only when driving `mountEditor` directly with a restricted schema. Rendering
-   * is governed by `nodes`/`marks`, not this — a disallowed type still renders.
+   * Limits which blocks and marks the user can create. Pass `schema.data` from
+   * a schema made with `Schema.restrict`. Omit it to allow everything.
+   *
+   * `createEditor({ schema })` passes this for you.
+   *
+   * It does not change what is shown. A block the schema does not allow still
+   * shows if it is in `nodes`/`marks`.
    */
   schema?: DataSchema<D>;
   /**
-   * Restrict which of the doc's blocks this editor renders and edits — a VIEW
-   * WINDOW (see {@link ViewWindow}). Omit for a full-document editor (the
-   * default). Two editors attached to the same {@link doc} can show disjoint
-   * windows (e.g. a title-only surface alongside a full page editor) and stay
-   * live-synced through the shared doc. Purely a view/authoring concern: the
-   * doc, reducer, and sync are unaffected, so peers converge regardless of any
-   * editor's window. See `titleBlockWindow`.
+   * Shows and edits only some of the doc's blocks (see {@link ViewWindow}).
+   * Omit it to show the whole document.
+   *
+   * Two editors on the same `doc` can show different parts, such as a title
+   * field above the page body. They stay in sync through the doc. The window
+   * only changes what this editor shows. The document and sync are not
+   * affected. See {@link titleBlockWindow} for a title-only editor and
+   * {@link bodyBlocksWindow} for everything after the title.
    */
   window?: ViewWindow;
   /**
-   * Per-instance CRDT context (peer id + clock + id generator). Hosts that
-   * sync should create one with `createCRDTbinding(pageId, peerId)` and pass
-   * the SAME binding to `createSyncEngine`, making it the single id/clock
-   * source shared by the editor and the sync engine. Omit for standalone
-   * editors — a binding with a random peer id is created internally.
+   * This editor's sync identity: its peer id, clock and id counter. Most hosts
+   * pass `doc` instead, and then this is ignored because the doc brings its
+   * own.
    *
-   * Ignored when {@link doc} is supplied (the doc's own binding is used).
+   * Omit it for a standalone editor. One with a random peer id is made for you.
+   *
+   * Only for the low-level sync engine in `@tasfer/editor/internal`: make one
+   * binding with `createCRDTbinding(pageId, peerId)` and pass the same binding
+   * to `createSyncEngine`.
    */
   crdtBinding?: CRDTbinding;
   /**
-   * Attach an existing CRDT document (see `createDoc`). The editor renders and
-   * edits this doc: local edits flow into it (`doc._ingestLocal`), and updates
-   * applied from elsewhere (`doc.applyUpdate`) flow back into the editor. When
-   * present, the editor mounts from `doc.getRawBlocks()` and uses `doc._binding`
-   * as its id/clock source, so `blocks`/`crdtBinding`/`pageId` are derived from
-   * the doc. The caller owns the doc's lifetime — `mountEditor`'s `destroy`
-   * detaches its listener but does not destroy the doc.
+   * An existing document to show and edit (see {@link createDoc}). Edits made
+   * in the editor go into the doc. Updates applied to the doc from elsewhere
+   * (`doc.applyUpdate`) show up in the editor.
+   *
+   * With a doc, the editor starts from the doc's blocks and uses the doc's own
+   * page id and sync identity. So `blocks`, `crdtBinding` and `pageId` are
+   * ignored.
+   *
+   * You own the doc. `destroy` unhooks the editor from it but does not destroy
+   * the doc.
    */
+  // Local edits reach the doc through doc._ingestLocal; the editor uses
+  // doc._binding as its id/clock source.
   doc?: Doc<D>;
 }
 
@@ -349,8 +397,23 @@ function optionsToTheme<D extends SchemaDefinition>(
 }
 
 /**
- * Mounts the canvas editor from a pre-loaded snapshot (Block[]) instead of parsing markdown.
- * This is used when loading pages with snapshot storage.
+ * Mounts the editor into `container` and shows `blocks`. This is the
+ * lower-level way in. Most apps use {@link createEditor}, which also reads
+ * Markdown and makes the document for you.
+ *
+ * When you pass `options.doc`, the editor shows the doc's blocks and ignores
+ * `blocks`. Without a doc, edits live only in the editor.
+ *
+ * Returns a {@link MountedEditor}. Call its `destroy` when you are done.
+ *
+ * ```ts
+ * import { createDoc, mountEditor } from "@tasfer/editor";
+ *
+ * const doc = createDoc({ markdown: "# Hello" });
+ * const { editor, destroy } = mountEditor(el, doc.getRawBlocks(), { doc });
+ * // …later
+ * destroy();
+ * ```
  */
 export function mountEditor<D extends SchemaDefinition = BaseSchemaDefinition>(
   container: HTMLElement,

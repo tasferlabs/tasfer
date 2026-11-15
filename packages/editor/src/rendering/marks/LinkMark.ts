@@ -43,6 +43,18 @@ const LINK_CODEC: MarkCodec = {
   },
 };
 
+/**
+ * The built-in `link` mark: colored, underlined text that carries a `url`,
+ * written as `[text](url)` in Markdown. Ctrl/Cmd+click opens the link.
+ *
+ * It is not togglable, because it needs a url. Apply it with attrs:
+ *
+ * ```ts
+ * editor.change((c) => c.setMark("link", { attrs: { url }, range }));
+ * ```
+ *
+ * @group Marks
+ */
 export class LinkMark extends Mark {
   readonly type = "link";
   readonly togglable = false; // needs a url — applied via the link action
@@ -56,16 +68,20 @@ export class LinkMark extends Mark {
   }
 
   /**
-   * Register the link mark's pointer handlers:
-   *  - `TEXT_CLICK` (claim, priority 100) — Ctrl/Cmd+click on a link opens it.
-   *    Dispatches {@link OPEN_LINK} (whose default opens a new tab; a host can
-   *    override it to route natively), clears any hover, and claims the click so
-   *    the caret isn't placed. Highest priority so it pre-empts node click claims.
-   *  - `POINTER_MOVE` (observe, priority 0) — drives the link hover tooltip. Owns
-   *    `ui.linkHover` / `ui.isHoveringLinkWithModifier`; the host renders the
-   *    tooltip from `ui.linkHover` via {@link overlays} (see TasferLinkMark),
-   *    so only the write logic lives here. Dispatched on desktop only.
+   * Adds the link's pointer behavior:
+   *
+   * - Ctrl/Cmd+click on a link dispatches {@link OPEN_LINK}, and the caret does
+   *   not move. By default `OPEN_LINK` opens the link in a new tab, but only
+   *   when its URL is safe. A host can handle it to open links its own way.
+   *   This click runs before node click handlers.
+   * - Moving the pointer over a link updates `ui.linkHover`. The host draws its
+   *   link tooltip from that, through {@link overlays}. This happens on desktop
+   *   only.
    */
+  // TEXT_CLICK is a claim at priority 100 (pre-empts node click claims);
+  // POINTER_MOVE observes at priority 0 and also owns
+  // ui.isHoveringLinkWithModifier. See TasferLinkMark in apps/web for the
+  // host's tooltip overlay.
   registerActions(bus: ActionBus): void {
     bus.registerState(
       TEXT_CLICK,

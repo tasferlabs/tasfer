@@ -61,9 +61,18 @@ export type TextMeasureStyle = Pick<
 /**
  * Horizontal alignment of each line inside the box. `null` is the reading
  * direction's leading edge (left in LTR, right in RTL) — what prose uses.
+ *
+ * @group Text
  */
 export type TextAlign = "left" | "center" | "right" | null;
 
+/**
+ * Everything {@link layoutText} needs to lay out one box of text: the
+ * characters and their marks, the width to wrap to, the text style and fonts,
+ * and the reading direction.
+ *
+ * @group Text
+ */
 export interface TextLayoutInput {
   /** Document-order characters, tombstones included. */
   readonly chars: Char[];
@@ -78,7 +87,10 @@ export interface TextLayoutInput {
   readonly codePadding?: number;
   /** Lets measurement reserve a replacement run's width (an inline-math chip). */
   readonly marks?: MarkRegistry;
-  /** Structured attachments replacement-run source resolvers read. */
+  /**
+   * The block's structured attachments. Chips such as inline formulas read
+   * their content from here.
+   */
   readonly structuredContent?: StructuredContentMap;
   /** Visible range of live IME preview text folded into `chars`, if any. */
   readonly compositionRange?: { start: number; end: number } | null;
@@ -97,7 +109,11 @@ export interface LineSlices {
   readonly anchored: ReadonlyMap<number, ReplacementSlice>;
 }
 
-/** One laid-out text box. Line boxes are relative to the box (x is always 0). */
+/**
+ * One laid-out text box. Line boxes are relative to the box (x is always 0).
+ *
+ * @group Text
+ */
 export interface TextLayout {
   readonly lines: readonly RenderedLine[];
   /** Sum of the line heights. */
@@ -122,11 +138,10 @@ export interface TextLayout {
   /** Raw wrap result, retained for consumers that need consumedSpace. */
   readonly wrapped: WrappedLine[];
   /**
-   * Per-visible-index advance override for replacement chips that wrapped across
-   * lines: each line-fragment's first char → its on-this-line rendered width, the
-   * rest → 0. Threaded into every width measurement (caret-x, hit-test, selection)
-   * so they attribute each line's chip slice its own advance, matching the
-   * reflowed paint. Empty when no chip wraps (every chip is one whole fragment).
+   * Width overrides for inline chips that wrap over several lines, by visible
+   * index. The first character of each piece gets that piece's width on its
+   * line. The rest get 0. Caret, hit testing and highlights all use it, so they
+   * match what is painted. Empty when no chip wraps.
    */
   readonly replCharWidths: Map<number, number>;
   /**
@@ -137,6 +152,12 @@ export interface TextLayout {
   readonly lineSlices: readonly LineSlices[];
 }
 
+/**
+ * A rectangle inside a laid-out text box, for example one piece of a selection
+ * highlight. Returned by {@link textRangeRects} and the other rect helpers.
+ *
+ * @group Text
+ */
 export interface TextRect {
   x: number;
   y: number;
@@ -431,13 +452,22 @@ function textAscentOf(layout: TextLayout): number {
 }
 
 /**
- * A line's left and right edge inside the box, after alignment.
+ * A line's left and right edge inside the box, after alignment. Prose (`align:
+ * null`) starts at the reading side: left in LTR, right in RTL. A line wider
+ * than the box keeps its reading start at the box edge, and its end runs past
+ * the other edge.
  *
- * Prose (`align: null`) hugs its reading start: the left edge in LTR, the
- * right edge in RTL. A line wider than the box has no slack to align with, so
- * its READING start is pinned to the box edge and the tail overflows — aligning
- * a negative slack would push the first characters out of view instead.
+ * @example
+ * ```ts
+ * for (const line of text.lines) {
+ *   const { left, right } = lineEdges(text, line);
+ *   const x = boxX + (text.isRTL ? right : left); // paintTextRun's `x`
+ * }
+ * ```
+ * @group Text
  */
+// Aligning a negative slack would push the first characters out of view, so an
+// overflowing line ignores align.
 export function lineEdges(
   layout: Pick<TextLayout, "width" | "isRTL" | "align">,
   line: Pick<RenderedLine, "width">,
@@ -468,7 +498,28 @@ function pureBidi(layout: TextLayout, line: RenderedLine) {
 // Layout
 // ---------------------------------------------------------------------------
 
-/** Wrap and measure a text box once; every other pass reads the result. */
+/**
+ * Wrap and measure a text box once; every other pass reads the result. Use it
+ * when your node lays out its own text, like a table cell or a caption. The
+ * caret ({@link textCaretRect}), clicks ({@link textOffsetAtPoint}) and
+ * highlights ({@link textRangeRects}) then land on the glyphs
+ * {@link paintTextRun} draws. That holds for mixed Arabic and English lines,
+ * and a click never lands between the two halves of an emoji.
+ *
+ * Every coordinate is relative to the text box: `x` from the left edge of the
+ * text area, `y` from the top of its first line. Add your box's own origin.
+ *
+ * @example
+ * ```ts
+ * const text = layoutText({
+ *   chars, formats, width, textStyle, fontFamily,
+ *   fonts: styles.fonts, direction: "ltr", marks,
+ * });
+ * const caret = textCaretRect(text, offset); // { x, y, height }
+ * const offsetAtClick = textOffsetAtPoint(text, x - boxX, y - boxY);
+ * ```
+ * @group Text
+ */
 export function layoutText(input: TextLayoutInput): TextLayout {
   const {
     chars,
@@ -636,10 +687,11 @@ export function layoutText(input: TextLayoutInput): TextLayout {
  * The line a caret at `index` sits on, or -1 when no line holds it (past the
  * end of the text).
  *
- * An offset on a soft-wrap boundary belongs to the line it ends. The trailing
- * edge of a run that reflows past a line belongs after its LAST continuation
- * row instead: every row of it shares the same end index, and only the last
- * one is followed by the run's own text.
+ * An offset where a line soft-wraps belongs to the line it ends. A chip that
+ * wraps over several lines is the exception: the offset right after it belongs
+ * to its last line.
+ *
+ * @group Text
  */
 export function textLineIndexAt(layout: TextLayout, index: number): number {
   for (const [lineIndex, line] of layout.lines.entries()) {
@@ -656,6 +708,8 @@ export function textLineIndexAt(layout: TextLayout, index: number): number {
  * Caret box for a visible offset. `y` is the top of the text (ascent above the
  * baseline) and `height` the line box height; a renderer that wants a
  * text-height caret draws ascent + descent from `y`.
+ *
+ * @group Text
  */
 export function textCaretRect(
   layout: TextLayout,
@@ -738,11 +792,15 @@ export function textCaretRect(
 // ---------------------------------------------------------------------------
 
 /**
- * The visible offset nearest a point. A point between lines resolves on the
- * line it is over; anywhere else (a box's padding) on the last line. A
- * replacement run (an inline-math chip) is one atomic anchor char: a point on
- * it snaps to its near edge — interior positions belong to the run's nested
- * selection model, never flat offsets.
+ * The visible offset nearest a point, with `x` and `y` relative to the box. A
+ * point over a line uses that line. Any other point, such as one in the box's
+ * padding, uses the last line. Returns 0 for an empty box.
+ *
+ * An inline-math chip counts as one character, so a point on it snaps to its
+ * nearer edge. For a point inside the chip, use
+ * {@link textContentSelectionFromPoint}.
+ *
+ * @group Text
  */
 export function textOffsetAtPoint(
   layout: TextLayout,
@@ -990,19 +1048,20 @@ export function replacementRangeAtPoint(
 // ---------------------------------------------------------------------------
 
 /**
- * Highlight rectangles for a range, one per line — or one per direction run on
- * a mixed-direction line, since a logical range across an embedded run is not
- * visually contiguous.
+ * Highlight rectangles for a range, one per line. A line that mixes text
+ * directions gets one per direction run, because the range is not one piece on
+ * screen there.
  *
- * `start: null` means the range begins before this box (a selection arriving
- * from a neighbour) and `end: null` that it continues past it; that side then
- * takes the whole line edge.
+ * `start: null` means the range starts before this box (a selection coming from
+ * an earlier box), and `end: null` means it goes on past it. That side then
+ * reaches the line's edge.
  *
- * `hitTest` asks for the rects a point-in-selection test should use rather
- * than the painted ones: a selection covering a whole inline-math chip then
- * reports the chip's full atomic box, so a tap anywhere on it — including its
- * padding, which the glyph-hugging rows don't cover — counts as touching the
- * selection.
+ * Pass `hitTest: true` to get the rects for testing whether a point is in the
+ * selection, rather than the painted ones. A selected inline-math chip then
+ * reports its whole box, so a tap anywhere on it, padding included, counts as
+ * on the selection.
+ *
+ * @group Text
  */
 export function textRangeRects(
   layout: TextLayout,
@@ -1194,17 +1253,22 @@ export function textRangeRects(
 // ---------------------------------------------------------------------------
 
 /**
- * Characters with live IME preview text folded in at visible offset `at`, for
- * layout and paint only: the preview's ids are placeholders and are never
- * stored. `replace` hides the visible range(s) the commit will overwrite (a
- * selection typed over, a reopened word's changed letters), so the preview
- * reads the way the result will.
+ * The characters with the keyboard's live preview text (IME composition) added
+ * at visible offset `at`. Use the result only to lay out and paint: the preview
+ * characters get placeholder ids and are never saved.
  *
- * Tombstones stay in document order — mark ranges anchor to their endpoint
- * ids, and a range whose endpoint char went missing would drop its mark for the
- * length of the composition. The preview is split per UTF-16 unit, like every
- * stored char, so an emoji in it keeps offsets and widths aligned.
+ * `replace` hides the range or ranges the commit will overwrite (selected text
+ * being typed over), so the preview looks like the result. `compositionRange`
+ * is the preview's visible range, or `null` when `text` is empty.
+ *
+ * Pass both to {@link layoutText}, then underline {@link compositionRects}.
+ *
+ * @group Text
  */
+// Tombstones stay in document order: mark ranges anchor to their endpoint ids,
+// and a range whose endpoint char went missing would drop its mark for the
+// length of the composition. The preview is split per UTF-16 unit, like every
+// stored char, so an emoji keeps offsets and widths aligned.
 export function foldComposition(
   chars: readonly Char[],
   at: number,
@@ -1245,7 +1309,11 @@ export function foldComposition(
   };
 }
 
-/** Rects under the composition preview of a box, one per line or bidi run. */
+/**
+ * Rects under the composition preview of a box, one per line or bidi run.
+ *
+ * @group Text
+ */
 export function compositionRects(layout: TextLayout): TextRect[] {
   const range = layout.compositionRange;
   return range ? textRangeRects(layout, range.start, range.end) : [];
@@ -1263,7 +1331,10 @@ export function textLength(layout: TextLayout): number {
 /**
  * The replacement run whose attachment is `contentId` — the run a nested
  * caret or range in that attachment sits in — or `undefined` when this box
- * holds none.
+ * holds none. To draw that formula lit, pass `{ startIndex: run.start,
+ * endIndex: run.end }` as {@link paintTextRun}'s `highlighted`.
+ *
+ * @group Text
  */
 export function replacementRunForContent(
   layout: TextLayout,
@@ -1283,6 +1354,12 @@ function lineBaseline(layout: TextLayout, line: RenderedLine): number {
  * Where a caret INSIDE a replacement run's attachment stands, relative to the
  * box — the nested-caret twin of {@link textCaretRect}. `null` when no run of
  * this box owns `point`'s attachment or the run places no nested caret.
+ *
+ * Use it for a caret inside an inline formula, such as in a numerator. On the
+ * formula's own row the caret fills the text line, like prose. On a row inside
+ * it, such as an exponent, it takes that row's height.
+ *
+ * @group Text
  */
 export function textContentCaretRect(
   layout: TextLayout,
@@ -1322,7 +1399,10 @@ export function textContentCaretRect(
 /**
  * The highlight of a range INSIDE a replacement run's attachment, relative to
  * the box — the nested twin of {@link textRangeRects}. Empty for a collapsed
- * selection or one no run of this box owns.
+ * selection or one no run of this box owns. Its heights follow the same rule
+ * as {@link textContentCaretRect}.
+ *
+ * @group Text
  */
 export function textContentSelectionRects(
   layout: TextLayout,
@@ -1362,12 +1442,22 @@ export function textContentSelectionRects(
   return rects;
 }
 
-/** How a pointer is resolving, for {@link textContentSelectionFromPoint}. */
+/**
+ * How a pointer is resolving, for {@link textContentSelectionFromPoint}.
+ *
+ * @group Text
+ */
 export interface TextContentHitOptions {
   readonly pointerType?: "mouse" | "touch";
-  /** Finger/magnifier drag uses nearest-stop geometry with row hysteresis. */
+  /**
+   * Set while a finger or magnifier drag moves an endpoint. The hit then picks
+   * the nearest caret stop and does not hop between rows too easily.
+   */
   readonly drag?: boolean;
-  /** The current endpoint, the drag's hysteresis anchor. */
+  /**
+   * Where the endpoint is now. During a drag, the hit stays close to it, and
+   * stays inside the formula it is in.
+   */
   readonly previousPoint?: ContentPoint | null;
 }
 
@@ -1376,6 +1466,8 @@ export interface TextContentHitOptions {
  * a formula's numerator), with `x`/`y` relative to the box — or `null` off
  * every run that resolves points inside itself, so the caller falls back to a
  * flat offset ({@link textOffsetAtPoint}).
+ *
+ * @group Text
  */
 export function textContentSelectionFromPoint(
   layout: TextLayout,

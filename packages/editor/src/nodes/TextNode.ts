@@ -132,13 +132,12 @@ import type { ListBlock } from "./ListNode";
 import type { QuoteBlock } from "./QuoteNode";
 
 /**
- * The block types handled by TextNode itself: headings + paragraph.
- *
- * The bullet/numbered/todo list family is handled by `ListNode`, a subclass
- * registered separately so a host can opt out of lists. ListNode inherits
- * all the text geometry here and only overrides the leading-inset, marker, and
- * placeholder hooks (see the `protected` methods at the bottom of the class).
+ * The block types `TextNode` handles itself: `heading1` to `heading3` and
+ * `paragraph`. Lists are a separate node, `ListNode`, so a host can leave lists
+ * out.
  */
+// ListNode inherits all the text geometry and only overrides the leading-inset,
+// marker and placeholder hooks.
 export const TEXT_BLOCK_TYPES = [
   "heading1",
   "heading2",
@@ -147,15 +146,15 @@ export const TEXT_BLOCK_TYPES = [
 ] as const;
 
 /**
- * The canonical text layout of a textual block: the shared {@link TextLayout}
- * of its text area (wrap, line boxes, measurement inputs), plus where that area
- * sits inside the block. Every pass — height, paint, caret, hit-test, selection
- * — reads this one result instead of re-deriving any of it.
+ * The layout of a text block: the {@link TextLayout} of its text (lines, line
+ * boxes, sizes), plus where the text sits inside the block. Height, paint,
+ * caret, clicks and selection all read this one result.
  *
- * Line boxes are relative to the text area, as in {@link TextLayout}: absolute
- * positioning differs between the scroll-space render pass and the
- * document-space caret pass, so callers add the block origin, the leading
- * inset and `insetY` themselves.
+ * Line boxes are relative to the text area, as in {@link TextLayout}. To get a
+ * real position, add the block's origin, the indent and marker space, and
+ * `insetY` yourself.
+ *
+ * @group Nodes
  */
 export interface TextNodeLayout extends NodeLayout, TextLayout {
   readonly lines: readonly RenderedLine[];
@@ -164,11 +163,9 @@ export interface TextNodeLayout extends NodeLayout, TextLayout {
   readonly indentOffset: number;
   readonly markerWidth: number;
   /**
-   * Vertical inset before the first line (and mirrored after the last via the
-   * style's paddingBottom). Resolved from the style's `paddingTop` — headings
-   * carry space-above, CodeNode pads text down from the top of its background
-   * box, body blocks use 0. Every Y-positioned pass (paint, caret, hit-test,
-   * selection) starts from `blockTop + insetY`.
+   * Space above the first line, as `contentInsetY` returns it. Usually the
+   * style's `paddingTop`: headings get space above them, body text gets none.
+   * Paint, caret, clicks and selection all measure from `blockTop + insetY`.
    */
   readonly insetY: number;
   /** Content width available to text (maxWidth minus list indent + marker). */
@@ -176,12 +173,14 @@ export interface TextNodeLayout extends NodeLayout, TextLayout {
 }
 
 /**
- * Arguments to {@link paintTextRun} — the reusable marked-text line painter.
+ * Arguments to {@link paintTextRun}. `chars` and `formats` are one text field's
+ * characters and marks. `startIndex` and `endIndex` pick the part of that text
+ * to draw on this line.
  *
- * `chars`/`formats` are one text field's document-order characters and its mark
- * ranges; `startIndex`/`endIndex` are the visible-offset range of the line to
- * draw. The block's own line-wrapping is NOT implied — a caller that owns its
- * own line boxes (a table cell) supplies one range per line it laid out.
+ * The painter does not wrap text. If your node wraps text into lines, call
+ * `paintTextRun` once per line.
+ *
+ * @group Text
  */
 export interface PaintTextRunArgs {
   readonly ctx: CanvasRenderingContext2D;
@@ -219,14 +218,15 @@ export interface PaintTextRunArgs {
 }
 
 /**
- * Paint one line of mark-formatted CRDT text.
+ * Paints one line of text with its marks, exactly the way paragraphs do. Use it
+ * when your node lays out text itself, like a table cell. It handles marks,
+ * joined Arabic letters and inline formulas for you.
  *
- * This is the engine's own line renderer — the one every prose block draws
- * through — exposed for nodes that lay out text somewhere the block-level text
- * pipeline does not reach (a table cell). Painting a cell any other way would
- * mean a second implementation of mark resolution, batching for Arabic
- * ligatures, and replacement runs, and the two would drift.
+ * @group Text
  */
+// Painting a cell any other way would mean a second implementation of mark
+// resolution, Arabic ligature batching and replacement runs, and the two would
+// drift.
 export function paintTextRun(args: PaintTextRunArgs): void {
   renderLine(
     args.ctx,
@@ -304,11 +304,15 @@ export type TextualBlock = TextBlock | ListBlock | CodeBlock | QuoteBlock;
 // ---------------------------------------------------------------------------
 
 /**
- * Inject the active IME composition text into a block's characters for layout.
- * Returns plain content when no composition is active in this block.
+ * Returns a block's characters and marks with the text the user is still typing
+ * through an IME folded in, ready for layout. `compositionRange` says where
+ * that text sits.
  *
- * Moved verbatim from renderer.ts so both the text view (paint) and the cursor
- * layer (renderer) resolve composition content identically.
+ * When no composition is active in this block, you get the block's own content
+ * and `compositionRange` is null. A block that does not hold text, such as an
+ * image, returns empty content.
+ *
+ * @group Text
  */
 export function getContentWithComposition(
   block: Block,
@@ -1143,6 +1147,16 @@ function headingLevel(ctx: InputCtx): number {
 // TextNode
 // ---------------------------------------------------------------------------
 
+/**
+ * The built-in node for text blocks: paragraphs and headings 1 to 3. It handles
+ * line wrapping, the caret, selection and painting. Extend it to build your own
+ * text-based block, as the list and quote nodes do.
+ *
+ * A `paragraph` is plain text in Markdown. `heading1`, `heading2` and
+ * `heading3` are written as `#`, `##` and `###`.
+ *
+ * @group Nodes
+ */
 export class TextNode<
   B extends TextualBlockBase = TextualBlock,
 > extends Node<B> {
@@ -1152,9 +1166,10 @@ export class TextNode<
   readonly types: readonly string[] = TEXT_BLOCK_TYPES;
 
   /**
-   * Cheap pre-layout height. The estimate is deliberately owned by the text
-   * node so custom text families inherit it and can override the same geometry
-   * hooks (`textStyle`, `leadingInset`, `contentInsetY`) as exact layout.
+   * A quick height guess, used before the real layout runs. It uses the same
+   * hooks as the real layout (`textStyle`, `leadingInset`, `contentInsetY`,
+   * `contentPaddingBottom`), so a subclass that overrides them gets a matching
+   * guess.
    */
   estimateHeight(c: NodeLayoutCtx): number {
     const block = c.block as unknown as B;
@@ -1202,9 +1217,10 @@ export class TextNode<
   }
 
   /**
-   * Width handed to the shared text layout before leading insets are removed.
-   * CodeNode overrides this because its right-side container padding is applied
-   * before TextNode's left-side leading inset.
+   * The width `estimateHeight` measures against, before the list indent and
+   * marker are taken off. Defaults to `maxWidth`. If your node narrows the
+   * width in `computeLayout`, override this to match, as the code and quote
+   * nodes do.
    */
   protected estimateLayoutMaxWidth(
     _block: B,
@@ -1215,8 +1231,9 @@ export class TextNode<
   }
 
   /**
-   * The canonical text layout. Plain block content (no composition) — that is
-   * what the height/caret/hit-test/selection passes use.
+   * The block's text layout. It leaves out text the user is still typing
+   * through an IME. Height, caret, clicks and selection all read it. The result
+   * is cached while the block and width stay the same.
    */
   layout(c: NodeLayoutCtx): TextNodeLayout {
     // Memoized (see memoizeNodeLayout): the same unchanged block is laid out many
@@ -1236,9 +1253,10 @@ export class TextNode<
   }
 
   /**
-   * Shared layout computation. `content` overrides the characters (used by the
-   * paint pass to fold in IME composition). RTL is always derived from the
-   * persisted runs, matching the previous render/caret/hit-test behavior.
+   * Lays out the block's text at `maxWidth`. Pass `content` to lay out other
+   * characters instead, such as text with an IME composition folded in. Text
+   * direction always comes from the saved block, not from `content`. Unlike
+   * `layout`, the result is not cached.
    */
   computeLayout(
     block: B,
@@ -1327,19 +1345,16 @@ export class TextNode<
   }
 
   /**
-   * Caret screen rectangle for a text index. `originX` is the block's left edge
-   * (canvas paddingLeft), `blockTopY` the block's top in the caller's space.
-   * Ported verbatim from getCursorDocumentCoords.
+   * Where to draw the caret for a text offset. `originX` is the block's left
+   * edge and `blockTopY` its top, in your own coordinates.
    *
-   * `exact: true` means `y`/`height` are the *precise* caret box (a caret inside
-   * a math chip, sized to its row) and must be drawn as-is. Without it `height`
-   * is the line height and the renderer draws a text-height caret from `y` (the
-   * line top) — the normal text caret.
+   * Usually `y` is the top of the text on that line and `height` the line
+   * height, so you draw a normal text caret. With `exact: true` (a caret inside
+   * an inline formula), draw `y` and `height` exactly as given.
    *
-   * `state`/`blockId` are optional and only used to detect an in-progress edit
-   * (a replacement mark's caret-anchored scratch) at this caret, so the run's
-   * caret tracks the literal source; callers without them (e.g. during
-   * composition) just get the resolved caret.
+   * Pass `state` and `blockId` to get the caret inside an inline formula when
+   * it sits in this block. Then `textIndex` is not used. Without them you
+   * always get the plain text caret.
    */
   caretRect(
     layout: TextNodeLayout,
@@ -1399,7 +1414,12 @@ export class TextNode<
     return run ? { startIndex: run.start, endIndex: run.end } : null;
   }
 
-  /** Direct nested hit-test for replacement marks with structured content. */
+  /**
+   * Finds the spot under a point inside an inline element that has its own
+   * content, such as an inline formula. A click can then put the caret inside
+   * it. Returns null when the point is not on such an element, and the caller
+   * uses a plain text offset instead.
+   */
   override contentSelectionFromPoint(
     layoutValue: NodeLayout,
     local: Point,
@@ -1417,14 +1437,13 @@ export class TextNode<
   }
 
   /**
-   * Where the touch selection handles hang for a range INSIDE a replacement run
-   * (part of an inline formula). Built from the same band `paint` fills, so the
-   * handles sit on the highlight the user sees. Without this a phone shows a
-   * part-selected formula with no handles to grab, and the range can't be
-   * adjusted.
+   * Where the touch selection handles go for a selection inside an inline
+   * element with its own content, such as an inline formula. They sit on the
+   * same highlight `paint` draws. Returns null when the selection is in another
+   * block or covers nothing.
    *
-   * Reading order is top row first, then left to right: a replacement run lays
-   * its own content out left to right even inside a right-to-left paragraph.
+   * The handles follow the element's own order: top row first, then left to
+   * right, even in right-to-left text.
    */
   contentSelectionGeometry(
     layoutValue: NodeLayout,
@@ -1476,15 +1495,15 @@ export class TextNode<
   }
 
   /**
-   * The word/token RANGE a double-tap at a point selects, resolved from the
-   * POINT rather than a caret offset. Plain prose has no point-specific word
-   * model — its offset-based word selection is fine — but a replacement run
-   * does: a point landing on its glyph box selects the run whole (the run's
-   * only flat positions are its two edges, so a resolved offset can miss it —
-   * e.g. a double-click past the end of a line ending in a chip). Returns null
-   * off any run; the caller falls back to the offset path. See
-   * {@link getWordRangeFromViewport}.
+   * What a double-click or double-tap at a point selects when it lands on an
+   * inline formula, or any other mark drawn as one box: the whole of it.
+   * Returns null anywhere else, and the caller falls back to normal word
+   * selection. See {@link getWordRangeFromViewport}.
    */
+  // Resolved from the point, not a caret offset: a formula's only flat
+  // positions are its two edges, so a resolved offset can miss it (e.g. a
+  // double-click past the end of a line ending in a chip). Also returns null on
+  // a mixed-direction line.
   wordRangeFromPoint(
     layout: TextNodeLayout,
     x: number,
@@ -1500,11 +1519,10 @@ export class TextNode<
   }
 
   /**
-   * Click → caret text index within the block. `x`/`y` are absolute in the
-   * caller's coordinate space; `blockTopY` the block's top; `originX` the left
-   * edge (canvas paddingLeft). A replacement run (an inline-math chip) is one
-   * atomic anchor char: clicks snap to its near edge, and interior resolution
-   * belongs to the nested-selection hit-test.
+   * The text offset where a click at a point puts the caret. `x` and `y` are in
+   * your own coordinates. `originX` is the block's left edge and `blockTopY`
+   * its top. A click on an inline chip, such as a formula, snaps to its nearer
+   * edge. To land inside the chip, use `contentSelectionFromPoint`.
    */
   positionFromPoint(
     _block: B,
@@ -1557,9 +1575,9 @@ export class TextNode<
   }
 
   /**
-   * Full text render. Ported from renderBlock's text path. Draws markers, lines
-   * (with composition underline), search highlights, remote + local selection
-   * overlays, and the placeholder. Returns absolute line boxes.
+   * Draws the whole block: the list marker, the text lines with any composition
+   * underline, search highlights, your selection and other people's, and the
+   * placeholder. Returns the line boxes in absolute coordinates.
    */
   paint(passedLayout: NodeLayout, c: NodePaintCtx): RenderedBlock {
     const block = c.block as unknown as B;
@@ -1927,8 +1945,12 @@ export class TextNode<
     ctx.restore();
   }
 
-  /** Map a click to a caret position (Node contract; unused for text — the
-   * renderer/selection call positionFromPoint directly with the y coordinate). */
+  /**
+   * Not used for text. It always returns offset 0 in the first block. Use
+   * `positionFromPoint` to turn a click into a caret offset.
+   */
+  // Kept only to satisfy the Node contract; the renderer and selection call
+  // positionFromPoint directly with the y coordinate.
   hitTest(): Position {
     return { blockIndex: 0, textIndex: 0 };
   }
@@ -2021,11 +2043,11 @@ export class TextNode<
   }
 
   /**
-   * Draw one wrapped line's text at the given baseline. The default applies the
-   * full CRDT mark-aware renderer (`renderLine`). CodeNode overrides this to
-   * paint syntax-highlighted tokens instead (code has no marks). Selection,
-   * search, composition underline, and placeholder are still drawn by `paint`
-   * around this call, so an override only controls the glyph fill.
+   * Draws one wrapped line's text at its baseline. The default draws the text
+   * with its marks. Override it to draw the letters your own way, as the code
+   * block does for syntax colors. `paint` still draws the selection,
+   * highlights, composition underline and placeholder around this call, so an
+   * override only changes the letters.
    */
   protected renderLineText(p: RenderLineTextArgs<B>): void {
     renderLine(
@@ -2051,21 +2073,18 @@ export class TextNode<
   }
 
   /**
-   * Vertical inset before the first line. Defaults to the resolved style's
-   * `paddingTop` (headings carry space-above for prose rhythm; code's style
-   * reuses it as the top inset of its background box; body blocks use 0).
-   * QuoteNode overrides it to vary the inset by neighbour context. Baked into
-   * the layout (and its height), so caret/hit-test/selection/paint all start
-   * from `blockTop + insetY` without re-checking the block type.
+   * Space above the first line. Defaults to the style's `paddingTop`: headings
+   * get space above them, body text gets none.
    *
-   * Space-above binds a heading to the section it opens, so it collapses where
-   * there is no section above: when the block opens the document, or sits
-   * directly under a document-opening image (the cover). The page title then
-   * hugs the top chrome / cover, Notion-style, instead of floating a heading's
-   * worth of air below it. Both checks are the cache-safe neighbour hints
-   * stamped by `getVisibleBlocks` — an image that merely ends the previous
-   * section (`prevIsFirst` unset) keeps the heading's full space-above.
+   * It is 0 when the block is first in the document, or sits right under a
+   * cover image (an image that opens the document). An image further down keeps
+   * the full space.
+   *
+   * Override it to change this space, as the code and quote nodes do. The value
+   * becomes the layout's `insetY` and counts toward its height.
    */
+  // Both checks use the cache-safe neighbour hints stamped by getVisibleBlocks
+  // (prevType, prevIsFirst).
   protected contentInsetY(
     block: B,
     _styles: EditorStyles,
@@ -2092,14 +2111,12 @@ export class TextNode<
   }
 
   /**
-   * Wrap this block's characters into display lines. The default is plain
-   * width-based wrapping (`wrapText`), which has no concept of hard line breaks —
-   * textual blocks are single logical lines and Enter splits the block. CodeNode
-   * overrides this to break on literal "\n" characters (treating each as a
-   * consumed, non-rendered break, exactly like a wrap space) so one code block
-   * can span many lines. The returned `consumedSpace` flag on each line is what
-   * `computeLayout` uses to advance the visible-index accounting, so an override
-   * only has to mark consumed breaks correctly for caret/selection to follow.
+   * Splits the block's characters into display lines. The default wraps by
+   * width only. It does not break on "\n", because Enter starts a new block.
+   *
+   * Override it to break lines your own way, as the code block does on "\n".
+   * Set `consumedSpace` on a line when its break uses up a character that is
+   * not drawn. That keeps the caret and selection in step.
    */
   protected wrapLines(
     chars: Char[],

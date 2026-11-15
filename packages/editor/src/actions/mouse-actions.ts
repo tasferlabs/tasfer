@@ -44,6 +44,8 @@ import {
  * (Shift held and a selection already exists) the active selection's focus is
  * dragged to the position; otherwise a fresh selection is started at the caret
  * and the editor enters `select` mode (drag-to-select). Pure, no ops.
+ *
+ * @group Built-in actions
  */
 export const PLACE_CURSOR_AT_POINT = stateAction<{
   position: Position;
@@ -105,11 +107,10 @@ export const PLACE_CURSOR_AT_POINT = stateAction<{
 });
 
 /**
- * Place the caret at the position a click in the padding (the left/right gutter
- * or the top margin) resolved to, dropping any active selection first. Like a
- * click in the content it anchors a fresh selection and enters `select` mode, so
- * pressing in the margin and dragging into the text selects — the gutter is
- * where a sweep down a paragraph's edge naturally starts. Pure, no ops.
+ * Place the caret where a click in the padding (the side gutters or the top
+ * margin) lands, and drop any selection. Like a click in the text, it starts a
+ * new selection in `select` mode, so pressing in the margin and dragging into
+ * the text selects it. It does not change the document.
  */
 export const PLACE_CURSOR_IN_PADDING = stateAction<{
   position: Position;
@@ -122,7 +123,11 @@ export const PLACE_CURSOR_IN_PADDING = stateAction<{
 
 // ─── Word / line selection (double / triple click) ───────────────────────────
 
-/** Select the whole word at a resolved position (double-click). Pure, no ops. */
+/**
+ * Select the whole word at a resolved position (double-click). Pure, no ops.
+ *
+ * @group Built-in actions
+ */
 export const SELECT_WORD_AT_POINT = stateAction<{
   position: Position;
   /**
@@ -140,7 +145,11 @@ export const SELECT_WORD_AT_POINT = stateAction<{
   ops: [],
 }));
 
-/** Select the whole line at a resolved position (triple-click). Pure, no ops. */
+/**
+ * Select the whole line at a resolved position (triple-click). Pure, no ops.
+ *
+ * @group Built-in actions
+ */
 export const SELECT_LINE_AT_POINT = stateAction<{ position: Position }>(
   "select-line-at-point",
   (state, { position }) => ({
@@ -152,12 +161,11 @@ export const SELECT_LINE_AT_POINT = stateAction<{ position: Position }>(
 // ─── Visual-block selection (image / line / math click) ──────────────────────
 
 /**
- * Select a visual (non-textual) block — image, line, or math — that was clicked.
- * Mirrors the arrow-key visual-block selection: move the caret to the block's
- * start (`textIndex 0`) and, unless `extend` drags an existing selection's focus
- * there, anchor a collapsed-false selection on the block itself. Always lands in
- * `edit` mode. The handler resolves the block hit and passes its start position.
- * Pure, no ops.
+ * Select a clicked block that is not text, such as an image, a divider or an
+ * equation. The caret moves to the start of the block and the whole block is
+ * selected, the same as reaching it with the arrow keys. With `extend`, the
+ * existing selection grows to the block instead. Pass the block's start
+ * position. The editor ends in `edit` mode. It does not change the document.
  */
 export const SELECT_VISUAL_BLOCK = stateAction<{
   position: Position;
@@ -185,9 +193,9 @@ export const SELECT_VISUAL_BLOCK = stateAction<{
 });
 
 /**
- * Clear a lingering visual-block selection when the click landed outside the
- * selected image/line/math container (the handler has already confirmed the
- * collapsed-false selection points at a single non-textual block). Pure, no ops.
+ * Clear the selection of a block that is not text (an image, divider or
+ * equation) when a click lands outside it. The editor dispatches it only after
+ * it checks that such a block is selected. It does not change the document.
  */
 export const CLEAR_VISUAL_BLOCK_SELECTION = stateAction(
   "clear-visual-block-selection",
@@ -208,10 +216,10 @@ export const CLEAR_SELECTION_IN_PADDING = stateAction(
 // ─── Host overlay openings (image placeholder / math editor) ─────────────────
 
 /**
- * Open a host overlay anchored at a block — the image-upload placeholder popover
- * or the block-math editor. The handler asks the node whether activation opens an
- * overlay and resolves the full `overlay` menu (key/data/anchor); this action
- * just installs it. Pure, no ops.
+ * Open a host overlay at a block, such as the image-upload popover or the
+ * block-math editor. The editor asks the node which overlay to open and works
+ * out its key, data and position. This action only shows it. It does not change
+ * the document.
  */
 export const OPEN_BLOCK_OVERLAY = stateAction<{
   overlay: Extract<ActiveMenu, { type: "overlay" }>;

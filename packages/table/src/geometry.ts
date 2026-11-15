@@ -28,9 +28,9 @@ import {
   type TableView,
   tableWidth,
 } from "./structured";
+import type { MarkRegistry } from "@tasfer/editor";
 import type { FontFamily } from "@tasfer/editor/fonts";
 import { getFontMetrics } from "@tasfer/editor/fonts";
-import type { MarkRegistry } from "@tasfer/editor/rendering/marks";
 import type { NodeLayout } from "@tasfer/editor/rendering/nodes/Node";
 import { getTextDirection } from "@tasfer/editor/rtl";
 import type { Char, MarkRange } from "@tasfer/editor/serlization/loadPage";
@@ -55,7 +55,11 @@ import {
   type TextLayout,
 } from "@tasfer/editor/text-layout";
 
-/** One column's horizontal band, in block-local coordinates. */
+/**
+ * One column's horizontal band, in block-local coordinates.
+ *
+ * @group Layout
+ */
 export interface TableColumnLayout {
   /** Left edge of the column, measured from the block's content box. */
   readonly x: number;
@@ -64,7 +68,11 @@ export interface TableColumnLayout {
   readonly align: TableAlign | null;
 }
 
-/** One laid-out cell: its box, its resolved text, and its wrapped lines. */
+/**
+ * One laid-out cell: its box, its resolved text, and its wrapped lines.
+ *
+ * @group Layout
+ */
 export interface TableCellLayout {
   /**
    * The cell node's id, or `null` for a hole — a column this row has no cell
@@ -87,7 +95,10 @@ export interface TableCellLayout {
    * The caret, the hit-test and the highlight all read this.
    */
   readonly text: TextLayout;
-  /** Document-order characters (tombstones included) of the cell's text field. */
+  /**
+   * Every character of the cell's text, in stored order. Deleted characters
+   * stay in the list, marked `deleted`.
+   */
   readonly chars: Char[];
   readonly marks: readonly MarkRange[];
   /**
@@ -104,7 +115,11 @@ export interface TableCellLayout {
   readonly lines: readonly RenderedLine[];
 }
 
-/** One row band and its cells, one per column (holes included). */
+/**
+ * One row band and its cells, one per column (holes included).
+ *
+ * @group Layout
+ */
 export interface TableRowLayout {
   readonly rowId: string;
   readonly y: number;
@@ -112,7 +127,11 @@ export interface TableRowLayout {
   readonly cells: readonly TableCellLayout[];
 }
 
-/** The full table layout — the single geometry every pass reads. */
+/**
+ * The full table layout — the single geometry every pass reads.
+ *
+ * @group Layout
+ */
 export interface TableLayout extends NodeLayout {
   readonly columns: readonly TableColumnLayout[];
   readonly rows: readonly TableRowLayout[];
@@ -153,7 +172,11 @@ export interface TableComposition {
   readonly text: string;
 }
 
-/** Everything the geometry needs that is not the document itself. */
+/**
+ * Everything the geometry needs that is not the document itself.
+ *
+ * @group Layout
+ */
 export interface TableLayoutCtx {
   readonly maxWidth: number;
   readonly style: TableBlockStyle;
@@ -161,9 +184,9 @@ export interface TableLayoutCtx {
   readonly fonts: FontStyles;
   readonly marks?: MarkRegistry;
   /**
-   * The table block's attachments. A cell's structured marks (an inline
-   * formula) point at the ones beside the table's own document; measuring
-   * reads them, so a formula reserves its real width instead of a placeholder.
+   * The table block's attached content, such as the inline formulas in its
+   * cells. Pass it so a formula is measured at its real width, not a
+   * placeholder's.
    */
   readonly attachments?: StructuredContentMap;
 }
@@ -213,29 +236,24 @@ function allocate(
 }
 
 /**
- * Fit `count` column widths into `available`.
+ * Split `available` pixels into `count` column widths. Returns an empty list
+ * when `count` is 0 or less.
  *
- * `fixed` carries each column's explicitly set width as a fraction of the grid
- * (`null` for automatic) — what a resize drag writes, and the ONLY thing that
- * makes one column wider than another. Columns nobody has touched split the
- * grid evenly and the text inside them wraps to whatever they got.
+ * `fixed` holds each column's width as a fraction of the grid, set by a resize
+ * drag, or `null` for automatic. Automatic columns share what is left evenly.
+ * The text in a cell never changes a column's width.
  *
- * Fitting columns to their content instead meant the grid rearranged itself
- * while someone typed: a cell's text growing moved columns in the rest of the
- * table, and a width the user had chosen by eye was taken back the moment the
- * text under it changed. A width is a decision, so it changes when the user
- * makes one.
+ * No column goes under `minWidth`, a fixed one included. When the grid is too
+ * narrow for that, the columns share it evenly. With the default theme, a
+ * table's grid is wide enough that this does not happen.
  *
- * `minWidth` is the floor no column goes under, a dragged one included — and
- * including a document written on a wide screen and opened on a phone, where
- * the stored fractions scale down with the grid. It yields only when the grid
- * cannot hold even one floor per column: the columns then share what there is.
- * The grid a table is given ({@link tableGridWidth}) is wide enough that this
- * does not happen with the default theme.
- *
- * Widths are rounded to whole pixels with the rounding error carried forward,
- * so the columns always sum to exactly `available` on every peer.
+ * Widths are whole pixels and always add up to exactly `available`.
  */
+// Fitting columns to their content made the grid rearrange itself while someone
+// typed: a growing cell moved other columns, and a width chosen by eye was
+// taken back when the text changed. A width is a decision, so it changes only
+// when the user makes one. Rounding carries the error forward so the sum is
+// exact on every peer.
 export function fitColumnWidths(
   count: number,
   available: number,
@@ -308,7 +326,19 @@ export function tableGridWidth(
     : Math.max(automatic, Math.round(width * maxWidth));
 }
 
-/** Lay out a whole table document at `maxWidth`. */
+/**
+ * Measure a whole table at `ctx.maxWidth`: its columns, rows, cells and wrapped
+ * lines. A missing `document`, or a table with no rows or columns, gives an
+ * empty layout. Pass `composition` to show text that is still being typed with
+ * an IME.
+ *
+ * What a cell holds never changes a column's width. Only a saved width from a
+ * resize drag does. Cell text wraps inside its column, and each row is as
+ * tall as its tallest cell. No column gets narrower than `minColumnWidth`
+ * while there is room.
+ *
+ * @group Layout
+ */
 export function layoutTable(
   document: StructuredDocument | undefined,
   ctx: TableLayoutCtx,

@@ -8,37 +8,43 @@ import type {
 import { useCallback, useRef, useSyncExternalStore } from "react";
 
 /**
- * Live editor-state snapshot returned by {@link useEditorState}: the engine's
- * `editor.state` ({@link EditorStateSnapshot} — selection, active marks, the
- * caret block type, undo/redo readiness, focus) plus the attached `doc`,
- * surfaced reactively. Defined as an intersection so it stays in lockstep with
- * the engine snapshot. `null` when no editor is attached yet.
+ * What {@link useEditorState} returns: everything in `editor.state`
+ * ({@link EditorStateSnapshot}: selection, active marks, whether undo and redo
+ * can run, focus, mode) plus the editor's `doc`.
  */
+// Defined as an intersection so it stays in lockstep with the engine snapshot.
 export type EditorStateValue<
   D extends SchemaDefinition = BaseSchemaDefinition,
 > = EditorStateSnapshot & {
-  /** The CRDT document the editor renders and edits. */
+  /** The document the editor shows and edits. */
   readonly doc: Doc<D>;
 };
 
 /**
- * Subscribe to a {@link TasferEditor}'s state and re-render on changes.
- *
- * Tracks both document content (`"change"`) and caret/selection movement
- * (`"selectionchange"`), returning the editor's `{ selection, activeMarks, doc }`
- * snapshot — ideal for lighting up a toolbar or status bar. Returns `null` while
- * `editor` is `null` (e.g. before {@link useEditor} has mounted).
- *
- * Backed by `useSyncExternalStore`. Because `editor.state` builds a *fresh*
- * object on every read, the snapshot is cached in a ref and only refreshed when
- * a subscribed event actually fires — otherwise `getSnapshot` would return a new
- * reference each call and loop forever.
+ * Read the editor's state ({@link EditorStateValue}) and re-render when it
+ * changes. It updates when the document changes and when the caret or selection
+ * moves, so it suits a toolbar or a status bar. Returns `null` while `editor`
+ * is `null`, for example before {@link useEditor} has mounted.
  *
  * @example
- * const { editor } = useEditor({ markdown: "**bold**" });
- * const state = useEditorState(editor);
- * const isBold = state?.activeMarks.has("strong") ?? false;
+ * ```tsx
+ * function BoldButton({ editor }: { editor: TasferEditor | null }) {
+ *   const state = useEditorState(editor);
+ *   return (
+ *     <button
+ *       data-active={state?.activeMarks.has("strong") ?? false}
+ *       onClick={() => editor?.change((c) => c.setMark("strong"))}
+ *     >
+ *       Bold
+ *     </button>
+ *   );
+ * }
+ * ```
  */
+// Backed by useSyncExternalStore. editor.state builds a fresh object on every
+// read, so the snapshot is cached in a ref and only refreshed when a subscribed
+// event fires; otherwise getSnapshot would return a new reference each call and
+// loop forever.
 export function useEditorState<
   D extends SchemaDefinition = BaseSchemaDefinition,
 >(editor: TasferEditor<D> | null): EditorStateValue<D> | null {
@@ -88,17 +94,18 @@ export function useEditorState<
 }
 
 /**
- * Subscribe to a {@link TasferEditor}'s Markdown projection, re-rendering
- * whenever the document content changes (`"change"`). Returns `""` while
- * `editor` is `null`.
- *
- * The Markdown string is cached and only re-serialized on a `"change"` event, so
- * `getSnapshot` stays referentially stable between edits.
+ * Read the editor's content as Markdown, and re-render whenever the document
+ * changes, including edits from other people. Returns `""` while `editor` is
+ * `null`. The Markdown is rebuilt only when the document changes, not on every
+ * render.
  *
  * @example
+ * ```tsx
  * const { editor } = useEditor({ markdown: "# Title" });
  * const markdown = useEditorMarkdown(editor); // "# Title", updates as you type
+ * ```
  */
+// Cached so getSnapshot stays referentially stable between edits.
 export function useEditorMarkdown<
   D extends SchemaDefinition = BaseSchemaDefinition,
 >(editor: TasferEditor<D> | null): string {

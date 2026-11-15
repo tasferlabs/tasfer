@@ -1,0 +1,2123 @@
+{
+ "name": "@tasfer/react",
+ "entries": [
+  {
+   "id": "@tasfer/react",
+   "symbols": [
+    {
+     "name": "Editor",
+     "kind": "function",
+     "sigs": [
+      "function Editor<D extends SchemaDefinition = BaseSchemaDefinition>(\n  props: EditorProps<D>,\n): React.JSX.Element"
+     ],
+     "examples": [
+      {
+       "lang": "tsx",
+       "code": "<Editor\n  markdown=\"# Hello\"\n  onChange={save}\n  style={{ height: \"100vh\" }}\n  onReady={(editor) => {\n    editor.focus();\n    editor.setCaret(\"end\");\n  }}\n/>"
+      }
+     ],
+     "summary": "A React component that renders a `<div>` and mounts the editor in it.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "A React component that renders a "
+        },
+        {
+         "type": "inlineCode",
+         "value": "<div>"
+        },
+        {
+         "type": "text",
+         "value": " and mounts the editor in it. It is\nbuilt on "
+        },
+        {
+         "type": "link",
+         "url": "ref:useEditor",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "useEditor"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": "."
+        }
+       ]
+      },
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "Options are read once, when it mounts. Changing them later does nothing. To\nchange the editor afterwards, use the editor you get from "
+        },
+        {
+         "type": "inlineCode",
+         "value": "onReady"
+        },
+        {
+         "type": "text",
+         "value": ".\n"
+        },
+        {
+         "type": "inlineCode",
+         "value": "onChange"
+        },
+        {
+         "type": "text",
+         "value": " is the one prop that can change, and it only reports edits. There\nis no "
+        },
+        {
+         "type": "inlineCode",
+         "value": "value"
+        },
+        {
+         "type": "text",
+         "value": " prop: the editor owns its content. Give the component a height\nwith "
+        },
+        {
+         "type": "inlineCode",
+         "value": "style"
+        },
+        {
+         "type": "text",
+         "value": " or "
+        },
+        {
+         "type": "inlineCode",
+         "value": "className"
+        },
+        {
+         "type": "text",
+         "value": ", or it shows nothing."
+        }
+       ]
+      }
+     ],
+     "src": "packages/react/src/Editor.tsx",
+     "from": [
+      "@tasfer/react"
+     ]
+    },
+    {
+     "name": "useEditor",
+     "kind": "function",
+     "sigs": [
+      "function useEditor<D extends SchemaDefinition = BaseSchemaDefinition>(\n  options: UseEditorOptions<D>,\n): UseEditorResult<D>"
+     ],
+     "examples": [
+      {
+       "lang": "tsx",
+       "code": "function MyEditor() {\n  const { containerRef, editor } = useEditor({ markdown: \"# Hello\" });\n  useEffect(() => {\n    if (editor) {\n      editor.focus();\n      editor.setCaret(\"end\");\n    }\n  }, [editor]);\n  return <div ref={containerRef} style={{ height: \"100%\" }} />;\n}"
+      }
+     ],
+     "summary": "Create a `TasferEditor` and mount it into a `<div>` you render with the returned `containerRef`.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "Create a "
+        },
+        {
+         "type": "link",
+         "url": "ref:TasferEditor",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "TasferEditor"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": " and mount it into a "
+        },
+        {
+         "type": "inlineCode",
+         "value": "<div>"
+        },
+        {
+         "type": "text",
+         "value": " you render with the\nreturned "
+        },
+        {
+         "type": "inlineCode",
+         "value": "containerRef"
+        },
+        {
+         "type": "text",
+         "value": "."
+        }
+       ]
+      },
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "The editor is created once, when the component mounts, and destroyed when it\nunmounts. Options you pass later are ignored, because a new editor would\nthrow away the document. To change the editor while it runs, call its\nmethods, such as "
+        },
+        {
+         "type": "inlineCode",
+         "value": "editor.setTheme(...)"
+        },
+        {
+         "type": "text",
+         "value": " or "
+        },
+        {
+         "type": "inlineCode",
+         "value": "editor.setMarkdown(...)"
+        },
+        {
+         "type": "text",
+         "value": "."
+        }
+       ]
+      }
+     ],
+     "src": "packages/react/src/useEditor.ts",
+     "from": [
+      "@tasfer/react"
+     ]
+    },
+    {
+     "name": "useEditorMarkdown",
+     "kind": "function",
+     "sigs": [
+      "function useEditorMarkdown<\n  D extends SchemaDefinition = BaseSchemaDefinition,\n>(editor: TasferEditor<D> | null): string"
+     ],
+     "examples": [
+      {
+       "lang": "tsx",
+       "code": "const { editor } = useEditor({ markdown: \"# Title\" });\nconst markdown = useEditorMarkdown(editor); // \"# Title\", updates as you type"
+      }
+     ],
+     "summary": "Read the editor's content as Markdown, and re-render whenever the document changes, including edits from other people.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "Read the editor's content as Markdown, and re-render whenever the document\nchanges, including edits from other people. Returns "
+        },
+        {
+         "type": "inlineCode",
+         "value": "\"\""
+        },
+        {
+         "type": "text",
+         "value": " while "
+        },
+        {
+         "type": "inlineCode",
+         "value": "editor"
+        },
+        {
+         "type": "text",
+         "value": " is\n"
+        },
+        {
+         "type": "inlineCode",
+         "value": "null"
+        },
+        {
+         "type": "text",
+         "value": ". The Markdown is rebuilt only when the document changes, not on every\nrender."
+        }
+       ]
+      }
+     ],
+     "src": "packages/react/src/useEditorState.ts",
+     "from": [
+      "@tasfer/react"
+     ]
+    },
+    {
+     "name": "useEditorState",
+     "kind": "function",
+     "sigs": [
+      "function useEditorState<\n  D extends SchemaDefinition = BaseSchemaDefinition,\n>(editor: TasferEditor<D> | null): EditorStateValue<D> | null"
+     ],
+     "examples": [
+      {
+       "lang": "tsx",
+       "code": "function BoldButton({ editor }: { editor: TasferEditor | null }) {\n  const state = useEditorState(editor);\n  return (\n    <button\n      data-active={state?.activeMarks.has(\"strong\") ?? false}\n      onClick={() => editor?.change((c) => c.setMark(\"strong\"))}\n    >\n      Bold\n    </button>\n  );\n}"
+      }
+     ],
+     "summary": "Read the editor's state (`EditorStateValue`) and re-render when it changes.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "Read the editor's state ("
+        },
+        {
+         "type": "link",
+         "url": "ref:EditorStateValue",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "EditorStateValue"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": ") and re-render when it\nchanges. It updates when the document changes and when the caret or selection\nmoves, so it suits a toolbar or a status bar. Returns "
+        },
+        {
+         "type": "inlineCode",
+         "value": "null"
+        },
+        {
+         "type": "text",
+         "value": " while "
+        },
+        {
+         "type": "inlineCode",
+         "value": "editor"
+        },
+        {
+         "type": "text",
+         "value": "\nis "
+        },
+        {
+         "type": "inlineCode",
+         "value": "null"
+        },
+        {
+         "type": "text",
+         "value": ", for example before "
+        },
+        {
+         "type": "link",
+         "url": "ref:useEditor",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "useEditor"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": " has mounted."
+        }
+       ]
+      }
+     ],
+     "src": "packages/react/src/useEditorState.ts",
+     "from": [
+      "@tasfer/react"
+     ]
+    },
+    {
+     "name": "ChangeTransaction",
+     "kind": "interface",
+     "sigs": [
+      "interface ChangeTransaction"
+     ],
+     "summary": "What an `on(\"change\", …)` listener gets: the edits that changed the document, and whether they came from another person.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "What an "
+        },
+        {
+         "type": "inlineCode",
+         "value": "on(\"change\", …)"
+        },
+        {
+         "type": "text",
+         "value": " listener gets: the edits that changed the document,\nand whether they came from another person. Check "
+        },
+        {
+         "type": "inlineCode",
+         "value": "isRemote"
+        },
+        {
+         "type": "text",
+         "value": " to skip your own\nedits. "
+        },
+        {
+         "type": "inlineCode",
+         "value": "ops.length"
+        },
+        {
+         "type": "text",
+         "value": " tells you how big the change was. One\n"
+        },
+        {
+         "type": "link",
+         "url": "ref:Editor",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "Editor.change"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": " call gives one transaction with all of its edits."
+        }
+       ]
+      }
+     ],
+     "members": [
+      {
+       "name": "isRemote",
+       "kind": "property",
+       "sig": "readonly isRemote: boolean",
+       "summary": "True when applied from a peer via sync; false for a local edit/undo/redo.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "True when applied from a peer via sync; false for a local edit/undo/redo."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "ops",
+       "kind": "property",
+       "sig": "readonly ops: readonly Operation[]",
+       "summary": "The CRDT operations that produced this change, in apply order.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "The CRDT operations that produced this change, in apply order."
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "from": [
+      "@tasfer/react"
+     ]
+    },
+    {
+     "name": "Doc",
+     "kind": "interface",
+     "sigs": [
+      "interface Doc<D extends SchemaDefinition = BaseSchemaDefinition>"
+     ],
+     "summary": "A document on its own, independent of any editor: its content plus the history of changes that lets copies on different devices merge to the same result.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "A document on its own, independent of any editor: its content plus the\nhistory of changes that lets copies on different devices merge to the same\nresult. Create one with "
+        },
+        {
+         "type": "link",
+         "url": "ref:createDoc",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "createDoc"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": ", show it in an editor, and connect\nsync and storage to it."
+        }
+       ]
+      },
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "A doc needs no editor and no page element. So it also works on a server, in\na worker or in a test: read it with "
+        },
+        {
+         "type": "inlineCode",
+         "value": "getMarkdown()"
+        },
+        {
+         "type": "text",
+         "value": ", sync it with\n"
+        },
+        {
+         "type": "inlineCode",
+         "value": "applyUpdate"
+        },
+        {
+         "type": "text",
+         "value": ", and save it with "
+        },
+        {
+         "type": "inlineCode",
+         "value": "encodeState()"
+        },
+        {
+         "type": "text",
+         "value": "."
+        }
+       ]
+      }
+     ],
+     "members": [
+      {
+       "name": "peerId",
+       "kind": "property",
+       "sig": "readonly peerId: string",
+       "summary": "This replica's peer identity (stamped on every local op).",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "This replica's peer identity (stamped on every local op)."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "pageId",
+       "kind": "property",
+       "sig": "readonly pageId: string",
+       "summary": "The page id stamped on operations.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "The page id stamped on operations."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "getRawBlocks",
+       "kind": "method",
+       "sig": "getRawBlocks(): Block[]",
+       "summary": "Every block as stored, **including deleted ones** (`deleted: true`).",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Every block as stored, "
+          },
+          {
+           "type": "strong",
+           "children": [
+            {
+             "type": "text",
+             "value": "including deleted ones"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "value": " ("
+          },
+          {
+           "type": "inlineCode",
+           "value": "deleted: true"
+          },
+          {
+           "type": "text",
+           "value": "). This\nis what gets saved and synced, and every device ends up with the same\nblocks once synced. The array is the doc's own, so do not change it."
+          }
+         ]
+        },
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "To read what the user sees (deleted blocks removed, "
+          },
+          {
+           "type": "inlineCode",
+           "value": ".text"
+          },
+          {
+           "type": "text",
+           "value": " filled in), use\nan attached editor's "
+          },
+          {
+           "type": "inlineCode",
+           "value": "query.blocks(range)"
+          },
+          {
+           "type": "text",
+           "value": "."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "getMarkdown",
+       "kind": "method",
+       "sig": "getMarkdown(): string",
+       "summary": "Markdown projection of the current document.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Markdown projection of the current document."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "applyUpdate",
+       "kind": "method",
+       "sig": "applyUpdate(ops: Operation[], origin?: unknown): void",
+       "summary": "Applies edits that came from outside: a sync provider, storage, or another app.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Applies edits that came from outside: a sync provider, storage, or another\napp. Edits the doc already has are skipped, so sending the same batch twice\nis safe. Then "
+          },
+          {
+           "type": "inlineCode",
+           "value": "on(\"update\")"
+          },
+          {
+           "type": "text",
+           "value": " listeners get the new edits and "
+          },
+          {
+           "type": "inlineCode",
+           "value": "origin"
+          },
+          {
+           "type": "text",
+           "value": "\n(default "
+          },
+          {
+           "type": "inlineCode",
+           "value": "\"remote\""
+          },
+          {
+           "type": "text",
+           "value": "). If nothing is new, no update fires. New local edits\nare always ordered after the ones applied here."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "load",
+       "kind": "method",
+       "sig": "load(ops: Operation[]): void",
+       "summary": "Adds saved edits that the doc's blocks already contain.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Adds saved edits that the doc's blocks already contain. Use it after you\ncreate a doc from saved "
+          },
+          {
+           "type": "inlineCode",
+           "value": "blocks"
+          },
+          {
+           "type": "text",
+           "value": ", to load the saved edit history behind\nthem. The doc then knows those edits, and new edits are ordered after them."
+          }
+         ]
+        },
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "It fires no update and does not redraw the editor, because the blocks\nalready show these edits."
+          }
+         ]
+        },
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Only pass edits that are already in the blocks. An edit passed here that is\nnot in them never shows up, and later copies of it from sync are skipped as\nalready known. For edits that arrive from sync, use "
+          },
+          {
+           "type": "link",
+           "url": "ref:applyUpdate",
+           "children": [
+            {
+             "type": "inlineCode",
+             "value": "applyUpdate"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "value": "."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "on",
+       "kind": "method",
+       "sig": "on(event: \"update\", callback: (update: DocUpdate) => void): () => void",
+       "summary": "Subscribe to applied updates (local and remote).",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Subscribe to applied updates (local and remote). Returns unsubscribe."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "getOperations",
+       "kind": "method",
+       "sig": "getOperations(): Operation[]",
+       "summary": "All operations currently in the log (HLC order).",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "All operations currently in the log (HLC order)."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "getVersionVector",
+       "kind": "method",
+       "sig": "getVersionVector(): VersionVector",
+       "summary": "The version vector: highest op counter seen per peer.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "The version vector: highest op counter seen per peer."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "getOpsSince",
+       "kind": "method",
+       "sig": "getOpsSince(peerVV: VersionVector): Operation[]",
+       "summary": "Operations a peer with the given version vector is missing.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Operations a peer with the given version vector is missing."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "encodeState",
+       "kind": "method",
+       "sig": "encodeState(): Uint8Array",
+       "summary": "Serialize the full document state (blocks + op log + version vector) to bytes.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Serialize the full document state (blocks + op log + version vector) to\nbytes. Restore with "
+          },
+          {
+           "type": "inlineCode",
+           "value": "createDoc(bytes)"
+          },
+          {
+           "type": "text",
+           "value": ". The format is JSON-based and\nversioned, but not yet covered by any stability guarantee."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "destroy",
+       "kind": "method",
+       "sig": "destroy(): void",
+       "summary": "Detach all listeners.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Detach all listeners. The doc holds no other external resources."
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "from": [
+      "@tasfer/react"
+     ]
+    },
+    {
+     "name": "EditorStateSnapshot",
+     "kind": "interface",
+     "sigs": [
+      "interface EditorStateSnapshot"
+     ],
+     "summary": "The editor's current state, for binding UI (see `Editor.state`).",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "The editor's current state, for binding UI (see "
+        },
+        {
+         "type": "link",
+         "url": "ref:Editor",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "Editor.state"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": "). Each\nread of "
+        },
+        {
+         "type": "inlineCode",
+         "value": "editor.state"
+        },
+        {
+         "type": "text",
+         "value": " builds a new one, and it never changes after that. So\nread it again when you need fresh values."
+        }
+       ]
+      }
+     ],
+     "members": [
+      {
+       "name": "selection",
+       "kind": "property",
+       "sig": "readonly selection: {\n  readonly empty: boolean;\n  readonly range: DocRange | null;\n  /** Stable id of the atomically selected whole block, otherwise `null`. */\n  readonly block: string | null;\n}",
+       "summary": "The current selection.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "The current selection: "
+          },
+          {
+           "type": "inlineCode",
+           "value": "empty"
+          },
+          {
+           "type": "text",
+           "value": " is true for a bare caret (or no caret), and\n"
+          },
+          {
+           "type": "inlineCode",
+           "value": "range"
+          },
+          {
+           "type": "text",
+           "value": " is the selection as a "
+          },
+          {
+           "type": "link",
+           "url": "ref:DocRange",
+           "children": [
+            {
+             "type": "inlineCode",
+             "value": "DocRange"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "value": " (a collapsed point for a\ncaret), or "
+          },
+          {
+           "type": "inlineCode",
+           "value": "null"
+          },
+          {
+           "type": "text",
+           "value": " when there is no caret/selection. "
+          },
+          {
+           "type": "inlineCode",
+           "value": "block"
+          },
+          {
+           "type": "text",
+           "value": " preserves the\nstable identity of an atomic whole-block selection, whose range endpoints\notherwise occupy the same document stop."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "contentSelection",
+       "kind": "property",
+       "sig": "readonly contentSelection: ContentSelection | null",
+       "summary": "The caret or selection inside a node's own content, such as a table cell, or `null` when there is none.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "The caret or selection inside a node's own content, such as a table cell,\nor "
+          },
+          {
+           "type": "inlineCode",
+           "value": "null"
+          },
+          {
+           "type": "text",
+           "value": " when there is none. It is separate from "
+          },
+          {
+           "type": "link",
+           "url": "ref:selection",
+           "children": [
+            {
+             "type": "inlineCode",
+             "value": "selection"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "value": ". It is\nplain data, so you can send it to other people as your cursor position."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "activeMarks",
+       "kind": "property",
+       "sig": "readonly activeMarks: ReadonlySet<Mark[\"type\"]>",
+       "summary": "Inline marks active at the caret / across the selection, by name.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Inline marks active at the caret / across the selection, by name. Use it to\nlight up toolbar buttons such as bold."
+          }
+         ]
+        },
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Where a mark starts or ends, the caret has two stops: with the text before\nit, or with the text after it. Text typed there gets the marks of that\nside, and "
+          },
+          {
+           "type": "inlineCode",
+           "value": "activeMarks"
+          },
+          {
+           "type": "text",
+           "value": " shows them. ArrowLeft and ArrowRight first switch\nsides without moving, then move. After a step, the caret sits with the\ntext it just passed. Any other caret move (a click, Home/End, up/down, a\nword jump) lands on the side before the caret. So typing at the end of a\nbold run stays bold, and typing at its start does not. This works\nthe same for every mark, links included, and inside table cells. Inline\nformulas have their own caret stops and do not follow it."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "canUndo",
+       "kind": "property",
+       "sig": "readonly canUndo: boolean",
+       "summary": "Whether `EditorApi.undo` would currently change the document.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Whether "
+          },
+          {
+           "type": "link",
+           "url": "ref:EditorApi",
+           "children": [
+            {
+             "type": "inlineCode",
+             "value": "EditorApi.undo"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "value": " would currently change the document."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "canRedo",
+       "kind": "property",
+       "sig": "readonly canRedo: boolean",
+       "summary": "Whether `EditorApi.redo` would currently change the document.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Whether "
+          },
+          {
+           "type": "link",
+           "url": "ref:EditorApi",
+           "children": [
+            {
+             "type": "inlineCode",
+             "value": "EditorApi.redo"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "value": " would currently change the document."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "isFocused",
+       "kind": "property",
+       "sig": "readonly isFocused: boolean",
+       "summary": "Whether the editor currently has focus.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Whether the editor currently has focus."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "mode",
+       "kind": "property",
+       "sig": "readonly mode: EditorMode",
+       "summary": "The current interaction mode.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "The current interaction mode: "
+          },
+          {
+           "type": "inlineCode",
+           "value": "edit"
+          },
+          {
+           "type": "text",
+           "value": " (normal), "
+          },
+          {
+           "type": "inlineCode",
+           "value": "select"
+          },
+          {
+           "type": "text",
+           "value": " (selection-only,\ne.g. mobile), "
+          },
+          {
+           "type": "inlineCode",
+           "value": "suspended"
+          },
+          {
+           "type": "text",
+           "value": " (read-only; momentum halted), or "
+          },
+          {
+           "type": "inlineCode",
+           "value": "readonly"
+          },
+          {
+           "type": "text",
+           "value": ". The\nread counterpart to "
+          },
+          {
+           "type": "link",
+           "url": "ref:EditorHostApi",
+           "children": [
+            {
+             "type": "inlineCode",
+             "value": "EditorHostApi.setMode"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "value": " — lets host chrome gate\nbehavior on mode (e.g. suspend while a modal popover is open) without\nreaching into raw state."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "isReadonlyBase",
+       "kind": "property",
+       "sig": "readonly isReadonlyBase: boolean",
+       "summary": "Whether the editor was initialized read-only.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Whether the editor was initialized read-only. Unlike "
+          },
+          {
+           "type": "link",
+           "url": "ref:mode",
+           "children": [
+            {
+             "type": "inlineCode",
+             "value": "mode"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "value": " (which a\nread-only editor flips to "
+          },
+          {
+           "type": "inlineCode",
+           "value": "select"
+          },
+          {
+           "type": "text",
+           "value": " to allow drag-select + copy), this stays\ntrue for the editor's lifetime — so host chrome can suppress "
+          },
+          {
+           "type": "emphasis",
+           "children": [
+            {
+             "type": "text",
+             "value": "mutating"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "value": "\naffordances (a link's Edit button, a code block's language picker) for the\nwhole read-only session, not just while "
+          },
+          {
+           "type": "inlineCode",
+           "value": "mode === \"readonly\""
+          },
+          {
+           "type": "text",
+           "value": "."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "caretScratchActive",
+       "kind": "property",
+       "sig": "readonly caretScratchActive: boolean",
+       "summary": "`true` while the caret is in text that a node or mark is still reading as a command, such as a `\\command` being typed inside a math formula.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "true"
+          },
+          {
+           "type": "text",
+           "value": " while the caret is in text that a node or mark is still reading as a\ncommand, such as a "
+          },
+          {
+           "type": "inlineCode",
+           "value": "\\command"
+          },
+          {
+           "type": "text",
+           "value": " being typed inside a math formula. That text\nstays as typed until the command is confirmed. Use it to show a matching\nhelper, like a list of commands."
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "from": [
+      "@tasfer/react"
+     ]
+    },
+    {
+     "name": "TasferEditor",
+     "kind": "interface",
+     "sigs": [
+      "interface TasferEditor<D extends SchemaDefinition = BaseSchemaDefinition> extends EditorApi<D>"
+     ],
+     "summary": "The handle `createEditor` returns.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "The handle "
+        },
+        {
+         "type": "link",
+         "url": "ref:createEditor",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "createEditor"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": " returns. It has every "
+        },
+        {
+         "type": "link",
+         "url": "ref:Editor",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "Editor"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": " method,\nplus "
+        },
+        {
+         "type": "inlineCode",
+         "value": "doc"
+        },
+        {
+         "type": "text",
+         "value": ", "
+        },
+        {
+         "type": "inlineCode",
+         "value": "focus"
+        },
+        {
+         "type": "text",
+         "value": ", "
+        },
+        {
+         "type": "inlineCode",
+         "value": "blur"
+        },
+        {
+         "type": "text",
+         "value": ", "
+        },
+        {
+         "type": "inlineCode",
+         "value": "portalContainer"
+        },
+        {
+         "type": "text",
+         "value": " and a full "
+        },
+        {
+         "type": "inlineCode",
+         "value": "destroy"
+        },
+        {
+         "type": "text",
+         "value": "."
+        }
+       ]
+      },
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "Always call "
+        },
+        {
+         "type": "inlineCode",
+         "value": "destroy()"
+        },
+        {
+         "type": "text",
+         "value": " when you remove the editor. It replaces the plain\n"
+        },
+        {
+         "type": "inlineCode",
+         "value": "Editor.destroy"
+        },
+        {
+         "type": "text",
+         "value": " and also removes the canvas layers, page listeners, the\nportal and the render loop."
+        }
+       ]
+      }
+     ],
+     "members": [
+      {
+       "name": "doc",
+       "kind": "property",
+       "sig": "readonly doc: Doc<D>",
+       "summary": "The document this editor shows and edits: the `doc` you passed in, or one the editor made for itself.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "The document this editor shows and edits: the "
+          },
+          {
+           "type": "inlineCode",
+           "value": "doc"
+          },
+          {
+           "type": "text",
+           "value": " you passed in, or one\nthe editor made for itself. Sync and saving go only through it:\n"
+          },
+          {
+           "type": "inlineCode",
+           "value": "doc.applyUpdate(ops)"
+          },
+          {
+           "type": "text",
+           "value": " for incoming edits, "
+          },
+          {
+           "type": "inlineCode",
+           "value": "doc.on(\"update\", …)"
+          },
+          {
+           "type": "text",
+           "value": " for\noutgoing ones, and "
+          },
+          {
+           "type": "inlineCode",
+           "value": "doc.encodeState()"
+          },
+          {
+           "type": "text",
+           "value": " to save. Sync and storage providers\nattach to this doc, not to the editor."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "state",
+       "kind": "property",
+       "sig": "readonly state: EditorStateSnapshot & {\n  readonly doc: Doc<D>;\n}",
+       "summary": "`editor.state` tells you what is selected, which marks are active, the block type at the caret, whether undo and redo are possible, and whether the editor has focus (see `EditorStateSnapshot`).",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "editor.state"
+          },
+          {
+           "type": "text",
+           "value": " tells you what is selected, which marks are active, the\nblock type at the caret, whether undo and redo are possible, and whether\nthe editor has focus (see "
+          },
+          {
+           "type": "link",
+           "url": "ref:EditorStateSnapshot",
+           "children": [
+            {
+             "type": "inlineCode",
+             "value": "EditorStateSnapshot"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "value": "). It also holds the\nattached "
+          },
+          {
+           "type": "inlineCode",
+           "value": "doc"
+          },
+          {
+           "type": "text",
+           "value": ". It is a snapshot: every edit makes a new one. So read\n"
+          },
+          {
+           "type": "inlineCode",
+           "value": "editor.state"
+          },
+          {
+           "type": "text",
+           "value": " when you need it, and do not keep an old copy."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "portalContainer",
+       "kind": "property",
+       "sig": "readonly portalContainer: HTMLDivElement",
+       "summary": "Container to mount React popovers/overlays into (slash menu, link editor).",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Container to mount React popovers/overlays into (slash menu, link editor).\nIt floats over the canvas. It ignores pointer events, so set\n"
+          },
+          {
+           "type": "inlineCode",
+           "value": "pointer-events: auto"
+          },
+          {
+           "type": "text",
+           "value": " on what you put inside."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "focus",
+       "kind": "property",
+       "sig": "focus: () => void",
+       "summary": "Gives the editor keyboard focus, so it gets typing and IME input.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Gives the editor keyboard focus, so it gets typing and IME input. If the\neditor is editable and has no caret or selection yet, a caret is placed at\nthe start. An existing caret or selection stays where it is."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "blur",
+       "kind": "property",
+       "sig": "blur: () => void",
+       "summary": "Takes focus away from the editor and closes the soft keyboard.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Takes focus away from the editor and closes the soft keyboard. A selected\nrange is cleared a moment later, unless focus comes back or a host menu is\nopen."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "destroy",
+       "kind": "property",
+       "sig": "destroy: () => void",
+       "summary": "Removes the editor completely: canvas layers, page listeners, the portal and the render loop.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Removes the editor completely: canvas layers, page listeners, the portal\nand the render loop. If the editor made its own doc, that doc is destroyed\ntoo. A doc you passed in keeps working."
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "from": [
+      "@tasfer/react"
+     ]
+    },
+    {
+     "name": "UseEditorResult",
+     "kind": "interface",
+     "sigs": [
+      "interface UseEditorResult<\n  D extends SchemaDefinition = BaseSchemaDefinition,\n>"
+     ],
+     "summary": "Return value of `useEditor`.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "Return value of "
+        },
+        {
+         "type": "link",
+         "url": "ref:useEditor",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "useEditor"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": "."
+        }
+       ]
+      }
+     ],
+     "members": [
+      {
+       "name": "containerRef",
+       "kind": "property",
+       "sig": "containerRef: RefObject<HTMLDivElement | null>",
+       "summary": "Attach to the host element the editor mounts into.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Attach to the host element the editor mounts into:\n"
+          },
+          {
+           "type": "inlineCode",
+           "value": "<div ref={containerRef} />"
+          },
+          {
+           "type": "text",
+           "value": ". The editor sizes itself to fill this element,\nso the host must give it a height (e.g. via CSS) — an unsized div renders\nnothing visible."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "editor",
+       "kind": "property",
+       "sig": "editor: TasferEditor<D> | null",
+       "summary": "The editor, or `null` on the first render and on the server.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "The editor, or "
+          },
+          {
+           "type": "inlineCode",
+           "value": "null"
+          },
+          {
+           "type": "text",
+           "value": " on the first render and on the server. Call its\nmethods to change it, such as "
+          },
+          {
+           "type": "inlineCode",
+           "value": "editor.setMarkdown(...)"
+          },
+          {
+           "type": "text",
+           "value": " or\n"
+          },
+          {
+           "type": "inlineCode",
+           "value": "editor.change(...)"
+          },
+          {
+           "type": "text",
+           "value": "."
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "src": "packages/react/src/useEditor.ts",
+     "from": [
+      "@tasfer/react"
+     ]
+    },
+    {
+     "name": "CreateEditorOptions",
+     "kind": "type",
+     "sigs": [
+      "type CreateEditorOptions<D extends SchemaDefinition = BaseSchemaDefinition> = CreateEditorBaseOptions<D> & CreateEditorContent<D>"
+     ],
+     "summary": "Options for `createEditor`: the `CreateEditorBaseOptions` plus at most one of the `CreateEditorContent` sources.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "Options for "
+        },
+        {
+         "type": "link",
+         "url": "ref:createEditor",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "createEditor"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": ": the "
+        },
+        {
+         "type": "link",
+         "url": "ref:CreateEditorBaseOptions",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "CreateEditorBaseOptions"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": " plus at\nmost one of the "
+        },
+        {
+         "type": "link",
+         "url": "ref:CreateEditorContent",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "CreateEditorContent"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": " sources."
+        }
+       ]
+      }
+     ],
+     "from": [
+      "@tasfer/react"
+     ]
+    },
+    {
+     "name": "EditorProps",
+     "kind": "type",
+     "sigs": [
+      "type EditorProps<D extends SchemaDefinition = BaseSchemaDefinition> =\n  UseEditorOptions<D> & {\n    onChange?: (markdown: string) => void;\n    className?: string;\n    style?: CSSProperties;\n    onReady?: (editor: TasferEditor<D>) => void;\n  }"
+     ],
+     "summary": "Props for the `Editor` component: every `CreateEditorOptions` field except `element`, because the component renders its own `<div>`.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "Props for the "
+        },
+        {
+         "type": "link",
+         "url": "ref:Editor",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "Editor"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": " component: every "
+        },
+        {
+         "type": "link",
+         "url": "ref:CreateEditorOptions",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "CreateEditorOptions"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": "\nfield except "
+        },
+        {
+         "type": "inlineCode",
+         "value": "element"
+        },
+        {
+         "type": "text",
+         "value": ", because the component renders its own "
+        },
+        {
+         "type": "inlineCode",
+         "value": "<div>"
+        },
+        {
+         "type": "text",
+         "value": ". It\nadds "
+        },
+        {
+         "type": "inlineCode",
+         "value": "className"
+        },
+        {
+         "type": "text",
+         "value": ", "
+        },
+        {
+         "type": "inlineCode",
+         "value": "style"
+        },
+        {
+         "type": "text",
+         "value": ", an "
+        },
+        {
+         "type": "inlineCode",
+         "value": "onChange"
+        },
+        {
+         "type": "text",
+         "value": " callback for edits, and an "
+        },
+        {
+         "type": "inlineCode",
+         "value": "onReady"
+        },
+        {
+         "type": "text",
+         "value": "\ncallback that runs once."
+        }
+       ]
+      }
+     ],
+     "members": [
+      {
+       "name": "onChange",
+       "kind": "property",
+       "sig": "onChange?: (markdown: string) => void",
+       "summary": "Called with the document as Markdown after every change: typing, paste, undo, or an edit from another person.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Called with the document as Markdown after every change: typing, paste,\nundo, or an edit from another person. It only reports changes. It never\nputs content back into the editor. Each call turns the whole document\ninto Markdown."
+          }
+         ]
+        },
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "To replace the content, call "
+          },
+          {
+           "type": "inlineCode",
+           "value": "editor.setMarkdown(...)"
+          },
+          {
+           "type": "text",
+           "value": " on the handle from\n"
+          },
+          {
+           "type": "inlineCode",
+           "value": "onReady"
+          },
+          {
+           "type": "text",
+           "value": ". To read each "
+          },
+          {
+           "type": "link",
+           "url": "ref:ChangeTransaction",
+           "children": [
+            {
+             "type": "inlineCode",
+             "value": "ChangeTransaction"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "value": ", or to skip edits from\nother people with "
+          },
+          {
+           "type": "inlineCode",
+           "value": "tx.isRemote"
+          },
+          {
+           "type": "text",
+           "value": ", call "
+          },
+          {
+           "type": "inlineCode",
+           "value": "editor.on(\"change\", …)"
+          },
+          {
+           "type": "text",
+           "value": " from\n"
+          },
+          {
+           "type": "inlineCode",
+           "value": "onReady"
+          },
+          {
+           "type": "text",
+           "value": " instead."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "className",
+       "kind": "property",
+       "sig": "className?: string",
+       "summary": "Class name forwarded to the host `<div>`.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Class name forwarded to the host "
+          },
+          {
+           "type": "inlineCode",
+           "value": "<div>"
+          },
+          {
+           "type": "text",
+           "value": "."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "style",
+       "kind": "property",
+       "sig": "style?: CSSProperties",
+       "summary": "Inline styles forwarded to the host `<div>`.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Inline styles forwarded to the host "
+          },
+          {
+           "type": "inlineCode",
+           "value": "<div>"
+          },
+          {
+           "type": "text",
+           "value": ". The editor fills its container,\nso give the host a height here (or via "
+          },
+          {
+           "type": "inlineCode",
+           "value": "className"
+          },
+          {
+           "type": "text",
+           "value": ") — otherwise it collapses\nto zero height and renders nothing visible."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "onReady",
+       "kind": "property",
+       "sig": "onReady?: (editor: TasferEditor<D>) => void",
+       "summary": "Called once with the `TasferEditor` as soon as it has mounted.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Called once with the "
+          },
+          {
+           "type": "link",
+           "url": "ref:TasferEditor",
+           "children": [
+            {
+             "type": "inlineCode",
+             "value": "TasferEditor"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "value": " as soon as it has mounted. Use\nit to focus the editor, change it, or listen to its events."
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "src": "packages/react/src/Editor.tsx",
+     "from": [
+      "@tasfer/react"
+     ]
+    },
+    {
+     "name": "EditorStateValue",
+     "kind": "type",
+     "sigs": [
+      "type EditorStateValue<\n  D extends SchemaDefinition = BaseSchemaDefinition,\n> = EditorStateSnapshot & {\n  readonly doc: Doc<D>;\n}"
+     ],
+     "summary": "What `useEditorState` returns: everything in `editor.state` (`EditorStateSnapshot`: selection, active marks, whether undo and redo can run, focus, mode) plus the editor's `doc`.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "What "
+        },
+        {
+         "type": "link",
+         "url": "ref:useEditorState",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "useEditorState"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": " returns: everything in "
+        },
+        {
+         "type": "inlineCode",
+         "value": "editor.state"
+        },
+        {
+         "type": "text",
+         "value": "\n("
+        },
+        {
+         "type": "link",
+         "url": "ref:EditorStateSnapshot",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "EditorStateSnapshot"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": ": selection, active marks, whether undo and redo\ncan run, focus, mode) plus the editor's "
+        },
+        {
+         "type": "inlineCode",
+         "value": "doc"
+        },
+        {
+         "type": "text",
+         "value": "."
+        }
+       ]
+      }
+     ],
+     "members": [
+      {
+       "name": "doc",
+       "kind": "property",
+       "sig": "readonly doc: Doc<D>",
+       "summary": "The document the editor shows and edits.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "The document the editor shows and edits."
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "src": "packages/react/src/useEditorState.ts",
+     "from": [
+      "@tasfer/react"
+     ]
+    },
+    {
+     "name": "UseEditorOptions",
+     "kind": "type",
+     "sigs": [
+      "type UseEditorOptions<\n  D extends SchemaDefinition = BaseSchemaDefinition,\n> = Omit<CreateEditorBaseOptions<D>, \"element\"> & CreateEditorContent<D>"
+     ],
+     "summary": "Options for `useEditor`: every `CreateEditorOptions` field except `element`.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "Options for "
+        },
+        {
+         "type": "link",
+         "url": "ref:useEditor",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "useEditor"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": ": every "
+        },
+        {
+         "type": "link",
+         "url": "ref:CreateEditorOptions",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "CreateEditorOptions"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": " field except\n"
+        },
+        {
+         "type": "inlineCode",
+         "value": "element"
+        },
+        {
+         "type": "text",
+         "value": ". The hook mounts the editor into the "
+        },
+        {
+         "type": "inlineCode",
+         "value": "<div>"
+        },
+        {
+         "type": "text",
+         "value": " you attach with\n"
+        },
+        {
+         "type": "inlineCode",
+         "value": "containerRef"
+        },
+        {
+         "type": "text",
+         "value": " instead."
+        }
+       ]
+      }
+     ],
+     "src": "packages/react/src/useEditor.ts",
+     "from": [
+      "@tasfer/react"
+     ]
+    }
+   ]
+  }
+ ]
+}

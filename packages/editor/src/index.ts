@@ -17,7 +17,6 @@ export type {
   PlaceholderBlockType,
   PlaceholderOption,
 } from "./entries/mount";
-export { mountEditor } from "./entries/mount";
 
 // Block views — per-instance registry + built-in node classes for opt-in block
 // sets. Each built-in node is a class hosts construct (`new TextNode()`) when
@@ -26,8 +25,10 @@ export {
   AtomicNode,
   type CaretModel,
   type CaretMotion,
-  createDefaultNodeRegistry,
+  type CodeBlock,
   createNodeRegistry,
+  defaultNodes,
+  getContentWithComposition,
   hitRegion,
   ImageNode,
   LineNode,
@@ -35,13 +36,15 @@ export {
   Node,
   type NodeActivateCtx,
   type NodeActivation,
-  type NodeAtomicHit,
   type NodeCaretRect,
   type NodeContentCaretCtx,
   type NodeContentHitCtx,
   type NodeContentHitOptions,
   type NodeContentSelectionGeometry,
   type NodeHitRegion,
+  type NodeLayout,
+  type NodeLayoutCtx,
+  type NodePaintCtx,
   type NodePointerType,
   type NodeRect,
   type NodeRegionCtx,
@@ -49,8 +52,11 @@ export {
   type NodeScrollCtx,
   paintTextRun,
   type PaintTextRunArgs,
+  type Point,
+  type QuoteBlock,
   QuoteNode,
   TextNode,
+  type TextNodeLayout,
   type TextSpan,
 } from "./rendering/nodes";
 
@@ -87,13 +93,21 @@ export {
 // explicitly instead of relying on the default `baseSchema`.
 export {
   CodeMark,
+  createDefaultMarkRegistry,
+  createMarkRegistry,
+  defaultMarks,
   EmphasisMark,
   LinkMark,
   Mark,
   type MarkChipStyle,
   type MarkOverlayCtx,
+  MarkRegistry,
   type MarkReplacement,
+  type MarkReplacementCaret,
   type MarkReplacementContentCtx,
+  type MarkReplacementDims,
+  type MarkReplacementEdit,
+  type MarkReplacementPaintCtx,
   type MarkReplacementSourceCtx,
   type MarkStyle,
   type MarkStyleCtx,
@@ -128,15 +142,13 @@ export type {
   EditorStateSnapshot,
   EditorViewApi,
   MarkInfo,
-  MarkName,
   QueryApi,
 } from "./entries/editor";
 
 // Convenience constructor — parse Markdown + mount in a single call, returning
-// one handle that merges the editor action API with the mount lifecycle. The
-// lower-level `mountEditor` (above) stays available for hosts that want the
-// split. (The raw `entries/editor` constructor is reachable as `EditorClass`
-// from `@tasfer/editor/internal` for advanced use.)
+// one handle that merges the editor action API with the mount lifecycle. (The
+// lower-level `mountEditor` and the raw `entries/editor` constructor are
+// engine internals.)
 export type {
   CreateEditorBaseOptions,
   CreateEditorContent,
@@ -151,13 +163,7 @@ export { createEditor } from "./entries/create";
 // persist it via `encodeState()`. Editors without an explicit doc get a
 // private one, exposed as `editor.doc`.
 export type { CreateDocOptions, Doc, DocUpdate } from "./doc";
-export { createDoc, PERSISTED_DOC_VERSION } from "./doc";
-
-// Internal-assertion helper, shared across the codebase. A violated invariant
-// signals a bug (a guarantee the editor's own code should uphold), so
-// `InvariantError` is a plain `Error` that escapes any host catch meant for
-// recoverable failures.
-export { invariant, InvariantError } from "@shared/invariant";
+export { createDoc } from "./doc";
 
 // Schema & extensibility — declare custom block types (`defineNode`) and inline
 // marks (`defineMark`), register ad-hoc specs with `baseSchema.extend(...)` or
@@ -172,6 +178,13 @@ export { invariant, InvariantError } from "@shared/invariant";
 // barrel during module init, so the node graph is fully evaluated by here.
 export { getBaseDataSchema } from "./baseDataSchema";
 import { getBaseDataSchema as resolveBaseDataSchema } from "./baseDataSchema";
+/**
+ * The default data schema: every built-in block and mark type, with no drawing
+ * code. `createDoc`, the parser and the serializers use it unless you pass
+ * another. It never changes; build a variant with `baseDataSchema.extend(...)`.
+ *
+ * @group Schema
+ */
 export const baseDataSchema = resolveBaseDataSchema();
 export type {
   ContentEdgeRange,
@@ -191,7 +204,6 @@ export type {
   FeatureInputRuleCtx,
   FeaturePasteRule,
   FeatureThemeDefaults,
-  ResolvedFeatureThemeDefaults,
   StructuredContentClone,
   StructuredContentCloneCtx,
   StructuredContentCloneResult,
@@ -207,8 +219,7 @@ export type {
   SyntaxRule,
   SyntaxToken,
 } from "./feature-facets";
-export { UnknownNode } from "./rendering/nodes";
-export { BoxNode, type BoxRenderStyle } from "./rendering/nodes/BoxNode";
+export type { BoxRenderStyle } from "./rendering/nodes/BoxNode";
 export type {
   AttrSpec,
   BlockSpec,
@@ -233,7 +244,6 @@ export type {
   MergeSchema,
   SchemaBlockData,
   SchemaDefinition,
-  SchemaMarkInfo,
 } from "./schema-types";
 export type {
   MarkCodec,
@@ -241,14 +251,12 @@ export type {
   MarkHtmlCtx,
 } from "./serlization/codecs/mark-codec";
 export type { CustomBlock } from "./serlization/loadPage";
-export type { CompiledContent, ContentMatch } from "./sync/content-expression";
 export type {
   BlockSpecCore,
   DataSchema,
   DataSchemaExtension,
   DataSchemaExtensionDefinition,
   MarkSpec,
-  StructuredKindAdapters,
   StructuredKindSpec,
   StructuredTextFieldRef,
 } from "./sync/schema";
@@ -256,7 +264,6 @@ export type { TextFieldInfo, TextFieldMark } from "./text-fields";
 // Edit a structured text field with the paragraph's own text code.
 export {
   armedFieldRevert,
-  FIELD_PARAGRAPH_REVERT,
   type FieldRange,
   type FieldRun,
   runFieldAsParagraph,
@@ -284,7 +291,6 @@ export type {
   ImagePasteEvent,
   MutationAction,
   MutationHandler,
-  Mutator,
   StateAction,
   StateActionOptions,
   StateForwarder,
@@ -303,8 +309,6 @@ export {
   CURSOR_DRAG_START,
   DRAG_DETENT,
   IMAGE_PASTE,
-  isMutationAction,
-  isStateAction,
   mergeRegister,
   OPEN_CONTEXT_MENU,
   OPEN_LINK,
@@ -320,11 +324,10 @@ export {
 // internally; a host drives or observes one through `editor.dispatch` /
 // `editor.registerAction` (`editor.dispatch(SELECT_ALL)`,
 // `editor.dispatch(TOGGLE_STRONG)`,
-// `editor.dispatch(MOVE_CURSOR_LEFT, { viewport })`). They span a range of
-// altitudes — the move/edit/mark commands are a stable command vocabulary (key
-// remaps, command palettes, toolbars), whereas the mouse/touch/node actions are
-// intimate event-layer and node-internal geometry few hosts will ever bind —
-// but they all live in one flat namespace. The frequently-bound core signals
+// `editor.dispatch(MOVE_CURSOR_LEFT, { viewport })`). The move/edit/mark
+// commands are a stable command vocabulary (key remaps, command palettes,
+// toolbars). The intimate event-layer mouse/touch/image-drag actions stay
+// engine-internal and are not exported here. The frequently-bound core signals
 // (`OPEN_LINK`, the context-menu family, `CURSOR_DRAG_*`, `REGION_DRAG_START`,
 // `TEXT_INPUT` / `TEXT_INPUTTED`) are exported flat above alongside them.
 
@@ -350,10 +353,7 @@ export {
   joinWithPreviousBlock,
   MOVE_BLOCK,
   MOVE_BLOCKS,
-  moveBlock,
-  moveBlocks,
   prependLeadingParagraph,
-  registerBreakReplacesSelection,
   registerEmptyBlockBackspaceExit,
   REVERT_INPUT_RULE,
   SELECT_ALL,
@@ -405,29 +405,12 @@ export {
 } from "./actions/keyboard-actions";
 // Desktop pointer event-layer actions: caret placement + selection geometry.
 export {
-  CLEAR_SELECTION_IN_PADDING,
-  CLEAR_VISUAL_BLOCK_SELECTION,
-  OPEN_BLOCK_OVERLAY,
   PLACE_CURSOR_AT_POINT,
-  PLACE_CURSOR_IN_PADDING,
   SELECT_LINE_AT_POINT,
-  SELECT_VISUAL_BLOCK,
   SELECT_WORD_AT_POINT,
 } from "./actions/mouse-actions";
 // Touch event-layer actions: tap / long-press / visual-block geometry.
-export {
-  CLOSE_NODE_OVERLAY,
-  OPEN_CONTEXT_MENU_AT,
-  OPEN_NODE_OVERLAY,
-  TAP_CLEAR_VISUAL_BLOCK_SELECTION,
-  TAP_OUTSIDE_CONTENT,
-  TAP_PLACE_CURSOR,
-  TAP_SELECT_LINE,
-  TAP_SELECT_VISUAL_BLOCK,
-  TAP_SELECT_WORD,
-  TAP_SIDE_PADDING,
-  TAP_TOP_PADDING,
-} from "./actions/touch-actions";
+export { TAP_SELECT_LINE, TAP_SELECT_WORD } from "./actions/touch-actions";
 // Built-in mark toggles.
 export {
   TOGGLE_CODE,
@@ -438,22 +421,14 @@ export {
 } from "./rendering/marks";
 // Built-in node commands (co-located with the node each acts on).
 export {
-  CANCEL_IMAGE_HANDLE_DRAG,
   canRepositionImage,
   canRepositionImageAt,
-  CREATE_PARAGRAPH_BELOW_IMAGE,
-  END_IMAGE_HANDLE_DRAG,
   ENTER_IMAGE_REPOSITION,
   EXIT_IMAGE_REPOSITION,
-  imageObjectPosition,
   INDENT_LIST_ITEM,
   isRepositioning,
   OUTDENT_LIST_ITEM,
-  SET_IMAGE_HOVER,
-  START_IMAGE_HANDLE_DRAG,
   TOGGLE_TODO_CHECKED,
-  UPDATE_IMAGE_HANDLE_DRAG,
-  UPDATE_IMAGE_REPOSITION,
 } from "./rendering/nodes";
 
 // Core document model + CRDT operation types. The stored-mark CRDT record is
@@ -492,22 +467,10 @@ export type {
   ContentTextPoint,
 } from "./structured-selection";
 export {
-  captureContentSelection,
-  cloneContentSelection,
-  contentGapPointsEqual,
   contentPointsEqual,
-  contentSelectionsEqual,
-  contentTextPointsEqual,
   isContentSelectionCollapsed,
-  isSameContentGapSlot,
-  isSameContentTextField,
-  normalizeContentGapPoint,
-  normalizeContentPoint,
   normalizeContentSelection,
-  normalizeContentTextPoint,
-  reconcileContentSelectionState,
   resolveContentTextPointOffset,
-  restoreContentSelection,
   updateContentSelection,
 } from "./structured-selection";
 export {
@@ -530,7 +493,6 @@ export type {
 export {
   applyStructuredEdit,
   applyStructuredEdits,
-  applyStructuredMutation,
   buildStructuredChildIndex,
   canonicalizeStructuredDocument,
   createStructuredDocument,
@@ -538,7 +500,6 @@ export {
   getStructuredMarks,
   getStructuredNode,
   getStructuredText,
-  hasStructuredBlockAuthority,
   hasStructuredContent,
   invertStructuredEdit,
   structuredContentId,
@@ -546,21 +507,20 @@ export {
 } from "./sync/structured-content";
 
 // View windows — scope an editor to a subset of a shared doc's blocks (the
-// `window` option on `mountEditor`/`createEditor`/`useEditor`). `titleBlockWindow`
+// `window` option on `createEditor`/`useEditor`). `titleBlockWindow`
 // builds a single-block title surface (pair with `Schema.restrict`) and
 // `bodyBlocksWindow` the rest of the page; two editors on one `Doc` showing
 // different windows stay live-synced through the doc.
 export {
   blockIdWindow,
   bodyBlocksWindow,
-  titleBlockIndex,
   titleBlockWindow,
 } from "./view-window";
 
 // CRDT sync — version-vector codecs the providers exchange on the wire. For
 // document sync + persistence prefer the high-level `Doc` (`createDoc` above):
-// attach it via `createEditor({ doc })` or `mountEditor(el, blocks, { doc })`,
-// then drive it with `applyUpdate` / `on("update")` / `load`. The lower-level
+// attach it via `createEditor({ doc })`, then drive it with `applyUpdate` /
+// `on("update")` / `load`. The lower-level
 // op-log engine (`createSyncEngine`/`createCRDTbinding`) lives in
 // `@tasfer/editor/internal` for advanced headless CRDT tooling.
 export { deserializeVV, serializeVV } from "./sync/sync";
@@ -590,18 +550,23 @@ export { isApplePlatform } from "./platform";
 
 // Link safety — a host that overrides OPEN_LINK, or renders a link's url in its
 // own chrome, must apply the same protocol allowlist the engine's own sinks do.
-export {
-  isSafeLinkUrl,
-  normalizeLinkUrl,
-  openLinkUrl,
-  SAFE_LINK_PROTOCOLS,
-  safeLinkHref,
-} from "./url-safety";
+export { normalizeLinkUrl, openLinkUrl, safeLinkHref } from "./url-safety";
 
 // Serialization — project a document to Markdown / HTML, parse Markdown back
 // into blocks, and collect the asset urls a block tree references.
 export { collectAssetRefs } from "./baseDataSchema";
-export type { ReplacementRenderer } from "./serlization/codecs";
+export type {
+  BlockCodec,
+  HtmlCodec,
+  InputCtx,
+  MarkdownCodec,
+  NodeCodec,
+  OutputCtx,
+  ParsedTag,
+  ReplacementRenderer,
+  SerialFormat,
+  TextCodec,
+} from "./serlization/codecs";
 export type { HtmlSerializeOptions } from "./serlization/htmlSerializer";
 export { serializeToHTML } from "./serlization/htmlSerializer";
 export { parseFrontmatter } from "./serlization/loadPage";
@@ -620,7 +585,6 @@ export type {
   CaretDecoration,
   CharacterDecorationPoint,
   Decoration,
-  DecorationLayers,
   DecorationPoint,
   DecorationRange,
   DecorationRect,
@@ -643,3 +607,6 @@ export {
 // machinery a first-party host needs live in the explicitly-unstable
 // `@tasfer/editor/internal` entry — they are not part of this public
 // contract. See ./internal.ts.
+
+// Old exports kept for one more release, each marked `@deprecated`.
+export * from "./deprecated/root";

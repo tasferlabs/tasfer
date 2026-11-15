@@ -292,7 +292,13 @@ const inlineDollarRule: FeatureInputRule = {
   },
 };
 
-/** Structured math tree editing plus the math authoring shortcuts. */
+/**
+ * The typing rules for math: editing inside a formula, typing `$$` alone in a
+ * block to turn it into a block equation, and typing `$…$` to make inline math.
+ * {@link mathExtension} adds them for you.
+ *
+ * @group Setup
+ */
 export const mathInputRules = [
   inlineMathTreeInputRule,
   mathTreeInputRule,

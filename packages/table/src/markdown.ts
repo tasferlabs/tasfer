@@ -32,7 +32,10 @@ import { charsToRuns, iterateAllChars } from "@tasfer/editor/sync/char-runs";
 import type { DataSchema } from "@tasfer/editor/sync/schema";
 import type { StructuredContentMap } from "@tasfer/editor/sync/structured-content";
 
-/** Token this feature's codec claims. Its content is a {@link GfmTable} JSON. */
+/**
+ * The Markdown token type for a table. Its content is a {@link GfmTable} as
+ * JSON.
+ */
 export const TABLE_BLOCK = "table_block";
 
 /** A table as it appears in Markdown source: alignments plus cell sources. */
@@ -109,11 +112,12 @@ function delimiterAligns(line: string): (TableAlign | null)[] | undefined {
 }
 
 /**
- * Recognize a GFM table at `offset`, or return `undefined`.
+ * Read a GFM table that starts at `offset` in `source`. Returns the table and
+ * `length`, the number of characters it covers. Returns `undefined` when no
+ * table starts there.
  *
- * The table ends at the first blank line or at the end of the source, which is
- * GFM's own rule: a plain paragraph line directly under a table is read as one
- * more row, not as a paragraph.
+ * The table ends at the first blank line or at the end of the source. As in
+ * GFM, a plain line right under a table is one more row, not a paragraph.
  */
 export function matchGfmTable(
   source: string,
@@ -152,9 +156,9 @@ function fit(cells: string[], width: number): string[] {
 }
 
 /**
- * The block-scope recognizer this feature registers on its block spec. Only
- * consulted at the start of a line, and only when a schema is threaded through
- * the tokenizer.
+ * The Markdown rule that finds GFM tables in source text.
+ * {@link tableBlockSpec} already includes it. It only runs at the start of a
+ * line, and only when the tokenizer is given a schema.
  */
 export const tableSyntaxRule: SyntaxRule = {
   id: "table/gfm",
@@ -176,7 +180,11 @@ export const tableSyntaxRule: SyntaxRule = {
   },
 };
 
-/** Decode a {@link TABLE_BLOCK} token's payload, tolerating a malformed one. */
+/**
+ * Read a {@link TABLE_BLOCK} token's JSON content back into a {@link GfmTable}.
+ * It never throws. Broken JSON gives an empty table, an unknown alignment
+ * becomes `null`, and a cell that is not a string becomes empty.
+ */
 export function decodeTableToken(content: string): GfmTable {
   try {
     const parsed = JSON.parse(content) as Partial<GfmTable>;
@@ -299,7 +307,12 @@ function literalRuns(text: string, identities: IdentityAllocator): CharRun[] {
   return charsToRuns(chars);
 }
 
-/** Build the whole seed a parsed table token turns into. */
+/**
+ * Turn a parsed {@link GfmTable} into the starting content of a new table: its
+ * alignments and every cell's text and marks. Character ids come from
+ * `identities`. `parseInline` decides which inline Markdown counts. Without it,
+ * only core Markdown is read.
+ */
 export function tableSeedFromToken(
   table: GfmTable,
   identities: IdentityAllocator,
@@ -328,8 +341,9 @@ function delimiterFor(align: TableAlign | null): string {
 }
 
 /**
- * Escape one rendered cell for a table row: a pipe would end the cell, and a
- * newline would end the row.
+ * Make one cell's text safe inside a GFM row. A `|` becomes `\|`, because it
+ * would end the cell. A line break becomes a space, because it would end the
+ * row.
  */
 export function escapeCell(text: string): string {
   return text.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");

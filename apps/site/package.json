@@ -8,7 +8,9 @@
     "build": "npm run og && npm run llms && next build --webpack",
     "start": "next start -p 4100",
     "og": "node scripts/generate-og.mjs",
-    "llms": "node scripts/generate-llms.mjs"
+    "llms": "node scripts/generate-llms.mjs",
+    "api": "node scripts/generate-api.mjs",
+    "api:check": "node scripts/generate-api.mjs --check"
   },
   "dependencies": {
     "@fontsource/amiri": "^5.2.8",

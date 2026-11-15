@@ -147,9 +147,19 @@ export default function DocsArticle({
   // so the container has to survive as state.
   const [page, setPage] = useState<HTMLDivElement | null>(null);
 
-  // Scroll to top whenever the page changes.
+  // Start each page at the top — or at the section its URL names. Without the
+  // second half, a link that lands here with a fragment (a moved page's
+  // redirect, a pasted `…/schema/#math`) was scrolled back up to the title.
   useEffect(() => {
-    window.scrollTo({ top: 0 });
+    let target: HTMLElement | null = null;
+    try {
+      const id = decodeURIComponent(window.location.hash.slice(1));
+      target = id ? document.getElementById(id) : null;
+    } catch {
+      /* a malformed fragment is no fragment */
+    }
+    if (target) target.scrollIntoView();
+    else window.scrollTo({ top: 0 });
     setDrawer(false);
   }, [route]);
 
@@ -175,7 +185,6 @@ export default function DocsArticle({
           {nav}
           <main className="dx-main">
             <article className="dx-article">
-              <div className="dx-eyebrow">404</div>
               <h1 className="dx-h1">
                 {t("docs.notFound.title", "This page wandered off.")}
               </h1>

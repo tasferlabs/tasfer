@@ -1253,18 +1253,18 @@ function isCommandNamePrefix(name: string): boolean {
 }
 
 /**
- * Whether typing `char` at `offset` into `latex` should be separated from a
- * preceding control word by a space.
+ * Whether typing `char` at `offset` should add a space first, so the letter
+ * does not join the command before it.
  *
- * In LaTeX a control word swallows following letters, so typing `x` right after
- * a complete `\oint` would silently corrupt it into the unknown `\ointx`. A live
- * editor uses this to insert a space instead (`\oint x` → ∮x), so the letter
- * becomes a new atom. Returns false while the user is still typing the command
- * itself: when the run to the left isn't a complete command yet (`\al`), or when
- * extending it stays a known command or could grow into one (`\in`+`f` → `\inf`,
- * still en route to `\infty`) — so command typing, including prefix-sharing
- * names, is never interrupted. Only letters trigger it; digits/symbols already
- * terminate a control word on their own.
+ * In LaTeX, letters right after a command become part of its name. Typing `x`
+ * after `\oint` would make the unknown `\ointx`, so an editor types `\oint x`
+ * instead. Returns false while the user is still typing the command: when the
+ * word before the caret is not a known command yet (`\al`), or when adding
+ * `char` still makes or could grow into one (`\in` plus `f` gives `\inf`, on
+ * the way to `\infty`). Also returns false when `char` is not a letter, or when
+ * no command sits right before `offset`.
+ *
+ * @group Source editing
  */
 export function needsCommandSeparator(
   latex: string,
@@ -1286,30 +1286,18 @@ export function needsCommandSeparator(
 }
 
 /**
- * The source range of a `\`+letters control word ending *exactly* at `caret` —
- * the command the user is currently typing — or null if the caret isn't at the
- * trailing edge of such a run. A live editor uses this to render an in-progress
- * command (`\al` on the way to `\alpha`) in the normal text color rather than
- * the red "unknown command" placeholder: it isn't an error yet, just unfinished.
- * Once the caret moves off the run (or it's completed/committed) the range no
- * longer matches and the red shows. Mirrors {@link needsCommandSeparator}'s
- * back-scan, including the line-break `\\` guard.
+ * The range of the command the user is still typing at `caret`, from its `\` up
+ * to the caret. An editor uses it to show `\al` (on its way to `\alpha`) as
+ * plain typed text instead of a red "unknown command".
  *
- * A run that is ALREADY a complete command with nowhere left to grow (`\frac`,
- * `\alpha` — known, and not a prefix of any longer command) is *not* pending: it
- * has resolved. Rendering it literally would parse it as an `unknown` placeholder
- * and orphan its arguments — `\frac{dy}{dx}` would de-structure into the literal
- * `\frac` followed by bare `dy`/`dx` groups (`\fracdydx`). Only an incomplete run
- * (`\fra`) or one still en route to a longer command (`\in`→`\int`) is pending,
- * exactly mirroring {@link needsCommandSeparator}'s "still typing" condition.
+ * Returns null when the caret is not inside or right after a `\`+letters word.
+ * Letters after a `\\` line break do not count. Also returns null when the word
+ * is already a finished command that cannot grow longer (`\frac`, `\alpha`).
+ * The check reads the whole word, letters after the caret too, so a caret in
+ * `\fr|ac` still sees a finished `\frac`. A word that can still grow (`\in` on
+ * its way to `\int`) counts as unfinished.
  *
- * The completeness check weighs the WHOLE control word — letters on both sides of
- * the caret — not just the prefix typed up to it. A caret resting *inside* a
- * finished command (`\fr|ac`, e.g. after the caret is placed before the chip and
- * a char is typed) still sees the full `\frac` and resolves; checking only the
- * prefix `\fr` would mistake it for an in-progress command and flash the whole
- * `\frac{dy}{dx}` literally as `\fracdydx`. The returned range still ends at the
- * caret — only the resolved-vs-pending decision consults the trailing letters.
+ * @group Source editing
  */
 export function pendingCommandRange(
   latex: string,

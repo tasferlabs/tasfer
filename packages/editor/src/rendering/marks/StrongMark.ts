@@ -27,6 +27,11 @@ const STRONG_CODEC: MarkCodec = {
   html: { priority: 1, render: (inner) => `<strong>${inner}</strong>` },
 };
 
+/**
+ * The built-in `strong` mark: bold text, written as `**text**` in Markdown.
+ *
+ * @group Marks
+ */
 export class StrongMark extends Mark {
   readonly type = "strong";
   readonly metrics: MarkMetrics = { bold: true };

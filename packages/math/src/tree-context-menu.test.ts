@@ -21,12 +21,11 @@ import {
   mathContentSelectionFromSourceOffset,
   mathSourceOffsetFromContentPoint,
 } from "./tree-selection";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import { OPEN_CONTEXT_MENU } from "@tasfer/editor/action-bus";
 import { insertText } from "@tasfer/editor/actions/actions";
 import { DELETE_BACKWARD } from "@tasfer/editor/actions/edit-actions";
 import { handleContextMenu } from "@tasfer/editor/events/keysEvents";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import { moveCursorToPosition } from "@tasfer/editor/selection";
 import { loadPage } from "@tasfer/editor/serlization/loadPage";

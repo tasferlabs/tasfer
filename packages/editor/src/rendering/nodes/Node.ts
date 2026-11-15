@@ -50,17 +50,20 @@ import type {
 import type { MarkRegistry } from "../marks";
 import type { CaretModel } from "./caret-model";
 
-/** Result of the shared layout pass. Cacheable on `block.cachedLayout`. */
+/**
+ * Result of the shared layout pass. Cacheable on `block.cachedLayout`.
+ *
+ * @group Nodes
+ */
 export interface NodeLayout {
   /** Total vertical space the block occupies, including its own padding. */
   readonly height: number;
   /** Text line boxes for hit-testing/caret math. Empty for atomic blocks. */
   readonly lines: readonly RenderedLine[];
   /**
-   * Content width (canvas minus page padding) this layout was computed for —
-   * the layout's provenance, and the key `memoizeNodeLayout` reuses it under.
-   * Every `layout()` builds this from its `maxWidth`, so a holder of any layout
-   * knows the width it is valid for.
+   * The content width (canvas minus page padding) this layout was made for. Set
+   * it from the `maxWidth` your `layout` receives. A cached layout is reused
+   * only at this same width.
    */
   readonly maxWidth: number;
 }
@@ -142,7 +145,11 @@ export interface NodeBlock extends BlockRuntimeState {
   readonly type: string;
 }
 
-/** Geometry + styles available without a canvas (measurement, height passes). */
+/**
+ * Geometry + styles available without a canvas (measurement, height passes).
+ *
+ * @group Nodes
+ */
 export interface NodeLayoutCtx {
   readonly block: Block;
   readonly blockIndex: number;
@@ -159,7 +166,11 @@ export interface NodeLayoutCtx {
   readonly marks: MarkRegistry;
 }
 
-/** Everything paint() needs on top of layout context. */
+/**
+ * Everything paint() needs on top of layout context.
+ *
+ * @group Nodes
+ */
 export interface NodePaintCtx extends NodeLayoutCtx {
   readonly ctx: CanvasRenderingContext2D;
   readonly state: EditorState;
@@ -180,7 +191,12 @@ export interface NodePaintCtx extends NodeLayoutCtx {
   readonly requestRedraw: () => void;
 }
 
-/** Pointer-hit context for entering a node-owned structured attachment. */
+/**
+ * What {@link Node.contentSelectionFromPoint} gets: the layout context, the
+ * live state and your typed block.
+ *
+ * @group Nodes
+ */
 export interface NodeContentHitCtx<
   B extends NodeBlock = NodeBlock,
 > extends Omit<NodeLayoutCtx, "block"> {
@@ -188,16 +204,31 @@ export interface NodeContentHitCtx<
   readonly block: B;
 }
 
-/** Gesture details that can affect a node's nested caret hit-test. */
+/**
+ * Gesture details that can affect a node's nested caret hit-test.
+ *
+ * @group Nodes
+ */
 export interface NodeContentHitOptions {
   readonly pointerType: NodePointerType;
-  /** Finger/magnifier drag uses nearest-stop geometry with row hysteresis. */
+  /**
+   * `true` while the user drags to select, with a mouse, a finger or a
+   * selection handle. Snap to the nearest caret stop, and stay on the current
+   * row until the pointer moves clearly away from it.
+   */
   readonly drag?: boolean;
-  /** Stable current endpoint used as the drag hysteresis anchor. */
+  /**
+   * Where the moving end of the selection is now, or `null` when there is none.
+   * During a drag, use it to keep that end steady (see `drag`).
+   */
   readonly previousPoint?: ContentPoint | null;
 }
 
-/** A point in block-local canvas coordinates. */
+/**
+ * A point in block-local canvas coordinates.
+ *
+ * @group Nodes
+ */
 export interface Point {
   readonly x: number;
   readonly y: number;
@@ -207,6 +238,8 @@ export interface Point {
  * Context for {@link Node.contentCaretRect} — a layout context plus the block's
  * painted origin, so the node returns a rect in the caller's coordinate space
  * (viewport for the renderer, document for scroll/menu anchoring).
+ *
+ * @group Nodes
  */
 export interface NodeContentCaretCtx<
   B extends NodeBlock = NodeBlock,
@@ -217,7 +250,11 @@ export interface NodeContentCaretCtx<
   readonly origin: Point;
 }
 
-/** A caret rect: `x`/`y` are its top-left, `height` its full drawn extent. */
+/**
+ * A caret rect: `x`/`y` are its top-left, `height` its full drawn extent.
+ *
+ * @group Nodes
+ */
 export interface NodeCaretRect {
   readonly x: number;
   readonly y: number;
@@ -232,7 +269,11 @@ export interface NodeCaretRect {
   readonly offscreen?: "left" | "right";
 }
 
-/** An axis-aligned rect in the caller's coordinate space. */
+/**
+ * An axis-aligned rect in the caller's coordinate space.
+ *
+ * @group Nodes
+ */
 export interface NodeRect {
   readonly x: number;
   readonly y: number;
@@ -243,6 +284,8 @@ export interface NodeRect {
 /**
  * Geometry of a non-collapsed {@link ContentSelection} a node owns — what
  * {@link Node.contentSelectionGeometry} returns.
+ *
+ * @group Nodes
  */
 export interface NodeContentSelectionGeometry {
   /** The band the node paints for the range, used to test "is this on it". */
@@ -261,14 +304,22 @@ export interface NodeContentSelectionGeometry {
   readonly opacity?: number;
 }
 
-/** Context for {@link Node.activate} — enough to decide which overlay to open. */
+/**
+ * Context for {@link Node.activate} — enough to decide which overlay to open.
+ *
+ * @group Nodes
+ */
 export interface NodeActivateCtx {
   readonly state: EditorState;
   readonly block: Block;
   readonly blockIndex: number;
 }
 
-/** The host overlay {@link Node.activate} asks the engine to open. */
+/**
+ * The host overlay {@link Node.activate} asks the engine to open.
+ *
+ * @group Nodes
+ */
 export interface NodeActivation {
   readonly key: string;
   readonly data?: unknown;
@@ -278,15 +329,25 @@ export interface NodeActivation {
  * Context for the sideways-scroll hooks ({@link Node.canScrollSideways} and
  * friends): the block's layout inputs plus the live state, which is where a
  * node keeps its scroll offset (`ui.nodeViewState`).
+ *
+ * @group Nodes
  */
 export interface NodeScrollCtx extends NodeLayoutCtx {
   readonly state: EditorState;
 }
 
-/** Pointer type for node hit regions (mirrors events/regions PointerType). */
+/**
+ * Whether a hit region is being tested for a mouse or a finger.
+ *
+ * @group Nodes
+ */
 export type NodePointerType = "mouse" | "touch";
 
-/** Everything a node needs to compute its interactive sub-region geometry. */
+/**
+ * Everything a node needs to compute its interactive sub-region geometry.
+ *
+ * @group Nodes
+ */
 export interface NodeRegionCtx extends NodeLayoutCtx {
   readonly state: EditorState;
   readonly viewport: ViewportState;
@@ -295,28 +356,26 @@ export interface NodeRegionCtx extends NodeLayoutCtx {
 }
 
 /**
- * A named interactive sub-region of a block (todo checkbox, image resize
- * handle, …). A region always declares identity + geometry (`id` + `hitTest`);
- * it may additionally carry its own behavior (`priority`/`onTap`/`drag`), in
- * which case the event layer binds it directly instead of resolving behavior by
- * `id`. Carrying behavior is how a node owns its full interaction semantics
- * (e.g. ImageNode's resize-handle drag) rather than splitting geometry here and
- * behavior into a binding table in the event layer. Geometry-only regions (no
- * `onTap`/`drag`) are still bound by id (e.g. the todo checkbox).
+ * A clickable part of a block, such as a todo checkbox or an image resize
+ * handle. Every region has an `id` and a `hitTest`. It can also carry its own
+ * behavior in `onTap` or `drag`, and a custom node should. A region with
+ * neither does nothing, unless its id is one the editor already handles
+ * (`todo-checkbox`). `hover` only works on a region that also has `onTap` or
+ * `drag`.
  *
- * Generic over `H`, the hit-payload type: whatever {@link hitTest} returns is
- * exactly what {@link onTap} and {@link drag}'s `onStart` receive, so a node
- * author never casts the hit. Build a region with the {@link hitRegion} helper
- * to infer `H` from `hitTest`'s return; `regions()` then erases it back to
- * `unknown` for the heterogeneous event-layer registry (safe because the region
- * is internally consistent).
+ * `H` is the type `hitTest` returns. `onTap`, `drag.onStart` and `hover` get
+ * that same value, so you never cast it. Build regions with {@link hitRegion}
+ * to get `H` worked out for you.
+ *
+ * @group Nodes
  */
 export interface NodeHitRegion<H = unknown> {
   /** Stable id the event layer binds behavior to (e.g. "todo-checkbox"). */
   id: string;
   /**
-   * Hit data (forwarded to the bound behavior) or null. The point is in
-   * canvas coordinates; apply pointer-type hit slop here.
+   * Returns what is under the point, or `null` when it misses. The value is
+   * passed to `onTap`, `drag.onStart` and `hover`. The point is in canvas
+   * coordinates. Use `pointerType` to give fingers a larger target.
    */
   hitTest(p: Point, pointerType: NodePointerType): H | null;
   /** Higher wins when several regions contain the point. Defaults to 0. */
@@ -343,17 +402,21 @@ export interface NodeHitRegion<H = unknown> {
 }
 
 /**
- * Identity helper that infers a hit region's payload type `H` from its
- * `hitTest` return, so `onTap`/`drag.onStart` receive that exact type with no
- * cast. Wrap each region literal a node's {@link Node.regions} returns:
+ * Builds a hit region and works out its hit type from what `hitTest` returns.
+ * `onTap` and `drag.onStart` then get that same type, so you never cast it.
+ * Wrap each region that {@link Node.regions} returns:
  *
- *   hitRegion({
- *     id: "image-resize",
- *     hitTest: (p, pt): ImageResizeHit | null => …,
- *     drag: { onStart(hit) { …  hit is ImageResizeHit … } },
- *   })
+ * ```ts
+ * hitRegion({
+ *   id: "image-resize",
+ *   hitTest: (p, pointerType): ImageResizeHit | null => …,
+ *   drag: { onStart(hit, p, ctx) { … }, … }, // hit is an ImageResizeHit
+ * })
+ * ```
  *
- * The result is assignable to the erased `NodeHitRegion` the array returns.
+ * It returns the region unchanged, so it fits in the array `regions` returns.
+ *
+ * @group Nodes
  */
 export function hitRegion<H>(region: NodeHitRegion<H>): NodeHitRegion<H> {
   return region;
@@ -369,9 +432,16 @@ export interface NodeAtomicHit {
 }
 
 /**
- * Base class for a block type's on-canvas behavior. One instance per type,
- * registered in the node registry. Generic over the concrete block shape so
- * subclasses get a narrowed `block`.
+ * The base class for a block type. It decides how the block is laid out,
+ * painted and hit by the pointer. Each editor keeps one instance per block type
+ * in its {@link NodeRegistry}.
+ *
+ * Most blocks extend {@link TextNode} or {@link AtomicNode} instead. Extend
+ * `Node` itself only when you need full control, as the table node does. The
+ * type parameter `B` is your block's shape, so `block` is typed in your
+ * methods.
+ *
+ * @group Nodes
  */
 export abstract class Node<B extends NodeBlock = NodeBlock> {
   /** The block type string this node handles. */
@@ -386,49 +456,46 @@ export abstract class Node<B extends NodeBlock = NodeBlock> {
   readonly types?: readonly string[];
 
   /**
-   * Optional: the visual "card" family this block tiles with. Adjacent blocks
-   * whose nodes declare the same non-`undefined` `joinGroup` square off their
-   * touching corners so their filled backgrounds meet as one continuous surface
-   * instead of two rounded boxes with a notch at the seam. It groups by a shared
-   * family rather than exact block type, so distinct card types (code, math,
-   * quote) can be made to tile together by declaring one common group.
-   * `undefined` (the default) never joins. Consumed via `cardJoinFlags`.
+   * Optional: a group name for card-style blocks. Neighbouring blocks whose
+   * nodes share a `joinGroup` can meet as one surface, with square corners
+   * where they touch. The built-in cards (code, math, quote) all use `"card"`,
+   * so they join each other. Your `paint` calls `cardJoinFlags` to learn which
+   * edges join, and squares those corners itself. Leave it unset to never join.
    */
   readonly joinGroup?: string;
 
   /**
-   * Optional: when a multi-block paste lands with the caret inside a block of
-   * this node's type, pasted plain paragraphs are re-typed to the host block's
-   * type — multi-line plain text pasted into e.g. a quote continues as more
-   * quote blocks instead of breaking out into paragraphs. Content that parsed
-   * as a richer type (heading, list, code, …) keeps that type. `undefined`
-   * (the default) leaves pasted blocks as parsed. Consumed by the paste path
-   * in `insertBlocksAtCursor`.
+   * Optional: set to `true` so pasted paragraphs take this block's type. When
+   * you paste several blocks with the caret inside this block, plain paragraphs
+   * become more blocks of this type. For example, lines pasted into a quote
+   * stay quotes. Pasted headings, lists, code and other rich blocks keep their
+   * own type. Unset leaves pasted blocks as they are.
    */
   readonly absorbsPastedParagraphs?: boolean;
 
   /**
-   * Optional: this node's catalog of localized canvas strings (status labels,
-   * placeholders) keyed by a short local name — e.g. ImageNode owns
-   * `{ clickToUpload, loading, … }`. English defaults ship with the node; a
-   * host overrides per instance via `theme.nodeStrings[type]`, merged into
-   * `state.resolvedNodeStrings` at resolve time. Co-locating the catalog with
-   * the node is what keeps `EditorStrings` from being a hand-maintained
-   * god-object — each node owns its own slice. Read with {@link str}.
+   * Optional: the text this node shows on the canvas, such as status labels and
+   * placeholders, keyed by a short name. For example, ImageNode has `{
+   * clickToUpload, loading, … }`. The English text ships with the node. A host
+   * translates it per editor with `theme.nodeStrings[type]`. Read a string with
+   * {@link str}.
    */
+  // Merged into `state.resolvedNodeStrings` at resolve time. Keeping each
+  // node's catalog with the node stops `EditorStrings` from becoming one
+  // hand-maintained list.
   readonly strings?: Readonly<Record<string, string>>;
 
   /**
-   * Shared work: wrap text / resolve intrinsic size, return height + line
-   * boxes. Called by the height pass (uses only `.height`) and by paint.
+   * Works out the block's size: it wraps the text or measures the box. Returns
+   * the height and the line boxes. The height pass uses only `.height`. Paint
+   * uses the whole result.
    */
   abstract layout(c: NodeLayoutCtx): NodeLayout;
 
   /**
-   * Cheap height used before a block enters the measured viewport. Nodes that
-   * can estimate without performing canonical layout should override this.
-   * The safe default is exact layout, preserving correctness for custom nodes
-   * that have not opted into lazy estimation.
+   * A quick height guess, used before the block comes near the screen. Override
+   * it when your node can guess its height without a full layout. The default
+   * runs `layout`, which is exact but slower.
    */
   estimateHeight(c: NodeLayoutCtx): number {
     return this.layout(c).height;
@@ -449,21 +516,15 @@ export abstract class Node<B extends NodeBlock = NodeBlock> {
   abstract paint(layout: NodeLayout, c: NodePaintCtx): RenderedBlock;
 
   /**
-   * Resolve the base text style (font size/weight/color/line-height) for one of
-   * this node's textual block types — consumed by the text-geometry passes
-   * (wrap, measure, caret) via {@link getTextStyle}. The default looks the style
-   * up under the block-type name in `styles.blocks`, which is correct whenever
-   * the theme key equals the type string (`paragraph`, `heading1`, `code`, …). A
-   * node whose theme key differs from its type (the list family: `bullet_list` →
-   * `bulletList`) or which borrows another block's metrics (math borrows the
-   * paragraph style) overrides this. Non-textual nodes (image/line) never receive
-   * a text-geometry pass, so the default's return value is unused for them.
+   * Returns the base text style (font size, weight, color, line height) for one
+   * of this node's text block types. Text wrapping, measuring and the caret
+   * read it through {@link getTextStyle}.
    *
-   * When the theme has no entry under `type` (a custom textual node that forgot
-   * to register a theme key, or whose key differs without overriding this), the
-   * default falls back to the paragraph style rather than returning `undefined`
-   * typed as a `TextStyle` — so a missing key yields valid metrics instead of a
-   * later deref. The lookup is by string, hence the index signature.
+   * The default looks it up by type name in `styles.blocks`, such as
+   * `paragraph` or `heading1`. Override it when your theme key differs from the
+   * type (lists map `bullet_list` to `bulletList`), or to borrow another
+   * block's style. If the theme has no entry for the type, the default returns
+   * the paragraph style. Nodes without text (image, divider) never use it.
    */
   textStyle(styles: EditorStyles, type: B["type"]): TextStyle {
     const style = styles.blocks[type as keyof EditorStyles["blocks"]] as
@@ -480,13 +541,10 @@ export abstract class Node<B extends NodeBlock = NodeBlock> {
   }
 
   /**
-   * Optionally map a block-local point into a structured-content selection.
-   *
-   * This is the nested counterpart to {@link hitTest}: the view asks the node
-   * that owns the geometry, but the result is the editor's generic
-   * identity-bearing selection currency. Core pointer code therefore never
-   * needs to know whether the attachment is math, a diagram, or another tree.
-   * Returning `null` keeps ordinary flat-cursor behavior unchanged.
+   * Optional: map a block-local point to a place inside content this node owns,
+   * such as a spot in a formula or a table cell. It is the nested version of
+   * {@link hitTest}. The default returns `null`, which keeps the normal text
+   * caret.
    */
   contentSelectionFromPoint(
     _layout: NodeLayout,
@@ -498,18 +556,13 @@ export abstract class Node<B extends NodeBlock = NodeBlock> {
   }
 
   /**
-   * Optionally place the caret for a nested {@link ContentPoint} this node owns.
+   * Optional: the caret rect for a {@link ContentPoint} inside content this
+   * node owns. It is the reverse of {@link contentSelectionFromPoint}: that
+   * turns a point into a place, this turns the place back into a rect.
    *
-   * The inverse of {@link contentSelectionFromPoint}: that maps a point to an
-   * identity-bearing address, this maps the address back to a rect. Core's caret
-   * geometry is otherwise reachable only through `TextNode.caretRect`, which
-   * addresses a flat text index — so a node that stores its text entirely in a
-   * structured attachment (a table's cells) has no flat index to offer and would
-   * paint no caret at all. Declaring this is what lets a non-textual block carry
-   * an editable caret without pretending to be a text flow.
-   *
-   * Returning `null` (or leaving it unset, as every built-in node does) keeps the
-   * existing text-node caret path untouched.
+   * Declare it when your block keeps its text outside the normal text flow, as
+   * the table does with its cells. Without it, such a block shows no caret.
+   * Return `null` to use the normal text caret.
    */
   contentCaretRect?(
     layout: NodeLayout,
@@ -533,29 +586,31 @@ export abstract class Node<B extends NodeBlock = NodeBlock> {
   ): NodeContentSelectionGeometry | null;
 
   /**
-   * Optional: adjust how much vertical flow this block consumes, given its
-   * measured height — for a block whose drawn extent should differ from the
-   * space it takes in the document flow. No built-in node uses it (a first
-   * full-width image bleeds by drawing above its flow origin instead, keeping
-   * its flow height intact). When unset, flow height === drawn height.
+   * Optional: change how much vertical space the block takes on the page, given
+   * its measured height. Use it when the block should take more or less space
+   * than it draws. When unset, the block takes exactly its drawn height. No
+   * built-in node uses it.
    */
   adjustFlowHeight?(height: number, c: NodeLayoutCtx): number;
 
   /**
-   * Optional: the block's interactive sub-regions at its current layout
-   * (checkbox, resize handles, …). Geometry + identity only — behavior is
-   * bound by id in the event layer, keeping nodes presentation-only.
+   * Optional: the block's clickable parts at its current layout, such as a
+   * checkbox or resize handles. A region can carry its own tap and drag
+   * behavior. Wrap it in {@link hitRegion} so those handlers get a typed hit. A
+   * region without its own behavior only works for an id the editor already
+   * handles. Today that is only `todo-checkbox`. Any other id does nothing.
    */
   regions?(c: NodeRegionCtx): readonly NodeHitRegion[];
 
   /**
-   * Optional: the host-rendered overlays this block wants right now (an upload
-   * popover, an inline editor, …), derived from its data + the current UI state
-   * (read off `c.state`). Identity + geometry only — the actual React/DOM lives
-   * host-side, keyed by {@link NodeOverlay.key}, so the engine stays
-   * framework-agnostic. Collected per visible block by
-   * `editor.host.collectOverlays()`; the host maps each `key` to a component and
-   * mounts it at the returned `rect`. Return `[]` (or omit) for no overlay.
+   * Optional: the host overlays this block wants open right now, such as an
+   * upload popover or an inline editor. Work them out from the block's data and
+   * `c.state`. Each one names a host component with {@link NodeOverlay.key},
+   * the block it belongs to (`blockId`), where to show it (`rect`) and optional
+   * `data`. The node never draws the overlay. The host maps each key to its own
+   * component and shows it at `rect`. Hosts collect them with
+   * `editor.host.collectOverlays()`. Return `[]`, or leave it unset, for no
+   * overlay.
    */
   overlays?(c: NodeRegionCtx): readonly NodeOverlay[];
 
@@ -591,49 +646,57 @@ export abstract class Node<B extends NodeBlock = NodeBlock> {
   revealSideways?(c: NodeScrollCtx, point: ContentPoint): EditorState | null;
 
   /**
-   * Optional: when the user activates (clicks/taps) this block in edit mode, the
-   * host overlay to open — `key` maps to a host component (see {@link overlays}),
-   * `data` is an opaque host payload. Return `null` to let the engine fall back
-   * to its default activation (e.g. selecting the block). The engine relays the
-   * returned `key`/`data` through `openOverlay` at the click anchor; it never
-   * names the overlay itself, so the activation policy + overlay live host-side.
+   * Optional: called when the user clicks or taps this block, unless the editor
+   * is read-only. Only atomic blocks (see {@link AtomicNode}) get this call.
+   * Return the host overlay to open. `key` names a host component (see
+   * {@link overlays}). `data` is passed to the host as is. The engine opens the
+   * overlay where the click landed. Return `null` for the default behavior,
+   * such as selecting the block.
    */
   activate?(c: NodeActivateCtx): NodeActivation | null;
 
   /**
-   * Optional: register this node's action-bus handlers for the instance. Called
-   * once at mount with the per-instance {@link ActionBus} (after the node and bus
-   * exist). This is how a node overrides or observes a built-in action for its
-   * own block type — e.g. CodeNode claims Enter (`SPLIT_BLOCK`) to insert a
-   * newline rather than split the block. The registry is per-editor-instance, so
-   * handlers never leak across editors on the same page.
+   * Optional: add this node's action handlers. Called once when the editor is
+   * set up, with that editor's {@link ActionBus}. Use it to take over or watch
+   * a built-in action for your block type. For example, CodeNode takes Enter
+   * (`SPLIT_BLOCK`) to insert a newline instead of splitting the block.
+   * Handlers belong to one editor, so they never reach another editor on the
+   * page.
+   *
+   * ```ts
+   * registerActions(bus: ActionBus) {
+   *   bus.registerState(SELECT_ALL, (state) => {
+   *     if (!caretInMyBlock(state)) return; // not ours: let others run
+   *     return { state: selectMyBlock(state), ops: [], handled: true };
+   *   }, 50); // higher priority runs first
+   * }
+   * ```
    */
   registerActions?(bus: ActionBus): void;
 
   /**
-   * Optional: how this node's structured inline content behaves under the caret
-   * (an atomic token to step over, a construct to navigate). Declaring it routes
-   * the generic caret/edit code (selection, edit actions) through
-   * {@link CaretModel}, so the core never special-cases the block type; a node
-   * that leaves it unset behaves as ordinary editable text. The common case is
-   * just `caret.atomicSpans`. This is the *query* half — the *effect* half
-   * (materializing an incomplete construct after an edit) is a push, observed as
-   * the `TEXT_INPUTTED` action in {@link registerActions}. See {@link CaretModel}.
+   * Optional: how the caret moves through special content in this block, such
+   * as a token it should step over as one piece. When set, the editor's caret
+   * and edit code asks your {@link CaretModel} instead of treating the text as
+   * plain. Leave it unset for ordinary editable text. Most nodes only need
+   * `caret.atomicSpans`. To fix up content after the user types, listen for
+   * `TEXT_INPUTTED` in {@link registerActions}.
    */
   readonly caret?: CaretModel<B>;
 
   // ── Serialization facet ────────────────────────────────────────────────────
   /**
-   * Optional: this block type's markdown/HTML/text round-trip and asset refs,
-   * bundled into one object so a block type's rendering AND serialization live
-   * in one file. The block analogue of {@link import("../marks/Mark").Mark.codec}:
-   * the schema injects the node's `types` and adapts this into the `BlockCodec`
-   * the parser/serializers consume (see codecs/from-node.ts), so they never see
-   * a Node. Omit it and the node falls back to the generic round-trip
-   * (`defineNode`). Because the codec's `output` channels are non-optional, a
-   * node that declares `codec` must provide all of markdown/html/text — enforced
-   * at compile time rather than by a runtime check.
+   * Optional: how this block type is written as markdown, HTML and plain text,
+   * and read back from markdown. It can also list the assets the block points
+   * to. It keeps a block's drawing and saving in one file, like
+   * {@link Mark.codec} does for marks. If you set it, you must write all three
+   * formats. TypeScript checks this. Do not also pass `toMarkdown`, `toHtml` or
+   * `toText` to `defineNode`: the editor throws if you do. Leave `codec` unset
+   * to use the generic round-trip from `defineNode`.
    */
+  // The schema injects the node's `types` and adapts this into the `BlockCodec`
+  // the parser/serializers consume (see codecs/from-node.ts), so they never see
+  // a Node.
   readonly codec?: NodeCodec;
 
   /** Convenience for subclasses building their RenderedBlock result. */
@@ -642,10 +705,9 @@ export abstract class Node<B extends NodeBlock = NodeBlock> {
   }
 
   /**
-   * Resolve one of this node's {@link strings} for the current instance: the
-   * host's `theme.nodeStrings` override if present, else the node's English
-   * default. Reads the per-instance table off `state` (never a field on the
-   * shared singleton), so overrides stay scoped to one editor.
+   * Returns one of this node's {@link strings} for this editor. It uses the
+   * host's `theme.nodeStrings` text if set, else the node's English default,
+   * else `""`. Overrides only affect the editor whose `state` you pass.
    */
   protected str(state: EditorState, key: string): string {
     return (
@@ -656,18 +718,18 @@ export abstract class Node<B extends NodeBlock = NodeBlock> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Node registry — the single dispatch point that replaces ~69 `block.type ===`
-// switches across renderer / selection / event-utils.
-//
-// IMPORTANT: this is a per-editor-instance object, NOT a module global. Each
-// editor owns its own registry (stored on EditorState.nodes), so two
-// editors on the same page can register different block sets — e.g. one with
-// list blocks and one without. This is also what makes block types opt-in: a
-// host composes the registry it wants at mount time. A module-level Map would
-// be shared across every editor and break both of those properties.
-// ---------------------------------------------------------------------------
-
+/**
+ * The nodes one editor can draw, looked up by block type. It is the one place
+ * the engine asks how to lay out, paint and hit-test a block, instead of
+ * checking `block.type` all over the code.
+ *
+ * Each editor has its own registry (kept on its state as `nodes`, never shared
+ * across the page), so two editors can register different block types, for
+ * example one with lists and one without. That is also what makes block types
+ * opt-in: the host chooses which nodes to register when it mounts the editor.
+ *
+ * @group Nodes
+ */
 export class NodeRegistry {
   private readonly nodes = new Map<string, Node>();
 

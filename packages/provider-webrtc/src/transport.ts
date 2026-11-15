@@ -27,11 +27,14 @@ import type { Transport, TransportPeer } from "@tasfer/provider-core";
 
 import { ChunkAssembler, chunkMessage } from "./chunk";
 
+/** Options for the {@link WebrtcTransport} constructor. */
 export interface WebrtcTransportOptions {
   /**
-   * Wire topic the server routes on: 64 hex chars, derived from secret
-   * material by the caller (see `createWebrtcProvider`). May be a promise so
-   * a sync factory can hand over an in-flight derivation.
+   * The id the signaling server uses to group peers: 64 hex characters. The
+   * server sees it as is, so make it from something secret, for example a
+   * SHA-256 hash of the room name, as {@link createWebrtcProvider} does. You
+   * can pass a promise of it. `connect()` rejects when it is not 64 hex
+   * characters (upper or lower case both work).
    */
   topic: string | Promise<string>;
   /** Signaling base URL, e.g. "wss://relay.example.com". No trailing slash. */
@@ -129,6 +132,13 @@ interface SignalMessage {
   data?: { type: string; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit };
 }
 
+/**
+ * The connection behind {@link createWebrtcProvider}: it finds peers through
+ * a signaling server, then connects each pair directly over WebRTC so
+ * document data does not pass through the server. Use it directly only when
+ * you want to pass it to `createProvider` from `@tasfer/provider-core`
+ * yourself.
+ */
 export class WebrtcTransport implements Transport {
   private readonly topic: string | Promise<string>;
   private readonly signaling: string;

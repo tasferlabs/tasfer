@@ -9,13 +9,12 @@ import {
   mathContentSelectionFromSourceOffset,
   mathSourceRangeFromContentSelection,
 } from "./tree-selection";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import {
   EXPAND_SELECTION,
   SHRINK_SELECTION,
 } from "@tasfer/editor/actions/selection-expansion";
 import { handleKeyDown } from "@tasfer/editor/events/keysEvents";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import { loadPage } from "@tasfer/editor/serlization/loadPage";
 import type { EditorState, ViewportState } from "@tasfer/editor/state-types";

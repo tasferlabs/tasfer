@@ -13,13 +13,12 @@
 import { resolveStructuredInlineMathRuns } from "./inline-structured";
 import { mathExtension } from "./math-extension";
 import { mathContentSelectionFromSourceOffset } from "./tree-selection";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import { PLACE_CURSOR_AT_POINT } from "@tasfer/editor/actions/mouse-actions";
 import {
   POINTER_MOVE,
   TEXT_CLICK,
 } from "@tasfer/editor/actions/pointer-actions";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import {
   getContentSelectionFromViewport,

@@ -19,10 +19,13 @@ import type { IdentityAllocator } from "@shared/identity";
 // =============================================================================
 
 /**
- * Hybrid Logical Clock for total ordering of operations.
- * Pure Lamport clock: counter + peerId for causality tracking.
- * No wall clock dependency - immune to system clock skew.
+ * The clock stamp on every operation: a counter plus the id of the peer that
+ * made it. It puts all operations in one order. It does not use the wall clock,
+ * so a wrong system clock cannot break that order.
+ *
+ * @group Document
  */
+// Despite the HLC name, this is a pure Lamport clock: no wall-clock component.
 export interface HLC {
   /** Logical counter - increments on each operation */
   counter: number;
@@ -170,7 +173,12 @@ export interface BlockSet extends BaseOp {
   value: unknown;
 }
 
-/** Apply one schema-agnostic mutation to a structured attachment on a block. */
+/**
+ * An operation that changes structured content kept inside a block, such as a
+ * table's cells or a formula. Each one carries one change.
+ *
+ * @group Structured content
+ */
 export interface ContentEdit extends BaseOp {
   op: "content_edit";
   /** Block that owns the attachment. */
@@ -182,7 +190,12 @@ export interface ContentEdit extends BaseOp {
 }
 
 /**
- * Union of all operation types.
+ * One change to a document: text added or deleted, a mark set, a block added,
+ * deleted or changed, or an edit to structured content inside a block. Every
+ * edit makes a list of these. They are what gets saved and sent to other people
+ * editing the same document.
+ *
+ * @group Document
  */
 export type Operation =
   | TextInsert
@@ -196,6 +209,8 @@ export type Operation =
 /**
  * Version vector tracking seen operations per peer.
  * Maps peer ID to highest operation counter seen from that peer.
+ *
+ * @group Document
  */
 export type VersionVector = Map<string, number>;
 
@@ -217,6 +232,8 @@ export interface OpLog {
  * A font family key. Opaque string chosen by the host application — the editor
  * does not assume any particular fonts exist. Keys are mapped to CSS
  * font-stacks via `EditorStyles.fonts.families`.
+ *
+ * @group Theme
  */
 export type FontFamily = string;
 // Editor State Types
@@ -726,30 +743,43 @@ export interface SelectionExpansionHistory {
 }
 
 /**
- * A per-editor VIEW WINDOW: restricts which of the document's blocks this editor
- * renders and edits, without changing the underlying doc. Two editors attached
- * to one shared `Doc` can show disjoint windows of it (e.g. a `TitleEditor`
- * scoped to the title block alongside a full `PageEditor`) and — because the doc
- * is the single source of truth — stay live-synced with zero extra wiring.
+ * Limits which blocks of a document one editor shows and edits. The document
+ * itself does not change. Two editors on the same `Doc` can show different
+ * parts of it, such as a title and a body, and they stay in sync on their own.
  *
- * A window is purely a view/authoring concern: it NEVER filters ops in the
- * reducer or oplog, so peers converge on the full doc regardless of anyone's
- * window. It is node/mark-agnostic — `select` is an opaque host-supplied rule
- * and the core never names a block type. See `titleBlockWindow`.
+ * A window only changes what this editor shows and lets you edit. Every peer
+ * still gets the whole document. Build one with {@link titleBlockWindow},
+ * {@link bodyBlocksWindow} or {@link blockIdWindow}, and pass it as the
+ * `window` option, or write your own with `select`.
+ *
+ * No windowed editor joins a block it does not show. Backspace at the start of
+ * the first block in the window, or Delete at the end of the last, does
+ * nothing. To also limit which type a block may be, pair the window with
+ * `Schema.restrict`. The block still shows whatever type it already is.
+ *
+ * ```ts
+ * const title = createEditor({ element: titleEl, doc, window: titleBlockWindow() });
+ * const body = createEditor({ element: bodyEl, doc, window: bodyBlocksWindow() });
+ * ```
+ *
+ * @group Editor
  */
 export interface ViewWindow {
   /**
-   * Given the doc's full block list (document order, tombstones included),
-   * return the set of ORIGINAL indices this editor shows. Re-evaluated on every
-   * visible-blocks derivation, so a dynamic rule (e.g. "the first text block")
-   * tracks insertions/deletions. Must be pure and deterministic.
+   * Is given the document's full block list, in order and including deleted
+   * blocks. Returns the positions, in that full list, of the blocks this editor
+   * shows. It runs again after every change, so a rule like "the first text
+   * block" keeps up. It must always return the same set for the same blocks.
    */
   readonly select: (blocks: readonly Block[]) => ReadonlySet<number>;
   /**
-   * When true this is a SINGLE-BLOCK surface: authoring ops that would create,
-   * split, or merge-away a block are suppressed, and the caret is kept inside
-   * the window. Set by windows that resolve to exactly one block (e.g. the
-   * title). Like `Schema.restrict`, this is an authoring-time gate only.
+   * When `true`, this editor shows exactly one block, like a title. Edits that
+   * would add, split or merge away a block are blocked, and the caret stays
+   * inside. Like `Schema.restrict`, it only limits editing in this editor.
+   *
+   * Enter does nothing, so your host can give it its own meaning, like moving
+   * focus to the body. Backspace and Delete at the edges do nothing. A paste
+   * becomes plain text on one line. No other block is ever changed.
    */
   readonly singleBlock?: boolean;
 }
@@ -883,7 +913,14 @@ export interface UndoManagerState {
   readonly redoStack: readonly UndoGroup[];
 }
 
-// New unified EditorState
+/**
+ * The complete state of one editor: the document, the selection and other UI
+ * state, the view, the undo history, and the editor's own action bus, nodes,
+ * marks and schema. It is read-only: an action takes a state and returns a new
+ * one instead of changing it.
+ *
+ * @group Editor
+ */
 export interface EditorState {
   readonly document: DocumentState;
   readonly ui: UIState;
@@ -891,56 +928,50 @@ export interface EditorState {
   readonly undoManager: UndoManagerState;
   readonly CRDTbinding: CRDTbinding;
   /**
-   * Per-instance action bus (see `action`): hooks for the editor's
-   * imperative actions — link activation, touch-gesture milestones. The engine
-   * dispatches through `state.actionBus`; hosts attach handlers via
-   * `editor.registerAction`. Owned by this editor — NOT a module global — so
-   * two editors on a page keep separate listeners.
+   * This editor's action bus (see {@link action}). The editor sends its actions
+   * through it, such as opening a link or touch gestures. Listen with
+   * `editor.registerAction`. Each editor has its own, so two editors on a page
+   * do not share listeners.
    */
   readonly actionBus: ActionBus;
   /**
-   * Per-instance registry of block views (layout/paint/hit-test per block type).
-   * Owned by this editor — NOT a module global — so multiple editors on the same
-   * page can register different block sets and so block types are opt-in at mount.
+   * The block types this editor can draw, with how each one is laid out,
+   * painted and clicked. Each editor has its own, so editors on one page can
+   * use different blocks. Block types are opt-in when you mount.
    */
   readonly nodes: NodeRegistry;
   /**
-   * Per-instance registry of inline marks (the rendering facet: style channels
-   * + replacement painting per mark type). Owned by this editor — NOT a module
-   * global — so multiple editors on the same page can register different mark
-   * sets and so marks are opt-in at mount. Mirrors {@link nodes}.
+   * The inline marks this editor can draw, and how each one looks. Each editor
+   * has its own, so editors on one page can use different marks. Pick them with
+   * the `marks` option when you mount. Leave it out to get the built-in marks.
    */
   readonly marks: MarkRegistry;
   /**
-   * The canvas-free document schema for this instance — the CRDT/serialization
-   * facets plus the authoring allow-list. Carried by reference (mirrors
-   * {@link nodes}/{@link marks}) so every authoring path can consult
-   * `state.schema.isBlockAllowed` / `coerceCreatable` / `isMarkAllowed` before
-   * minting or morphing content. Defaults to the base (unrestricted) schema.
-   * The reducer never reads the allow-list, so this only gates local authoring.
+   * This editor's document schema: which block and mark types exist and how
+   * they are saved. It also says which blocks and marks may be created here.
+   * That rule only limits editing in this editor, never edits from other
+   * people. Defaults to the base schema, with no limits.
    */
   readonly schema: DataSchema;
   /**
-   * The host's raw styling input for this instance (tokens + style overrides +
-   * fonts + selected family + strings). Kept so `setTheme` can merge a partial
-   * update and re-resolve. Read at render time only for the few dynamic overlays
-   * (mobile horizontal padding, window-focus selection color).
+   * The theme this editor was given, before it is merged with the defaults.
+   * `setTheme` merges changes into it. For the final values, call
+   * `editor.view.getStyles()`.
    */
   readonly theme: EditorTheme;
   /**
-   * The fully-resolved styles for this instance — `theme` merged over the
-   * neutral defaults, computed once at mount and on every `setTheme`. Replaces
-   * the former module-level style globals + per-render `getComputedStyle`
-   * reads, so editors never clobber each other's styling and the engine never
-   * touches the DOM. Read (with tiny dynamic overlays) by `getEditorStyles`.
+   * The final styles: `theme` merged over the defaults. They are worked out at
+   * mount and on every `setTheme`. To read the styles in use, call
+   * `editor.view.getStyles()`. It adds two things on top: narrower side padding
+   * on small screens (unless you set the padding), and a dimmer selection when
+   * the window loses focus on desktop.
    */
   readonly resolvedStyles: EditorStyles;
   /**
-   * Per-instance node string catalogs (block type → localized strings), built
-   * from each registered node's `strings` defaults overlaid with
-   * `theme.nodeStrings`. Read by a node via its protected `str(state, key)`
-   * helper. Per-instance (not a node-singleton field) so two editors localize
-   * independently.
+   * Each block type's text, translated: the node's English defaults with
+   * `theme.nodeStrings` on top. A node reads its text with its protected
+   * `str(state, key)` helper. Each editor has its own, so two editors can use
+   * different languages.
    */
   readonly resolvedNodeStrings: NodeStringsMap;
 }
@@ -1189,13 +1220,20 @@ export interface RemoteCursorStyles {
   readonly outOfViewIndicator: OutOfViewIndicatorStyles;
 }
 
+/**
+ * Every visual setting the editor paints with, fully resolved: canvas padding,
+ * fonts, per-block text styles, selection, caret, lists, scrollbar and more.
+ * It is your theme merged over the defaults; read the current values with
+ * `editor.view.getStyles()`.
+ *
+ * @group Theme
+ */
 export interface EditorStyles {
   readonly canvas: CanvasStyles;
   readonly fonts: FontStyles;
   /**
-   * The currently-selected font family key (from `fonts.families`). When unset
-   * the editor uses `fonts.defaultFamily`. Resolved per instance — switching it
-   * is a theme change (`setTheme({ fontFamily })`), not a module global.
+   * The selected font family key from `fonts.families`. When `null`, the editor
+   * uses `fonts.defaultFamily`. Change it with `setTheme({ fontFamily })`.
    */
   readonly fontFamily: FontFamily | null;
   readonly blocks: BlockStyles;
@@ -1211,9 +1249,12 @@ export interface EditorStyles {
 }
 
 /**
- * Host-defined font registry. The editor renders/measures text using these
- * CSS font-stacks; it ships only a neutral system-font default and expects the
- * consumer to register their own faces (and to load them).
+ * The fonts the editor can use. Each key in `families` names a CSS font stack.
+ * The editor ships only a plain system font, so register your own here. Load
+ * the font files yourself, then call {@link notifyFontsLoaded} so the text is
+ * measured again.
+ *
+ * @group Theme
  */
 export interface FontStyles {
   /** Map of family key → CSS font-stack (e.g. `{ sans: "Inter, sans-serif" }`). */
@@ -1282,15 +1323,13 @@ export interface BlockStyles {
 }
 
 /**
- * Grid appearance of a table block. Extends {@link TextStyle} because a cell is
- * ordinary prose — the base leaves give a cell its font and color, and the rest
- * describes the grid drawn around it.
+ * How a table's grid looks. Set it through `theme.styles.blocks.table`. A
+ * cell's text uses the same font and color fields as other text blocks. The
+ * other fields style the grid around it. It lives in the core theme, even
+ * though tables come from `@tasfer/table`, so tables follow your colors, dark
+ * mode included.
  *
- * Like `code` and `math`, this leaf lives in the core theme even though the node
- * that paints it ships in an optional package: resolving it here from the theme
- * tokens is what keeps a table's hairlines and cell washes following a host's
- * palette (dark mode included) instead of freezing whatever colors the feature
- * bundle happened to ship.
+ * @group Theme
  */
 export interface TableBlockStyle extends TextStyle {
   /** Outer flow margin above/below the grid, separating it from prose. */
@@ -1304,15 +1343,15 @@ export interface TableBlockStyle extends TextStyle {
   readonly cellPaddingX: number;
   readonly cellPaddingY: number;
   /**
-   * Narrowest a column may be dragged to, and the floor no column is fitted
-   * under. A single unbreakable glyph wider than this overflows its wrap width
-   * and is clipped at the cell's edge.
+   * The narrowest a column can be, whether you drag it or the table fits itself
+   * to the page. A single character wider than this spills past its cell and is
+   * cut off at the cell's edge.
    */
   readonly minColumnWidth: number;
   /**
-   * The average column width below which a table stops shrinking to fit the
-   * page and grows wider than it instead, scrolling sideways. A table whose
-   * columns all fit at this width fills the page exactly, as before.
+   * When the average column would be narrower than this, the table stops
+   * shrinking to fit the page. It grows wider than the page instead and scrolls
+   * sideways. Until then, a table fills the page width exactly.
    */
   readonly overflowColumnWidth: number;
   /** Fill behind the cell the caret is in, marking the active cell. */
@@ -1325,13 +1364,9 @@ export interface TableBlockStyle extends TextStyle {
   readonly resizeEdgeColor: string;
   readonly resizeEdgeWidth: number;
   /**
-   * Opacity for the wash marking the table as selected whole.
-   *
-   * Its own token rather than the shared `selection.opacity`, for the reason a
-   * block equation has one: that value is tuned to composite over the plain
-   * page, and a table's wash lands on the header fill and the active-cell
-   * background instead, where it reads as weaker than the same selection on
-   * prose.
+   * Opacity of the wash shown when the whole table is selected. It is separate
+   * from `selection.opacity` because this wash sits on the header and
+   * active-cell fills, where the shared value looks too faint.
    */
   readonly selectionOpacity: number;
 }
@@ -1468,12 +1503,13 @@ export interface CursorStyles {
 }
 
 /**
- * Scrollbar appearance — colors plus geometry/timing, all overridable per
- * instance through `theme.styles.scrollbar` (e.g.
- * `setTheme({ styles: { scrollbar: { width: 10, borderRadius: 0 } } })`).
- * Colors default from the `scrollbar*` tokens; geometry/timing from neutral
- * built-in defaults. `width` additionally narrows on touch devices — unless the
- * host sets it explicitly, in which case that value is used on every device.
+ * How the scrollbar looks: colors, size and fade timing. Override any value per
+ * editor through `theme.styles.scrollbar`, for example `setTheme({ styles: {
+ * scrollbar: { width: 10, borderRadius: 0 } } })`. Colors come from the
+ * `scrollbar*` tokens. On touch devices the width narrows to 8px, unless you
+ * set `width` yourself. Then your value is used everywhere.
+ *
+ * @group Theme
  */
 export interface ScrollbarStyles {
   // ── Colors (token-derived) ────────────────────────────────────────────────
@@ -1702,9 +1738,11 @@ export type DeepPartial<T> = T extends readonly (infer _U)[]
  * resolved {@link EditorStyles} default every color leaf to one of these.
  *
  * The editor ships neutral, opinion-free defaults (see `DEFAULT_TOKENS`); a
- * host overrides them per instance via `mountEditor({ theme: { tokens } })` or
+ * host overrides them per instance via `createEditor({ theme: { tokens } })` or
  * `editor.setTheme({ tokens })`. Nothing here is read from the DOM — a host
  * driving these from CSS variables converts them on its own side.
+ *
+ * @group Theme
  */
 export interface ThemeTokens {
   /** Default body text. */
@@ -1713,7 +1751,10 @@ export interface ThemeTokens {
   readonly heading: string;
   /** Placeholder/ghost text. */
   readonly placeholder: string;
-  /** Page background (used for hover button backgrounds etc.). */
+  /**
+   * Your page's background color. The editor does not paint the page with it,
+   * and nothing it draws uses it yet.
+   */
   readonly background: string;
   /** Foreground on `background`. */
   readonly foreground: string;
@@ -1723,7 +1764,10 @@ export interface ThemeTokens {
   readonly muted: string;
   /** Text/icon on a muted surface. */
   readonly mutedForeground: string;
-  /** Accent (cursor, links, todo check, resize handles). */
+  /**
+   * Accent color: the quote bar, a checked todo box, and image and table resize
+   * handles.
+   */
   readonly primary: string;
   /** Foreground on `primary` (e.g. the checkmark). */
   readonly primaryForeground: string;
@@ -1739,7 +1783,7 @@ export interface ThemeTokens {
   readonly selectionUnfocused: string;
   /** Label text on a remote peer's cursor flag. */
   readonly remoteCursorLabelText: string;
-  /** Inline `code` background. */
+  /** Background of inline `code`, code blocks and inline formulas. */
   readonly codeBackground: string;
   /** Inline `code` text. */
   readonly codeText: string;
@@ -1763,9 +1807,15 @@ export interface ThemeTokens {
   readonly unknownBlockBorder: string;
   /** Fallback box label text for unrenderable blocks. */
   readonly unknownBlockText: string;
-  /** MathJax error-marker background. */
+  /**
+   * Meant for the background behind a formula that fails to render. Nothing
+   * draws with it yet.
+   */
   readonly mathErrorBackground: string;
-  /** Code-block syntax highlighting colors (keyword/string/comment/number/function). */
+  /**
+   * Keyword color in code blocks. `codeString`, `codeComment`, `codeNumber` and
+   * `codeFunction` color the rest.
+   */
   readonly codeKeyword: string;
   readonly codeString: string;
   readonly codeComment: string;
@@ -1774,18 +1824,23 @@ export interface ThemeTokens {
 }
 
 /**
- * The host's styling input for an editor instance — the headless theming
- * surface. All fields optional; anything omitted falls back to the editor's
- * neutral defaults.
+ * How you style an editor. Every field is optional. Anything you leave out uses
+ * the editor's defaults.
  *
- * Two tiers, layered: `tokens` (semantic palette — set a few, re-theme
- * everything) then `styles` (a deep-partial override of the fully-resolved
- * {@link EditorStyles}, for pixel-level control of any single leaf). `fonts`
- * registers the host's font families (the host loads the faces); `fontFamily`
- * selects the active one.
+ * `tokens` is a small color palette: set a few and the whole editor follows.
+ * `styles` overrides any single value of {@link EditorStyles}, and wins over
+ * `tokens`. `fonts` lists your font families (you load the font files
+ * yourself), and `fontFamily` picks one. Each editor has its own theme, so two
+ * editors on a page can look different.
  *
- * Resolved once into an {@link EditorStyles} stored per instance — no module
- * globals, no DOM reads — so two editors on a page can be themed independently.
+ * ```ts
+ * editor.setTheme({
+ *   tokens: { text: "#e6edf3", link: "#58a6ff" },
+ *   styles: { scrollbar: { width: 8 } },
+ * });
+ * ```
+ *
+ * @group Theme
  */
 export interface EditorTheme {
   readonly tokens?: Partial<ThemeTokens>;

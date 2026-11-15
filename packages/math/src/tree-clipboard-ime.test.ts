@@ -5,6 +5,7 @@ import {
   structuredToMathDocument,
 } from "./structured";
 import { mathSourceRangeFromContentSelection } from "./tree-selection";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import { insertText } from "@tasfer/editor/actions/actions";
 import {
   buildClipboardPayload,
@@ -15,8 +16,6 @@ import {
   handleCompositionEnd,
   handleCompositionStart,
 } from "@tasfer/editor/events/compositionEvents";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import { moveCursorToPosition } from "@tasfer/editor/selection";
 import { loadPage } from "@tasfer/editor/serlization/loadPage";

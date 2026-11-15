@@ -34,16 +34,33 @@ import type { StructuredContentMap } from "../../sync/structured-content";
 import type { Block, CharRun, MarkRange, MarkSpan } from "../loadPage";
 import type { Token, TokenType } from "../tokenizer";
 
+/**
+ * The formats a document can be written out as: Markdown, HTML or plain text.
+ * A codec reads it from its output context to know which one is being produced.
+ *
+ * @group Serialization
+ */
 export type SerialFormat = "markdown" | "html" | "text";
 
-/** Host renderer for a feature-owned replacement (math, diagram, embed, …). */
+/**
+ * A function your app supplies to turn rich content, such as math, into HTML.
+ * Pass it as `renderReplacement` to {@link serializeToHTML}. It gets the
+ * content `type`, its `source` text, and `displayMode` (`true` when it stands
+ * as its own block). It returns an HTML string.
+ *
+ * @group Serialization
+ */
 export type ReplacementRenderer = (
   type: string,
   source: string,
   displayMode: boolean,
 ) => string;
 
-/** Context handed to every `output()` call. Built by the per-format orchestrator. */
+/**
+ * Context handed to every `output()` call. Built by the per-format orchestrator.
+ *
+ * @group Serialization
+ */
 export interface OutputCtx {
   readonly format: SerialFormat;
   /** Render rich text content (char runs + format spans) in the active format. */
@@ -58,17 +75,19 @@ export interface OutputCtx {
   /** Host-supplied renderer for feature-owned HTML replacements. */
   readonly renderReplacement?: ReplacementRenderer;
   /**
-   * When true, a node/mark that normally emits a *rendered replacement* in HTML
-   * (math → an SVG image) should instead emit its editable SOURCE. Set on the
-   * clipboard `text/html` payload so copied math lands as LaTeX (`$$…$$`) in
-   * external apps that prefer HTML over plain text, rather than a non-editable
-   * image. Left false for file/PDF export, where the rendered formula is wanted.
-   * Plain nodes ignore it.
+   * When `true`, a codec that normally writes a picture in HTML (math as an
+   * SVG) should write its editable source instead (`$$…$$`). Copy sets it, so
+   * math pastes into other apps as LaTeX. The screen-reader text sets it too.
+   * File and PDF export leave it off. Plain nodes ignore it.
    */
   readonly preferSource?: boolean;
 }
 
-/** An HTML tag encountered in markdown input, pre-parsed by the orchestrator. */
+/**
+ * An HTML tag encountered in markdown input, pre-parsed by the orchestrator.
+ *
+ * @group Serialization
+ */
 export interface ParsedTag {
   readonly name: string;
   readonly attrs: Readonly<Record<string, string>>;
@@ -76,10 +95,13 @@ export interface ParsedTag {
 }
 
 /**
- * Token-cursor view of the parser handed to `markdown.input()`. Same
- * semantics as the parser's internal helpers; the block-start token has NOT
- * been consumed (codecs consume their own trigger), except for `inputTag`
- * where the orchestrator consumes the HTML_TAG token to read the tag name.
+ * What the Markdown parser hands to a codec's `markdown.input()` and
+ * `markdown.inputTag()`. It steps through the Markdown tokens one at a time. In
+ * `input()`, the token that starts the block has not been read yet, so the
+ * codec reads it itself. In `inputTag()`, the parser has already read the tag
+ * token.
+ *
+ * @group Serialization
  */
 export interface InputCtx {
   /** Indent level (already consumed by the orchestrator) for this block. */
@@ -87,10 +109,10 @@ export interface InputCtx {
   /** Fresh unique block id. */
   nextBlockId(): string;
   /**
-   * Parse inline tokens up to the end of line into CRDT runs + format spans.
-   * Consumes the trailing newline. Structured marks (e.g. inline math) arrive
-   * with their eager attachments in `structuredContent`; a codec that uses
-   * inline text must carry it onto the block.
+   * Reads the rest of the line as rich text: its characters and their marks. It
+   * also reads the newline at the end. Nested content, such as inline math,
+   * comes back in `structuredContent`. Copy it onto the block, or that content
+   * is lost.
    */
   inlineText(): {
     charRuns: CharRun[];
@@ -98,19 +120,19 @@ export interface InputCtx {
     structuredContent?: StructuredContentMap;
   };
   /**
-   * Build CRDT runs from a literal string — no inline-mark parsing, newlines
-   * kept verbatim. For blocks whose text is raw source (e.g. code). The caller
-   * still consumes the block's tokens (trigger + trailing newline) itself.
+   * Turns a string into the block's characters as is: no marks are read and
+   * newlines are kept. Use it for text that is source, such as code. It reads
+   * no tokens, so the codec still reads the block's own tokens and the closing
+   * newline.
    */
   rawText(text: string): CharRun[];
   /**
-   * Parse a standalone string of inline Markdown — text a block keeps outside
-   * the token stream, such as one table cell's source — with this parse's
-   * schema and id counters. Structured marks arrive with their attachments in
-   * `structuredContent`, as from {@link inlineText}; a codec must carry them
-   * onto its block. Returns `undefined` when the source does not parse as one
-   * line of inline content (it is a block construct), so the caller can keep
-   * it literally.
+   * Parses a string of inline Markdown that is not part of the token stream,
+   * such as one table cell's text. It uses the same schema and ids as the rest
+   * of the parse, so nothing collides. Nested content, such as inline math,
+   * comes back in `structuredContent`, as with {@link InputCtx.inlineText}.
+   * Copy it onto the block. Returns `undefined` when the string is a block, not
+   * one line of inline text, so you can keep it as plain text.
    */
   inlineMarkdown(source: string):
     | {
@@ -127,6 +149,13 @@ export interface InputCtx {
   isEnd(): boolean;
 }
 
+/**
+ * The Markdown half of a {@link BlockCodec}. `output` writes a block as
+ * Markdown; the optional `input` and `inputTag` read it back, from Markdown
+ * tokens or from an HTML tag found inside Markdown.
+ *
+ * @group Serialization
+ */
 export interface MarkdownCodec {
   output(block: Block, ctx: OutputCtx): string;
   /** Block-start tokens that dispatch markdown parsing to `input`. */
@@ -137,14 +166,32 @@ export interface MarkdownCodec {
   inputTag?(tag: ParsedTag, ctx: InputCtx): Block;
 }
 
+/**
+ * The HTML half of a {@link BlockCodec}: turns one block into an HTML string.
+ *
+ * @group Serialization
+ */
 export interface HtmlCodec {
   output(block: Block, ctx: OutputCtx): string;
 }
 
+/**
+ * The plain-text half of a {@link BlockCodec}: turns one block into plain text.
+ *
+ * @group Serialization
+ */
 export interface TextCodec {
   output(block: Block, ctx: OutputCtx): string;
 }
 
+/**
+ * How blocks of one type (or a family of related types) are written as
+ * Markdown, HTML and plain text, and read back from Markdown. A custom node
+ * declares the same thing without `types` (a {@link NodeCodec}); the schema
+ * fills in the type names.
+ *
+ * @group Serialization
+ */
 export interface BlockCodec {
   /** Every block type this codec handles (family codecs list several). */
   readonly types: readonly string[];
@@ -156,10 +203,11 @@ export interface BlockCodec {
 }
 
 /**
- * A node's serialization facet: a {@link BlockCodec} minus `types`. `types` is
- * block-type *identity*, already owned by the Node (`type`/`types`) and reused
- * for registration, so the node never restates it inside its codec — the schema
- * injects it (see `codecFromNode`). A Node declares this as its single `codec`
- * property, the block analogue of `Mark.codec`.
+ * How a node's blocks are written as Markdown, HTML and plain text, and read
+ * back: a {@link BlockCodec} without `types`. Set it as the node's `codec`
+ * property. The node already has its `type`, so the schema fills in `types`
+ * (see {@link codecFromNode}).
+ *
+ * @group Serialization
  */
 export type NodeCodec = Omit<BlockCodec, "types">;

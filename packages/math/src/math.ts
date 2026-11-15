@@ -102,13 +102,13 @@ function pickStop(
 }
 
 /**
- * Whether the caret at source `offset` sits on the `dir` edge of a math source —
- * i.e. there is no further caret stop in that direction, so stepping `dir` would
- * leave the formula. `latex`/`offset` are source-relative: a block equation's
- * whole LaTeX with the block offset, or an inline chip's own LaTeX with the
- * chip-local offset. Mirrors the boundary {@link mathCaretStep} hits (both key
- * off {@link mathCaretOffsets} + `pickStop`), so a host can grey out a
- * step-left/right control exactly when that step would exit the math.
+ * Whether the caret at `offset` is at the `dir` edge of a formula, with no
+ * caret stop left in that direction. One more step `dir` would leave the
+ * formula. `latex` is one formula's LaTeX: a block equation's whole source, or
+ * an inline formula's own source. `offset` is a position in it. Use it to grey
+ * out a step left or right button when that step would leave the math.
+ *
+ * @group Caret and selection
  */
 export function mathSourceAtEdge(
   latex: string,
@@ -125,6 +125,8 @@ export function mathSourceAtEdge(
  * relative like {@link mathSourceAtEdge}: a block equation's whole LaTeX with the
  * block offset, or an inline chip's own LaTeX with the chip-local offset. A host
  * uses this to decide whether to offer the matrix row/column controls.
+ *
+ * @group Matrices
  */
 export function mathMatrixContext(
   latex: string,
@@ -134,13 +136,13 @@ export function mathMatrixContext(
 }
 
 /**
- * The tabular construct a *selected source range* addresses, or null when the
- * selection touches none. A drag across a whole matrix anchors before `\begin`
- * and focuses on the exclusive end of the environment's span, so probing either
- * endpoint with {@link mathMatrixContext} misses; this resolves the deepest
- * construct containing the range, else the first one the range sweeps across.
- * Endpoints are source-relative like {@link mathMatrixContext} and may come in
- * either order. Use {@link mathMatrixContext} for a collapsed caret.
+ * Like {@link mathMatrixContext}, but for a selection from `start` to `end`, in
+ * either order. Returns the deepest grid that holds the whole range, or else
+ * the first grid the range crosses. Returns null when the range touches no
+ * grid. Use it for a selection, because a drag across a whole matrix starts and
+ * ends just outside it. For a plain caret, use mathMatrixContext.
+ *
+ * @group Matrices
  */
 export function mathMatrixContextInRange(
   latex: string,
@@ -151,12 +153,18 @@ export function mathMatrixContextInRange(
 }
 
 /**
- * The source rewrite that resizes the grid enclosing `offset` to `rows` × `cols`,
- * or null when the caret is not inside one. Returns a `{ start, end }` span into
- * `latex` to replace with `text`, plus the `caret` offset to place afterward —
- * all source-relative (add a chip's `startIndex` for inline math). Growing adds
- * empty cells; shrinking trims from the bottom/right; the grid never drops below
- * 1×1.
+ * Works out how to resize the grid at `offset` to `rows` × `cols`. It changes
+ * nothing itself. Returns null when `offset` is not in a grid.
+ *
+ * The result has `edits` to make in `latex`. Each one replaces `start` to `end`
+ * with `text`, and the offsets point into the original `latex`. Apply them from
+ * the highest `start` down. When two share a `start`, do the deletion first.
+ * `caret` is where the caret goes in the edited LaTeX.
+ *
+ * New cells are empty. Shrinking removes rows from the bottom and columns from
+ * the right. The grid never goes below 1×1.
+ *
+ * @group Matrices
  */
 export function mathMatrixResize(
   latex: string,
@@ -1290,10 +1298,12 @@ export function getBlockMathOffsetVertical(
 }
 
 /**
- * Render LaTeX to an SVG string (used by the React edit overlay's live preview
- * and by HTML export). `color` defaults to `currentColor` so the SVG inherits
- * the surrounding text color. The `<text>` elements reference the engine's font
- * families, which the host loads via `@tasfer/tex`'s `loadFonts`.
+ * Renders LaTeX to an SVG string, for previews and HTML export. `fontSize`
+ * defaults to 22 for display math and 18 for inline. `color` defaults to
+ * `currentColor`, so the SVG takes the color of the text around it. The SVG
+ * names the math fonts, so load them first with `loadFonts` from `@tasfer/tex`.
+ *
+ * @group Setup
  */
 export function renderToSVG(
   latex: string,

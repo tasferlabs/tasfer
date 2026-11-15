@@ -12,10 +12,9 @@ import { registerTableActions } from "../actions";
 import { registerTableInputActions } from "../input";
 import { CELL_TEXT_FIELD, getTableDocument, readTable } from "../structured";
 import { tableExtension } from "../table-extension";
-import { createNodeRegistry } from "@tasfer/editor";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import { createActionBus } from "@tasfer/editor/action-bus";
 import { resolveMarkRunsFromChars } from "@tasfer/editor/mark-runs";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
 import { baseSchema } from "@tasfer/editor/schema";
 import {
   moveCursorToPosition,

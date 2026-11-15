@@ -18,7 +18,11 @@ import {
   getStructuredText,
 } from "./sync/structured-content";
 
-/** One mark run inside a text field, in the field's visible offsets. */
+/**
+ * One mark run inside a text field, in the field's visible offsets.
+ *
+ * @group Text
+ */
 export interface TextFieldMark {
   readonly name: string;
   readonly attrs: Record<string, unknown>;
@@ -27,9 +31,11 @@ export interface TextFieldMark {
 }
 
 /**
- * One prose field inside a block's structured content, addressed the way a
- * `ContentTextPoint` addresses it. Offsets are visible UTF-16 offsets into
- * `text`.
+ * One prose field inside a block's structured content, such as a table cell.
+ * `editor.query.textFields` returns these. Its ids address the field the way a
+ * `ContentTextPoint` does. Mark offsets are visible UTF-16 offsets into `text`.
+ *
+ * @group Text
  */
 export interface TextFieldInfo {
   readonly blockId: string;

@@ -32,12 +32,18 @@ const STRUCTURAL = new Set([
 ]);
 
 /**
- * Whether the single character `ch`, typed as math content, produces a visible,
- * caret-landable glyph (or is a structural character). Mirrors the layout path
- * for one literal char atom — `symbolFor` to resolve the glyph and font, then a
- * metric lookup — so it stays in sync with what actually renders. Returns false
- * for characters that would lay out as the empty zero-width fallback glyph.
+ * Returns `true` when the character `ch`, typed into a formula, would show up
+ * and the caret can stop at it. It is also `true` for LaTeX structure
+ * characters: `\`, `{`, `}`, `^`, `_`, `&` and whitespace.
+ *
+ * Returns `false` when the math fonts have no glyph for it, such as an emoji.
+ * That character would draw nothing and the user could not see or delete it. A
+ * host can use this to drop the character instead of inserting it.
+ *
+ * @group Rendering
  */
+// Mirrors the layout path for one literal char atom (symbolFor, then a metric
+// lookup) so it stays in sync with what renders.
 export function canRenderMathChar(ch: string): boolean {
   if (STRUCTURAL.has(ch)) return true;
   const info = symbolFor(ch);

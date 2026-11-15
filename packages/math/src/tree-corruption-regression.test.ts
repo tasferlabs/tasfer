@@ -6,13 +6,12 @@ import {
   getStructuredMathSource,
   validateStructuredMathDocument,
 } from "./structured";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import { insertText } from "@tasfer/editor/actions/actions";
 import {
   DELETE_BACKWARD,
   DELETE_FORWARD,
 } from "@tasfer/editor/actions/edit-actions";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import {
   moveCursorToPosition,

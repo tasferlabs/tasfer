@@ -16,9 +16,8 @@ import {
 import { getTableDocument } from "./structured";
 import { tableExtension } from "./table-extension";
 import { type TableBlock, TableNode } from "./TableNode";
-import { createNodeRegistry } from "@tasfer/editor";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import { notifyFontsChanged } from "@tasfer/editor/fonts";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
 import { baseSchema } from "@tasfer/editor/schema";
 import { loadPage } from "@tasfer/editor/serlization/loadPage";
 import { createInitialState } from "@tasfer/editor/state-utils";
