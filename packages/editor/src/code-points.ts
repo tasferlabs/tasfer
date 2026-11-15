@@ -115,6 +115,25 @@ export function isInsideEmoji(text: string, index: number): boolean {
 }
 
 /**
+ * One caret step back from `index`: over a whole emoji when one ends there
+ * (a family, a flag, a skin tone go in one ← or one Backspace), otherwise one
+ * code point. Letters with marks still go one code point at a time, the way
+ * Backspace works in native text fields.
+ */
+export function prevCaretStop(text: string, index: number): number {
+  const start = prevCodePointStart(text, index);
+  const span = emojiClusterAt(text, start);
+  return span !== null && span.start < start ? span.start : start;
+}
+
+/** One caret step forward from `index`; the mirror of {@link prevCaretStop}. */
+export function nextCaretStop(text: string, index: number): number {
+  const end = nextCodePointEnd(text, index);
+  const span = emojiClusterAt(text, index);
+  return span !== null && span.end > end ? span.end : end;
+}
+
+/**
  * Whether a keydown's `key` is a character to type rather than a named key.
  *
  * Named keys ("Enter", "ArrowLeft", "Dead") are multi-character ASCII words, so

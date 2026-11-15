@@ -1,5 +1,5 @@
 import { CONVERT_STRUCTURED_BLOCK, TEXT_INPUTTED } from "../action-bus";
-import { nextCodePointEnd, prevCodePointStart } from "../code-points";
+import { nextCaretStop, prevCaretStop } from "../code-points";
 import { inheritedTypingMarks } from "../mark-edge";
 import { resolveMarkRuns } from "../mark-runs";
 import { invalidateBlockCache } from "../rendering/renderer";
@@ -2340,7 +2340,7 @@ export function deleteText(state: EditorState): ActionResult {
   if (textIndex > 0) {
     // One character back, not one UTF-16 unit: an astral character (an emoji)
     // is a surrogate pair, and halving it would leave text no font can draw.
-    const charStart = prevCodePointStart(
+    const charStart = prevCaretStop(
       getBlockTextContent(oldBlock),
       textIndex,
     );
@@ -2654,7 +2654,7 @@ export function deleteForward(state: EditorState): ActionResult {
 
   if (textIndex < oldText.length) {
     // One character forward, not one UTF-16 unit — see the backward delete.
-    const charEnd = nextCodePointEnd(oldText, textIndex);
+    const charEnd = nextCaretStop(oldText, textIndex);
     if (
       rangeIntersectsStructuredMark(oldBlock, textIndex, charEnd, state.schema)
     ) {

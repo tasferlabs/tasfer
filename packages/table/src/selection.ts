@@ -12,8 +12,8 @@
 import { type TableCellLayout, type TableLayout } from "./geometry";
 import { CELL_TEXT_FIELD, readTable } from "./structured";
 import {
-  nextCodePointEnd,
-  prevCodePointStart,
+  nextCaretStop,
+  prevCaretStop,
 } from "@tasfer/editor/code-points";
 import type { CharRun } from "@tasfer/editor/serlization/loadPage";
 import type {
@@ -503,11 +503,11 @@ export function stepTableCaret(
       return intoNext();
     case "backward":
       return caret.offset > 0
-        ? { ...caret, offset: prevCodePointStart(text, caret.offset) }
+        ? { ...caret, offset: prevCaretStop(text, caret.offset) }
         : intoPrevious();
     case "forward":
       return caret.offset < length
-        ? { ...caret, offset: nextCodePointEnd(text, caret.offset) }
+        ? { ...caret, offset: nextCaretStop(text, caret.offset) }
         : intoNext();
     // Word steps ask the engine's own boundary walk, so Alt+Arrow stops in the
     // same places inside a cell as it does in the paragraph above the table —

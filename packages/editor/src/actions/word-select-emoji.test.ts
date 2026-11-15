@@ -1,5 +1,7 @@
 import { getBlockTextContent } from "../node-shared";
+import { nextCaretStop, prevCaretStop } from "../code-points";
 import { loadPage } from "../serlization/loadPage";
+import { moveCursorLeft, moveCursorRight } from "../selection";
 import { createInitialState } from "../state-utils";
 import {
   emojiSpanAt,
@@ -8,6 +10,8 @@ import {
   findWordDeleteBoundaryRight,
 } from "../word-chars";
 import {
+  deleteForward,
+  deleteText,
   deleteWordBackward,
   moveToNextWord,
   moveToPreviousWord,
@@ -159,5 +163,50 @@ describe("emoji clusters stay whole for word moves and deletes", () => {
     expect(getBlockTextContent(result.state.document.page.blocks[0])).toBe(
       "pi ",
     );
+  });
+});
+
+// One ← / → or one Backspace / Delete takes a whole emoji, as in native text
+// fields; a letter with an accent mark still goes one code point at a time.
+describe("arrow keys and Backspace never stop inside an emoji", () => {
+  const cases = [
+    ["family", "👨‍👩‍👧‍👦"],
+    ["skin tone", "👩🏽‍💻"],
+    ["flag", "🇸🇦"],
+    ["colour selector", "❤️"],
+    ["keycap", "1️⃣"],
+  ] as const;
+
+  it.each(cases)("caret stops step over a %s whole", (_name, emoji) => {
+    const text = `a${emoji}b`;
+    const end = 1 + emoji.length;
+    expect(nextCaretStop(text, 1)).toBe(end);
+    expect(prevCaretStop(text, end)).toBe(1);
+  });
+
+  it("plain text still steps one code point", () => {
+    expect(nextCaretStop("abc", 0)).toBe(1);
+    expect(prevCaretStop("abc", 3)).toBe(2);
+    expect(nextCaretStop("😀x", 0)).toBe(2);
+    // e + combining acute: Backspace removes the accent first.
+    expect(prevCaretStop("é", 2)).toBe(1);
+  });
+
+  it.each(cases)("→ then ← cross a %s in one press each", (_name, emoji) => {
+    const content = `a${emoji}b`;
+    const end = 1 + emoji.length;
+    const right = moveCursorRight(withCaret(content, 1));
+    expect(right.document.cursor?.position.textIndex).toBe(end);
+    const left = moveCursorLeft(withCaret(content, end));
+    expect(left.document.cursor?.position.textIndex).toBe(1);
+  });
+
+  it.each(cases)("Backspace and Delete remove a %s whole", (_name, emoji) => {
+    const content = `a${emoji}b`;
+    const end = 1 + emoji.length;
+    const back = deleteText(withCaret(content, end));
+    expect(getBlockTextContent(back.state.document.page.blocks[0])).toBe("ab");
+    const fwd = deleteForward(withCaret(content, 1));
+    expect(getBlockTextContent(fwd.state.document.page.blocks[0])).toBe("ab");
   });
 });
