@@ -11,7 +11,9 @@
  * map of its package.json, minus the `./*` deep-import wildcard and entries
  * marked `@deprecated`). For each
  * export it records the signature as written, the doc comment, and the members
- * of a class, interface or object type. Exports tagged `@internal` are left out.
+ * of a class, interface or object type. Exports tagged `@internal` are left out,
+ * and so are the old names a package keeps in `src/deprecated/` for one more
+ * release.
  *
  * The output is committed. The site build only reads the JSON, so it needs
  * neither the packages nor a compiler, and a pull request that changes the
@@ -626,7 +628,18 @@ function sourcePath(file) {
   return path;
 }
 
+/**
+ * Whether a name is only kept for old imports: declared or re-exported in a
+ * file under `src/deprecated/`. Those are not documented.
+ */
+function isDeprecatedReexport(exported) {
+  return (exported.declarations ?? []).some((handle) =>
+    handle.resolve()?.getSourceFile().fileName.includes("/src/deprecated/"),
+  );
+}
+
 function describeExport(ctx, exported) {
+  if (isDeprecatedReexport(exported)) return null;
   const { checker } = ctx;
   const symbol =
     exported.flags & SymbolFlags.Alias ? checker.getAliasedSymbol(exported) : exported;

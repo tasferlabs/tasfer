@@ -1,8 +1,9 @@
 /**
  * `@tasfer/editor/rendering/nodes`: kept so 0.2 imports keep working.
  *
- * @deprecated Everything here is exported from `@tasfer/editor`. Import it
- * from there; this entry point will be removed in a later release.
+ * @deprecated Most of it is exported from `@tasfer/editor`: import it from
+ * there. The names marked "not part of the public API" have no new home. This
+ * entry point will be removed in a later release.
  */
 
 export {
@@ -96,6 +97,54 @@ export {
   TOGGLE_TODO_CHECKED,
 } from "../index";
 export {
+  /** @deprecated Not part of the public API any more. It will be removed in a later release. */
+  CANCEL_IMAGE_HANDLE_DRAG,
+  /** @deprecated Not part of the public API any more. It will be removed in a later release. */
+  cancelImageHandleDrag,
+  /** @deprecated Not part of the public API any more. It will be removed in a later release. */
+  CREATE_PARAGRAPH_BELOW_IMAGE,
+  /** @deprecated Not part of the public API any more. It will be removed in a later release. */
+  END_IMAGE_HANDLE_DRAG,
+  /** @deprecated Not part of the public API any more. It will be removed in a later release. */
+  endImageHandleDrag,
+  /** @deprecated Not part of the public API any more. It will be removed in a later release. */
+  getDragHandleAtPoint,
+  /** @deprecated Not part of the public API any more. It will be removed in a later release. */
+  imageObjectPosition,
+  /** @deprecated Not part of the public API any more. It will be removed in a later release. */
+  SET_IMAGE_HOVER,
+  /** @deprecated Not part of the public API any more. It will be removed in a later release. */
+  START_IMAGE_HANDLE_DRAG,
+  /** @deprecated Not part of the public API any more. It will be removed in a later release. */
+  startImageHandleDrag,
+  /** @deprecated Not part of the public API any more. It will be removed in a later release. */
+  UPDATE_IMAGE_HANDLE_DRAG,
+  /** @deprecated Not part of the public API any more. It will be removed in a later release. */
+  UPDATE_IMAGE_REPOSITION,
+  /** @deprecated Not part of the public API any more. It will be removed in a later release. */
+  updateImageHandleDrag,
+} from "../nodes/ImageNode";
+export {
+  /** @deprecated Not part of the public API any more. It will be removed in a later release. */
+  LIST_BLOCK_TYPES,
+} from "../nodes/ListNode";
+export {
+  /** @deprecated Not part of the public API any more. It will be removed in a later release. */
+  TEXT_BLOCK_TYPES,
+} from "../nodes/TextNode";
+export {
   /** @deprecated Internal; this entry point will be removed. */
   createDefaultNodeRegistry,
 } from "../rendering/nodes";
+export {
+  /** @deprecated Not part of the public API any more. It will be removed in a later release. */
+  contentPointCaretRect,
+} from "../rendering/nodes/content-caret";
+export type {
+  /** @deprecated Not part of the public API any more. It will be removed in a later release. */
+  NodeAtomicHit,
+} from "../rendering/nodes/Node";
+export {
+  /** @deprecated Not part of the public API any more. It will be removed in a later release. */
+  UnknownNode,
+} from "../rendering/nodes/UnknownNode";

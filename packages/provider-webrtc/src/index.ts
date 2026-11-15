@@ -11,3 +11,6 @@ export {
   createWebrtcProvider,
   type CreateWebrtcProviderOptions,
 } from "./provider";
+
+// Old exports kept for one more release, each marked `@deprecated`.
+export * from "./deprecated/root";

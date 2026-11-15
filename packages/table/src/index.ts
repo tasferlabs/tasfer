@@ -74,3 +74,6 @@ export {
   type TableFeatureOptions,
 } from "./table-extension";
 export { type TableBlock, TableNode } from "./TableNode";
+
+// Old exports kept for one more release, each marked `@deprecated`.
+export * from "./deprecated/root";

@@ -136,9 +136,11 @@ describe("math/data import boundary", () => {
     expect(files.map((file) => relative(SRC_ROOT, file)).sort()).toEqual([
       "codecs.ts",
       "data.ts",
+      "deprecated/data.ts",
       "inline-structured.ts",
       "source.ts",
       "structured.ts",
+      "tree-edit.ts",
     ]);
 
     const banned = files

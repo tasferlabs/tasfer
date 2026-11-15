@@ -607,3 +607,6 @@ export {
 // machinery a first-party host needs live in the explicitly-unstable
 // `@tasfer/editor/internal` entry — they are not part of this public
 // contract. See ./internal.ts.
+
+// Old exports kept for one more release, each marked `@deprecated`.
+export * from "./deprecated/root";

@@ -1,8 +1,9 @@
 /**
  * `@tasfer/editor/serlization/codecs`: kept so 0.2 imports keep working.
  *
- * @deprecated Everything here is exported from `@tasfer/editor`. Import it
- * from there; this entry point will be removed in a later release.
+ * @deprecated Most of it is exported from `@tasfer/editor`: import it from
+ * there. The names marked "not part of the public API" have no new home. This
+ * entry point will be removed in a later release.
  */
 
 export {
@@ -27,3 +28,9 @@ export {
   /** @deprecated Import it from `@tasfer/editor` instead. */
   type TextCodec,
 } from "../index";
+export {
+  /** @deprecated Not part of the public API any more. It will be removed in a later release. */
+  codecFromNode,
+  /** @deprecated Not part of the public API any more. It will be removed in a later release. */
+  type SerializableNode,
+} from "../serlization/codecs/from-node";

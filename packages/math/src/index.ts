@@ -57,3 +57,6 @@ export {
   mathSourceOffsetFromContentPoint,
   mathTreeCaretToContentSelection,
 } from "./tree-selection";
+
+// Old exports kept for one more release, each marked `@deprecated`.
+export * from "./deprecated/root";

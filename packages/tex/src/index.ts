@@ -435,3 +435,6 @@ export {
 // the parse AST (`Node`/`Span`), and `parse`/`ParseOptions` are brittle engine
 // internals, not a stable contract — they live in `@tasfer/tex/internal`.
 // At the root, the box tree is reachable only as the opaque `MathLayout.box`.
+
+// Old exports kept for one more release, each marked `@deprecated`.
+export * from "./deprecated/root";

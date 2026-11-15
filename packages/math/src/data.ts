@@ -169,3 +169,6 @@ export {
   type ParseMathDocumentOptions,
   printMathDocument,
 } from "@tasfer/tex/data";
+
+// Old exports kept for one more release, each marked `@deprecated`.
+export * from "./deprecated/data";
