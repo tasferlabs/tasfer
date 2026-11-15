@@ -85,6 +85,22 @@ export function Toc({ route }: { route: string }) {
                   const y = el.getBoundingClientRect().top + window.scrollY - 76;
                   window.scrollTo({ top: y, behavior: "smooth" });
                 }
+                // Put the section in the address, and tell the page: an
+                // article can react to its own headings (the API reference
+                // unfolds a folded group). Setting `location.hash` would jump
+                // instead of the smooth scroll above.
+                try {
+                  const from = window.location.href;
+                  window.history.replaceState(window.history.state, "", "#" + it.id);
+                  window.dispatchEvent(
+                    new HashChangeEvent("hashchange", {
+                      oldURL: from,
+                      newURL: window.location.href,
+                    }),
+                  );
+                } catch {
+                  /* the scroll alone still works */
+                }
               }}
             >
               {it.text}

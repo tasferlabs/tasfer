@@ -6,6 +6,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -764,6 +765,23 @@ export default function ApiReferenceView() {
     };
   }, []);
 
+  // Another package starts from a clean view, however the reader got there:
+  // the picker, a link into another package, or back and forward. Declared
+  // before the target effect below, so a link's target is opened after this.
+  // "Expand all" is the reader's choice of view and stays: resetting it here
+  // would flip the meaning of `open` under the target effect in the same pass.
+  const shownSlug = useRef(slug);
+  useEffect(() => {
+    if (shownSlug.current === slug) return;
+    shownSlug.current = slug;
+    setOpen(new Set());
+    setQuery("");
+    setKind("all");
+    setOpenGroup(null);
+    setFull(new Set());
+    setFailed(null);
+  }, [slug]);
+
   // Packages other than the default arrive on demand, one file each.
   const data = loaded[slug];
   useEffect(() => {
@@ -824,11 +842,15 @@ export default function ApiReferenceView() {
     return out;
   }, [data, t]);
 
-  // Bring the target on screen: unfold its group, open its row, scroll to it
-  // (or to one of its members).
+  /** Where to scroll once the target's group and row are on the page: the
+   *  target itself, or its owner when the target (a member) is not drawn. */
+  const [landing, setLanding] = useState<{ id: string; fallback: string } | null>(null);
+
+  // Bring the target on screen: unfold its group, open its row, then scroll
+  // to it (or to one of its members) in the layout effect below.
   useEffect(() => {
     if (!target || !data) return;
-    let scrollTo = target;
+    let fallback = target;
     if (target.startsWith(GROUP_PREFIX)) {
       const group = groups.find((g) => g.id === target);
       if (group) {
@@ -848,16 +870,30 @@ export default function ApiReferenceView() {
         setOpenGroup(home.id);
         setFull((prev) => withItem(prev, home.id));
       }
-      setOpen((prev) => withItem(prev, owner));
-      if (!document.getElementById(target)) scrollTo = owner;
+      // Under "Expand all" the set lists the rows that are closed.
+      setOpen((prev) => {
+        if (allOpen) {
+          const next = new Set(prev);
+          next.delete(owner);
+          return next;
+        }
+        return withItem(prev, owner);
+      });
+      fallback = owner;
     }
-    const frame = requestAnimationFrame(() => {
-      const el = document.getElementById(target) ?? document.getElementById(scrollTo);
-      el?.scrollIntoView({ block: "start" });
-      setTarget(null);
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [target, data, groups]);
+    // Set with the changes above, so it lands in the same render: the scroll
+    // then measures the page with the group unfolded and the row open.
+    setLanding({ id: target, fallback });
+    setTarget(null);
+  }, [target, data, groups, allOpen]);
+
+  useLayoutEffect(() => {
+    if (!landing) return;
+    const el =
+      document.getElementById(landing.id) ?? document.getElementById(landing.fallback);
+    el?.scrollIntoView({ block: "start" });
+    setLanding(null);
+  }, [landing]);
 
   const ref = useMemo<RefContext>(() => {
     const owners = new Map<string, { slug: string; anchor: string }[]>();
@@ -890,13 +926,6 @@ export default function ApiReferenceView() {
   const pick = useCallback((next: string) => {
     writeLocation(next, null);
     setSlug(next);
-    setOpen(new Set());
-    setAllOpen(false);
-    setQuery("");
-    setKind("all");
-    setOpenGroup(null);
-    setFull(new Set());
-    setFailed(null);
   }, []);
 
   // What `toggle` reads, kept in a ref so the rows' callback stays the same
