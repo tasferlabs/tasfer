@@ -1,4 +1,6 @@
+import { resolveStructuredInlineMathRuns } from "./inline-structured";
 import { mathExtension } from "./math-extension";
+import { mathContentSelectionFromSourceOffset } from "./tree-selection";
 import {
   convertBlockAtCursor,
   deleteForward,
@@ -15,11 +17,16 @@ import { STRUCTURED_MARK_ANCHOR_CHAR } from "@tasfer/editor/feature-facets";
 import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
 import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
-import { moveCursorToPosition } from "@tasfer/editor/selection";
+import {
+  moveCursorToPosition,
+  updateCursor,
+  updateSelection,
+} from "@tasfer/editor/selection";
 import { loadPage } from "@tasfer/editor/serlization/loadPage";
 import type { Operation, ViewportState } from "@tasfer/editor/state-types";
 import { createInitialState } from "@tasfer/editor/state-utils";
 import type { ContentSelection } from "@tasfer/editor/structured-selection";
+import { isTextualBlock } from "@tasfer/editor/sync/block-registry";
 import {
   applyStructuredEdit,
   createStructuredDocument,
@@ -541,6 +548,54 @@ describe("Editor structured-content public API", () => {
     expect(editor.redo()).toBe(true);
     expect(editor.getMarkdown()).toBe("$$\nXabcd\n$$");
     expect(editor.query.content(blockId, contentId)).not.toBeNull();
+    editor.destroy();
+  });
+
+  it("reports the caret at a selection end that stops inside a formula", () => {
+    // "hi ￼ yo": the selection runs from the end of the line back to a stop in
+    // the middle of the formula. Its flat focus sits on the formula's far
+    // edge, but the end the user drags, and a phone's magnifier follows, is
+    // the stop.
+    const schema = baseSchema.use(mathExtension());
+    const page = loadPage("hi $a+b+c+d$ yo", schema.data);
+    const block = page.blocks[0];
+    if (!isTextualBlock(block)) throw new Error("expected a textual block");
+    const run = resolveStructuredInlineMathRuns(block)[0];
+    if (!run?.contentId || !run.document) throw new Error("expected a chip");
+    const stop = mathContentSelectionFromSourceOffset(
+      block.id,
+      run.contentId,
+      run.document,
+      4,
+    )!.focus;
+    const flatFocus = { blockIndex: 0, textIndex: run.startIndex };
+    const initial = createInitialState(page, {
+      schema: schema.data,
+      nodes: createNodeRegistry(schema.nodes),
+      marks: createMarkRegistry(schema.marks),
+      crdtBinding: createCRDTbinding(page.id, "public-inside-caret"),
+    });
+    const editor = new Editor(
+      canvasLayers(),
+      updateCursor(
+        updateSelection(initial, {
+          anchor: { blockIndex: 0, textIndex: run.endIndex + 3 },
+          focus: flatFocus,
+          inside: { focus: stop },
+        }),
+        flatFocus,
+      ),
+      VIEWPORT,
+    );
+
+    const atStop = editor.view.coordsAtContent(stop);
+    const atEdge = editor.view.coordsAtPos({
+      block: block.id,
+      offset: run.startIndex,
+    });
+    expect(atStop).not.toBeNull();
+    expect(atStop!.x).toBeGreaterThan(atEdge!.x);
+    expect(editor.view.coordsAtPos("caret")).toEqual(atStop);
     editor.destroy();
   });
 

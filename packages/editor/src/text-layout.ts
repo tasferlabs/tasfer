@@ -1314,6 +1314,9 @@ export function textContentCaretRect(
       },
     );
     if (!caret) continue;
+    if (caret.fillsLine) {
+      return { x: fragment.left + caret.x, y: line.y, height: line.height };
+    }
     const baseline = lineBaseline(layout, line);
     return {
       x: fragment.left + caret.x,
@@ -1357,9 +1360,9 @@ export function textContentSelectionRects(
     for (const piece of pieces) {
       rects.push({
         x: fragment.left + piece.x,
-        y: baseline + piece.top,
+        y: piece.fillsLine ? line.y : baseline + piece.top,
         width: piece.width,
-        height: piece.bottom - piece.top,
+        height: piece.fillsLine ? line.height : piece.bottom - piece.top,
         baseline,
       });
     }

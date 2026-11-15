@@ -776,6 +776,25 @@ const tableKind: StructuredKindSpec = {
 };
 ```
 
+A text selection can start or end in the middle of an inline mark's document —
+from halfway through a formula out into the paragraph. The flat text holds the
+mark as one character, so the selection keeps the stop inside it on
+`selection.inside` (`{ anchor?, focus? }`, each a `ContentPoint`) and asks the
+kind what that end takes. Two adapters answer:
+
+- `edgeRange({ document, blockId, contentId, point, edge })` returns the part
+  between the stop `point` and the document's `"start"` or `"end"`:
+  `{ selection, covers }`, where `selection` is the range as the kind selects
+  it (`anchor` at the stop, `focus` at the edge) and `covers` is `"none"`,
+  `"part"` or `"all"` of the document.
+- `sliceSelection({ document, selection })` returns a detached copy of the
+  document holding only that range, under the same root id. A copy carries it
+  in the whole document's place.
+
+Core paints, deletes, types over and copies just that part. A kind without
+`edgeRange` is always taken whole, which is the right default for a mark with
+nothing meaningful to select inside it.
+
 <h2 id="extend">Extending</h2>
 
 `use` installs a reusable feature bundle. Feature objects can contribute nodes,

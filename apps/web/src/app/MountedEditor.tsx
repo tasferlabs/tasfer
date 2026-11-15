@@ -53,6 +53,7 @@ import {
   INSERT_MATH_COMMAND,
   RESIZE_MATH_MATRIX,
   mathCommandInsertion,
+  mathContentSelectionFromSourceOffset,
   mathMatrixContext,
   mathMatrixContextInRange,
   mathMatrixResize,
@@ -161,6 +162,7 @@ import { MathCommandMenu } from "../editor/MathCommandMenu";
 import {
   activeTreeMath,
   activeTreeMathCommandRun,
+  heldFormula,
   treeMathAtAnchor,
   treeMathAtFocus,
 } from "../editor/treeMath";
@@ -395,7 +397,8 @@ function matrixContextForCaret(
               target.localEnd,
             )
           : null))
-      : null);
+      : null) ??
+    heldFormulaMatrix(editor)?.ctx;
   if (!ctx) return null;
   return {
     env: ctx.env,
@@ -404,6 +407,49 @@ function matrixContextForCaret(
     row: ctx.row,
     col: ctx.col,
   };
+}
+
+/**
+ * The matrix inside a formula held from the text around it (see
+ * {@link heldFormula}), or null. The whole formula is held, so no caret says
+ * which grid is meant; with several, the first one is taken.
+ */
+function heldFormulaMatrix(editor: EditorInstance) {
+  const formula = heldFormula(editor);
+  if (!formula) return null;
+  const ctx = mathMatrixContextInRange(
+    formula.source,
+    0,
+    formula.source.length,
+  );
+  return ctx ? { formula, ctx } : null;
+}
+
+/**
+ * Move a selection that holds a formula from the text around it into the
+ * formula itself, holding its matrix whole — the selection a paragraph has
+ * after a matrix is held — so the matrix editor's resize, which works on the
+ * nested selection, has a grid to work on. No-op when the selection is
+ * anything else.
+ */
+function enterHeldFormulaMatrix(editor: EditorInstance): void {
+  if (treeMathAtFocus(editor)) return;
+  const found = heldFormulaMatrix(editor);
+  if (!found) return;
+  const { formula, ctx } = found;
+  const at = (offset: number) =>
+    mathContentSelectionFromSourceOffset(
+      formula.blockId,
+      formula.contentId,
+      formula.document,
+      offset,
+    );
+  const start = at(ctx.span.start);
+  const end = at(ctx.span.end);
+  if (!start || !end) return;
+  editor.change((change) =>
+    change.selectContent({ ...start, focus: end.focus }),
+  );
 }
 
 /**
@@ -1681,6 +1727,7 @@ function PageEditor({
   // is not in one. Shared by the toolbar action and the context-menu item.
   const openMatrixEditor = useCallback(() => {
     const editor = mountedRef.current?.editor;
+    if (editor) enterHeldFormulaMatrix(editor);
     const ctx = editor ? matrixContextForCaret(editor) : null;
     if (ctx) setMatrixEditor({ rows: ctx.rows, cols: ctx.cols });
   }, []);

@@ -253,6 +253,12 @@ export interface NodeContentSelectionGeometry {
   readonly end: NodeCaretRect;
   /** Whether the anchor is the start (and the focus the end). */
   readonly isForward: boolean;
+  /**
+   * How strongly the node fills the band, when that differs from the theme's
+   * `selection.opacity` (a block equation fills over its own card). Core
+   * matches it for what it draws on top of the band.
+   */
+  readonly opacity?: number;
 }
 
 /** Context for {@link Node.activate} — enough to decide which overlay to open. */

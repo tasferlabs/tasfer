@@ -407,8 +407,10 @@ export function handleEvents(
     if (state.document.contentSelection) {
       state = dragContentHandleToPoint(
         state,
-        session.autoScroll.lastPointerX,
-        session.autoScroll.lastPointerY,
+        session.autoScroll.lastPointerX -
+          (session.handleDragGrabOffset?.dx ?? 0),
+        session.autoScroll.lastPointerY -
+          (session.handleDragGrabOffset?.dy ?? 0),
         viewport,
         undefined,
         { signalBoundary: false },
@@ -417,8 +419,10 @@ export function handleEvents(
     const position = state.document.contentSelection
       ? null
       : getTextPositionFromViewport(
-          session.autoScroll.lastPointerX,
-          session.autoScroll.lastPointerY,
+          session.autoScroll.lastPointerX -
+            (session.handleDragGrabOffset?.dx ?? 0),
+          session.autoScroll.lastPointerY -
+            (session.handleDragGrabOffset?.dy ?? 0),
           state,
           viewport,
           undefined,

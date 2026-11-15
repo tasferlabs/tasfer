@@ -120,13 +120,19 @@ function grabHandle(
   return { session, state: (begin as { state: EditorState }).state };
 }
 
-/** One captured-drag move of the held handle to a viewport point. */
+/**
+ * One captured-drag move that brings the held handle's text point to a
+ * viewport point. The finger keeps the offset it grabbed the ball at (the
+ * ball hangs off the line), so it lands that far from `p`.
+ */
 function moveHandle(
   session: InteractionSession,
   state: EditorState,
   p: { x: number; y: number },
 ): EditorState {
-  const res = routeCapturedMove(p, {
+  const offset = session.handleDragGrabOffset ?? { dx: 0, dy: 0 };
+  const finger = { x: p.x + offset.dx, y: p.y + offset.dy };
+  const res = routeCapturedMove(finger, {
     state,
     viewport,
     documentHeight: viewport.documentHeight,
@@ -151,6 +157,25 @@ function dragHandleThrough(
 }
 
 describe("touch selection-handle drag", () => {
+  it("stays on the handle's line when the ball, which hangs off it, is touched", () => {
+    for (const which of ["anchor", "focus"] as const) {
+      const state = withForwardSelection(2, 5);
+      const { session, state: held } = grabHandle(state, which);
+      const ball = handleBallPoint(state, which);
+
+      const res = routeCapturedMove({ x: ball.x + 1, y: ball.y + 1 }, {
+        state: held,
+        viewport,
+        documentHeight: viewport.documentHeight,
+        session,
+        updateViewport: undefined,
+      } as never);
+      expect(res!.state.document.selection!.focus.blockIndex).toBe(
+        which === "anchor" ? 2 : 5,
+      );
+    }
+  });
+
   it("dragging the start (anchor) handle keeps the end pinned and moves the focus", () => {
     // Forward selection: start handle is the anchor (block 2), end is focus (block 5).
     const state = withForwardSelection(2, 5);

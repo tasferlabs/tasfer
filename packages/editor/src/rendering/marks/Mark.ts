@@ -148,6 +148,13 @@ export interface MarkReplacementCaret {
   readonly top: number;
   /** Caret bottom relative to the text baseline (positive = below), CSS px. */
   readonly bottom: number;
+  /**
+   * Stand as tall as the text line the run sits on, ignoring `top`/`bottom` —
+   * for a caret on the run's own row (a formula's main row), so it matches
+   * the prose caret beside it. Only read from the nested-caret hook
+   * ({@link MarkReplacement.contentCaretRect}).
+   */
+  readonly fillsLine?: boolean;
 }
 
 /**
@@ -167,6 +174,12 @@ export interface MarkReplacementSelectionRect {
   readonly bottom: number;
   /** Rect width, CSS px. */
   readonly width: number;
+  /**
+   * Fill the text line the run sits on, ignoring `top`/`bottom` — for a range
+   * on the run's own row, so it reads as one band with selected prose. Only
+   * read from the nested hook ({@link MarkReplacement.contentSelectionRects}).
+   */
+  readonly fillsLine?: boolean;
 }
 
 export interface MarkReplacementPaintCtx {

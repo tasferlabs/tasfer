@@ -34,11 +34,15 @@
 
 import type { ActionBus, StateResult } from "../action-bus";
 import {
+  type ContentEdgeRange,
+  type ContentEdgeRangeCtx,
+  type ContentEdgeRangeResolver,
   type ContentSelectionPaste,
   type ContentSelectionPasteCtx,
   type ContentSelectionResolver,
   type ContentSelectionSerializer,
   type ContentSelectionSlice,
+  type ContentSelectionSlicer,
   type FeatureActionHook,
   type FeatureFacetSource,
   type FeatureInputOptions,
@@ -152,6 +156,13 @@ export interface StructuredKindSpec {
   readonly contentSelection?: ContentSelectionSerializer;
   /** Snaps a nested range to this kind's structural discipline. */
   readonly resolveSelection?: ContentSelectionResolver;
+  /**
+   * The part of one document between a stop inside it and one of its edges —
+   * what a text selection that starts or ends inside the document takes of it.
+   */
+  readonly edgeRange?: ContentEdgeRangeResolver;
+  /** A detached copy of one document cut down to a range inside it. */
+  readonly sliceSelection?: ContentSelectionSlicer;
   /** Takes a paste that lands in a nested range inside this kind's documents. */
   readonly paste?: ContentSelectionPaste;
   /** Re-addressing adapter for snapshot/import clones of this kind. */
@@ -179,6 +190,8 @@ export interface StructuredTextFieldRef {
 export interface StructuredKindAdapters {
   contentSelection?: ContentSelectionSerializer;
   resolveSelection?: ContentSelectionResolver;
+  edgeRange?: ContentEdgeRangeResolver;
+  sliceSelection?: ContentSelectionSlicer;
   paste?: ContentSelectionPaste;
   clone?: StructuredContentClone;
   source?: (document: StructuredDocument) => string | undefined;
@@ -419,6 +432,22 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
           entry.kind,
         );
         merged.resolveSelection = entry.resolveSelection;
+      }
+      if (entry.edgeRange) {
+        invariant(
+          !merged.edgeRange,
+          'Structured kind "%s" registers two edgeRange adapters. Each kind has exactly one; entries for a kind may only contribute disjoint adapters.',
+          entry.kind,
+        );
+        merged.edgeRange = entry.edgeRange;
+      }
+      if (entry.sliceSelection) {
+        invariant(
+          !merged.sliceSelection,
+          'Structured kind "%s" registers two sliceSelection adapters. Each kind has exactly one; entries for a kind may only contribute disjoint adapters.',
+          entry.kind,
+        );
+        merged.sliceSelection = entry.sliceSelection;
       }
       if (entry.paste) {
         invariant(
@@ -713,6 +742,28 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
     selection: ContentSelection,
   ): ContentSelection | undefined {
     return this.kinds.get(document.kind)?.resolveSelection?.({
+      document,
+      selection,
+    });
+  }
+
+  /**
+   * Ask the kind's adapter for the part of one document between a stop inside
+   * it and one edge. `undefined` when the kind is only ever taken whole.
+   */
+  contentEdgeRange(ctx: ContentEdgeRangeCtx): ContentEdgeRange | undefined {
+    return this.kinds.get(ctx.document.kind)?.edgeRange?.(ctx);
+  }
+
+  /**
+   * Ask the kind's adapter for a detached copy of one document cut down to a
+   * range inside it. `undefined` when the kind cannot cut that range out.
+   */
+  sliceContentSelection(
+    document: StructuredDocument,
+    selection: ContentSelection,
+  ): StructuredDocument | undefined {
+    return this.kinds.get(document.kind)?.sliceSelection?.({
       document,
       selection,
     });

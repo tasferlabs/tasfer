@@ -26,6 +26,10 @@ export const IMAGE_DEFAULT_HEIGHT = 220;
 export const SCROLLBAR_HOLD_DURATION = 150; // Shorter than long press, iOS feels snappy
 export const SCROLLBAR_TOUCH_BUFFER = 16; // Pixels of buffer area around the thumb for touch detection
 export const SELECTION_HANDLE_TOUCH_TARGET = 44; // Touch target size for selection handles (iOS HIG minimum)
+// How far past its line a dragged selection handle must be carried before it
+// moves to the next line, at the least (px). The real figure is half the
+// line's height when that is more; this floor covers short lines.
+export const SELECTION_HANDLE_LINE_SLOP = 12;
 export const CURSOR_DRAG_ACTIVATION_DELAY = 200; // ms before cursor drag activates (shorter than context menu)
 export const CURSOR_TOUCH_RADIUS = 30; // px proximity to cursor to trigger drag mode
 // Width (px) of the block-reorder grab band inside the left gutter, measured

@@ -17,6 +17,7 @@ import type { NodeContentSelectionGeometry } from "./rendering/nodes/Node";
 import type { NodeRegistry } from "./rendering/nodes/Node";
 import { getBlockHeight } from "./rendering/renderer";
 import { getBlockDirection } from "./rtl";
+import { flatEndForInside } from "./selection-inside";
 import type { Block, CharRun, MarkSpan } from "./serlization/loadPage";
 import type {
   CursorState,
@@ -363,6 +364,59 @@ export function getCursorDocumentCoords(
     state,
     block.id,
   );
+}
+
+/**
+ * The box an inline mark run (a formula) fills on its text line, top and
+ * bottom in DOCUMENT space — the whole chip, as a tap on it is tested. Unlike
+ * the flat caret at its edges, which starts at the text's ascent, this reaches
+ * the top of a formula that makes its line taller (a nested fraction). Null
+ * when the run wraps over more than one line or the block is not text.
+ */
+export function getInlineRunBox(
+  state: EditorState,
+  run: { blockIndex: number; startIndex: number; endIndex: number },
+  viewport: ViewportState,
+  styles: EditorStyles = getEditorStyles(state),
+  visibility?: VisibleBlockRange,
+): { top: number; bottom: number } | null {
+  const block = state.document.page.blocks[run.blockIndex];
+  if (!block) return null;
+  const node = textNodeFor(state, block);
+  if (!node) return null;
+  const maxWidth =
+    viewport.width - (styles.canvas.paddingLeft + styles.canvas.paddingRight);
+  const layout = layoutFor(
+    node,
+    block,
+    run.blockIndex,
+    maxWidth,
+    styles,
+    state.marks,
+  );
+  const blockTop = getBlockTopDocument(
+    state,
+    run.blockIndex,
+    maxWidth,
+    styles,
+    viewport,
+    visibility,
+  );
+  const rects = node.selectionRects(
+    layout,
+    {
+      anchor: { blockIndex: run.blockIndex, textIndex: run.startIndex },
+      focus: { blockIndex: run.blockIndex, textIndex: run.endIndex },
+      isForward: true,
+    },
+    run.blockIndex,
+    styles.canvas.paddingLeft,
+    blockTop,
+    false,
+    true,
+  );
+  if (rects.length !== 1) return null;
+  return { top: rects[0].y, bottom: rects[0].y + rects[0].height };
 }
 
 /**
@@ -2351,16 +2405,27 @@ function commitSelectionFocus(
   focus: Position,
   initialBoundary?: SelectionState["initialBoundary"],
 ): EditorState {
+  // An anchor that really stops inside a formula keeps that stop while the
+  // focus moves, and its flat end follows the side the focus is on: the
+  // formula's far edge while some of it is selected, its near edge once none
+  // is (see `flatEndForInside`).
+  const fixedInside = initialBoundary
+    ? undefined
+    : state.document.selection?.inside?.anchor;
+  const insideAnchor = fixedInside
+    ? flatEndForInside(state, fixedInside, focus)
+    : null;
   const snapped = snapSelectionToConstructs(
     state,
-    anchor,
+    insideAnchor ?? anchor,
     focus,
     state.document.selection?.focus,
   );
   const next = updateSelection(state, {
-    anchor: snapped.anchor,
+    anchor: insideAnchor ?? snapped.anchor,
     focus: snapped.focus,
     ...(initialBoundary ? { initialBoundary } : {}),
+    ...(fixedInside && insideAnchor ? { inside: { anchor: fixedInside } } : {}),
   });
   return next.document.cursor ? updateCursor(next, snapped.focus) : next;
 }
@@ -2453,6 +2518,12 @@ export function updateSelection(
             // This prevents unintentional preservation of gesture boundaries in programmatic selections
             ...("initialBoundary" in updates && updates.initialBoundary !== null
               ? { initialBoundary: updates.initialBoundary }
+              : {}),
+            // Likewise the stops inside formulas: only a caller that names
+            // them keeps them, so every other selection is a plain one.
+            ...(updates.inside &&
+            (updates.inside.anchor || updates.inside.focus)
+              ? { inside: updates.inside }
               : {}),
           }
         : null,

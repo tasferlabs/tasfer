@@ -7,6 +7,7 @@ import type {
 } from "@tasfer/editor";
 import { isContentSelectionCollapsed } from "@tasfer/editor";
 import {
+  mathMarkContentId,
   printMathDocument,
   structuredToMathDocument,
 } from "@tasfer/math/data";
@@ -61,6 +62,48 @@ export function treeMathAtFocus(editor: AppEditor): ActiveTreeMath | null {
 export function treeMathAtAnchor(editor: AppEditor): ActiveTreeMath | null {
   const point = editor.state.contentSelection?.anchor;
   return point ? treeMathAtPoint(editor, point) : null;
+}
+
+/** A formula addressed by its document, with no caret inside it yet. */
+export interface HeldFormula {
+  readonly blockId: string;
+  readonly contentId: string;
+  readonly document: StructuredDocument;
+  readonly source: string;
+}
+
+/**
+ * The formula a range in a block's nested text holds — text a node keeps
+ * inside its own content, such as a table cell.
+ *
+ * With the caret inside a formula, {@link treeMathAtFocus} finds it. But a
+ * range in the surrounding text — a drag, Shift+arrow, the whole formula held
+ * — only covers the formula's one character there; the formula itself is a
+ * separate document. This finds that document through the editor's own mark
+ * read, so it works for any node with nested text, not one kind.
+ *
+ * Null for a caret, or when the range touches no formula. With several, the
+ * first one wins, as a paragraph range resolves the chip at its start.
+ */
+export function heldFormula(editor: AppEditor): HeldFormula | null {
+  const selection = editor.state.contentSelection;
+  if (!selection || isContentSelectionCollapsed(selection)) return null;
+  for (const mark of editor.query.marks("selection")) {
+    if (mark.name !== "math") continue;
+    const contentId = mathMarkContentId({ type: mark.name, attrs: mark.attrs });
+    const document = contentId
+      ? editor.query.content(mark.block, contentId)
+      : null;
+    const math = document ? structuredToMathDocument(document) : undefined;
+    if (!contentId || !document || !math) continue;
+    return {
+      blockId: mark.block,
+      contentId,
+      document,
+      source: printMathDocument(math),
+    };
+  }
+  return null;
 }
 
 /** Resolve display or supplemental inline math at the active nested caret. */
