@@ -207,4 +207,26 @@ describe("inline chip click", () => {
       caretInsideChip(state, 0).document.contentSelection?.focus,
     );
   });
+
+  it("rests outside the formula when clicked on or beside its leading edge", () => {
+    const state = chipState("chip-click-start", "$abc$ tail");
+    const start = getCursorDocumentCoords(
+      { blockIndex: 0, textIndex: 0 },
+      state,
+      viewport,
+    );
+    if (!start) throw new Error("expected the chip's leading edge");
+    const y = start.y + start.height / 2;
+    for (const dx of [-4, 1]) {
+      const { placed } = click(state, { x: start.x + dx, y });
+      expect(placed.document.contentSelection).toBeNull();
+      expect(placed.document.cursor?.position).toEqual({
+        blockIndex: 0,
+        textIndex: 0,
+      });
+    }
+    // Further in, the click still lands inside on what it hit.
+    const { placed } = click(state, { x: start.x + 6, y });
+    expect(placed.document.contentSelection).not.toBeNull();
+  });
 });

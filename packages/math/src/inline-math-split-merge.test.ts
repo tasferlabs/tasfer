@@ -97,11 +97,13 @@ describe("typing at a chip's flat edges through the action pipeline", () => {
     expect(state.document.cursor).toBeNull();
   });
 
-  it("a non-space char at the left edge continues the formula in the tree", () => {
+  it("a char at the left edge stays prose before the formula", () => {
+    // A flat caret before a chip is outside it (→ enters); only the trailing
+    // edge continues the formula.
     const { state } = insertText(editorWithChip("x^2", "start"), "a");
-    expect(latexes(state)).toEqual(["a{x}^{2}"]);
-    expect(blockText(state)).toBe(A);
-    expect(state.document.contentSelection).not.toBeNull();
+    expect(latexes(state)).toEqual(["{x}^{2}"]);
+    expect(blockText(state)).toBe(`a${A}`);
+    expect(state.document.contentSelection).toBeNull();
   });
 
   it("a letter after a trailing command keeps a separator (\\oint x)", () => {

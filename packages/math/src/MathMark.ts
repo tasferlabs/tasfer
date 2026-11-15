@@ -34,6 +34,7 @@ import {
   inlineMathCaretEdgeFlag,
   insertActiveInlineMathTreeCommand,
   insertEmptyInlineMathAtCaret,
+  landClickBeforeInlineMath,
   moveActiveInlineMathTreeCaret,
   moveActiveInlineMathTreeCaretByUnit,
   moveActiveInlineMathTreeCaretVertically,
@@ -488,7 +489,12 @@ export class MathMark extends Mark {
         // whole fraction. Only a chip with no tree to hit-test (a legacy run
         // still awaiting its attachment) reaches the edge entry, which migrates
         // it on the way in.
-        if (extending || contentSelection) return undefined;
+        if (extending) return undefined;
+        // …except a click right on the formula's leading edge, which rests
+        // outside it like a click beside the formula.
+        if (contentSelection) {
+          return landClickBeforeInlineMath(state, contentSelection);
+        }
         return enterInlineMathTreeAtPosition(
           state,
           position.blockIndex,
