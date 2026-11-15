@@ -137,7 +137,7 @@ export default function DocsPage() {
                 />
                 <BranchLink
                   label={t("docs.hub.editor.link3", "API reference")}
-                  to="/docs/editor/api-editor"
+                  to="/docs/editor/reference"
                 />
               </div>
             </Link>

@@ -142,8 +142,13 @@ export interface NotNode {
   readonly span: Span;
 }
 
-/** Metrics (em, size 1) for a run of text the math fonts have no glyph for —
- *  measured from a host font by `layoutMath`'s text-fallback pass. */
+/**
+ * The size of a run of text, in em at font size 1, as returned by
+ * {@link TextFallback}'s `measure`: its `width`, its `ascent` above the
+ * baseline and its `depth` below it.
+ *
+ * @group Rendering
+ */
 export interface TextFallbackChar {
   readonly width: number;
   readonly ascent: number;

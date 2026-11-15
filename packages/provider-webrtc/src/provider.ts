@@ -25,16 +25,27 @@ import { createProvider, type Provider } from "@tasfer/provider-core";
 
 import { WebrtcTransport } from "./transport";
 
+/**
+ * Options for {@link createWebrtcProvider}: the document, the room, the
+ * signaling server and, if you need them, your own ICE servers.
+ */
 export interface CreateWebrtcProviderOptions {
   /** The document to sync. Use `editor.doc`, or a standalone `createDoc(...)`. */
   doc: Doc;
-  /** Logical room — replicas sharing a room (and signaling server) converge. */
+  /**
+   * The room name. Everyone in the same room on the same signaling server edits
+   * the same document. The server sees only a hash of it. Anyone who knows the
+   * name can join, so make it hard to guess.
+   */
   room: string;
   /** Signaling base URL, e.g. "wss://relay.example.com". */
   signaling: string;
   /** This replica's stable id. Defaults to `doc.peerId`. */
   peerId?: string;
-  /** ICE servers. Defaults to a public STUN server. */
+  /**
+   * ICE servers that help peers find a direct route to each other. Defaults to
+   * Google's public STUN server, `stun:stun.l.google.com:19302`.
+   */
   iceServers?: RTCIceServer[];
 }
 
@@ -48,6 +59,22 @@ async function sha256Hex(input: string): Promise<string> {
   ).join("");
 }
 
+/**
+ * Sync a document with everyone in the same room over direct WebRTC
+ * connections. The signaling server only introduces peers to each other. It
+ * sees a hash of the room name, and the document does not pass through it.
+ * Anyone who knows the room name can join, so use one that is hard to guess.
+ * Two peers whose direct connection fails do not sync with each other.
+ *
+ * ```ts
+ * const provider = createWebrtcProvider({
+ *   doc: editor.doc,
+ *   room: "team-notes-7f3k2q",
+ *   signaling: "wss://signal.example.com",
+ * });
+ * provider.on("sync", (s) => console.log(s.connected, s.peers));
+ * ```
+ */
 export function createWebrtcProvider(
   options: CreateWebrtcProviderOptions,
 ): Provider {

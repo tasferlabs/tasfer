@@ -5,6 +5,7 @@ import {
   getStructuredMathSource,
   structuredToMathDocument,
 } from "./structured";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import { insertText } from "@tasfer/editor/actions/actions";
 import { createChromeRegionRegistry } from "@tasfer/editor/events/chromeRegions";
 import {
@@ -22,8 +23,6 @@ import {
   handleTouchMove,
 } from "@tasfer/editor/events/touchEvents";
 import type { TextNodeLayout } from "@tasfer/editor/nodes/TextNode";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import {
   getContentSelectionFromViewport,

@@ -7,20 +7,36 @@
  */
 import type { ContentSelection } from "./structured-selection";
 
+/**
+ * The type-level description of a schema: every block name and every mark name,
+ * each mapped to the shape of its attributes. It exists only for TypeScript; it
+ * is what lets `Doc`, `Schema` and the editor API know about your custom types.
+ *
+ * @group Schema
+ */
 export interface SchemaDefinition {
   readonly blocks: Record<string, Record<string, unknown>>;
   readonly marks: Record<string, Record<string, unknown>>;
 }
 
-/** Explicitly dynamic schema used by erased runtime implementation code. */
+/**
+ * A schema description that allows any block or mark name with any attributes.
+ * Use it where the exact schema is not known.
+ *
+ * @group Schema
+ */
 export type AnySchemaDefinition = {
   readonly blocks: Record<string, Record<string, unknown>>;
   readonly marks: Record<string, Record<string, unknown>>;
 };
 
 /**
- * Built-in names are closed, while their existing attribute bags remain open.
- * Custom definitions added through `Schema.extend()` are precise.
+ * The type-level description of `baseSchema`: the built-in block and mark
+ * types. The list of names is fixed. Built-in block attributes are loosely
+ * typed, while the `link` mark has `{ url: string }`. Types you add with
+ * `Schema.extend()` get exact attribute types.
+ *
+ * @group Schema
  */
 export interface BaseSchemaDefinition extends SchemaDefinition {
   readonly blocks: {
@@ -45,26 +61,56 @@ export interface BaseSchemaDefinition extends SchemaDefinition {
   };
 }
 
+/**
+ * The block type names of schema `S`, as a union of string literals
+ * (`"paragraph" | "heading1" | …`).
+ *
+ * @group Schema
+ */
 export type BlockName<S extends SchemaDefinition> = Extract<
   keyof S["blocks"],
   string
 >;
 
+/**
+ * The mark type names of schema `S`, as a union of string literals
+ * (`"strong" | "link" | …`).
+ *
+ * @group Schema
+ */
 export type MarkNameOf<S extends SchemaDefinition> = Extract<
   keyof S["marks"],
   string
 >;
 
+/**
+ * The shape of the attributes (the type-specific fields) that block type `T`
+ * carries in schema `S`.
+ *
+ * @group Schema
+ */
 export type BlockAttrs<
   S extends SchemaDefinition,
   T extends BlockName<S>,
 > = S["blocks"][T];
 
+/**
+ * The shape of the data that mark type `T` carries in schema `S`, such as
+ * `{ url: string }` for a link.
+ *
+ * @group Schema
+ */
 export type MarkAttrs<
   S extends SchemaDefinition,
   T extends MarkNameOf<S>,
 > = S["marks"][T];
 
+/**
+ * A plain-data snapshot of one block of type `T`: its `id`, `type`, visible
+ * `text`, and `attrs` typed for that block type. See {@link BlockData}.
+ *
+ * @group Schema
+ */
 export type BlockDataFor<S extends SchemaDefinition, T extends BlockName<S>> = {
   readonly id: string;
   readonly type: T;
@@ -72,10 +118,23 @@ export type BlockDataFor<S extends SchemaDefinition, T extends BlockName<S>> = {
   readonly attrs: Readonly<BlockAttrs<S, T>>;
 };
 
+/**
+ * A {@link BlockDataFor} for any block type in schema `S`, as one union.
+ * Checking `type` narrows `attrs` to that block type's attributes.
+ *
+ * @group Schema
+ */
 export type SchemaBlockData<S extends SchemaDefinition> = {
   [T in BlockName<S>]: BlockDataFor<S, T>;
 }[BlockName<S>];
 
+/**
+ * A mark of type `T` found in the document: its `name`, its `attrs` typed for
+ * that mark, and the block, offsets and text of the run it covers. See
+ * {@link MarkInfo}.
+ *
+ * @group Schema
+ */
 export type MarkInfoFor<S extends SchemaDefinition, T extends MarkNameOf<S>> = {
   readonly name: T;
   readonly attrs: Readonly<MarkAttrs<S, T>>;
@@ -84,19 +143,21 @@ export type MarkInfoFor<S extends SchemaDefinition, T extends MarkNameOf<S>> = {
   readonly to: number;
   readonly text: string;
   /**
-   * Set when the run lives in text inside a block's structured content (a
-   * table cell): `from`/`to` are offsets into that field, and this is the
-   * run's extent as a nested range — a `setMark` range.
+   * Set when the mark is in nested text, such as a table cell. Then `from` and
+   * `to` count from the start of that text. Pass `content` as the `range` of
+   * `setMark` to change this mark.
    */
   readonly content?: ContentSelection;
 };
 
-export type SchemaMarkInfo<S extends SchemaDefinition> = {
-  [T in MarkNameOf<S>]: MarkInfoFor<S, T>;
-}[MarkNameOf<S>];
-
 export type MergeRecords<A, B> = Omit<A, keyof B> & B;
 
+/**
+ * Combines two schema descriptions into one. Where both define the same block
+ * or mark name, `B` wins. This is how `extend()` types the schema it returns.
+ *
+ * @group Schema
+ */
 export type MergeSchema<
   A extends SchemaDefinition,
   B extends SchemaDefinition,

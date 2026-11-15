@@ -54,7 +54,7 @@ activeMarks.has("strong"); // is bold active at the cursor?
 
 ## What's in the box
 
-- `createEditor` / `mountEditor` — mount an editor into an element you own.
+- `createEditor` — mount an editor into an element you own.
 - `createDoc` — the CRDT document. Editors are views over a `Doc`; sync and
   persistence go through it (`applyUpdate`, `on("update")`, `encodeState()`).
 - `baseSchema` / `baseDataSchema`, `defineNode`, `defineMark` — the block and

@@ -56,7 +56,7 @@ import {
 } from "./decorations";
 import type { MarkRegistry } from "./marks";
 import type { NodeRegionCtx, NodeRegistry } from "./nodes";
-import { getContentWithComposition, TextNode, UnknownNode } from "./nodes";
+import { getContentWithComposition, TextNode } from "./nodes";
 import {
   blockOwnsContentCaret,
   contentPointCaretRect,
@@ -65,6 +65,7 @@ import {
   nodePlacesContentCaret,
 } from "./nodes/content-caret";
 import type { NodeCaretRect } from "./nodes/Node";
+import { UnknownNode } from "./nodes/UnknownNode";
 import { renderScrollbar } from "./scrollbar";
 
 // Helper to get a block's flow height. The base height comes from the block's

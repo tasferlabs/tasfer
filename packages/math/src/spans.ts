@@ -16,13 +16,29 @@
 import { resolveMarkRuns } from "@tasfer/editor/mark-runs";
 import type { Block } from "@tasfer/editor/serlization/loadPage";
 
+/**
+ * One inline formula in a block's text: the text index where it starts, the
+ * index where it ends, and the text stored in between.
+ *
+ * @group Structured content
+ */
 export interface InlineMathSpan {
   startIndex: number;
   endIndex: number;
-  /** The run's flat text — a structured chip's single anchor char. */
+  /**
+   * The formula's text in the block. For an older formula this is its LaTeX.
+   * For a structured formula it is one placeholder character, not the LaTeX.
+   */
   text: string;
 }
 
+/**
+ * List every inline formula in a block, with where each one starts and ends
+ * in the block's text. Use it to find the formula next to the caret or inside
+ * a selection.
+ *
+ * @group Structured content
+ */
 export function getInlineMathSpans(block: Block): InlineMathSpan[] {
   return resolveMarkRuns(block)
     .filter((r) => r.name === "math")
@@ -34,9 +50,10 @@ export function getInlineMathSpans(block: Block): InlineMathSpan[] {
 }
 
 /**
- * If a caret move from `prevTextIndex` to `newTextIndex` stepped across an
- * inline-math chip (between its opposite boundaries), return that span; else
- * null. Used to open the inline-math editor when an arrow key crosses a chip.
+ * Returns the inline formula that a caret move from `prevTextIndex` to
+ * `newTextIndex` jumped over, from one edge to the other. Returns `null` if the
+ * move did not cross one. Use it to open your formula editor when an arrow key
+ * steps over a formula.
  */
 export function getCrossedInlineMathSpan(
   block: Block,

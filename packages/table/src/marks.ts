@@ -29,9 +29,9 @@ import {
   type TableContext,
 } from "./context";
 import { cellLength, cellRuns, coveredCellIds } from "./selection";
+import { TOGGLE_MARK } from "@tasfer/editor";
 import type { ActionBus } from "@tasfer/editor/action-bus";
 import { inheritedMarksInText } from "@tasfer/editor/mark-edge";
-import { TOGGLE_MARK } from "@tasfer/editor/rendering/marks";
 import type { Mark, MarkSpan } from "@tasfer/editor/serlization/loadPage";
 import type { EditorState } from "@tasfer/editor/state-types";
 import { getCharIdsInRangeFromRuns } from "@tasfer/editor/sync/char-runs";

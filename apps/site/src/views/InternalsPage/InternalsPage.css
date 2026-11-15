@@ -130,9 +130,9 @@
 /* ------------------------------------------------------------
    Tables — markdown (`| … |`) tables in the notes render as raw
    <table> elements (the MDX map only overrides code fences), so the
-   class-based .dx-table styles in DocsPage.css never reach them.
+   class-based PropsTable styles in DocsPage.css never reach them.
    Style the bare elements here, scoped to the blog body, reusing the
-   same hairline-grid / mono-header aesthetic as the docs .dx-table.
+   same hairline-grid / mono-header aesthetic as the docs PropsTable.
    ------------------------------------------------------------ */
 .dx-page.ix-blog .ix-body table {
   width: 100%;

@@ -3,9 +3,19 @@
 import { stateAction } from "@tasfer/editor/action-bus";
 
 /**
- * Host command-palette insertion claimed by an active structured equation.
- * Forwardable: a node holding an inline formula in a text field (a table
- * cell) runs it there, the way it runs a key press.
+ * Inserts a command picked from a menu into the formula the caret is in. `text`
+ * is the LaTeX to insert. It replaces the `\query` the user typed (or `/query`,
+ * with `trigger: "/"`), or the selection inside the formula. With neither, it
+ * goes in at the caret. `caretOffset` is not used today: the caret goes to the
+ * new command's first slot, or after it when it has none. Nothing happens when
+ * the caret is not in a formula. It also works in a formula inside a table
+ * cell.
+ *
+ * ```ts
+ * editor.dispatch(INSERT_MATH_COMMAND, { text: "\\frac{}{}" });
+ * ```
+ *
+ * @group Actions and commands
  */
 export const INSERT_MATH_COMMAND = stateAction<{
   readonly text: string;
@@ -16,8 +26,15 @@ export const INSERT_MATH_COMMAND = stateAction<{
 });
 
 /**
- * Resize the structured matrix containing the active math-tree caret.
- * Forwardable, like {@link INSERT_MATH_COMMAND}.
+ * Resizes the matrix the caret or selection is in to `rows` × `cols`. Nothing
+ * happens when the caret is not in a matrix. Like {@link INSERT_MATH_COMMAND},
+ * it also works in a formula inside a table cell.
+ *
+ * ```ts
+ * editor.dispatch(RESIZE_MATH_MATRIX, { rows: 3, cols: 3 });
+ * ```
+ *
+ * @group Actions and commands
  */
 export const RESIZE_MATH_MATRIX = stateAction<{
   readonly rows: number;

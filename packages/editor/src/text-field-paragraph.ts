@@ -85,7 +85,11 @@ import {
   type StructuredEdit,
 } from "./sync/structured-content";
 
-/** One prose field inside a block's structured attachment. */
+/**
+ * One prose field inside a block's structured attachment.
+ *
+ * @group Text
+ */
 export interface TextFieldAddress {
   /** The block that owns the attachment. */
   readonly blockId: string;
@@ -95,7 +99,11 @@ export interface TextFieldAddress {
   readonly field: string;
 }
 
-/** A caret (`anchor === focus`) or range, as visible offsets into the field. */
+/**
+ * A caret (`anchor === focus`) or range, as visible offsets into the field.
+ *
+ * @group Text
+ */
 export interface FieldRange {
   readonly anchor: number;
   readonly focus: number;
@@ -108,36 +116,55 @@ export interface FieldRange {
   readonly content?: ContentSelection;
 }
 
-/** What running an action on a field as a paragraph came to. */
+/**
+ * What running an action on a field as a paragraph came to.
+ *
+ * @group Text
+ */
 export type FieldRun =
   | {
       readonly kind: "applied";
       /** The editor state with the edits committed and the caret placed. */
       readonly state: EditorState;
       readonly ops: Operation[];
-      /** Where the paragraph code left the caret, in field offsets. */
+      /**
+       * Where the paragraph code left the caret, in field offsets. When
+       * `range.content` is set, the caret is inside a formula in the field.
+       */
       readonly range: FieldRange;
-      /** Whether the field's characters or marks changed. */
+      /**
+       * Whether the run committed any edit: to the field's characters or marks,
+       * or to an attachment in it, such as an inline formula.
+       */
       readonly edited: boolean;
-      /** Whether the caret or the range moved. */
+      /**
+       * Whether the caret or the range moved. `false` after an arrow key means
+       * the caret was already at the field's edge, so your node can move it on.
+       */
       readonly moved: boolean;
     }
   | {
       /**
-       * The action reached past the field (a block-level op), or its edits did
-       * not reproduce on the field. Nothing was changed.
+       * The run was refused, and nothing changed. `reason` says why.
        */
       readonly kind: "refused";
       /**
-       * `missing`: the field is not there. `outside`: the action produced an
-       * op that is not a text edit of the field. `no-caret`: it left no caret
-       * in the field. `mismatch`: the translated edits did not rebuild what the
-       * paragraph code produced.
+       * `missing`: the field is not there, or `range.content` points at
+       * content the field's marks do not use. `outside`: the action changed
+       * something other than the field, a formula in it, or a new formula for
+       * it, such as adding a block. `no-caret`: it left no caret in the field
+       * or in a formula of it. `mismatch`: the result on your block did not
+       * come out exactly as the paragraph code made it, or the action added a
+       * formula mark with no content behind it.
        */
       readonly reason: "missing" | "outside" | "no-caret" | "mismatch";
     };
 
-/** The revert record's rule id while a field's auto-format is armed. */
+/**
+ * The `ruleId` that `state.ui.revertibleInputRule` has while a text field's
+ * auto-format can still be taken back. {@link armedFieldRevert} checks it for
+ * you.
+ */
 export const FIELD_PARAGRAPH_REVERT = "text-field.paragraph";
 
 /** The paragraph's own revert record, parked in core's opaque feature slot. */
@@ -663,14 +690,42 @@ function carryUi(
 }
 
 /**
- * Run `action` on the field at `address` as if the field were a lone
- * paragraph whose caret (or range) is `range`, and commit what it did.
+ * Run a paragraph action on one text field, such as a table cell, and commit
+ * what it did.
  *
- * `action` receives a complete editor state — the same bus, registries and
- * typing state, with the field as the page's only block — and returns what any
- * flat-text action returns. Dispatching through `state.actionBus` is fine:
- * the stand-in has no nested caret, so feature handlers that own nested
- * carets stand down and the paragraph's own handlers answer.
+ * `action` gets an editor state where the field is the page's only paragraph,
+ * with `range` as its caret or selection. Typing, deleting, marks and caret
+ * moves work as they do in a paragraph. That includes marks turned on for the
+ * next typed text, and which side of a mark's edge the caret is on. Every mark
+ * the editor allows works there. Rules that would turn the paragraph into
+ * another block, like a typed `# `, stay plain text. `action` returns what any
+ * text action returns, and it can dispatch through `paragraph.actionBus` as
+ * usual.
+ *
+ * An inline formula in the field works too. Arrow keys walk into it, and
+ * typing, pasting and deleting there edit the formula. While the caret is in a
+ * formula, pass that nested selection as `range.content`. When the action makes
+ * a new formula (a typed `$x$`), its content is saved on your block, next to
+ * the field.
+ *
+ * A feature's own actions, such as math's `INSERT_MATH_COMMAND`, can run in your
+ * field too. Register a forwarder with {@link ActionBus.registerForwarder}, and
+ * call this from it with the action and payload it gets.
+ *
+ * Returns `applied` with the new state. Its `edited` and `moved` flags tell you
+ * when the action stopped at the field's edge, so your node can take over, for
+ * example by moving into the next cell. Returns `refused` when the field is
+ * missing, or the action did something a text field cannot hold. `reason` says
+ * which. A refused run changes nothing.
+ *
+ * ```ts
+ * const run = runFieldAsParagraph(state, address, { anchor: 3, focus: 3 }, (paragraph) =>
+ *   paragraph.actionBus.dispatchState(REVERT_INPUT_RULE, paragraph),
+ * );
+ * if (run.kind === "applied") return run.state;
+ * ```
+ *
+ * @group Text
  */
 export function runFieldAsParagraph(
   state: EditorState,
@@ -843,9 +898,12 @@ export function runFieldAsParagraph(
 }
 
 /**
- * The paragraph auto-format armed on this field, if any — what a take-back
- * (Backspace, or the first undo) would revert. The record is the paragraph
- * code's own; {@link runFieldAsParagraph} hands it back to that code.
+ * The address of the text field whose auto-format can still be taken back, or
+ * `undefined` when there is none. Backspace or the first undo takes it back. To
+ * do that, run {@link REVERT_INPUT_RULE} on that field with
+ * {@link runFieldAsParagraph}.
+ *
+ * @group Text
  */
 export function armedFieldRevert(
   state: EditorState,

@@ -1,16 +1,17 @@
 import { isTouchOnlyDevice } from "./node-shared";
 
 /**
- * Which key conventions the host OS follows. macOS/iOS split the two roles that
- * Windows and Linux both put on Ctrl: ⌘ is the *command* modifier (undo, bold,
- * line edges) and ⌥ is the *word* modifier. Conflating them is what makes a mac
- * build feel like a port, so the key handler asks this instead of testing
- * `ctrlKey || metaKey`.
+ * Returns `true` on macOS, iOS and iPadOS. There, ⌘ is the command key (undo,
+ * bold, line start and end) and ⌥ moves by word. On Windows and Linux, Ctrl
+ * does both jobs. Use this instead of checking `ctrlKey || metaKey`.
  *
- * Read from `navigator` on every call rather than cached at module load: no
- * shared mutable state, and a test can stub the global before exercising a
- * keymap branch.
+ * It reads `navigator` on every call. It returns `false` when there is no
+ * `navigator`.
+ *
+ * @group Utilities
  */
+// Not cached at module load: no shared mutable state, and a test can stub the
+// global before exercising a keymap branch.
 export function isApplePlatform(): boolean {
   if (typeof navigator === "undefined") return false;
   // `navigator.platform` is deprecated and frozen in some engines; prefer the

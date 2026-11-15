@@ -6,17 +6,18 @@
 import { registerTableInputActions } from "./input";
 import { getTableDocument, readTable } from "./structured";
 import { tableExtension } from "./table-extension";
-import { createNodeRegistry, defineMark } from "@tasfer/editor";
-import { createActionBus } from "@tasfer/editor/action-bus";
-import { insertText } from "@tasfer/editor/actions/actions";
 import {
   createMarkRegistry,
+  createNodeRegistry,
+  defineMark,
   Mark,
   type MarkStyle,
   TOGGLE_EMPHASIS,
   TOGGLE_MARK,
   TOGGLE_STRONG,
-} from "@tasfer/editor/rendering/marks";
+} from "@tasfer/editor";
+import { createActionBus } from "@tasfer/editor/action-bus";
+import { insertText } from "@tasfer/editor/actions/actions";
 import { baseSchema } from "@tasfer/editor/schema";
 import { loadPage } from "@tasfer/editor/serlization/loadPage";
 import { serializeToMarkdown } from "@tasfer/editor/serlization/serializer";

@@ -23,6 +23,12 @@ import {
   type RichText,
   type TextSurface,
 } from "./harness";
+import {
+  TOGGLE_CODE,
+  TOGGLE_EMPHASIS,
+  TOGGLE_STRIKE,
+  TOGGLE_STRONG,
+} from "@tasfer/editor";
 import { insertText } from "@tasfer/editor/actions/actions";
 import {
   DELETE_BACKWARD,
@@ -50,12 +56,6 @@ import {
   MOVE_TO_NEXT_WORD,
   MOVE_TO_PREVIOUS_WORD,
 } from "@tasfer/editor/actions/keyboard-actions";
-import {
-  TOGGLE_CODE,
-  TOGGLE_EMPHASIS,
-  TOGGLE_STRIKE,
-  TOGGLE_STRONG,
-} from "@tasfer/editor/rendering/marks";
 import type { EditorState } from "@tasfer/editor/state-types";
 import { describe, expect, it } from "vitest";
 

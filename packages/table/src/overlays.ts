@@ -18,12 +18,23 @@ import type { NodeOverlay } from "@tasfer/editor/state-types";
 import type { ContentTextPoint } from "@tasfer/editor/structured-selection";
 import type { NodeRegionCtx } from "@tasfer/editor/rendering/nodes/Node";
 
-/** Overlay key for the table's inline structural controls. */
+/**
+ * Overlay key for the table's inline structural controls.
+ *
+ * @group Actions and controls
+ */
 export const TABLE_TOOLS_OVERLAY = "table-tools";
 
-/** What the host component needs to render and act. */
+/**
+ * What the host component needs to render and act.
+ *
+ * @group Actions and controls
+ */
 export interface TableToolsOverlayData {
-  /** The grid at the caret — which row/column, how many there are, its align. */
+  /**
+   * The grid at the caret: which row and column, how many there are, and the
+   * column's alignment.
+   */
   readonly shape: TableShape;
   /**
    * The whole grid's box, so the controls can clamp themselves to the table
@@ -38,13 +49,14 @@ export interface TableToolsOverlayData {
 }
 
 /**
- * The controls' anchor: the active cell's box, or `null` when nothing should
- * show — a read-only editor, a caret outside this table, or a hole (a column
- * this row has no cell for, which owns no caret and no commands).
+ * Where the table's row and column controls go: the box of the cell with the
+ * caret. Returns `null` when no controls should show: in a read-only editor,
+ * when the caret is outside this table, or on a hole (a column this row has no
+ * cell for).
  *
  * `layout` is the layout as shown. For a table wider than the page, both boxes
- * are cut to the page-width window it is seen through, and a cell scrolled
- * wholly out of it shows no controls — they would float beside nothing.
+ * are cut to the part in view. A cell scrolled fully out of view shows no
+ * controls.
  */
 export function tableToolsOverlay(
   layout: TableLayout,

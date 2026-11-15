@@ -34,13 +34,17 @@ const CONTROL_CHARS = /[\u0000-\u001F\u007F]/g;
 const RELATIVE_REF = /^([/?#]|\.\.?\/)/;
 
 /**
- * Resolve an untrusted link URL to an absolute one that is safe to open, or
- * `null` if its scheme isn't allowed (and for input that isn't a URL at all).
- * The returned string is the parsed, normalized form — use it in place of the
- * raw attribute; keep the raw one for display only.
+ * Turn an untrusted link URL into an absolute URL that is safe to open. A bare
+ * host such as `example.com` becomes `https://example.com/`.
  *
- * For the `href` sink use {@link safeLinkHref}, which keeps relative references
- * this refuses.
+ * Returns `null` when the scheme is not allowed (see
+ * {@link SAFE_LINK_PROTOCOLS}), for a relative link such as `/docs` or
+ * `#intro`, and for anything that is not a URL. Open the returned string, not
+ * the raw one. Keep the raw one only for display.
+ *
+ * For an `href`, use {@link safeLinkHref}. It keeps relative links.
+ *
+ * @group Utilities
  */
 export function normalizeLinkUrl(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
@@ -80,15 +84,19 @@ export function normalizeLinkUrl(raw: unknown): string | null {
 }
 
 /**
- * Resolve an untrusted link URL for use as an `href`, or `null` if it may not
- * be emitted at all.
+ * Make an untrusted link URL safe to use as an `href`. Returns `null` when it
+ * may not be used at all.
  *
- * Same allowlist as {@link normalizeLinkUrl}, but relative references survive
- * verbatim: an imported document's `/docs/setup` or `#intro` means a place in
- * that document's own site, and rewriting it to an absolute URL would point it
- * somewhere else entirely. They carry no scheme, so there is nothing to allow
- * or refuse — the caller still escapes the result into the attribute.
+ * It allows the same schemes as {@link normalizeLinkUrl}. Unlike that one, it
+ * keeps relative links such as `/docs/setup` or `#intro` as they are, because
+ * they point into the document's own site. You still need to escape the result
+ * when you write it into an attribute.
+ *
+ * @group Utilities
  */
+// Rewriting a relative reference to an absolute URL would point it somewhere
+// else entirely. Relative refs carry no scheme, so there is nothing to allow or
+// refuse.
 export function safeLinkHref(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const cleaned = raw.replace(CONTROL_CHARS, "").trim();
@@ -97,7 +105,9 @@ export function safeLinkHref(raw: unknown): string | null {
   return normalizeLinkUrl(cleaned);
 }
 
-/** True when {@link normalizeLinkUrl} would accept `raw`. */
+/**
+ * True when {@link normalizeLinkUrl} would accept `raw`.
+ */
 export function isSafeLinkUrl(raw: unknown): boolean {
   return normalizeLinkUrl(raw) !== null;
 }
@@ -110,22 +120,23 @@ export function isSafeLinkUrl(raw: unknown): boolean {
 const HANDOFF_PROTOCOLS: readonly string[] = ["mailto:", "tel:"];
 
 /**
- * Open a link URL the way a clicked `<a target="_blank">` would, after running
- * it through {@link normalizeLinkUrl}. Returns false — having opened nothing —
- * when the scheme isn't allowed.
+ * Open a link the way a click on `<a target="_blank">` would: in a new tab,
+ * with no opener and no referrer. `mailto:` and `tel:` links go to the app that
+ * handles them, with no new tab. The URL goes through {@link normalizeLinkUrl}
+ * first. Returns `false`, and opens nothing, when that refuses it.
  *
- * `window.open(url, "_blank", "noopener,noreferrer")` is the obvious spelling
- * and the wrong one. Per HTML's "popup window is requested" steps, *any*
- * non-empty feature string that leaves out `location`/`toolbar` asks for a
- * popup window rather than a tab — so those two severance tokens silently
- * change what is being requested. A popup is the thing an embedded browser
- * window is most willing to refuse, and a refused popup is indistinguishable
- * from a dead link. An anchor click asks for no window at all and severs the
- * opener and referrer through `rel` instead.
+ * Call it inside the click or key handler that asked for it, so the browser
+ * treats it as the user's own action.
  *
- * Call this inside the gesture that asked for it: user activation lives on the
- * window, so the synthetic click inherits the real one.
+ * @group Utilities
  */
+// window.open(url, "_blank", "noopener,noreferrer") is the obvious spelling and
+// the wrong one. Per HTML's "popup window is requested" steps, any non-empty
+// feature string that leaves out location/toolbar asks for a popup window
+// rather than a tab. A popup is what an embedded browser window is most willing
+// to refuse, and a refused popup looks like a dead link. An anchor click asks
+// for no window and severs opener and referrer through rel instead. User
+// activation lives on the window, so the synthetic click inherits the real one.
 export function openLinkUrl(raw: unknown): boolean {
   const url = normalizeLinkUrl(raw);
   if (!url) return false;

@@ -6,12 +6,13 @@
  * `getBaseDataSchema()`, so a host that never installs math never pulls the math
  * codecs — or `@tasfer/tex` — into its bundle.
  *
- * Callers that relied on the old implicit behavior pass this schema explicitly:
+ * Callers that relied on the old implicit behavior pass a math schema
+ * explicitly:
  *
- *   parsePage(tokens, getCompatibilityDataSchema())
+ *   parsePage(tokens, getBaseDataSchema().extend(mathDataExtension()))
  *
- * It lives behind the `@tasfer/math` entry precisely so core can no
- * longer reach it.
+ * `getCompatibilityDataSchema` is a cached shortcut for that schema, used
+ * inside this package only; it is not on the public entries.
  */
 
 import { mathDataExtension } from "./data";
@@ -23,15 +24,32 @@ import type { DataSchema } from "@tasfer/editor/sync/schema";
 // eslint-disable-next-line local/no-global-mutable-state -- write-once immutable compatibility schema shared by schema-optional APIs.
 let cachedCompatibilityDataSchema: DataSchema | null = null;
 
+/**
+ * The base data schema with math added, built once and reused. Internal: hosts
+ * build the same schema with `getBaseDataSchema().extend(mathDataExtension())`.
+ */
 export function getCompatibilityDataSchema(): DataSchema {
   return (cachedCompatibilityDataSchema ??=
     getBaseDataSchema().extend(mathDataExtension()));
 }
 
 /**
- * The math replacement renderer the HTML serializer used to reach for on its
- * own. Pass it as `renderReplacement` to render display/inline math as inline
- * SVG on export; omit it and math serializes as its `$$…$$` source instead.
+ * Draws math as inline SVG in HTML export. Pass it as `renderReplacement`.
+ * Without it, a block equation exports as `<code>` holding its LaTeX, and
+ * inline math as `<code>$…$</code>`. Throws for any type other than `"math"`.
+ *
+ * ```ts
+ * import { getBaseDataSchema, serializeToHTML } from "@tasfer/editor";
+ * import { mathReplacementRenderer } from "@tasfer/math";
+ * import { mathDataExtension } from "@tasfer/math/data";
+ *
+ * const html = serializeToHTML(blocks, {
+ *   schema: getBaseDataSchema().extend(mathDataExtension()),
+ *   renderReplacement: mathReplacementRenderer,
+ * });
+ * ```
+ *
+ * @group Setup
  */
 export function mathReplacementRenderer(
   ...[type, source, displayMode]: Parameters<ReplacementRenderer>

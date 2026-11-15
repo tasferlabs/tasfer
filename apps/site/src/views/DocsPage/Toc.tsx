@@ -17,19 +17,38 @@ export function Toc({ route }: { route: string }) {
   const [active, setActive] = useState<string | null>(null);
 
   useLayoutEffect(() => {
-    const raf = requestAnimationFrame(() => {
+    let raf = 0;
+    function scan() {
       const article = document.querySelector(".dx-article");
       if (!article) return;
       const hs = Array.from(article.querySelectorAll<HTMLElement>("h2[id], h3[id]"));
-      setItems(
-        hs.map((h) => ({
-          id: h.id,
-          text: h.textContent || "",
-          level: h.tagName === "H3" ? 3 : 2,
-        })),
+      const next: TocItem[] = hs.map((h) => ({
+        id: h.id,
+        text: h.textContent || "",
+        level: h.tagName === "H3" ? 3 : 2,
+      }));
+      // Keep the same array when nothing changed, so a rescan is free.
+      setItems((prev) =>
+        prev.length === next.length &&
+        prev.every((p, i) => p.id === next[i].id && p.text === next[i].text)
+          ? prev
+          : next,
       );
-    });
-    return () => cancelAnimationFrame(raf);
+    }
+    function schedule() {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(scan);
+    }
+    schedule();
+    // An article can change its own headings after it mounts: the API
+    // reference swaps them when the reader picks another package or filters.
+    const article = document.querySelector(".dx-article");
+    const observer = article ? new MutationObserver(schedule) : null;
+    observer?.observe(article!, { childList: true, subtree: true });
+    return () => {
+      cancelAnimationFrame(raf);
+      observer?.disconnect();
+    };
   }, [route]);
 
   useEffect(() => {
@@ -65,6 +84,22 @@ export function Toc({ route }: { route: string }) {
                 if (el) {
                   const y = el.getBoundingClientRect().top + window.scrollY - 76;
                   window.scrollTo({ top: y, behavior: "smooth" });
+                }
+                // Put the section in the address, and tell the page: an
+                // article can react to its own headings (the API reference
+                // unfolds a folded group). Setting `location.hash` would jump
+                // instead of the smooth scroll above.
+                try {
+                  const from = window.location.href;
+                  window.history.replaceState(window.history.state, "", "#" + it.id);
+                  window.dispatchEvent(
+                    new HashChangeEvent("hashchange", {
+                      oldURL: from,
+                      newURL: window.location.href,
+                    }),
+                  );
+                } catch {
+                  /* the scroll alone still works */
                 }
               }}
             >

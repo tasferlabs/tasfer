@@ -80,7 +80,12 @@ function importSpecifiers(source: string): string[] {
   const out: string[] = [];
   const pattern =
     /(import|export)\s+(type\s)?[^"';]*?from\s*"([^"]+)"|import\s*"([^"]+)"/g;
-  for (const match of source.matchAll(pattern)) {
+  // Doc-comment examples (`import { … } from "@tasfer/editor"`) are not
+  // imports; drop comments before scanning.
+  const code = source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+  for (const match of code.matchAll(pattern)) {
     if (match[2]) continue; // `import type` / `export type` — erased at emit
     out.push(match[3] ?? match[4]);
   }
@@ -129,7 +134,9 @@ describe("math/data import boundary", () => {
     // Sanity: the walk actually traversed the data closure rather than
     // stopping at the entry.
     expect(files.map((file) => relative(SRC_ROOT, file)).sort()).toEqual([
+      "codecs.ts",
       "data.ts",
+      "deprecated/data.ts",
       "inline-structured.ts",
       "source.ts",
       "structured.ts",

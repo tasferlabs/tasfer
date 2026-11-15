@@ -11,18 +11,16 @@ import {
   AppSupport,
   AppSyncRelay,
   AppTroubleshooting,
-  EditorApiCommands,
-  EditorApiEditor,
-  EditorApiReact,
-  EditorApiSchema,
   EditorCollaboration,
   EditorConcepts,
   EditorCustomNodes,
   EditorFirstEditor,
   EditorInstall,
   EditorQuickstart,
+  EditorReference,
   EditorTheming,
 } from "./localizedDocs";
+import apiMeta from "./reference/data/meta.json";
 
 /* ============================================================
    Documentation navigation model — ported from docs-shell.jsx.
@@ -52,6 +50,8 @@ export interface NavSection {
   labelKey?: string;
   icon: ReactElement;
   mono?: boolean;
+  /** Version of the packages the section documents, shown beside its label. */
+  version?: string;
   groups: NavGroup[];
 }
 
@@ -139,6 +139,8 @@ export const NAV: NavSection[] = [
     labelKey: "docs.navModel.section.editor",
     icon: <Icons.Terminal />,
     mono: true,
+    // Written by scripts/generate-api.mjs from the repo's version.json.
+    version: apiMeta.version,
     groups: [
       {
         label: "Getting started",
@@ -213,36 +215,12 @@ export const NAV: NavSection[] = [
         labelKey: "docs.navModel.group.apiReference",
         items: [
           {
-            route: "editor/api-editor",
-            title: "Editor",
-            titleKey: "docs.navModel.editor.apiEditor",
-            descKey: "docs.navModel.editor.apiEditor.desc",
-            Comp: EditorApiEditor,
-            kw: "createeditor options methods state events instance",
-          },
-          {
-            route: "editor/api-commands",
-            title: "Changes & actions",
-            titleKey: "docs.navModel.editor.apiCommands",
-            descKey: "docs.navModel.editor.apiCommands.desc",
-            Comp: EditorApiCommands,
-            kw: "change run changeapi togglemark setblock insert dispatch action mutation undo redo transaction",
-          },
-          {
-            route: "editor/api-schema",
-            title: "Schema & nodes",
-            titleKey: "docs.navModel.editor.apiSchema",
-            descKey: "docs.navModel.editor.apiSchema.desc",
-            Comp: EditorApiSchema,
-            kw: "schema baseschema nodes marks content expression math code highlight extension table grid column row cell resize width align",
-          },
-          {
-            route: "editor/api-react",
-            title: "React bindings",
-            titleKey: "docs.navModel.editor.apiReact",
-            descKey: "docs.navModel.editor.apiReact.desc",
-            Comp: EditorApiReact,
-            kw: "react useeditor editor component useeditorstate hook jsx tsx binding",
+            route: "editor/reference",
+            title: "All exports",
+            titleKey: "docs.navModel.editor.reference",
+            descKey: "docs.navModel.editor.reference.desc",
+            Comp: EditorReference,
+            kw: "reference api exports every function class interface type constant signature members index list packages math code table tex provider since version",
           },
         ],
       },

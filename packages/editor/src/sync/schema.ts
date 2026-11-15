@@ -92,9 +92,11 @@ import type { StructuredDocument } from "./structured-content";
 import { invariant } from "@shared/invariant";
 
 /**
- * The CRDT + serialization facets of one block type, bundled. The rendering
- * facet (the canvas Node) is added separately by the full Schema so this stays
- * canvas-free.
+ * One block type without its drawing code: its fields, defaults and
+ * capabilities (`descriptor`), and how it reads and writes Markdown and HTML
+ * (`codec`). The full `Schema` adds the canvas node that draws it.
+ *
+ * @group Schema
  */
 export interface BlockSpecCore<
   T extends string = string,
@@ -104,9 +106,10 @@ export interface BlockSpecCore<
   readonly descriptor: BlockTypeDescriptor;
   readonly codec: BlockCodec;
   /**
-   * Markdown recognizers owned by this block type. Emitted tokens are only
-   * consumed when a codec claims them (normally this spec's own `codec`), so a
-   * rule and its claiming codec ride the same spec.
+   * Markdown rules this block type adds to the parser. The tokens a rule makes
+   * are only used when a codec claims them, normally this spec's own `codec`.
+   * So keep a rule on the same spec as the codec that reads it. Each rule id
+   * must be unique across the schema, or building the schema throws.
    */
   readonly markdownSyntax?: readonly SyntaxRule[];
   /**
@@ -120,7 +123,11 @@ export interface BlockSpecCore<
   readonly _attrs?: A;
 }
 
-/** A declared inline mark (bold, a custom highlight, …). */
+/**
+ * A declared inline mark (bold, a custom highlight, …).
+ *
+ * @group Schema
+ */
 export interface MarkSpec<
   T extends string = string,
   A extends Record<string, unknown> = Record<string, unknown>,
@@ -131,8 +138,8 @@ export interface MarkSpec<
   /** Markdown recognizers owned by this mark type (inline scope, normally). */
   readonly markdownSyntax?: readonly SyntaxRule[];
   /**
-   * Structured-content behavior of this mark type, dispatched by the spec's
-   * own `type` — there is no separate key to keep in sync.
+   * Extra behavior for a mark whose content lives in a structured document,
+   * such as inline math. The schema finds it by this spec's `type`.
    */
   readonly structured?: StructuredMarkFacet;
   /** @internal Phantom carrier for the mark's public attribute type. */
@@ -140,32 +147,64 @@ export interface MarkSpec<
 }
 
 /**
- * Adapters for one structured document KIND. A kind is its own registration
- * axis, not a property of a block or mark type: display math (block authority)
- * and inline math (supplemental attachments on ordinary text blocks) share the
- * `"math"` kind, and dispatch is purely by `document.kind`.
+ * Adapters for one kind of structured document, such as `"math"`. The schema
+ * looks a kind up by `document.kind`, not by block or mark type. So display
+ * math and inline math share the `"math"` kind.
  *
- * Entries for the same kind merge as long as their adapter fields are
- * disjoint (the worker-safe data bundle contributes `clone`; the interactive
- * bundle contributes `contentSelection`). Two entries supplying the SAME
- * adapter for one kind fail loudly.
+ * You can register several entries for one kind, and they merge. Each adapter
+ * may come from only one entry: two entries giving the same adapter for a kind
+ * throw.
+ *
+ * @example
+ * ```ts
+ * const tableKind: StructuredKindSpec = {
+ *   kind: "table",
+ *   // The cells people read as prose, in reading order.
+ *   textFields: (document) =>
+ *     readTable(document).rows.flatMap((row) =>
+ *       row.cells.flatMap((cell) => (cell ? [{ nodeId: cell.id, field: "text" }] : [])),
+ *     ),
+ *   contentSelection: ({ document, selection }) => ({
+ *     plainText: gridAsTabSeparatedText(document, selection),
+ *     blocks: [selectionAsTableBlock(document, selection)],
+ *   }),
+ *   paste: (ctx) => spreadAcrossCells(ctx), // undefined: plain insert
+ * };
+ * ```
+ * @group Schema
  */
+// Example of the merge: the worker-safe data bundle contributes `clone`, the
+// interactive bundle contributes `contentSelection`.
 export interface StructuredKindSpec {
   readonly kind: string;
-  /** Clipboard projection of a selected range inside this kind's documents. */
+  /**
+   * Turns a selected range inside one of this kind's documents into clipboard
+   * data.
+   */
   readonly contentSelection?: ContentSelectionSerializer;
-  /** Snaps a nested range to this kind's structural discipline. */
+  /**
+   * Adjusts a selected range inside one of this kind's documents before it
+   * becomes active. Math uses it so a range that stops inside a construct, such
+   * as a fraction, grows to cover that construct whole. Return `undefined` to
+   * keep the range as it is.
+   */
   readonly resolveSelection?: ContentSelectionResolver;
   /**
    * The part of one document between a stop inside it and one of its edges —
    * what a text selection that starts or ends inside the document takes of it.
+   * Without it, such a selection always takes the whole document. That suits
+   * a mark with nothing to select inside it.
    */
   readonly edgeRange?: ContentEdgeRangeResolver;
   /** A detached copy of one document cut down to a range inside it. */
   readonly sliceSelection?: ContentSelectionSlicer;
   /** Takes a paste that lands in a nested range inside this kind's documents. */
   readonly paste?: ContentSelectionPaste;
-  /** Re-addressing adapter for snapshot/import clones of this kind. */
+  /**
+   * Updates a copied document of this kind when an import or snapshot gives its
+   * block a new id. Without it, or when it returns `undefined`, the document is
+   * copied unchanged.
+   */
   readonly clone?: StructuredContentClone;
   /** Canonical source text of one of this kind's documents (math's LaTeX). */
   readonly source?: (document: StructuredDocument) => string | undefined;
@@ -180,13 +219,21 @@ export interface StructuredKindSpec {
   ) => readonly StructuredTextFieldRef[];
 }
 
-/** One character field inside a structured document. */
+/**
+ * One character field inside a structured document.
+ *
+ * @group Schema
+ */
 export interface StructuredTextFieldRef {
   readonly nodeId: string;
   readonly field: string;
 }
 
-/** The merged per-kind adapters derived by the schema constructor. */
+/**
+ * All adapters registered for one structured kind, merged from every
+ * `structuredKinds` entry for that kind. `DataSchema.structuredKind()` returns
+ * it.
+ */
 export interface StructuredKindAdapters {
   contentSelection?: ContentSelectionSerializer;
   resolveSelection?: ContentSelectionResolver;
@@ -219,6 +266,14 @@ const NO_FEATURES: InstalledFeatureFacets = {
   themes: [],
 };
 
+/**
+ * What you pass to `DataSchema.extend()`: the block types, marks and
+ * structured-content kinds to add to a data schema (the part of a schema with
+ * no drawing code). Typing rules, action hooks and theme defaults go through
+ * `withFeatures()` instead.
+ *
+ * @group Schema
+ */
 export interface DataSchemaExtension {
   readonly blocks?: readonly BlockSpecCore[];
   readonly marks?: readonly MarkSpec[];
@@ -229,13 +284,24 @@ export interface DataSchemaExtension {
   readonly actions?: never;
   /** Theme defaults install with `withFeatures()`, not `extend()`. */
   readonly theme?: never;
-  /** Removed — Markdown recognizers ride the owning spec's `markdownSyntax`. */
+  /**
+   * Removed. Put Markdown rules on the block or mark spec's `markdownSyntax`.
+   * Passing this key throws.
+   */
   readonly markdownSyntax?: never;
-  /** Removed — selection serializers ride `structuredKinds[].contentSelection`. */
+  /**
+   * Removed. Use a `structuredKinds` entry's `contentSelection` instead.
+   * Passing this key throws.
+   */
   readonly contentSelections?: never;
-  /** Removed — structured-mark behavior rides the mark spec's `structured`. */
+  /**
+   * Removed. Use the mark spec's `structured` instead. Passing this key throws.
+   */
   readonly structuredMarks?: never;
-  /** Removed — clone adapters ride `structuredKinds[].clone`. */
+  /**
+   * Removed. Use a `structuredKinds` entry's `clone` instead. Passing this key
+   * throws.
+   */
   readonly structuredContentClones?: never;
 }
 
@@ -251,6 +317,13 @@ type BlockEntryDefinition<B> =
 type MarkEntryDefinition<M> =
   M extends MarkSpec<infer T, infer A> ? { readonly [K in T]: A } : {};
 
+/**
+ * Works out, for TypeScript, which block and mark names (with their attribute
+ * shapes) a {@link DataSchemaExtension} adds. `DataSchema.extend()` uses it to
+ * type the schema it returns; you rarely need to write it yourself.
+ *
+ * @group Schema
+ */
 export type DataSchemaExtensionDefinition<E extends DataSchemaExtension> = {
   readonly blocks: E["blocks"] extends readonly (infer B)[]
     ? UnionToIntersection<BlockEntryDefinition<B>>
@@ -301,30 +374,48 @@ function assertNoBundleFacets(source: object): void {
 }
 
 /**
- * Immutable per-instance schema (canvas-free). Build the default with
- * `baseDataSchema`; derive variants with `extend()`.
+ * The part of a schema with no drawing code: block and mark types, how they
+ * read and write Markdown and HTML, and what the user may create. It never
+ * changes: `extend()`, `restrict()` and `withFeatures()` each return a new
+ * schema. Start from `baseDataSchema`, or read `schema.data` from a full
+ * `Schema`.
+ *
+ * ```ts
+ * import { baseDataSchema } from "@tasfer/editor";
+ * import { mathDataExtension } from "@tasfer/math/data";
+ *
+ * const dataSchema = baseDataSchema.extend(mathDataExtension());
+ * const titleSchema = dataSchema.restrict({ blocks: ["heading1"], marks: [] });
+ * ```
+ *
+ * @group Schema
  */
 export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
   private readonly blocks: ReadonlyMap<string, BlockSpecCore>;
   private readonly marks: ReadonlyMap<string, MarkSpec>;
   /**
-   * Authoring allow-list — the subset of REGISTERED block types the local user
-   * may create. `undefined` = unrestricted (every registered type is creatable).
-   * This gates authoring ONLY; the reducer/oplog stays agnostic, so a peer or a
-   * stored snapshot may still carry — and this schema will still render — a type
-   * that is registered but absent from this set. Narrow it with `restrict()`.
+   * The block types the local user may create, out of all registered types.
+   * `undefined` means every registered type is allowed. This only limits what
+   * the user creates. A document from another person or from disk may still
+   * hold other registered types, and they are still shown. Narrow it with
+   * `restrict()`.
    */
+  // Gates authoring only; the reducer/oplog never reads it.
   readonly allowedBlocks?: ReadonlySet<string>;
   /** Authoring allow-list for inline marks; `undefined` = unrestricted. */
   readonly allowedMarks?: ReadonlySet<string>;
   /**
-   * Compiled `content` expression — the document's SHAPE rule (ordering and
-   * counts), the ProseMirror content-expression analogue for this flat block
-   * model. `undefined` = unshaped, and every content query below is then an
-   * exact no-op. Like the allow-lists this gates authoring only: the reducer
-   * never reads it, so peers with different shapes still converge. Set it with
-   * `restrict({ content })`.
+   * The compiled `content` rule: which block types the document may hold, in
+   * what order and how many. `undefined` means no rule, and `contentAccepts`,
+   * `contentFill` and `contentTypesAt` then allow everything. Like the
+   * allow-lists, it only limits what the user creates. Edits from other people
+   * are not checked against it. Set it with `restrict({ content })`.
+   *
+   * @internal Read it through `contentAccepts`, `contentFill` and
+   * `contentTypesAt`.
    */
+  // ProseMirror content-expression analogue for the flat block model; the
+  // reducer never reads it, so peers with different shapes still converge.
   readonly content?: CompiledContent;
   /** Block-start token → codec, derived from each block's markdown.tokens. */
   readonly tokenDispatch: ReadonlyMap<TokenType, BlockCodec>;
@@ -519,7 +610,10 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
     return this.blocks.get(type)?.descriptor;
   }
 
-  /** Every CRDT-backed field declared by a registered block type. */
+  /**
+   * The field names a block type declares. Empty for a type this schema does
+   * not know.
+   */
   getFieldNames(type: string): readonly string[] {
     const descriptor = this.getDescriptor(type);
     return descriptor ? Object.keys(descriptor.fields) : [];
@@ -542,7 +636,7 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
     return this.getDescriptor(type)?.capabilities.listKind;
   }
 
-  /** Every mark type this schema declares. */
+  /** Whether a mark type is registered in this schema. */
   hasMark(type: string): boolean {
     return this.marks.has(type);
   }
@@ -564,7 +658,11 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
 
   // ── Facet dispatch (derived from the registered specs) ─────────────────────
 
-  /** Spec-carried syntax recognizers in deterministic dispatch order. */
+  /**
+   * The Markdown syntax rules from the registered block and mark specs, in the
+   * order they are tried: highest priority first, then the order they were
+   * registered. Pass `"block"` or `"inline"` to get only that scope.
+   */
   syntaxRules(scope?: SyntaxRule["scope"]): readonly SyntaxRule[] {
     if (scope === "block") return this.syntaxBlockRules;
     if (scope === "inline") return this.syntaxInlineRules;
@@ -572,10 +670,13 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
   }
 
   /**
-   * Ask the registered syntax rules for the first valid match at a source
-   * position. Invalid zero-length/overrun matches fail loudly instead of
-   * hanging the tokenizer or consuming source nondeterministically.
+   * Find the first syntax rule in `scope` that matches at this position. Block
+   * rules only run at the start of a line. Returns the rule and its match, or
+   * `null` when nothing matches. Throws when a rule returns a bad match: empty,
+   * running past the end of the source, or with no tokens.
    */
+  // Failing loudly stops a bad rule from hanging the tokenizer or consuming
+  // source nondeterministically.
   matchSyntax(
     scope: SyntaxRule["scope"],
     ctx: SyntaxCtx,
@@ -607,7 +708,11 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
       : this.inputRulesAfter;
   }
 
-  /** Whether an installed rule owns this input before flat-text fallback. */
+  /**
+   * Whether an installed input rule for this phase claims `input`. When one
+   * does, that rule handles it instead of the plain text edit. Typing, paste
+   * and cut all check this.
+   */
   ownsInput(
     phase: FeatureInputPhase,
     state: EditorState,
@@ -617,7 +722,12 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
     return this.inputRules(phase).some((rule) => rule.owns?.(ctx) === true);
   }
 
-  /** Run one live-input phase, threading state and accumulating CRDT ops. */
+  /**
+   * Run the input rules for one phase, in order. Each rule sees the state the
+   * rule before it left. Stops at the first rule that marks the input
+   * `handled`. Returns the final state, every edit made, and whether a rule
+   * handled the input.
+   */
   runInputRules(
     phase: FeatureInputPhase,
     state: EditorState,
@@ -636,7 +746,11 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
     return { state: current, ops, handled: false };
   }
 
-  /** Let installed features recognize and rewrite a whole clipboard payload. */
+  /**
+   * Let the installed paste rules rewrite pasted text. The first rule that
+   * returns a result wins. Rules that need a mark the user may not apply are
+   * skipped. Returns the text unchanged when no rule rewrites it.
+   */
   transformPastedText(text: string): string {
     for (const rule of this.pasteRules) {
       if (rule.requiresMark && !this.isMarkAllowed(rule.requiresMark)) continue;
@@ -646,7 +760,10 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
     return text;
   }
 
-  /** Installed action hooks in deterministic registration order. */
+  /**
+   * The installed action hooks, highest priority first, then in the order they
+   * were added.
+   */
   actions(): readonly FeatureActionHook[] {
     return orderedFacets(this.features.actions);
   }
@@ -656,7 +773,11 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
     for (const hook of this.actions()) hook.register(bus);
   }
 
-  /** Resolve all feature theme defaults, with later installations winning. */
+  /**
+   * Resolve all feature theme defaults, with later installations winning.
+   *
+   * @internal The editor applies these itself when it resolves its theme.
+   */
   resolveThemeDefaults(): ResolvedFeatureThemeDefaults {
     return resolveFeatureThemeDefaults(this.features.themes);
   }
@@ -666,7 +787,11 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
     return this.marks.get(markType)?.structured;
   }
 
-  /** The merged adapters registered for one structured document kind. */
+  /**
+   * The merged adapters registered for one structured document kind.
+   *
+   * @internal Exposed for tests. The editor reads these adapters itself.
+   */
   structuredKind(kind: string): Readonly<StructuredKindAdapters> | undefined {
     return this.kinds.get(kind);
   }
@@ -679,7 +804,11 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
     return this.structuredMark(markType)?.create?.(ctx);
   }
 
-  /** Resolve a structured mark's canonical source without a feature import. */
+  /**
+   * The source text of one structured mark, such as an inline formula. Comes
+   * from the mark spec. `undefined` when the mark type has no resolver, or when
+   * the mark's content is missing or invalid.
+   */
   resolveStructuredMark(
     markType: string,
     ctx: StructuredMarkResolveCtx,
@@ -687,7 +816,11 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
     return this.structuredMark(markType)?.resolve?.(ctx);
   }
 
-  /** Join sources while absorbing adjacent runs into one structured mark. */
+  /**
+   * Join the sources of two neighbouring runs of one structured mark, so they
+   * become one mark. Uses the mark spec's `joinSources`, or plain `left +
+   * right` when it has none.
+   */
   joinStructuredMarkSources(
     markType: string,
     left: string,
@@ -809,10 +942,11 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
   // ── CRDT operations the reducer routes through ─────────────────────────────
 
   /**
-   * Construct a default block of `type`, or `undefined` when the type is not
-   * in this schema (the reducer treats that as "drop the op, keep the data" —
-   * a peer may legitimately send a type we don't have registered yet).
+   * A new block of `type` with its default fields. `undefined` when the type is
+   * not in this schema.
    */
+  // The reducer treats undefined as "drop the op, keep the data": a peer may
+  // send a type we have not registered yet.
   createDefaultBlock(
     type: string,
     id: string,
@@ -856,16 +990,27 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
   // by host chrome to hide disallowed controls. All are no-ops when unrestricted.
 
   /**
-   * The universal fallback block type — a plain text block a disallowed type is
-   * coerced to, and the type a document is guaranteed to be able to hold. By
-   * convention `paragraph` (the same type `getFallbackCodec` claims); `restrict`
-   * always keeps it creatable so a document can never become unrepresentable.
+   * The plain text block type: `paragraph`. A block type the user may not
+   * create turns into this one (see `coerceCreatable`). `restrict({ blocks })`
+   * always keeps it creatable, unless the schema also has a `content` rule.
    */
   fallbackBlockType(): string {
     return "paragraph";
   }
 
-  /** Whether the local user may create a block of `type` (registered + allowed). */
+  /**
+   * Whether the local user may create a block of `type` (registered + allowed).
+   * Use it to hide your own toolbar or menu items. A type that is not allowed
+   * can still be registered, and then it still shows.
+   * {@link DataSchema.hasBlock} says whether it is registered.
+   *
+   * @example
+   * ```ts
+   * const restricted = baseSchema.restrict({ blocks: ["heading1"], marks: [] });
+   * restricted.data.isBlockAllowed("bullet_list"); // false
+   * restricted.data.hasBlock("bullet_list"); // true: still shows if it arrives
+   * ```
+   */
   isBlockAllowed(type: string): boolean {
     return this.allowedBlocks
       ? this.allowedBlocks.has(type)
@@ -878,9 +1023,9 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
   }
 
   /**
-   * `type` if it is creatable here, else the fallback type. The single clamp an
-   * authoring site applies before minting/morphing a block, so a disallowed
-   * target degrades to a plain block rather than being admitted.
+   * Returns `type` when the local user may create it, otherwise the fallback
+   * type (`paragraph`). Pass a block type through this before you create or
+   * convert a block, so a type that is not allowed becomes a plain block.
    */
   coerceCreatable(type: string): string {
     return this.isBlockAllowed(type) ? type : this.fallbackBlockType();
@@ -896,7 +1041,15 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
 
   /**
    * Whether `types` — a whole document's block types, in order — satisfies the
-   * shape rule. Always true for an unshaped schema.
+   * shape rule. Always true for an unshaped schema. Use it to check the shape
+   * where your code depends on it, or to gate your own controls.
+   *
+   * @example
+   * ```ts
+   * const shaped = baseSchema.restrict({ content: "heading1 paragraph+" });
+   * shaped.data.contentAccepts(["heading1", "paragraph"]); // true
+   * shaped.data.contentAccepts(["paragraph"]); // false
+   * ```
    */
   contentAccepts(types: readonly string[]): boolean {
     if (!this.content) return true;
@@ -904,11 +1057,18 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
   }
 
   /**
-   * The trailing block types that must be appended for `types` to become a
-   * complete document: `[]` when it already is, `null` when no tail can rescue
-   * it (the sequence itself is illegal). Always `[]` for an unshaped schema.
-   * Used on import, the one path allowed to mint the ids such a fill needs.
+   * The block types to add at the end so `types` becomes a complete document.
+   * `[]` when it is already complete, or when the schema has no `content` rule.
+   * `null` when nothing added at the end can fix it, because the order itself
+   * breaks the rule.
+   *
+   * @example
+   * ```ts
+   * // With content: "heading1 paragraph+"
+   * shaped.data.contentFill(["heading1"]); // ["paragraph"]
+   * ```
    */
+  // Used on import, the one path allowed to mint the ids such a fill needs.
   contentFill(types: readonly string[]): string[] | null {
     if (!this.content) return [];
     const match = this.content.match.matchSequence(types);
@@ -919,6 +1079,12 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
    * The block types the shape rule permits at `index`, given the document's
    * current `types`. `undefined` for an unshaped schema (every type is fine);
    * `[]` when nothing may go there.
+   *
+   * @example
+   * ```ts
+   * // With content: "heading1 paragraph+"
+   * shaped.data.contentTypesAt(["heading1"], 1); // ["paragraph"]
+   * ```
    */
   contentTypesAt(
     types: readonly string[],
@@ -962,23 +1128,30 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
   }
 
   /**
-   * Derive a new schema that restricts which registered types may be authored.
-   * Omit a key to leave that dimension unrestricted; `marks: []` yields a
-   * format-free field. The full registry is preserved (rendering is unchanged),
-   * so this is purely an authoring constraint. The receiver is never mutated.
+   * Make a new schema that limits which registered types the user may create.
+   * The schema you call it on does not change. Rendering does not change
+   * either: a document may still hold and show other registered types.
    *
-   * The fallback block type (`paragraph`) is always creatable and cannot be
-   * excluded — a document must always be able to hold a plain block. Every named
-   * type must already be registered in this schema (apply `extend()` first, then
-   * `restrict()` last).
+   * - `blocks`: the block types the user may create. `paragraph` is always
+   *   added, unless the schema also has a `content` rule.
+   * - `marks`: the marks the user may apply. `marks: []` gives a field with no
+   *   formatting.
+   * - `content`: which blocks come in what order and how many, like `"heading1
+   *   paragraph+"` or `"heading1 block*"`.
    *
-   * `content` adds the second axis: a ProseMirror-style expression over the
-   * document's flat block sequence (`"heading1 paragraph+"`,
-   * `"heading1 (paragraph|image){1,3}"`, `"heading1 block*"`), constraining
-   * ORDER and COUNT where the allow-list constrains identity. It supplies its
-   * own representability guarantee, so the forced `paragraph` above is dropped
-   * when one is present.
+   * Leave a key out to keep the current limit for it. Every name must already
+   * be registered, so call `extend()` first and `restrict()` last. Throws for
+   * an unknown type, a `content` rule that is not valid or that no document can
+   * meet, or a `content` rule that needs a block missing from `blocks`.
+   *
+   * ```ts
+   * const titleSchema = baseDataSchema.restrict({ blocks: ["heading1"], marks: [] });
+   * const briefSchema = baseDataSchema.restrict({ content: "heading1 paragraph+" });
+   * ```
    */
+  // content is a ProseMirror-style content expression over the flat block
+  // sequence; it supplies its own representability guarantee, so the forced
+  // paragraph is dropped when one is present.
   restrict(restriction: {
     readonly blocks?: readonly string[];
     readonly marks?: readonly string[];
@@ -1080,12 +1253,19 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
   }
 
   /**
-   * Derive a new schema with extra block/mark types and structured kinds.
-   * Later definitions win on key collision, so a host can override a built-in
-   * (the overriding spec replaces the overridden type's facets wholesale). The
-   * receiver is never mutated. Any existing authoring allow-list is carried
-   * through unchanged: `extend()` only widens the REGISTERED set, never the
-   * allowed set (apply `restrict()` last).
+   * Make a new schema with extra block types, marks and structured kinds. The
+   * schema you call it on does not change. When a type name is already
+   * registered, the new spec replaces the old one completely, so you can
+   * override a built-in type. New types are not added to an existing
+   * `restrict()` limit, so call `restrict()` last. Throws if you pass typing
+   * rules, action hooks or theme defaults. Pass those to `withFeatures()`.
+   *
+   * ```ts
+   * import { baseDataSchema } from "@tasfer/editor";
+   * import { mathDataExtension } from "@tasfer/math/data";
+   *
+   * const dataSchema = baseDataSchema.extend(mathDataExtension());
+   * ```
    */
   extend<const E extends DataSchemaExtension>(
     ext: E,
@@ -1112,10 +1292,11 @@ export class DataSchema<D extends SchemaDefinition = AnySchemaDefinition> {
   }
 
   /**
-   * Install cross-type feature facets (input rules, action hooks, theme
-   * defaults) without changing the registered type set. Rules are ordered by
-   * priority, then installation order; reusing a facet id replaces the earlier
-   * definition at the later installation position.
+   * Make a new schema with extra typing rules, paste rules, action hooks and
+   * theme defaults. The block and mark types stay the same, and the schema you
+   * call it on does not change. Rules run highest priority first, then in the
+   * order they were added. A rule with the same id as an installed one replaces
+   * it and counts as added last.
    */
   withFeatures(feature: FeatureFacetSource): DataSchema<D> {
     assertNoRelocatedFacets(feature, "withFeatures");

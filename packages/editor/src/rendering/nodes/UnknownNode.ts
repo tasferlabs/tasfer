@@ -22,6 +22,12 @@ import type { NodeLayoutCtx, NodePaintCtx } from "./Node";
 const PLACEHOLDER_HEIGHT = 44;
 const PADDING_BOTTOM = 8;
 
+/**
+ * The placeholder drawn for a block whose type this editor has no node for,
+ * for example one made by a newer version or another app. The block's data is
+ * kept; the placeholder shows an "Unsupported block" label so the content is
+ * visible and selectable instead of silently missing.
+ */
 export class UnknownNode extends AtomicNode<Block> {
   // Not dispatched by type — used as the registry-miss fallback. The value is
   // a sentinel that can never collide with a real block type.

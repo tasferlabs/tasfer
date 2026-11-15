@@ -167,8 +167,12 @@ function readQuotedCell(
 }
 
 /**
- * Read a paste's flavors as a table sees them. `undefined` when there is
- * nothing to paste at all.
+ * Decide what a paste means to a table. `markdown` is the Markdown of a copy
+ * made in Tasfer, when there is one. A whole GFM table there is a grid, and a
+ * single line of Markdown is formatted text for one cell. Otherwise `text` with
+ * tabs or line breaks is a grid of plain cells, and anything else is plain text
+ * for one cell. A grid of a single cell counts as one cell's text. Returns
+ * `undefined` when there is nothing to paste.
  */
 export function readTableClipboard(
   text: string,
@@ -197,7 +201,15 @@ export function readTableClipboard(
     : { kind: "grid", rows, rich: false };
 }
 
-/** The structured-kind paste adapter the interactive table bundle installs. */
+/**
+ * Handles a paste while the caret is in a table cell. A copied grid fills the
+ * cells from the selection's top-left cell, and the table grows when the grid
+ * runs past its edge. Other text goes in at the caret like typing.
+ *
+ * Returns `undefined` when the table does not take the paste: during IME
+ * typing, when the caret is not in this table, or when there is nothing to
+ * paste. `tableExtension` installs it for you.
+ */
 export function tableContentPaste(
   ctx: ContentSelectionPasteCtx,
 ): StateResult | undefined {

@@ -4980,18 +4980,22 @@ function withPositionsRebased(
 }
 
 /**
- * Move a run of blocks so they sit — in their existing relative order —
- * immediately after `afterBlockId` (null = head of the document), by minting a
- * fresh fractional-index `orderKey` for each and emitting one `block_set` per
- * block. Position is an LWW register, so a move converges through the same
- * last-writer-wins path as any other block property — no neighbour
- * re-anchoring, no dedicated move op.
+ * Move blocks so they sit right after `afterBlockId`. Pass `null` to move them
+ * to the top of the document. The blocks keep their current order in the
+ * document, not the order of `blockIds`. Returns the new state and the edits it
+ * made. It does not change `state`.
  *
- * Pure `(state) => { state, ops }` transform. Guards refuse to emit a no-op —
- * including a drop into a gap inside the run, or on either of its edges, which
- * would leave the order unchanged. The local page is derived by replaying the
- * emitted ops through `applyOp` so local emit and remote apply can never drift.
+ * Nothing moves, and `ops` is empty, when no id matches a block, when
+ * `afterBlockId` is one of the moved blocks, when `afterBlockId` is missing or
+ * deleted, or when the blocks already sit there in one run.
+ *
+ * If two people move the same block at the same time, the last move wins.
  */
+// Each block gets a fresh fractional-index orderKey via one block_set, so
+// position converges last-writer-wins like any other block property; no
+// neighbour re-anchoring and no dedicated move op. The local page is built by
+// replaying the emitted ops through applyOp so local emit and remote apply
+// cannot drift.
 export function moveBlocks(
   state: EditorState,
   blockIds: readonly string[],
@@ -5054,7 +5058,12 @@ export function moveBlocks(
   };
 }
 
-/** Single-block {@link moveBlocks} — one `block_set` of the block's `orderKey`. */
+/**
+ * Move one block so it sits right after `afterBlockId`. Pass `null` to move it
+ * to the top. It is {@link moveBlocks} with one id. It returns no edits when
+ * the block is already there, or when the block or `afterBlockId` is missing or
+ * deleted.
+ */
 export function moveBlock(
   state: EditorState,
   blockId: string,

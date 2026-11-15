@@ -8,8 +8,7 @@
 import { resolveStructuredInlineMathRuns } from "./inline-structured";
 import { mathExtension } from "./math-extension";
 import { mathContentSelectionFromSourceOffset } from "./tree-selection";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import { baseSchema } from "@tasfer/editor/schema";
 import {
   getContentSelectionDocumentGeometry,

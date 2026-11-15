@@ -1,0 +1,215 @@
+{
+ "name": "@tasfer/provider-relay",
+ "entries": [
+  {
+   "id": "@tasfer/provider-relay",
+   "symbols": [
+    {
+     "name": "createRelayProvider",
+     "kind": "function",
+     "sigs": [
+      "function createRelayProvider(\n  options: CreateRelayProviderOptions,\n): Provider"
+     ],
+     "summary": "Sync a document with everyone in the same room through a WebSocket relay server.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "Sync a document with everyone in the same room through a WebSocket relay\nserver. Use it when peers cannot connect to each other directly. Document\ndata is encrypted with "
+        },
+        {
+         "type": "inlineCode",
+         "value": "secret"
+        },
+        {
+         "type": "text",
+         "value": " before it is sent, unless you pass "
+        },
+        {
+         "type": "inlineCode",
+         "value": "secret:\nnull"
+        },
+        {
+         "type": "text",
+         "value": "."
+        }
+       ]
+      },
+      {
+       "type": "code",
+       "value": "const provider = createRelayProvider({\n  doc: editor.doc,\n  room: \"team-notes\",\n  relay: \"wss://relay.example.com\",\n  secret: roomSecret, // every peer in the room uses the same one\n});\nprovider.on(\"sync\", (s) => console.log(s.connected, s.peers));",
+       "lang": "ts"
+      }
+     ],
+     "src": "packages/provider-relay/src/provider.ts",
+     "from": [
+      "@tasfer/provider-relay"
+     ]
+    },
+    {
+     "name": "CreateRelayProviderOptions",
+     "kind": "interface",
+     "sigs": [
+      "interface CreateRelayProviderOptions"
+     ],
+     "summary": "Options for `createRelayProvider`: the document, the room, the relay server and the room's shared secret.",
+     "doc": [
+      {
+       "type": "paragraph",
+       "children": [
+        {
+         "type": "text",
+         "value": "Options for "
+        },
+        {
+         "type": "link",
+         "url": "ref:createRelayProvider",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "createRelayProvider"
+          }
+         ]
+        },
+        {
+         "type": "text",
+         "value": ": the document, the room, the relay\nserver and the room's shared secret."
+        }
+       ]
+      }
+     ],
+     "members": [
+      {
+       "name": "doc",
+       "kind": "property",
+       "sig": "doc: Doc",
+       "summary": "The document to sync.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "The document to sync. Use "
+          },
+          {
+           "type": "inlineCode",
+           "value": "editor.doc"
+          },
+          {
+           "type": "text",
+           "value": ", or a standalone "
+          },
+          {
+           "type": "inlineCode",
+           "value": "createDoc(...)"
+          },
+          {
+           "type": "text",
+           "value": "."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "room",
+       "kind": "property",
+       "sig": "room: string",
+       "summary": "The room name.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "The room name. Everyone in the same room on the same relay server edits the\nsame document. The relay sees this name."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "relay",
+       "kind": "property",
+       "sig": "relay: string",
+       "summary": "Relay base URL, e.g. \"wss://relay.tasfer.app\".",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Relay base URL, e.g. \"wss://relay.tasfer.app\"."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "peerId",
+       "kind": "property",
+       "sig": "peerId?: string",
+       "summary": "This replica's stable id.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "This replica's stable id. Defaults to "
+          },
+          {
+           "type": "inlineCode",
+           "value": "doc.peerId"
+          },
+          {
+           "type": "text",
+           "value": "."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "secret",
+       "kind": "property",
+       "sig": "secret: string | Uint8Array | null",
+       "summary": "The room's shared secret: a passphrase or raw key bytes.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "The room's shared secret: a passphrase or raw key bytes. Share it with the\nother peers yourself, for example in an invite link. Document data is\nencrypted with AES-256-GCM using a key made from it, so the relay cannot\nread it."
+          }
+         ]
+        },
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "inlineCode",
+           "value": "null"
+          },
+          {
+           "type": "text",
+           "value": " turns encryption off. Whoever runs the relay can then read and\nchange every document in the room. Only do this when you run the relay\nyourself, or you already encrypt the data before this provider."
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "src": "packages/provider-relay/src/provider.ts",
+     "from": [
+      "@tasfer/provider-relay"
+     ]
+    }
+   ]
+  }
+ ]
+}

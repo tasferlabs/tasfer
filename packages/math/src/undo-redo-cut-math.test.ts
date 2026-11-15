@@ -25,6 +25,7 @@
 import { resolveStructuredInlineMathRuns } from "./inline-structured";
 import { enterInlineMathTreeAtPosition } from "./inline-tree-state";
 import { mathExtension } from "./math-extension";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import {
   deleteSelectionThroughOwner,
   insertText,
@@ -32,8 +33,6 @@ import {
 import { STRUCTURED_MARK_ANCHOR_CHAR } from "@tasfer/editor/feature-facets";
 import { resolveMarkRuns } from "@tasfer/editor/mark-runs";
 import type { TextualBlock } from "@tasfer/editor/nodes/TextNode";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import { moveCursorToPosition } from "@tasfer/editor/selection";
 import {

@@ -22,8 +22,10 @@
 export interface TransportPeer {
   /** Stable remote identity (its `doc.peerId`). Used to de-dupe connections. */
   readonly id: string;
-  /** Send opaque bytes to this peer. Lossless and ordered; framing is the
-   *  transport's problem (e.g. the WebRTC transport chunks large frames). */
+  /**
+   * Send bytes to this peer. They must arrive complete and in order. Splitting
+   * large messages is up to the transport, as the WebRTC transport does.
+   */
   send(bytes: Uint8Array): void;
   /** Subscribe to bytes from this peer. Returns an unsubscribe fn. */
   onMessage(cb: (bytes: Uint8Array) => void): () => void;
@@ -32,12 +34,15 @@ export interface TransportPeer {
 }
 
 /**
- * The pipe. Discovers peers in a room and exposes them as {@link TransportPeer}s.
- * Everything below `connect()` is event-driven — the protocol reacts to peers
- * joining/leaving and to bytes arriving on each peer.
+ * The connection under a provider. It finds peers in a room and gives you each
+ * one as a {@link TransportPeer}. After `connect()`, it reports peers joining
+ * and leaving through events. Implement it to sync over your own backend.
  */
 export interface Transport {
-  /** Begin discovery / open the underlying socket. Idempotent. */
+  /**
+   * Start finding peers. Calling it more than once must be safe. If it returns
+   * a promise that rejects, the provider logs the error.
+   */
   connect(): Promise<void> | void;
   /** A peer became reachable (its channel opened). */
   onPeerJoin(cb: (peer: TransportPeer) => void): () => void;
@@ -51,16 +56,16 @@ export interface Transport {
 
 /** Snapshot delivered to `provider.on("sync")` whenever connectivity changes. */
 export interface SyncState {
-  /** True once at least one peer is connected. */
+  /** `true` while at least one peer is connected. */
   connected: boolean;
   /** Number of currently-connected peers. */
   peers: number;
 }
 
 /**
- * Ephemeral per-peer presence (cursor color, display name, …). Travels
- * alongside the document but is never persisted into the CRDT. The shape is
- * entirely up to the host — the protocol only routes it.
+ * Presence for one peer, like a cursor color or display name. It travels with
+ * the document but is never saved in it. You choose its shape. The provider
+ * only passes it along.
  */
 export type PresenceState = Record<string, unknown>;
 
@@ -78,7 +83,10 @@ export interface Presence {
   getLocal(): PresenceState | null;
   /** Every connected peer's latest presence (this replica excluded). */
   getRemote(): RemotePresence[];
-  /** Subscribe to remote-presence changes (peer set/updated/left). */
+  /**
+   * Call `cb` with every other peer's presence when one of them sets, changes
+   * or clears it, or leaves. Returns a function that stops listening.
+   */
   on(event: "change", cb: (peers: RemotePresence[]) => void): () => void;
 }
 
@@ -90,6 +98,6 @@ export interface Provider {
   getPeerIds(): string[];
   /** Subscribe to connectivity changes. Returns an unsubscribe fn. */
   on(event: "sync", cb: (state: SyncState) => void): () => void;
-  /** Detach from the Doc and tear down the transport. */
+  /** Stop syncing and close the transport. The document itself is kept. */
   destroy(): void;
 }

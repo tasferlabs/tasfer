@@ -38,17 +38,23 @@ import { isTextualBlock } from "../sync/block-registry";
 import { findWordEnd, findWordStart, isWordCharAt } from "../word-chars";
 import { selectAll } from "./actions";
 
-/** A half-open `[from, to)` span of offsets in one piece of text. */
+/**
+ * A half-open `[from, to)` span of offsets in one piece of text.
+ *
+ * @group Selection
+ */
 export interface SelectionRungRange {
   readonly from: number;
   readonly to: number;
 }
 
 /**
- * The smallest of `candidates` that strictly contains `current` — the next
- * rung of an expand ladder — or null when none is wider. A node lists every
- * range it would ever select around the caret (word, bracket, line, …) in any
- * order; this picks the one to take next.
+ * Pick the next, wider selection for Expand Selection: the smallest of
+ * `candidates` that contains `current` and is larger than it. Returns `null`
+ * when none is wider. List every range your node could select around the caret
+ * (word, brackets, line, …), in any order.
+ *
+ * @group Selection
  */
 export function nextEnclosingRange(
   candidates: readonly SelectionRungRange[],
@@ -64,9 +70,12 @@ export function nextEnclosingRange(
 }
 
 /**
- * Select `[from, to)` inside one flat block, focus at the end — the shape
- * every keyboard rung lands in. Exported so a node whose content is flat text
- * (a code block) can place its rungs the same way.
+ * Select the text from `from` to `to` (`to` not included) in the block at
+ * `blockIndex`, with the caret at `to`. Returns the new state. Use it from a
+ * node whose content is plain text, like a code block, to apply an Expand
+ * Selection step.
+ *
+ * @group Selection
  */
 export function selectFlatRange(
   state: EditorState,
@@ -210,9 +219,22 @@ function flatRange(
 }
 
 /**
- * One rung wider than the current selection. Claim it (priority above the
- * default) to give a node its own ladder; return nothing once the node's block
- * is already held whole, so the engine's next rung follows.
+ * One Expand Selection step: make the selection one size wider. Handle it to
+ * give a node its own steps, such as brackets or table cells. Return nothing
+ * when the caret is not in your block, or when your block is already selected
+ * whole. The editor then takes its own next step.
+ *
+ * ```ts
+ * bus.registerState(EXPAND_SELECTION_STEP, (state) => {
+ *   // `ranges`, `current` and `blockIndex` come from your node.
+ *   const next = nextEnclosingRange(ranges, current);
+ *   if (!next) return;
+ *   const selected = selectFlatRange(state, blockIndex, next.from, next.to);
+ *   return { state: selected, ops: [], handled: true };
+ * });
+ * ```
+ *
+ * @group Built-in actions
  */
 export const EXPAND_SELECTION_STEP = stateAction(
   "expand-selection-step",
@@ -272,9 +294,15 @@ function withHistory(
 }
 
 /**
- * Grow the selection one rung (see {@link EXPAND_SELECTION_STEP}) and remember
- * where it came from, so {@link SHRINK_SELECTION} can step back. Pure
- * selection change, no ops.
+ * Grow the selection one step (⌃⇧⌘→ on Apple, Shift+Alt+→ elsewhere). The
+ * editor's own steps are word, whole block, then whole document. A node can add
+ * its own steps through {@link EXPAND_SELECTION_STEP}. Each step is remembered,
+ * so {@link SHRINK_SELECTION} can go back. It does not change the document.
+ *
+ * The shortcut follows the physical arrow, not the text direction: → always
+ * grows and ← always shrinks, in right-to-left text too.
+ *
+ * @group Built-in actions
  */
 export const EXPAND_SELECTION = stateAction("expand-selection", (state) => {
   const history = liveHistory(state);
@@ -298,6 +326,8 @@ export const EXPAND_SELECTION = stateAction("expand-selection", (state) => {
  * Step back to the selection the last {@link EXPAND_SELECTION} grew from. A
  * no-op once the ladder is back at its start, or when anything else has moved
  * the selection or changed the page since. Pure selection change, no ops.
+ *
+ * @group Built-in actions
  */
 export const SHRINK_SELECTION = stateAction("shrink-selection", (state) => {
   const history = liveHistory(state);

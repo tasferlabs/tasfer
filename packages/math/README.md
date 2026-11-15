@@ -68,11 +68,10 @@ importing the data schema never evaluates the interactive graph.
 - `MATH_COMMANDS`, `filterMathCommands`, `mathCommandInsertion` — a ready-made
   command set for a slash menu or command palette.
 - `mathMatrixContext`, `mathMatrixResize` — matrix row/column editing.
-- `isValidLatex`, `renderToSVG` — validation and an SVG export path for
-  contexts with no canvas (previews, exports).
-- `mathDocumentToStructured`, `structuredToMathDocument`,
-  `parseMathDocumentInit` — adapters between `MathDocument` and the editor's
-  generic structured-content CRDT.
+- `renderToSVG` — an SVG export path for contexts with no canvas (previews,
+  exports).
+- `structuredToMathDocument`, `parseMathDocumentInit` — adapters between
+  `MathDocument` and the editor's generic structured-content CRDT.
 
 Formulas are stored as a structured `MathDocument` tree, not as an editable
 LaTeX string: an inline equation anchors on a single object-replacement
@@ -81,7 +80,7 @@ Display and inline forms convert into each other losslessly.
 
 ## Documentation
 
-[tasfer.app/docs/editor/api-schema#math](https://www.tasfer.app/docs/editor/api-schema#math)
+[tasfer.app/docs/editor/reference?pkg=math](https://www.tasfer.app/docs/editor/reference?pkg=math)
 
 ## License
 

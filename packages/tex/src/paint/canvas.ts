@@ -9,6 +9,12 @@ import type { Box } from "../layout/box";
 import { fontFamily } from "../fonts/fonts";
 import type { MathLayout } from "../index";
 
+/**
+ * Options for {@link paintMath}. Without a `color` the formula is drawn in
+ * black.
+ *
+ * @group Rendering
+ */
 export interface PaintOptions {
   /** Base text color (CSS string). */
   color?: string;
@@ -17,6 +23,8 @@ export interface PaintOptions {
 /**
  * Paint `layout` with its baseline origin at `(x, y)` — `x` is the left edge,
  * `y` is the baseline. The caller is responsible for any DPI scaling on `ctx`.
+ *
+ * @group Rendering
  */
 export function paintMath(
   ctx: CanvasRenderingContext2D,

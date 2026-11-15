@@ -153,8 +153,12 @@ class RelayPeer implements TransportPeer {
   }
 }
 
+/** Options for the {@link RelayTransport} constructor. */
 export interface RelayTransportOptions {
-  /** Logical room — replicas sharing a room (and relay server) converge. */
+  /**
+   * The room name. Everyone in the same room on the same relay server edits the
+   * same document. The relay sees this name.
+   */
   room: string;
   /** Relay base URL, e.g. "wss://relay.tasfer.app". Trailing slash optional. */
   relay: string;
@@ -174,6 +178,12 @@ function aad(from: string, to: string): string {
   return JSON.stringify([from, to]);
 }
 
+/**
+ * The connection behind {@link createRelayProvider}: it reaches the other
+ * peers in a room through a WebSocket relay server, encrypting document data
+ * with the room secret. Use it directly only when you want to pass it to
+ * `createProvider` from `@tasfer/provider-core` yourself.
+ */
 export class RelayTransport implements Transport {
   private readonly room: string;
   private readonly relay: string;

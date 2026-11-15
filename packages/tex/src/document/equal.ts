@@ -8,9 +8,11 @@ type SemanticValue =
   | readonly SemanticValue[];
 
 /**
- * Compare formula meaning while deliberately ignoring all stable ids.
- * Adjacent raw-text leaves are treated as one run, so CRDT chunk boundaries do
- * not affect equality.
+ * Returns `true` when two formulas mean the same thing. Ids are ignored. Plain
+ * text split into several pieces counts the same as one piece. Two spellings of
+ * one symbol, such as `\ne` and `\neq`, also count as the same.
+ *
+ * @group Document
  */
 export function mathDocumentsSemanticallyEqual(
   left: MathDocument,

@@ -46,32 +46,32 @@
     },
     "./rendering/marks": {
       "import": {
-        "types": "./dist/rendering/marks/index.d.mts",
-        "default": "./dist/rendering/marks/index.mjs"
+        "types": "./dist/deprecated/rendering-marks.d.mts",
+        "default": "./dist/deprecated/rendering-marks.mjs"
       },
       "require": {
-        "types": "./dist/rendering/marks/index.d.cts",
-        "default": "./dist/rendering/marks/index.cjs"
+        "types": "./dist/deprecated/rendering-marks.d.cts",
+        "default": "./dist/deprecated/rendering-marks.cjs"
       }
     },
     "./rendering/nodes": {
       "import": {
-        "types": "./dist/rendering/nodes/index.d.mts",
-        "default": "./dist/rendering/nodes/index.mjs"
+        "types": "./dist/deprecated/rendering-nodes.d.mts",
+        "default": "./dist/deprecated/rendering-nodes.mjs"
       },
       "require": {
-        "types": "./dist/rendering/nodes/index.d.cts",
-        "default": "./dist/rendering/nodes/index.cjs"
+        "types": "./dist/deprecated/rendering-nodes.d.cts",
+        "default": "./dist/deprecated/rendering-nodes.cjs"
       }
     },
     "./serlization/codecs": {
       "import": {
-        "types": "./dist/serlization/codecs/index.d.mts",
-        "default": "./dist/serlization/codecs/index.mjs"
+        "types": "./dist/deprecated/serlization-codecs.d.mts",
+        "default": "./dist/deprecated/serlization-codecs.mjs"
       },
       "require": {
-        "types": "./dist/serlization/codecs/index.d.cts",
-        "default": "./dist/serlization/codecs/index.cjs"
+        "types": "./dist/deprecated/serlization-codecs.d.cts",
+        "default": "./dist/deprecated/serlization-codecs.cjs"
       }
     },
     "./*": {

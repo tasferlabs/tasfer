@@ -27,9 +27,17 @@
 import type { Element, Root, RootContent } from "hast";
 import { common, createLowlight } from "lowlight";
 
+/**
+ * What a piece of highlighted code is: a keyword, a string, a comment, a
+ * number, a function name, or plain text. The theme colors each kind.
+ */
 export type CodeTokenKind =
   "keyword" | "string" | "comment" | "number" | "function" | "plain";
 
+/**
+ * One piece of a highlighted line of code: its text and its kind.
+ * {@link highlightLine} returns a line as a list of these.
+ */
 export interface CodeToken {
   readonly text: string;
   readonly kind: CodeTokenKind;
@@ -98,10 +106,11 @@ export interface CodeLanguageOption {
 }
 
 /**
- * Languages offered in the picker. Every one is a `common` highlight.js grammar
- * and so gets real syntax coloring; `id: ""` is the un-tagged "Plain Text"
- * default (rendered with no highlighting).
+ * The languages offered in the picker. The entry with `id: ""` is "Plain Text",
+ * the default, and has no syntax colors. Every other entry gets real syntax
+ * colors.
  */
+// Every entry is a grammar in highlight.js's `common` set.
 export const CODE_LANGUAGES: readonly CodeLanguageOption[] = [
   { id: "", label: "Plain Text" },
   { id: "bash", label: "Bash", aliases: ["sh", "shell", "zsh"] },
@@ -203,9 +212,11 @@ function pushMerged(out: CodeToken[], text: string, kind: CodeTokenKind): void {
 }
 
 /**
- * Tokenize a single line of `code` in `language` into colored spans. An empty
- * line yields no tokens; an empty/unknown language yields a single plain token.
- * The concatenated token text always reconstructs `line` exactly.
+ * Splits one line of code into colored pieces for `language`. An empty line
+ * gives an empty list. An empty or unknown language gives one plain piece.
+ * Joining the pieces' text always gives back `line` exactly. Each line is
+ * colored on its own, so a comment or string that spans several lines is
+ * colored only on its first line.
  */
 export function highlightLine(line: string, language: string): CodeToken[] {
   if (line.length === 0) return [];

@@ -49,20 +49,27 @@ export interface OrderedFeatureFacet {
   readonly priority?: number;
 }
 
-/** The point in the text-input transaction at which a rule runs. */
+/**
+ * When an input rule runs: before the typed text is inserted, or after.
+ *
+ * @group Features
+ */
 export type FeatureInputPhase = "before-insert" | "after-insert";
 
-/** Context passed to a feature-owned live-input rule. */
+/**
+ * Context passed to a feature-owned live-input rule.
+ *
+ * @group Features
+ */
 export interface FeatureInputRuleCtx {
-  /** The current threaded state (including earlier rules' changes). */
+  /** The current editor state, including changes made by earlier rules. */
   readonly state: EditorState;
   /** The exact text supplied by the input event. */
   readonly input: string;
   /**
-   * How the insert was asked for — the typing path's `wrapSelection`, for
-   * example. A rule that hands the input on to `insertText` (a feature running
-   * the paragraph's typing code on its own text) passes these through, so the
-   * keystroke behaves as it would have in a paragraph.
+   * How the insert was asked for, such as `wrapSelection` when typing. If your
+   * rule passes the input on to `insertText`, pass these options too. Then the
+   * keystroke behaves as it does in a paragraph.
    */
   readonly options?: FeatureInputOptions;
 }
@@ -70,45 +77,74 @@ export interface FeatureInputRuleCtx {
 /** The `insertText` options an input rule sees (see `InsertTextOptions`). */
 export interface FeatureInputOptions {
   readonly wrapSelection?: boolean;
+  /**
+   * `false` means Markdown shortcuts are off for this text, as in a table cell
+   * without them. A rule that adds a shortcut of its own, such as `$x$` for
+   * math, should then leave the typed text as it is.
+   */
   readonly inlineMarkdown?: boolean;
 }
 
-/** A rule contribution to the pure editor-state input pipeline. */
+/**
+ * A rule that runs on text input in any block. `phase` says whether it runs
+ * before or after the text is inserted. Rules with a higher `priority` run
+ * first.
+ *
+ * @group Features
+ */
 export interface FeatureInputRule extends OrderedFeatureFacet {
   readonly phase: FeatureInputPhase;
   /**
-   * Read-only ownership query for mutation surfaces that otherwise bypass the
-   * live typing pipeline (explicit public ranges, rich paste, async cut).
+   * Return `true` when this rule must handle the input before the editor
+   * changes the text itself. The editor asks this for edits that skip normal
+   * typing, such as paste, cut, and inserting text at a range through the API.
    *
-   * Return true when this rule must receive the input before core may touch
-   * flat block storage. The predicate must not allocate identities or mutate
-   * state; {@link apply} performs the actual transaction after ownership wins.
+   * Only answer the question here. Do not change state or create ids.
+   * {@link apply} makes the edit.
    */
   readonly owns?: (ctx: FeatureInputRuleCtx) => boolean;
   /**
-   * Return `undefined` when the rule does not match. Returned ops are appended
-   * to the current transaction. `handled` stops lower-priority rules in this
-   * phase; it does not implicitly discard edits already made by earlier rules.
+   * Return `undefined` when the rule does not match. Otherwise return the new
+   * state and its ops. The next rule sees that state, and the ops join the
+   * current edit.
    *
-   * The callback must be deterministic from its arguments. Persistent changes
-   * must be represented by CRDT ops in the returned result.
+   * Set `handled` to stop the rules with a lower priority in this phase. In the
+   * `before-insert` phase it also skips the editor's own insert. Edits from
+   * earlier rules are kept.
+   *
+   * The result must depend only on the arguments. Every change that must be
+   * saved has to be in the returned ops.
    */
   apply(
     ctx: FeatureInputRuleCtx,
   ): (StateResult & { readonly handled?: boolean }) | undefined;
 }
 
-/** A feature-owned rewrite of clipboard text before Markdown parsing. */
+/**
+ * A feature-owned rewrite of clipboard text before Markdown parsing.
+ *
+ * @group Features
+ */
 export interface FeaturePasteRule extends OrderedFeatureFacet {
   /** Skip this rule when the schema forbids authoring the named mark. */
   readonly requiresMark?: string;
-  /** Return `undefined` when this rule does not recognize the whole payload. */
+  /**
+   * Return the rewritten text, or `undefined` when this rule does not recognize
+   * the whole clipboard text. Rules run highest priority first, and the first
+   * one that returns text wins.
+   */
   transform(text: string): string | undefined;
 }
 
-/** Token emitted by a spec-owned markdown recognizer. */
+/**
+ * Token emitted by a spec-owned markdown recognizer.
+ *
+ * @group Features
+ */
 export interface SyntaxToken {
-  /** Open token vocabulary; codecs claim the strings they understand. */
+  /**
+   * The token's kind. It can be any string. A codec reads the kinds it knows.
+   */
   readonly type: string;
   /** Decoded token payload, when the token carries content. */
   readonly content?: string;
@@ -116,14 +152,25 @@ export interface SyntaxToken {
   readonly raw?: string;
 }
 
-/** Read-only cursor passed to a markdown recognizer. */
+/**
+ * Where a Markdown rule is asked to match: the whole `source`, the `offset` to
+ * match at, and whether that offset starts a line (`startOfLine`).
+ *
+ * @group Features
+ */
 export interface SyntaxCtx {
   readonly source: string;
   readonly offset: number;
   readonly startOfLine: boolean;
 }
 
-/** A successful syntax recognition at the current source offset. */
+/**
+ * What a Markdown rule returns when it matches at the current offset. `length`
+ * must be positive and stay inside the source, and `tokens` must not be empty.
+ * Otherwise the parser throws.
+ *
+ * @group Features
+ */
 export interface SyntaxMatch {
   /** Number of UTF-16 code units consumed; must be a positive integer. */
   readonly length: number;
@@ -131,124 +178,160 @@ export interface SyntaxMatch {
 }
 
 /**
- * A tokenizer extension, carried on the block or mark spec whose codec claims
- * the emitted tokens. Block rules are considered only at start-of-line; inline
- * rules are considered everywhere the core tokenizer asks extensions. The
- * schema folds every spec's rules into one deterministic dispatch list.
+ * A Markdown rule. Put it in `markdownSyntax` on the block or mark spec that
+ * reads the tokens it emits.
+ *
+ * Block rules run only at the start of a line. Inline rules run wherever the
+ * parser checks for inline syntax. Rules with a higher `priority` run first,
+ * and the first match wins. Return `undefined` from `match` when nothing
+ * matches.
+ *
+ * Each rule's `id` must be unique in the schema. If two specs use the same id,
+ * building the schema throws.
+ *
+ * @group Features
  */
 export interface SyntaxRule extends OrderedFeatureFacet {
   readonly scope: "block" | "inline";
   match(ctx: SyntaxCtx): SyntaxMatch | undefined;
 }
 
-/** A feature-level action-bus installer not naturally owned by one node/mark. */
+/**
+ * Adds a feature's own actions to an editor. `register` runs once for each
+ * editor as it is set up, after the editor's nodes and marks add theirs. Use it
+ * for actions that do not belong to one node or mark.
+ *
+ * @group Features
+ */
 export interface FeatureActionHook extends OrderedFeatureFacet {
   register(bus: ActionBus): void;
 }
 
-/** Clipboard-safe representations of a selected slice of structured content. */
+/**
+ * Clipboard-safe representations of a selected slice of structured content.
+ *
+ * @group Features
+ */
 export interface ContentSelectionSlice {
   readonly plainText: string;
   /**
-   * Falls back to the Markdown of {@link blocks} when they are given, else to
-   * `plainText`.
+   * The Markdown to copy. When left out, it is made from {@link blocks}, or is
+   * `plainText` when there are no blocks.
    */
   readonly markdown?: string;
   /**
-   * Falls back to the HTML of {@link blocks} when they are given, else to
-   * escaped `plainText`.
+   * The HTML to copy. When left out, it is made from {@link blocks}, or from
+   * the escaped `plainText` when there are no blocks.
    */
   readonly html?: string;
   /**
-   * The slice as standalone blocks — a table's selected cells as a smaller
-   * table, a cell's selected characters as a paragraph. Core serializes them
-   * through the ordinary block codecs for whichever rich flavor the slice does
-   * not spell out, so a feature gets a formatting-preserving copy without
-   * reimplementing the inline serializers, and a paste into prose rebuilds
-   * exactly these blocks.
+   * The selected part as standalone blocks. For example, a table's selected
+   * cells become a smaller table, and a cell's selected text becomes a
+   * paragraph.
+   *
+   * The editor builds any Markdown or HTML you leave out from these blocks, so
+   * formatting is kept. Pasting into normal text rebuilds these same blocks.
    */
   readonly blocks?: readonly Block[];
 }
 
-/** Data-only context for serializing an extension-owned nested selection. */
+/**
+ * What a kind's selection adapters get: the structured `document` and the
+ * `selection` inside it.
+ *
+ * @group Features
+ */
 export interface ContentSelectionCtx {
   readonly document: StructuredDocument;
   readonly selection: ContentSelection;
 }
 
 /**
- * Serialize a range inside one structured-document kind, registered on the
- * schema through a `structuredKinds` entry.
+ * Turns a range inside a structured document into clipboard content. Register
+ * it as `contentSelection` on a `structuredKinds` entry.
  *
- * This is a schema facet rather than a core switch on node names: an editor
- * without that feature installs no serializer, while any future structured
- * block can add clipboard support without changing the editor engine. Return
- * `undefined` when the range cannot be losslessly encoded.
+ * Return `undefined` when the range cannot be copied without losing something.
+ *
+ * @group Features
  */
+// This is a schema facet rather than a core switch on node names: an editor
+// without that feature installs no serializer, while any future structured
+// block can add clipboard support without changing the editor engine.
 export type ContentSelectionSerializer = (
   ctx: ContentSelectionCtx,
 ) => ContentSelectionSlice | undefined;
 
-/** What a paste into an extension-owned nested selection carries. */
+/**
+ * What a paste into an extension-owned nested selection carries.
+ *
+ * @group Features
+ */
 export interface ContentSelectionPasteCtx extends ContentSelectionCtx {
-  /** The threaded editor state the paste applies to. */
+  /** The editor state the paste applies to. */
   readonly state: EditorState;
   /** The clipboard's plain-text flavor (possibly empty). */
   readonly text: string;
   /**
-   * The canonical Markdown of a Tasfer-originated copy, decoded from the rich
-   * flavor's marker, or `undefined` for anything copied elsewhere. A feature
-   * that reads it can restore formatting losslessly; external content only
-   * ever offers {@link text}.
+   * The Markdown of a copy made in Tasfer, or `undefined` when it was copied
+   * from somewhere else. Read it to keep the formatting. A copy from outside
+   * only gives {@link text}.
    */
   readonly markdown?: string;
 }
 
 /**
- * Paste into a range inside one structured-document kind, registered on the
- * schema through a `structuredKinds` entry.
+ * Handles a paste into a range inside a structured document. Register it as
+ * `paste` on a `structuredKinds` entry.
  *
- * Core offers every paste that lands in a nested selection here first, and only
- * falls back to inserting the plain text through the input rules when this
- * returns `undefined`. A table uses it to spread a copied grid across cells; a
- * kind with nothing to add simply omits it. The result's ops are the paste's
- * whole transaction.
+ * The editor offers every paste into such a range here first. Return
+ * `undefined` to let the editor insert the plain text as if it were typed. A
+ * table uses this to spread a copied grid across cells. The returned ops are
+ * the whole paste.
+ *
+ * @group Features
  */
 export type ContentSelectionPaste = (
   ctx: ContentSelectionPasteCtx,
 ) => StateResult | undefined;
 
 /**
- * Adjust a nested range before it becomes the active selection, registered on
- * the schema through a `structuredKinds` entry.
+ * Adjusts a range inside a structured document before it becomes the selection.
+ * Register it as `resolveSelection` on a `structuredKinds` entry.
  *
- * Core commits every non-collapsed nested selection through this adapter, so a
- * kind keeps its ranges structurally valid no matter which gesture produced
- * them — a drag, shift+click, keyboard extension, or the public API. Display
- * math uses it to snap a range so it never partially covers a construct. Like
- * the serializer above, this is a schema facet rather than a core switch on
- * document kinds. Return `undefined` to keep the range exactly as produced.
+ * The editor runs every non-empty range through it, whether it came from a
+ * drag, shift+click, the keyboard or the API. Display math uses it so a range
+ * never covers only part of a construct. Return `undefined` to keep the range
+ * as it is.
+ *
+ * @group Features
  */
 export type ContentSelectionResolver = (
   ctx: ContentSelectionCtx,
 ) => ContentSelection | undefined;
 
 /**
- * Cut one structured document down to a range inside it, registered on the
- * schema through a `structuredKinds` entry.
+ * Cuts a copy of a structured document down to a range inside it. Register it
+ * as `sliceSelection` on a `structuredKinds` entry.
  *
- * Returns a detached copy of the document that holds only what `selection`
- * covers, under the same root id — never an edit of the live document. Core
- * uses it to copy a text selection that takes only part of an inline formula:
- * the copied block carries the cut-down formula in place of the whole one, so
- * every clipboard flavor spells just the selected part. Return `undefined`
- * when the range cannot stand on its own; the formula is then copied whole.
+ * Return a separate copy that holds only what `selection` covers, under the
+ * same root id. Do not edit the live document. The editor uses this when a
+ * copied text selection takes only part of an inline formula, so the clipboard
+ * gets just that part.
+ *
+ * Return `undefined` when the range cannot stand on its own. The whole formula
+ * is then copied.
+ *
+ * @group Features
  */
 export type ContentSelectionSlicer = (
   ctx: ContentSelectionCtx,
 ) => StructuredDocument | undefined;
 
-/** What a kind is asked when a text selection stops inside one of its documents. */
+/**
+ * What a kind is asked when a text selection stops inside one of its documents.
+ *
+ * @group Features
+ */
 export interface ContentEdgeRangeCtx {
   readonly document: StructuredDocument;
   readonly blockId: string;
@@ -259,11 +342,15 @@ export interface ContentEdgeRangeCtx {
   readonly edge: "start" | "end";
 }
 
-/** The part of a structured document between a stop inside it and one edge. */
+/**
+ * The part of a structured document between a stop inside it and one edge.
+ *
+ * @group Features
+ */
 export interface ContentEdgeRange {
   /**
-   * The part as the kind selects it — `anchor` on the stop's side, `focus` on
-   * the edge's side, already widened to whatever the kind only takes whole.
+   * The selected part. `anchor` is on the side of the stop and `focus` on the
+   * side of the edge. Widen it to cover anything the kind only takes whole.
    */
   readonly selection: ContentSelection;
   /** How much of the document the part holds. */
@@ -271,15 +358,18 @@ export interface ContentEdgeRange {
 }
 
 /**
- * Describe the part of one structured document that a text selection takes
- * when it starts or ends inside it, registered on the schema through a
- * `structuredKinds` entry.
+ * Decides how much of a structured document a text selection takes when it
+ * starts or ends inside it. Register it as `edgeRange` on a `structuredKinds`
+ * entry.
  *
- * A selection that runs from the middle of an inline formula out into the
- * text around it keeps a stop inside the formula; core asks the formula's kind
- * what lies between that stop and the edge the selection leaves by, so it can
- * paint, copy, and delete just that part. A kind without this adapter is
- * always taken whole. Return `undefined` when the stop no longer resolves.
+ * For example, a selection can start in the middle of an inline formula and run
+ * into the text around it. The editor asks the formula's kind what lies between
+ * that point and the formula's edge. It then highlights, copies and deletes
+ * just that part. A kind without this adapter is always taken whole.
+ *
+ * Return `undefined` when the point no longer exists in the document.
+ *
+ * @group Features
  */
 export type ContentEdgeRangeResolver = (
   ctx: ContentEdgeRangeCtx,
@@ -295,124 +385,194 @@ export type ContentEdgeRangeResolver = (
  */
 export const STRUCTURED_MARK_ANCHOR_CHAR = "￼";
 
-/** One supplemental attachment initialized alongside a newly-created mark. */
+/**
+ * One attachment created with a new structured mark: its id (`contentId`) and
+ * the edit that fills it (`edit`).
+ *
+ * @group Features
+ */
 export interface StructuredMarkAttachment {
   readonly contentId: string;
   readonly edit: StructuredMutation;
 }
 
-/** Data-only context for feature initialization of a new inline mark. */
+/**
+ * What a structured mark's `create` hook gets when a new mark is made.
+ *
+ * @group Features
+ */
 export interface StructuredMarkCreateCtx {
   /** Mark requested by the generic authoring action. */
   readonly mark: Mark;
-  /** Source text captured for the new attachment (e.g. wrapped selection). */
+  /**
+   * The text to put in the new attachment, such as the selected text being
+   * wrapped.
+   */
   readonly text: string;
-  /** The document's single live persisted identity allocator. */
+  /**
+   * Makes new ids in this document. Use it for any id the new attachment needs.
+   */
   readonly identities: IdentityAllocator;
 }
 
+/**
+ * What a structured mark's `create` hook returns (see
+ * {@link StructuredMarkFacet}): the mark to store, and the attachments that
+ * hold its content. They are all created in the same change, before the mark.
+ *
+ * The mark must keep the type that was asked for. Each attachment needs its own
+ * non-empty `contentId`, and the document must accept it. Otherwise applying
+ * the mark throws.
+ *
+ * @group Features
+ */
 export interface StructuredMarkCreateResult {
-  /** Mark persisted by `mark_set`, normally enriched with a contentId attr. */
+  /**
+   * The mark to store. It usually has a `contentId` attribute that points at
+   * its attachment.
+   */
   readonly mark: Mark;
-  /** Initializers emitted in the same transaction before the mark operation. */
+  /**
+   * The attachments to create. They are created in the same change, before the
+   * mark is set.
+   */
   readonly attachments: readonly StructuredMarkAttachment[];
 }
 
-/** Data-only context for resolving a structured mark's canonical source. */
+/**
+ * What a structured mark's `resolve` and `references` hooks get: the `mark` and
+ * its block's `attachments`.
+ *
+ * @group Features
+ */
 export interface StructuredMarkResolveCtx {
   readonly mark: Mark;
   readonly attachments: StructuredContentMap | undefined;
 }
 
-/** Canonical sources that became adjacent while creating one structured mark. */
+/**
+ * Canonical sources that became adjacent while creating one structured mark.
+ *
+ * @group Features
+ */
 export interface StructuredMarkJoinCtx {
   readonly left: string;
   readonly right: string;
 }
 
-/** Context for rewriting a mark after its block attachments were cloned once. */
+/**
+ * What a structured mark's `clone` hook gets after its block and the block's
+ * attachments were copied.
+ *
+ * @group Features
+ */
 export interface StructuredMarkCloneCtx {
   readonly mark: Mark;
   readonly sourceBlockId: string;
   readonly targetBlockId: string;
   readonly attachments: StructuredContentMap | undefined;
-  /** Stable source-content-id to cloned-content-id map for this block clone. */
+  /** Maps each old attachment id to its new id in the copied block. */
   readonly clonedContentIds: Readonly<Record<string, string>>;
 }
 
 /**
- * Optional structured-content behavior owned by one mark type, carried on that
- * mark's spec (`MarkSpec.structured`) and keyed by the spec's own `type`.
+ * Extra behavior for a mark whose content lives in an attachment instead of the
+ * text, like inline math. Put it on the mark's spec as `MarkSpec.structured`.
  *
- * Core authoring and serializers dispatch this facet through the schema; they
- * never import the feature. `create` runs only for an explicitly new mark,
- * avoiding accidental replacement of an existing attachment when a range is
- * extended. Every creation path mints the attachment eagerly and anchors the
- * mark on one {@link STRUCTURED_MARK_ANCHOR_CHAR}; the attachment is the only
- * source of the mark's content.
+ * In the text, the mark takes one {@link STRUCTURED_MARK_ANCHOR_CHAR}. Its
+ * content lives only in the attachment. `create` runs only when a new mark is
+ * made, not when an existing one is extended, so it never replaces an existing
+ * attachment.
+ *
+ * The same mark can also sit in a text field of a structured document, such as
+ * a table cell, and point at another attachment on the same block. When the
+ * block is copied (paste, snapshot restore), the editor updates those marks
+ * with `clone` too, and copies their attachments to the clipboard. So a node
+ * with rich-text fields needs no extra code for them.
+ *
+ * @group Features
  */
 export interface StructuredMarkFacet {
   create?(ctx: StructuredMarkCreateCtx): StructuredMarkCreateResult | undefined;
   /**
-   * Join adjacent canonical sources without changing their meaning. Defaults
-   * to direct concatenation; features may preserve required syntax separators.
+   * Joins the sources of two runs that become one mark. By default they are
+   * joined as they are. Use it to add a separator your syntax needs.
    */
   joinSources?(ctx: StructuredMarkJoinCtx): string;
   /**
-   * Canonical source resolved from the mark's attachment, or undefined when
-   * the referenced attachment is missing or invalid (the run then renders its
-   * anchor placeholder and stays atomic).
+   * Returns the mark's source (for math, its LaTeX) from its attachment. Return
+   * `undefined` when the attachment is missing or broken. The run then shows
+   * its placeholder and stays one unit.
    */
   resolve?(ctx: StructuredMarkResolveCtx): string | undefined;
   /**
-   * Rewrite attachment references after snapshot/import cloned each source
-   * document exactly once. Return undefined when this mark needs no rewrite.
+   * Returns the mark with its attachment ids updated after its block was
+   * copied, for example on paste or import. Return `undefined` when the mark
+   * needs no change.
    */
   clone?(ctx: StructuredMarkCloneCtx): Mark | undefined;
   /**
-   * Attachment content ids this mark references. Core lifecycle code uses
-   * these to delete a mark's attachments in the same transaction that deletes
-   * the whole mark, so no block accumulates unreachable structured content.
+   * Returns the ids of the attachments this mark uses. When the whole mark is
+   * deleted, the editor deletes these attachments in the same change, so no
+   * unused content is left behind.
    */
   references?(ctx: StructuredMarkResolveCtx): readonly string[];
 }
 
-/** Context for cloning one attachment onto a block with a fresh identity. */
+/**
+ * What a {@link StructuredContentClone} gets when a block is copied under a new
+ * id: the attachment, the old and new block ids, the attachment's old id, and a
+ * way to make new ids.
+ *
+ * @group Features
+ */
 export interface StructuredContentCloneCtx {
   readonly document: StructuredDocument;
   readonly sourceBlockId: string;
   readonly targetBlockId: string;
   readonly sourceContentId: string;
-  /** The destination document's single persisted identity allocator. */
+  /**
+   * Makes new ids in the document you are copying into. Use it for any new id
+   * you need.
+   */
   readonly identities: IdentityAllocator;
 }
 
+/**
+ * What a {@link StructuredContentClone} returns: the copied attachment
+ * (`document`) and the id it is stored under on the new block (`contentId`).
+ *
+ * @group Features
+ */
 export interface StructuredContentCloneResult {
   readonly contentId: string;
   readonly document: StructuredDocument;
 }
 
 /**
- * Rewrite attachment addressing when a snapshot/import mints a new block id,
- * registered on the schema through a `structuredKinds` entry.
+ * Updates an attachment's ids when its block is copied under a new id, for
+ * example on import or when a block is split. Register it as `clone` on a
+ * `structuredKinds` entry.
  *
- * Core defaults to copying an attachment unchanged. A document kind whose
- * addressing derives from the containing block (for example display math)
- * contributes this adapter so snapshot code remains node/feature agnostic.
- * Return `undefined` to fall back to the unchanged copy.
+ * By default the editor copies the attachment unchanged. A kind whose ids
+ * depend on the block it sits in, like display math, uses this to update them.
+ * The returned document's root id must equal the returned `contentId`, or the
+ * copy fails. Return `undefined` to keep the unchanged copy.
+ *
+ * @group Features
  */
 export type StructuredContentClone = (
   ctx: StructuredContentCloneCtx,
 ) => StructuredContentCloneResult | undefined;
 
 /**
- * Open theme fragments contributed by a feature.
+ * Theme defaults a feature adds, such as a diagram palette. The host's theme
+ * applies on top, so the host can still change them.
  *
- * These are defaults, not host overrides. The theme resolver folds registered
- * fragments in installation order (later values win) before applying the host
- * theme. Objects merge recursively; arrays and scalar leaves replace. Keeping
- * the trees open lets an optional package own keys such as a diagram palette or
- * equation surface without adding them to the core EditorStyles interface.
+ * Features merge in install order, and later ones win. Objects merge key by
+ * key. Arrays and plain values are replaced.
+ *
+ * @group Features
  */
 export interface FeatureThemeDefaults {
   /** Stable id used for intentional replacement by a later feature. */
@@ -424,10 +584,14 @@ export interface FeatureThemeDefaults {
 }
 
 /**
- * The cross-type facets accepted by a reusable feature bundle — the pieces no
- * single node, mark, or structured kind can own. Everything else registers on
- * the owning spec (see the module doc); the tombstoned keys below make a
- * bundle still carrying the old shape fail to compile.
+ * The parts of a feature bundle that no single node, mark or structured kind
+ * owns: input rules, paste rules, actions and theme defaults. Everything else
+ * goes on the spec that owns it.
+ *
+ * The removed keys below are kept so an old bundle that still sets them fails
+ * to compile. In JavaScript it throws an error instead.
+ *
+ * @group Features
  */
 export interface FeatureFacets {
   readonly inputRules?: readonly FeatureInputRule[];
@@ -452,6 +616,11 @@ export interface FeatureFacetSource extends FeatureFacets {
   readonly name?: string;
 }
 
+/**
+ * The theme defaults of every installed feature, merged into one (later
+ * features win). The editor applies the host's own theme on top of it. Returned
+ * by `DataSchema.resolveThemeDefaults()`.
+ */
 export interface ResolvedFeatureThemeDefaults {
   readonly tokens: Readonly<Record<string, unknown>>;
   readonly styles: Readonly<Record<string, unknown>>;

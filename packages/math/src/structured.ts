@@ -38,21 +38,30 @@ import {
   printMathDocument,
 } from "@tasfer/tex/data";
 
-/** Adapter discriminator stored in `StructuredDocument.kind`. */
+/**
+ * The `kind` value (`"math"`) that marks a structured document as a math
+ * equation.
+ *
+ * @group Structured content
+ */
 export const MATH_STRUCTURED_KIND = "math";
 
 /**
- * Stable display-equation attachment address.
+ * Returns the id a math block stores its equation under: `${blockId}/math`.
  *
- * @deprecated Generic feature code should call
- * `structuredContentId(blockId, slot)` from editor core. This compatibility
- * alias preserves the existing `${blockId}/math` public value.
+ * @deprecated Use `structuredContentId(blockId, "math")` from `@tasfer/editor`. It returns the same value.
+ * @group Structured content
  */
 export function mathContentIdForBlock(blockId: string): string {
   return structuredContentId(blockId, MATH_STRUCTURED_KIND);
 }
 
-/** The authoritative structured display equation attached to a math block. */
+/**
+ * Returns the equation stored on a math block, as stored. It is not checked for
+ * validity. Returns `undefined` when the block has none.
+ *
+ * @group Structured content
+ */
 export function getMathStructuredDocument(
   block: Pick<Block, "id" | "structuredContent">,
 ): StructuredDocument | undefined {
@@ -61,7 +70,10 @@ export function getMathStructuredDocument(
   return document?.kind === MATH_STRUCTURED_KIND ? document : undefined;
 }
 
-/** Project one tree-backed display equation to its public nested model. */
+/**
+ * Returns a math block's equation as a `MathDocument`. Returns `undefined` when
+ * the block has no structured equation or its data is not valid.
+ */
 export function getMathDocumentForBlock(
   block: Pick<Block, "id" | "structuredContent">,
 ): MathDocument | undefined {
@@ -69,7 +81,13 @@ export function getMathDocumentForBlock(
   return document ? structuredToMathDocument(document) : undefined;
 }
 
-/** Canonical LaTeX derived from the tree, or undefined for a legacy block. */
+/**
+ * Returns the block's equation as LaTeX, printed from its structured form.
+ * Returns `undefined` when the block has no valid structured equation, such as
+ * an older block.
+ *
+ * @group Structured content
+ */
 export function getStructuredMathSource(
   block: Pick<Block, "id" | "structuredContent">,
 ): string | undefined {
@@ -78,38 +96,55 @@ export function getStructuredMathSource(
 }
 
 /**
- * Identity allocation for a structured import.
+ * Options for how ids are made when a formula is converted to structured form.
  *
- * One allocator owns both node and character identities, preventing the two
- * namespaces from accidentally colliding. Imports/tests may inject a scoped
- * deterministic allocator; callers creating live content should inject the
- * editor's CRDT binding.
+ * One allocator gives ids to both nodes and characters, so the two never clash.
+ * Imports and tests can pass a fixed allocator. Code that creates live content
+ * should pass the editor's `state.CRDTbinding`.
+ *
+ * @group Structured content
  */
 export interface MathStructuredProjectionOptions {
   readonly identityAllocator?: IdentityAllocator;
   /**
-   * Display equations own their block's editable surface. Inline equations
-   * are supplemental attachments anchored by one placeholder character, so
-   * they deliberately omit block authority.
+   * Whether the formula is the block's whole content or sits inside text.
    *
-   * Defaults to `"block"` for the display-math adapter. `"supplemental"` is
-   * an adapter hint and is not persisted.
+   * Use `"block"` (the default) for an equation on its own line. The stored
+   * formula is then marked as the block's content. Use `"supplemental"` for an
+   * inline formula, which is held in the text by one placeholder character.
+   * Nothing is stored for `"supplemental"`.
    */
   readonly authority?: "block" | "supplemental";
 }
 
-/** Options for initializing one structured document from LaTeX source. */
+/**
+ * Options for initializing one structured document from LaTeX source.
+ *
+ * @group Structured content
+ */
 export interface ParseMathInitOptions extends MathStructuredProjectionOptions {
   /** Stable attachment id. It also becomes the structured root node id. */
   readonly contentId?: string;
 }
 
+/**
+ * The single edit that creates a formula's whole structured document in one
+ * step. {@link parseMathDocumentInit} builds one from LaTeX source.
+ *
+ * @group Structured content
+ */
 export type MathDocumentInitMutation = Extract<
   StructuredMutation,
   { readonly kind: "document_init" }
 >;
 
-/** Normalize a nested math value into the generic structured CRDT store. */
+/**
+ * Converts a `MathDocument` into the structured form the editor stores. Throws
+ * if the document cannot be converted.
+ *
+ * Without `identityAllocator`, ids come from a fixed allocator based on the
+ * root id, so the same input gives the same ids.
+ */
 export function mathDocumentToStructured(
   value: MathDocument,
   options: MathStructuredProjectionOptions = {},
@@ -134,10 +169,12 @@ export function mathDocumentToStructured(
 }
 
 /**
- * Project a normalized CRDT snapshot back to its nested math value.
+ * Converts a stored structured equation back into a `MathDocument`.
  *
- * Invalid feature shapes return `undefined`; callers can keep the generic
- * snapshot and render an unsupported-content placeholder without data loss.
+ * Returns `undefined` when the data is not a valid math equation. In that case
+ * keep the stored data and show a placeholder, so nothing is lost.
+ *
+ * @group Structured content
  */
 export function structuredToMathDocument(
   value: StructuredDocument,
@@ -146,7 +183,10 @@ export function structuredToMathDocument(
   return validated ? projectValidatedMathDocument(validated) : undefined;
 }
 
-/** Validate both the generic wire shape and the math feature's tree schema. */
+/**
+ * Checks that a structured document is a valid math equation. Returns a checked
+ * copy of it, or `undefined` when it is not valid.
+ */
 export function validateStructuredMathDocument(
   value: StructuredDocument,
 ): StructuredDocument | undefined {
@@ -156,14 +196,18 @@ export function validateStructuredMathDocument(
 }
 
 /**
- * Parse LaTeX and return the one atomic initializer accepted by the
- * page-level `content_edit` operation.
+ * Parses LaTeX into the single edit that creates a formula's structured
+ * document. `contentId` also becomes the formula's root id.
  *
- * Attachments are created eagerly by exactly one peer (the one typing or
- * importing), so no cross-peer identity convergence is required: live callers
- * pass their CRDT binding, parse-time callers a deterministic import
- * allocator.
+ * When you create live content, pass the editor's `state.CRDTbinding` as
+ * `identityAllocator`. Without one, ids come from a fixed allocator based on
+ * `contentId`, which suits imports and tests. Throws if the parsed formula
+ * cannot be converted.
+ *
+ * @group Structured content
  */
+// Attachments are created by exactly one peer (the one typing or importing), so
+// no cross-peer identity convergence is needed.
 export function parseMathDocumentInit(
   latex: string,
   options: ParseMathInitOptions = {},

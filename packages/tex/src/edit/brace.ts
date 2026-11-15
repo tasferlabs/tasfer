@@ -45,20 +45,22 @@ function hasOpenGroupBefore(latex: string, offset: number): boolean {
 }
 
 /**
- * The escaped form (`\{` / `\}`) a brace typed at `offset` should enter the
- * source as, or `null` when the raw brace is structurally meant there:
+ * Returns what a `{` or `}` typed at `offset` should become: `\{` or `\}`, so
+ * the user sees a brace. Returns `null` when the brace should go in as typed:
  *
- *  - `char` isn't a brace — not this function's keystroke.
- *  - The caret sits right after a lone `\` the user is typing the escape with, so
- *    `\` + `{` is the literal `\{` glyph itself (see {@link afterCommandIntro}).
- *    A brace flush after a command WORD (`\text{`, `\begin{`) is NOT special: a
- *    typed `{` never opens an argument — it always escapes to a literal glyph.
- *  - A `}` while a raw-opened group is still unclosed (imported/pasted
- *    `\text{abc|`) closes that group. Typing can no longer produce such an
- *    unclosed group (every typed `{` escapes), so this only affects pasted source.
+ * - `char` is not a brace.
+ * - A single `\` (not `\\`) sits right before the caret, so the user is typing
+ *   `\{` or `\}` themselves.
+ * - `char` is `}` and a `{` before the caret is never closed. This only happens
+ *   in pasted LaTeX, because a typed `{` is always escaped.
  *
- * Pure over the source string; the host applies the rewrite before committing
- * the keystroke.
+ * A `{` typed right after a command such as `\text` is escaped too. It does not
+ * open the command's argument.
+ *
+ * This only reads `latex`. The editor applies the result before it inserts the
+ * key.
+ *
+ * @group Source editing
  */
 export function escapeTypedBrace(
   latex: string,
@@ -71,30 +73,7 @@ export function escapeTypedBrace(
   return "\\" + char;
 }
 
-/**
- * The escaped literal (`\$`, `\#`, `\%`, `\&`) a reserved character typed at
- * `offset` should enter the source as, or `null` when the raw character is meant
- * there.
- *
- * `$` (math-mode toggle), `#` (macro parameter), `%` (line comment) and `&`
- * (column separator) carry LaTeX syntax a user typing into a live formula almost
- * never intends: a raw `%` silently comments the rest of the source, and a raw
- * `&` outside a tabular environment is dropped by the parser entirely — the
- * keystroke vanishes. Rewriting each to its escaped symbol typesets the visible
- * glyph and keeps the source valid, exactly as {@link escapeTypedBrace} does for
- * grouping braces. (`^`, `_`, `\` and the braces are the OTHER reserved
- * characters; they are handled by the script / backslash / brace paths and are
- * not literal-escapes.)
- *
- * The raw character still enters legitimately:
- *  - the user is typing the escape itself — a lone `\` already sits before the
- *    caret, so `\` + `&` completes the `\&` glyph rather than escaping twice;
- *  - a `&` inside a `\begin{…}` environment, where it IS a real column separator
- *    (a matrix cell divider) — see {@link environmentDepthAt}.
- *
- * Pure over the source string; the host applies the rewrite before committing
- * the keystroke.
- */
+/** How each reserved character is written so it shows as a plain symbol. */
 const RESERVED_LITERAL: Readonly<Record<string, string>> = {
   $: "\\$",
   "#": "\\#",
@@ -102,6 +81,27 @@ const RESERVED_LITERAL: Readonly<Record<string, string>> = {
   "&": "\\&",
 };
 
+/**
+ * Returns what a `$`, `#`, `%` or `&` typed at `offset` should become: `\$`,
+ * `\#`, `\%` or `\&`, so the user sees the symbol. Returns `null` for any other
+ * character, and when the character should go in as typed:
+ *
+ * - A single `\` (not `\\`) sits right before the caret, so the user is typing
+ *   the escape themselves.
+ * - `char` is `&` inside a `\begin…\end` environment, where it separates matrix
+ *   columns.
+ *
+ * Typed raw, these characters do LaTeX things the user rarely means. A `%`
+ * hides the rest of the formula, and an `&` outside a matrix is dropped. Braces
+ * are handled by {@link escapeTypedBrace}.
+ *
+ * This only reads `latex`. The editor applies the result before it inserts the
+ * key.
+ *
+ * @group Source editing
+ */
+// `^`, `_`, `\` and the braces are the other reserved characters; they go
+// through the script / backslash / brace paths, not this literal escape.
 export function escapeTypedReserved(
   latex: string,
   offset: number,
@@ -130,24 +130,22 @@ function environmentDepthAt(latex: string, offset: number): number {
 }
 
 /**
- * Whether `offset` sits inside the raw-text argument body of a text command
- * (`\text{…}`, `\textbf{…}`, `\operatorname{…}`, …) — the region the parser reads
- * as literal characters (see `parseRawTextArg`), where a `\` is a literal
- * backslash and letters are prose, not a math control word.
+ * Returns `true` when `offset` is inside the text of a text command such as
+ * `\text{…}`, `\textbf{…}` or `\operatorname{…}`. There, letters are plain
+ * words and a `\` is a plain backslash, not the start of a command.
  *
- * A live editor uses this to keep the math-mode command-word machinery — the
- * command separator and the `\`→command-intro rewrite — OUT of text runs, where
- * treating a typed `\`+letters as a command would seed a spurious control word in
- * prose (`\text{}` + `\hi`). Inside such a body the host instead escapes a typed
- * `\` to the literal `\textbackslash{}` glyph and lets letters land as plain text.
+ * Right after the opening `{` and right before the closing `}` count as inside.
+ * Right after the `}` does not. In an unclosed `\text{ab`, everything up to the
+ * end of the text counts as inside.
  *
- * "Inside" spans from just after the argument's opening `{` through the position
- * of its closing `}` (so a caret flush against either brace still counts); a
- * caret just PAST the `}` is back in math mode and returns false. An unterminated
- * body (mid-edit `\text{ab`) extends to the source end. Braces nest, so the body
- * scan tracks depth. Lexes rather than scanning chars so an escaped brace (`\{`)
- * inside the text never mis-terminates the body. Pure over the source string.
+ * A math editor uses this to turn off command handling inside text. There, a
+ * typed `\` becomes `\textbackslash{}`.
+ *
+ * @group Source editing
  */
+// Braces nest, so the body scan tracks depth. Lexes rather than scanning chars
+// so an escaped `\{` inside the text never ends the body early. See
+// parseRawTextArg.
 export function inRawTextArg(latex: string, offset: number): boolean {
   const toks = [...tokenize(latex)];
   for (let i = 0; i < toks.length; i++) {
@@ -172,34 +170,25 @@ export function inRawTextArg(latex: string, offset: number): boolean {
 }
 
 /**
- * Whether a bare `\` typed immediately before source `offset` would fuse with the
- * character already there into a single token, silently consuming that
- * character's role.
+ * Returns `true` when a `\` typed just before `offset` would join with the next
+ * character and change what it means. For example, `\` before `int` makes the
+ * command `\int`. `\` before `&` turns a column break into a plain `&`. `\`
+ * before another `\` inside a matrix makes a row break.
  *
- * A typed `\` swallows whatever follows it: a letter run becomes the command NAME
- * (`\`+`int` → the command `\int`, the existing `int` gone), and a single
- * non-letter becomes a one-char command whose glyph replaces the structural token
- * it escaped (`\&` a literal ampersand, not a column separator; `\}`/`\{` a brace
- * glyph, not a group boundary; `\^`/`\_` a literal, not a script). `[`/`]` lex as
- * ordinary chars but the PARSER reads them as a `\sqrt[…]` index delimiter, so
- * `\sqrt[3\]{x}` fuses `]`→`\]` and the index swallows the radicand. A `\` before
- * another `\` inside a tabular environment forms a row-break `\\`. Every case
- * destroys the adjacent construct — a command, a cell boundary, a slot, a script
- * — so a live editor wedges a command-separator space between the two (see the
- * callers in `nodes/math.ts`), keeping the `\` a lone command-intro; the lexer's
- * `literalStart` masks the fusion only while the `\` is the one being typed.
+ * A math editor uses this to put a space between the `\` and the next
+ * character, so that character keeps its meaning.
  *
- * The guard therefore fires for ANY adjacent character that is not:
- *  - whitespace or end-of-string — `\ ` is already a control space and a trailing
- *    `\` a harmless empty command;
- *  - a prime `'` — parser-structural, but a separator would detach it from its
- *    base rather than repair it, and typing `\` flush before a `'` is vanishingly
- *    rare (see KaTeX prime handling), so it is intentionally left unguarded;
- *  - a second `\` OUTSIDE a tabular environment — there the lexer keeps the two
- *    backslashes separate (a harmless literal `\\`), so no fusion occurs.
+ * Returns `false` before whitespace, at the end of the text, before a prime
+ * `'`, and before another `\` outside a `\begin…\end` environment.
  *
- * Pure over the source string.
+ * @group Source editing
  */
+// The prime `'` is left unguarded on purpose: a separator would detach it from
+// its base rather than repair it, and typing `\` flush before `'` is very rare
+// (see KaTeX prime handling). `[`/`]` lex as plain chars but the parser reads
+// them as a `\sqrt[…]` index, so `\sqrt[3\]{x}` would swallow the radicand.
+// Callers live in packages/math/src/math.ts; the lexer's `literalStart` masks
+// the fusion only while the `\` is the one being typed.
 export function backslashFusesWith(latex: string, offset: number): boolean {
   const ch = latex[offset];
   if (ch === undefined || /\s/.test(ch)) return false;
@@ -211,33 +200,28 @@ export function backslashFusesWith(latex: string, offset: number): boolean {
 }
 
 /**
- * Auto-heal: the appended closing braces that balance every unclosed grouping
- * `{` in `latex`, or an empty list when it is already balanced.
+ * Finds the `}` braces missing from `latex`, one for each `{` that is never
+ * closed. Returns them as one insert at the end of the text, with `changed:
+ * true`. When the braces already balance, returns no inserts and `changed:
+ * false`.
  *
- * Why this is needed: the parser is error-tolerant, so an unclosed group
- * (`\frac{a}{b+\frac{c}{d}` — one `{` too few) still *renders* — its group just
- * runs to the end of the source. But that swallows every trailing offset into
- * the group: the source end sits INSIDE the open denominator, so there is no
- * top-level caret position after the construct and nothing can be typed beside
- * it — the formula becomes a right-side dead end. Well-formed editing never
- * produces this (a typed brace is escaped to `\{`/`\}` unless it closes a real
- * group — see {@link escapeTypedBrace} — and construct materialization inserts
- * balanced `{}` pairs), so imbalance only enters through pasted / imported
- * source. Closing the dangling groups restores the exit position.
+ * Pasted LaTeX like `\frac{a}{b+\frac{c}{d}` still renders, but the caret
+ * cannot get past the end of the formula. Adding the missing braces fixes that
+ * without changing how the formula looks. Escaped braces (`\{`, `\}`) and extra
+ * `}` are ignored.
  *
- * The heal is a pure suffix of `}` appended at the very end, one per still-open
- * `{` (innermost closes first, matching how the groups nest). That is exactly
- * render-neutral: an unclosed group and its explicitly-closed form parse to the
- * same tree, so the typeset formula is unchanged — only the missing caret stop
- * beyond it reappears. Escaped braces (`\{`) and stray unmatched `}` (which the
- * parser already drops harmlessly, and which don't trap the caret) are left
- * alone. Idempotent: balanced source yields no inserts. Lexes rather than
- * scanning chars so `\{`/`\}` never count as grouping tokens.
+ * Text is only added at the end, so every caret position stays valid. Unlike
+ * {@link normalizeLatex}, you do not need to move the caret.
  *
- * Appending at the source end shifts no earlier offset, so a caret anywhere in
- * the original source keeps its position (it simply gains a reachable stop to
- * its right) — hence no caret remap, unlike {@link normalizeLatex}.
+ * For extra `}` braces, see {@link escapeStrayCloseBraces}.
+ *
+ * @group Source editing
  */
+// Normal editing never unbalances braces (typed braces are escaped unless they
+// close a real group, and construct insertion adds balanced `{}` pairs), so
+// imbalance only comes from pasted or imported source. An unclosed group and
+// its closed form parse to the same tree. Lexes rather than scanning chars so
+// `\{`/`\}` never count.
 export function balanceBraces(latex: string): {
   readonly inserts: readonly LatexInsert[];
   readonly changed: boolean;
@@ -255,27 +239,25 @@ export function balanceBraces(latex: string): {
 }
 
 /**
- * `latex` with every STRAY closing `}` — a `}` that matches no earlier unclosed
- * `{` — rewritten to its literal glyph `\}`. The counterpart of {@link
- * balanceBraces} for the other imbalance direction.
+ * Returns `latex` with every extra `}` turned into `\}`, a visible brace. An
+ * extra `}` is one with no open `{` before it. Text with no extra `}` comes
+ * back unchanged.
  *
- * Why this is needed: the parser drops a stray `}` silently (it emits no glyph
- * and no group boundary), so a source that is ALL stray closes — the imported
- * `$$}$$` — parses to an empty expression. Unlike an unclosed `{`, this doesn't
- * trap the caret; it does something worse. The block's source is non-empty
- * (`}`), so the host's empty-block placeholder never shows, yet the layout draws
- * nothing and yields zero caret stops — the block is a blank, caret-less,
- * uneditable dead cell (the reported bug). Escaping each stray `}` to `\}` makes
- * it a real brace glyph with its own caret stops, so the character is preserved
- * (never silently swallowed) and the block stays editable — exactly the
- * typed-brace philosophy ({@link escapeTypedBrace}) applied to imported source.
+ * The parser drops an extra `}` without showing it. A pasted formula that is
+ * only `}` would draw nothing and give the caret nowhere to go. Escaping keeps
+ * the brace visible and editable. Escaped braces (`\{`, `\}`) already in the
+ * text are left alone.
  *
- * Well-formed editing never produces a stray `}` (a typed `}` is escaped to `\}`
- * unless it closes a real group), so this only affects pasted / imported source,
- * like {@link balanceBraces}. Lexes rather than scanning chars so an escaped
- * brace (`\}`) is never mistaken for a grouping token. Idempotent: source with no
- * stray close is returned unchanged.
+ * For the opposite problem, a `{` that is never closed, see
+ * {@link balanceBraces}.
+ *
+ * @group Source editing
  */
+// Normal typing never makes a stray `}` (a typed `}` is escaped unless it
+// closes a real group), so this only matters for pasted or imported source. The
+// all-stray case (`$$}$$`) was the reported blank, caret-less block bug: the
+// source is non-empty so the empty placeholder never shows. Lexes rather than
+// scanning chars so `\}` never counts as grouping.
 export function escapeStrayCloseBraces(latex: string): string {
   const strays = strayCloseBracePositions(latex);
   if (strays.length === 0) return latex;
@@ -305,18 +287,21 @@ function strayCloseBracePositions(latex: string): number[] {
 }
 
 /**
- * The edits that escape every stray `}` in `latex` to `\}`, as `{ at, text: "\\" }`
- * inserts (a lone `\` spliced just before each stray brace) — the CRDT-op form of
- * {@link escapeStrayCloseBraces}, parallel to {@link balanceBraces}'s append.
+ * Returns the edits that turn every extra `}` in `latex` into `\}`. Each edit
+ * inserts one `\` just before an extra `}`, as `{ at, text: "\\" }`. Empty when
+ * there is no extra `}`.
  *
- * A live editor applies these to *heal an existing block* whose committed source
- * carries a stray `}` — source that predates import sanitization (it entered the
- * CRDT op-log directly, bypassing {@link escapeStrayCloseBraces}) and would
- * otherwise render as a blank, caret-less dead cell. Unlike the append-only
- * {@link balanceBraces}, an insert lands BEFORE the caret when the stray sits
- * left of it, so the caller must shift the caret by the number of such inserts.
- * Empty when there is no stray close.
+ * This does the same job as {@link escapeStrayCloseBraces}, but as small
+ * inserts. Use it to repair a formula that is already in a document, without
+ * replacing its whole text.
+ *
+ * An insert can land before the caret. Move the caret right by one for each
+ * insert that lands before it.
+ *
+ * @group Source editing
  */
+// Used to heal blocks whose source was saved before import-time escaping
+// existed.
 export function strayCloseBraceInserts(latex: string): readonly LatexInsert[] {
   return strayCloseBracePositions(latex).map((at) => ({ at, text: "\\" }));
 }

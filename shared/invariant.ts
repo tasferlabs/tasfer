@@ -18,11 +18,9 @@
  */
 
 /**
- * Thrown by {@link invariant} when an internal invariant is violated. A plain
- * `Error` subclass (no domain base) so it crosses package boundaries without
- * dragging in a hierarchy, and so it escapes any domain-specific `catch` that's
- * meant for recoverable failures — an invariant means a bug, and a bug should
- * surface, not be quietly handled.
+ * Thrown by {@link invariant} when a check fails. It means a bug, not bad
+ * input. It is a plain `Error` subclass, so code that catches recoverable
+ * errors will not swallow it by accident.
  */
 export class InvariantError extends Error {
   constructor(message: string) {
@@ -32,16 +30,17 @@ export class InvariantError extends Error {
 }
 
 /**
- * Assert an internal invariant. Throws an {@link InvariantError} when
- * `condition` is falsy; otherwise narrows `condition` via `asserts`, so the
- * compiler treats it as truthy afterwards (e.g. a nullable value becomes
- * non-null after `invariant(value, …)`).
+ * Check something that must be true unless there is a bug. Throws an
+ * {@link InvariantError} when `condition` is falsy. Otherwise TypeScript treats
+ * `condition` as true after the call, so a nullable value becomes non-null.
  *
- * `%s` placeholders in `message` are substituted from `args` in order, so the
- * formatted string is only assembled on the failure path:
+ * Each `%s` in `message` is replaced by the next value in `args`. The message
+ * is only built when the check fails.
  *
- *   invariant(ctx, "useAuth must be used within an AuthProvider");
- *   invariant(text.length > 0, "insertChars: empty text in block %s", blockId);
+ * ```ts
+ * invariant(ctx, "useAuth must be used within an AuthProvider");
+ * invariant(text.length > 0, "insertChars: empty text in block %s", blockId);
+ * ```
  */
 export function invariant(
   condition: unknown,

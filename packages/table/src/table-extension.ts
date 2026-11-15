@@ -26,6 +26,12 @@ import type { FeatureInputRule } from "@tasfer/editor/feature-facets";
 import type { BlockSpec } from "@tasfer/editor/schema";
 import type { StructuredKindSpec } from "@tasfer/editor/sync/schema";
 
+/**
+ * What {@link tableExtension} returns: everything the editor needs for
+ * tables, ready to pass to `schema.use(...)`.
+ *
+ * @group Setup
+ */
 export type TableFeatureExtension = {
   readonly name: "table";
   readonly nodes: readonly [BlockSpec<"table", TableBlockAttrs>];
@@ -33,16 +39,35 @@ export type TableFeatureExtension = {
   readonly inputRules: readonly FeatureInputRule[];
 };
 
-/** What a host can turn on when it installs the table feature. */
+/**
+ * What a host can turn on when it installs the table feature. The options are
+ * listed on {@link TableInputOptions}.
+ *
+ * @group Setup
+ */
 export type TableFeatureOptions = TableInputOptions;
 
 /**
- * Build a fresh, instance-safe table feature bundle.
+ * Adds tables to your schema: the table block, plus typing, selecting and
+ * copying inside cells. Each call returns a new bundle, so every editor can
+ * have its own. Options are off unless you turn them on.
  *
- * Everything optional is off unless asked for, so `tableExtension()` keeps
- * meaning exactly what it did. Opt cells into markdown auto-format with:
+ * It includes everything in {@link tableDataExtension}, plus the canvas node
+ * and the copy and paste handlers. Turning a block into a `table` block, from
+ * a menu for example, makes an empty 3×3 grid with the caret in the first
+ * header cell.
  *
- *   const schema = baseSchema.use(tableExtension({ markdownShortcuts: true }));
+ * ```ts
+ * import { baseSchema } from "@tasfer/editor";
+ * import { tableExtension } from "@tasfer/table";
+ *
+ * const schema = baseSchema.use(tableExtension());
+ *
+ * // Let **bold**, *italic* and the other shortcuts format text inside cells
+ * const withShortcuts = baseSchema.use(tableExtension({ markdownShortcuts: true }));
+ * ```
+ *
+ * @group Setup
  */
 export function tableExtension(
   options: TableFeatureOptions = {},

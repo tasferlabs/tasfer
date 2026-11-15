@@ -30,6 +30,7 @@
  * and an unrecognised component name throws.
  */
 
+import { readFileSync } from "node:fs";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -61,6 +62,9 @@ const INSTALL_COMMANDS = (pkg, dev) => [
   `yarn add${dev ? " -D" : ""} ${pkg}`,
   `bun add${dev ? " -D" : ""} ${pkg}`,
 ];
+
+/** Articles llms-full.txt links to instead of carrying whole. */
+const LINKED_FROM_FULL = new Set(["editor/reference"]);
 
 const FRAMEWORK_LABELS = { js: "JavaScript", react: "React" };
 const CALLOUT_LABELS = { note: "Note", warn: "Warning", tip: "Tip" };
@@ -374,6 +378,10 @@ function convertJsx(node, ctx) {
       return [label(String(name)), ...asFlow(children())];
     }
 
+    /* ── the generated API reference ── */
+    case "ApiReference":
+      return apiReference();
+
     /* ── tables ── */
     case "PropsTable": {
       const rows = attr("rows") ?? [];
@@ -381,7 +389,7 @@ function convertJsx(node, ctx) {
       const withType = cols.length > 2;
       const header = cols.map((c) => [text(String(c))]);
       const body = rows.map((row) => {
-        const nameCell = [inlineCode(String(row.name))];
+        const nameCell = row.keys ? keysCell(row.keys) : [inlineCode(String(row.name))];
         if (row.required) nameCell.push(text(" (required)"));
         const cells = [nameCell];
         if (withType) cells.push([inlineCode(String(row.type ?? ""))]);
@@ -412,6 +420,141 @@ function convertJsx(node, ctx) {
         `generate-llms: no markdown mapping for <${name}> (in ${ctx.route}).`,
       );
   }
+}
+
+/* ── the API reference ──
+   The page shows one package at a time and keeps each export folded; the
+   markdown carries every package, every export and every member, unfolded.
+   The data is the same JSON the page renders (scripts/generate-api.mjs), and
+   its doc comments are already mdast, so they drop straight in. */
+
+const API_DATA = join(ROOT, "src/views/DocsPage/reference/data");
+const readJson = (path) => JSON.parse(readFileSync(path, "utf8"));
+const heading = (depth, children) => ({ type: "heading", depth, children });
+const codeBlock = (value, lang = "ts") => ({ type: "code", lang, value });
+
+/** A doc comment's nodes, with the page-only `ref:` links reduced to their text. */
+function unref(nodes) {
+  return (nodes ?? []).flatMap((node) => {
+    const children = node.children ? unref(node.children) : undefined;
+    if (node.type === "link" && node.url.startsWith("ref:")) return children;
+    return [children ? { ...node, children } : { ...node }];
+  });
+}
+
+/** What a doc comment says about an export or a member, as flow content. */
+function apiDocs(item) {
+  const out = [];
+  if (Array.isArray(item.deprecated)) {
+    out.push(label("Deprecated"), ...unref(item.deprecated));
+  }
+  out.push(...unref(item.doc));
+  if (item.default) {
+    out.push(paragraph([strong([text("Default:")]), text(" "), inlineCode(item.default)]));
+  }
+  if (item.params?.length) {
+    out.push(label("Parameters"), {
+      type: "list",
+      ordered: false,
+      spread: false,
+      children: item.params.map((param) => ({
+        type: "listItem",
+        spread: false,
+        children: [
+          paragraph([inlineCode(param.name), text(" — "), text(plainText(param.doc))]),
+        ],
+      })),
+    });
+  }
+  if (item.returns) out.push(label("Returns"), ...unref(item.returns));
+  for (const example of item.examples ?? []) {
+    out.push(label(example.title ?? "Example"), codeBlock(example.code, example.lang));
+  }
+  return out;
+}
+
+/** The status words a row's badges show on the page. */
+function apiStatus(item, version) {
+  const words = [];
+  if (item.optional) words.push("optional");
+  if (item.since) {
+    words.push(
+      isNewerVersion(item.since, version)
+        ? `unreleased (arrives in ${item.since})`
+        : `since ${item.since}`,
+    );
+  }
+  if (item.experimental) words.push("experimental");
+  if (item.deprecated) words.push("deprecated");
+  return words;
+}
+
+function isNewerVersion(version, than) {
+  const a = version.split(".").map(Number);
+  const b = than.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0);
+  }
+  return false;
+}
+
+function apiSymbol(symbol, version) {
+  const facts = [symbol.kind, ...apiStatus(symbol, version)];
+  if (symbol.from.length > 1) facts.push(`also exported from ${symbol.from.slice(1).join(", ")}`);
+  const out = [
+    heading(3, [inlineCode(symbol.name)]),
+    paragraph([text(facts.join(" · "))]),
+    ...symbol.sigs.map((sig) => codeBlock(sig)),
+    ...apiDocs(symbol),
+  ];
+  if (symbol.members?.length) {
+    out.push(label("Members"), {
+      type: "list",
+      ordered: false,
+      spread: true,
+      children: symbol.members.map((member) => {
+        const status = apiStatus(member, version);
+        return {
+          type: "listItem",
+          spread: true,
+          children: [
+            codeBlock(member.sig),
+            ...(status.length ? [paragraph([text(status.join(" · "))])] : []),
+            ...apiDocs(member),
+          ],
+        };
+      }),
+    });
+  }
+  return out;
+}
+
+function apiReference() {
+  const index = readJson(join(API_DATA, "index.json"));
+  const out = [paragraph([text(`Package version: ${index.version}.`)])];
+  for (const pkg of index.packages) {
+    const data = readJson(join(API_DATA, `${pkg.slug}.json`));
+    for (const entry of data.entries) {
+      if (!entry.symbols.length) continue;
+      out.push(heading(2, [inlineCode(entry.id)]));
+      if (entry.id === pkg.name && pkg.description) {
+        out.push(paragraph([text(pkg.description)]));
+      }
+      for (const symbol of entry.symbols) out.push(...apiSymbol(symbol, index.version));
+    }
+  }
+  return out;
+}
+
+/** A keyboard row's chords — one list, or one per platform label. */
+function keysCell(keys) {
+  const chords = (list) =>
+    list.flatMap((c, i) => (i ? [text(" / "), inlineCode(c)] : [inlineCode(c)]));
+  if (Array.isArray(keys)) return chords(keys);
+  return Object.entries(keys).flatMap(([label, list], i) => [
+    text(`${i ? "; " : ""}${label}: `),
+    ...chords(list),
+  ]);
 }
 
 function table(rows) {
@@ -604,7 +747,8 @@ function llmsIndex(pages, dictionary, lang) {
     "",
     "Every documentation page is available as plain markdown at its own URL with",
     "`.md` appended (`/docs/app/markdown/` → `/docs/app/markdown.md`), and all of",
-    `them concatenated at ${SITE_ORIGIN}/llms-full.txt.`,
+    `them concatenated at ${SITE_ORIGIN}/llms-full.txt (the API reference is linked`,
+    "from there rather than repeated: it is larger than everything else combined).",
     "",
     "Pages that document more than one variant — package manager, framework —",
     "carry every variant in the markdown. The HTML pages take the same choices as",
@@ -684,7 +828,17 @@ async function main() {
       if (lang === defaultLang) {
         await write(join(PUBLIC, "docs", `${item.route}.md`), file);
       }
-      pages.push({ ...page, body: file });
+      // The API reference is several times the size of the rest of the docs
+      // put together. Concatenated, it would push llms-full.txt past what many
+      // models can read in one go, so there it is a pointer to its own file.
+      const inFull = LINKED_FROM_FULL.has(item.route)
+        ? articleFile(
+            page,
+            lang,
+            `This page is large, so it is not repeated here. Read it at ${SITE_ORIGIN}/${lang}/docs/${item.route}.md.`,
+          )
+        : file;
+      pages.push({ ...page, body: inFull });
     }
 
     const index = llmsIndex(pages, dictionary, lang);

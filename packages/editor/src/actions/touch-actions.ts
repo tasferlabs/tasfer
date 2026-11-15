@@ -59,8 +59,9 @@ interface PositionPayload {
 // ─── Padding taps (clear / reposition, no ops) ───────────────────────────────
 
 /**
- * Tap in the top padding area above the first block: clear any selection, drop
- * back to edit mode, and close an open context menu. Pure, no ops.
+ * Tap in the top padding above the first block: clears any selection, switches
+ * back to edit mode, and closes an open context menu. Does not change the
+ * document.
  */
 export const TAP_TOP_PADDING = stateAction("tap-top-padding", (state) => {
   let next = clearSelection(state);
@@ -71,10 +72,10 @@ export const TAP_TOP_PADDING = stateAction("tap-top-padding", (state) => {
 });
 
 /**
- * Tap in the left/right padding gutter: position the caret at the resolved
- * start/end-of-line `position`, clear any selection, drop to edit mode, and
- * close an open context menu. The handler resolves `position` from the tap
- * point. Pure, no ops.
+ * Tap in the left or right padding: clears any selection, puts the caret at the
+ * start or end of that line, switches to edit mode, and closes an open context
+ * menu. The handler resolves `position` from the tap point. Does not change the
+ * document.
  */
 export const TAP_SIDE_PADDING = stateAction<PositionPayload>(
   "tap-side-padding",
@@ -91,11 +92,10 @@ export const TAP_SIDE_PADDING = stateAction<PositionPayload>(
 // ─── Visual-block selection (image / line) ───────────────────────────────────
 
 /**
- * Select a visual (non-textual) block — an image or line — that the tap landed
- * on, mirroring the arrow-key behavior: close any active menu, move the caret to
- * the block, and create a collapsed-position selection that spans it. The
- * handler resolves `position.blockIndex` from the atomic-block hit-test. Pure,
- * no ops.
+ * Selects the image or line block the tap landed on, the same way the arrow
+ * keys do. It closes any open menu, moves the caret to the block, selects the
+ * whole block, and switches to edit mode. The handler finds the block and
+ * passes it as `position.blockIndex`. Does not change the document.
  */
 export const TAP_SELECT_VISUAL_BLOCK = stateAction<PositionPayload>(
   "tap-select-visual-block",
@@ -126,10 +126,9 @@ export const TAP_SELECT_VISUAL_BLOCK = stateAction<PositionPayload>(
 );
 
 /**
- * Tapped outside a currently-selected visual block (image/line): clear the
- * dangling selection. The handler establishes that a non-collapsed visual-block
- * selection exists and the tap missed it, passing the spanned block's index.
- * Pure, no ops.
+ * Clears the selection. Touch handling dispatches it when you tap outside a
+ * selected image or line block. Takes no payload and does not change the
+ * document.
  */
 export const TAP_CLEAR_VISUAL_BLOCK_SELECTION = stateAction(
   "tap-clear-visual-block-selection",
@@ -139,10 +138,10 @@ export const TAP_CLEAR_VISUAL_BLOCK_SELECTION = stateAction(
 // ─── Image-node overlay toggle ───────────────────────────────────────────────
 
 /**
- * Open a host overlay for an image node's activation (e.g. a placeholder image's
- * upload popover). The handler asks the node whether activation opens an overlay
- * and passes the resolved `key`/`data`, the block id, and the tap point.
- * Pure, no ops.
+ * Opens a host overlay for an image, such as the upload popover on a
+ * placeholder image. The handler asks the node which overlay to open and passes
+ * its `key` and `data`, the block id, and the tap `point`. Does not change the
+ * document.
  */
 export const OPEN_NODE_OVERLAY = stateAction<{
   key: string;
@@ -162,8 +161,9 @@ export const OPEN_NODE_OVERLAY = stateAction<{
 }));
 
 /**
- * Re-tapping an image whose overlay is already open closes the overlay (and
- * keeps it closed for this tap). Pure, no ops.
+ * Closes the open overlay (or any open editor menu). Touch handling dispatches
+ * it when you tap an image whose overlay is already open. Does not change the
+ * document.
  */
 export const CLOSE_NODE_OVERLAY = stateAction(
   "close-node-overlay",
@@ -173,11 +173,12 @@ export const CLOSE_NODE_OVERLAY = stateAction(
 // ─── Multi-tap word/line selection ───────────────────────────────────────────
 
 /**
- * Triple-tap: select the whole line at the tap position (fires even inside an
- * existing selection). The handler resolves `position`. Pure, no ops.
+ * Triple-tap: selects the whole line at the tap, even inside an existing
+ * selection. The handler resolves `position`. Does not change the document.
  *
- * Named `TAP_*` (vs the mouse `SELECT_LINE_AT_POINT`) for the touch convention.
+ * @group Built-in actions
  */
+// Named TAP_* (vs the mouse SELECT_LINE_AT_POINT) for the touch convention.
 export const TAP_SELECT_LINE = stateAction<PositionPayload>(
   "tap-select-line",
   (state, { position }) => ({
@@ -187,12 +188,14 @@ export const TAP_SELECT_LINE = stateAction<PositionPayload>(
 );
 
 /**
- * Double-tap: select the word at the tap position, closing an open context menu
- * (a new selection supersedes it). The handler resolves `position`. Pure, no
- * ops.
+ * Double-tap: selects the word at the tap and closes an open context menu. The
+ * handler resolves `position`. It can also pass a ready-made `range` when the
+ * node under the finger picks the word itself, such as a formula. Does not
+ * change the document.
  *
- * Named `TAP_*` (vs the mouse `SELECT_WORD_AT_POINT`) for the touch convention.
+ * @group Built-in actions
  */
+// Named TAP_* (vs the mouse SELECT_WORD_AT_POINT) for the touch convention.
 export const TAP_SELECT_WORD = stateAction<
   PositionPayload & {
     /**
@@ -216,11 +219,14 @@ export const TAP_SELECT_WORD = stateAction<
 // ─── Tap-place-cursor ────────────────────────────────────────────────────────
 
 /**
- * Single tap: clear any selection, place the caret at the tap position, drop to
- * edit mode, and close an open context menu. A tap landing inside an existing
- * selection routes here too — matching native editors, where a tap dismisses
- * the selection and repositions the caret rather than opening a menu (the menu
- * is reached via long-press). The handler resolves `position`. Pure, no ops.
+ * Single tap: clears any selection, places the caret at the tap, switches to
+ * edit mode, and closes an open context menu. A tap inside an existing
+ * selection lands here too, as in native editors: it drops the selection and
+ * moves the caret. Long-press opens the menu instead.
+ *
+ * The handler resolves `position`. When it also passes a `contentSelection` (a
+ * caret inside a node such as a formula), that caret is used instead. Does not
+ * change the document.
  */
 export const TAP_PLACE_CURSOR = stateAction<PositionPayload>(
   "tap-place-cursor",
@@ -243,9 +249,9 @@ export const TAP_PLACE_CURSOR = stateAction<PositionPayload>(
 );
 
 /**
- * Tap that resolves to no text position (outside the editor's content area):
- * clear the selection, drop to edit mode, and close an open context menu. Pure,
- * no ops.
+ * Tap outside the content, where there is no text: clears the selection,
+ * switches to edit mode, and closes an open context menu. Does not change the
+ * document.
  */
 export const TAP_OUTSIDE_CONTENT = stateAction(
   "tap-outside-content",
@@ -261,14 +267,14 @@ export const TAP_OUTSIDE_CONTENT = stateAction(
 // ─── Long-press / cursor-drag context menu ───────────────────────────────────
 
 /**
- * Open the context menu at a resolved tap/long-press point. Shared by the
- * long-press-without-drag release and the cursor-drag-held-without-move release
- * (mobile's long-press-on-cursor = paste menu). The handler supplies the
- * pixel `point`. Headless: the engine doesn't own the menu — it dispatches the
- * host-facing {@link OPEN_CONTEXT_MENU} and leaves the state unchanged (the host
- * renders the menu; the engine flips its own capture flag). Pure, no ops. Kept
- * as a thin state-action shim so the touch call sites stay uniform.
+ * Asks the host to open the context menu at the pixel `point`. Touch handling
+ * dispatches it when a long-press ends without a drag, or when you hold the
+ * caret without moving it (the paste menu on phones). The editor does not draw
+ * the menu. It dispatches {@link OPEN_CONTEXT_MENU} with the point and whether
+ * something is selected, and leaves the editor state as it is.
  */
+// Kept as a thin state-action shim so the touch call sites stay uniform; the
+// engine flips its own capture flag when the host menu opens.
 export const OPEN_CONTEXT_MENU_AT = stateAction<{
   point: { x: number; y: number };
 }>("open-context-menu-at", (state, { point }) => {

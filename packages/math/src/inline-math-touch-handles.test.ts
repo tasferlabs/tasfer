@@ -21,6 +21,7 @@ import {
   mathContentSelectionFromSourceOffset,
   mathSourceRangeFromContentSelection,
 } from "./tree-selection";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import { CURSOR_DRAG_BOUNDARY } from "@tasfer/editor/action-bus";
 import { TAP_SELECT_WORD } from "@tasfer/editor/actions/touch-actions";
 import { hitTestAllRegions } from "@tasfer/editor/events/blockRegions";
@@ -35,8 +36,6 @@ import {
   routeCapturedEnd,
   routeCapturedMove,
 } from "@tasfer/editor/events/regions";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import {
   getCursorDocumentCoords,

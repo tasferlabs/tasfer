@@ -17,12 +17,11 @@ import {
 import { enterInlineMathTreeAtPosition } from "./inline-tree-state";
 import { mathExtension } from "./math-extension";
 import { getStructuredMathSource, mathContentIdForBlock } from "./structured";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import {
   convertBlockAtCursor,
   insertText,
 } from "@tasfer/editor/actions/actions";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import { moveCursorToPosition } from "@tasfer/editor/selection";
 import {

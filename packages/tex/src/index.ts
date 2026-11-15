@@ -33,23 +33,29 @@ import type { Node, TextFallbackChar } from "./parse/ast";
 import { parse, pendingCommandRange } from "./parse/parser";
 import { DISPLAY, TEXT } from "./style";
 
+/**
+ * Options for {@link layoutMath}: font size, display or inline style, line
+ * wrapping, and a fallback font for text the math fonts cannot draw.
+ *
+ * @group Rendering
+ */
 export interface LayoutOptions {
-  /** Display style (centered, full-size operators) vs inline text style. */
+  /**
+   * `true` for display style, with full-size operators. Defaults to `false`,
+   * the smaller inline style.
+   */
   displayMode?: boolean;
-  /** Pixel size of 1 em. Layout is computed in em then reported at this scale. */
+  /** Font size in pixels (the size of 1 em). Defaults to 16. */
   fontSize?: number;
   /**
-   * Source range of a control word the caller is *still typing* — parsed as a
-   * literal placeholder instead of being resolved, so the whole layout (paint
-   * AND caret geometry derived from it) reflects the in-progress source text.
-   * See {@link ParseOptions.literalRange} / `pendingCommandRange`.
+   * Source range of a command the user is still typing. It is drawn as the
+   * typed text instead of being turned into a symbol, and caret positions
+   * follow that. Get it from {@link pendingCommandRange}.
    */
   literalRange?: { start: number; end: number };
   /**
-   * Source offsets of `\`s that are editable field content rather than syntax,
-   * independent of the caret. Supplied by the structured-document projection
-   * (`layoutMathDocument` passes them automatically); see
-   * {@link ParseOptions.literalBackslashes}.
+   * Source offsets of `\` characters that are plain text in a field, not the
+   * start of a command. {@link layoutMathDocument} fills this in for you.
    */
   literalBackslashes?: readonly number[];
   /**
@@ -75,49 +81,57 @@ export interface LayoutOptions {
    */
   wrapLineGap?: number;
   /**
-   * Host font for characters inside `\text{…}` that the math fonts can't render
-   * (CJK, emoji, …). When supplied, such a char is measured with `measure` and
-   * typeset from `fontFamily` at paint time, instead of laying out as the
-   * invisible zero-width fallback glyph (so `\text{中文}` shows the actual
-   * characters). Omit (the default) to keep the engine glyph-metric-only —
-   * unrenderable chars then stay invisible, as before. Latin text is unaffected
-   * either way (it has native KaTeX glyphs).
+   * A host font for characters inside `\text{…}` that the math fonts cannot
+   * draw, such as Chinese or emoji. With it, that text is measured with
+   * `measure` and drawn in `fontFamily`, so `\text{中文}` shows. Without it (the
+   * default), those characters take no space and stay invisible. Latin text
+   * always uses the math fonts.
    */
   textFallback?: TextFallback;
 }
 
-/** Source-offset-free options for the identity-bearing document layout API. */
+/**
+ * Options for {@link layoutMathDocument}. The same as {@link LayoutOptions},
+ * without `literalRange` and `literalBackslashes`. Give the typing caret as
+ * `literalCaret` instead. Backslashes are handled for you.
+ *
+ * @group Rendering
+ */
 export type MathDocumentLayoutOptions = Omit<
   LayoutOptions,
   "literalRange" | "literalBackslashes"
 > & {
   /**
-   * Stable field position of the caret while the user is typing INSIDE an
-   * editable text field — the identity-keyed equivalent of
-   * {@link LayoutOptions.literalRange}. When the caret sits at the trailing
-   * edge of a `\`+letters run that is still pending (see
-   * `pendingCommandRange`), that run is laid out as its literal source text
-   * (`\pm` while heading to `\pmatrix`) instead of resolving to its symbol
-   * (±). Uncommitted command scratch only ever lives in a raw-text field, so a
-   * caret anywhere else (or a committed semantic node) never goes literal.
-   * Callers can't express this as source offsets — the canonical projection is
-   * internal — hence the stable address.
+   * Where the caret is while the user types inside a text field. This replaces
+   * {@link LayoutOptions.literalRange}. If a command is still being typed at
+   * this caret (see {@link pendingCommandRange}), it is drawn as typed (`\pm`
+   * on the way to `\pmatrix`) instead of as its symbol (±). A caret anywhere
+   * else has no effect.
    */
   literalCaret?: Pick<MathDocumentFieldPosition, "nodeId" | "field" | "offset">;
 };
 
 /**
- * A host-provided text face for the `\text{…}` fallback (see
- * {@link LayoutOptions.textFallback}). `measure` returns em metrics (at size 1)
- * for a single character — the host reads them off a canvas (e.g. `measureText`
- * at a reference size, divided back to em). `fontFamily` is the CSS family the
- * same characters are painted with, so measurement and paint agree.
+ * A host font for the `\text{…}` fallback (see
+ * {@link LayoutOptions.textFallback}). `measure` gets a run of text and returns
+ * its size in em at font size 1. A host can read it off a canvas with
+ * `measureText` and divide by the font size it used. `fontFamily` is the CSS
+ * font the same text is painted with, so size and paint match.
+ *
+ * @group Rendering
  */
 export interface TextFallback {
   readonly fontFamily: string;
   readonly measure: (text: string) => TextFallbackChar;
 }
 
+/**
+ * A formula that has been measured and is ready to draw. {@link layoutMath}
+ * returns it; pass it to {@link paintMath} or {@link toSVG}, and read `width`,
+ * `height` and `depth` to make room for it.
+ *
+ * @group Rendering
+ */
 export interface MathLayout {
   /** The laid-out box tree (dimensions in em; multiply by `fontSize` for px). */
   readonly box: Box;
@@ -134,9 +148,10 @@ export interface MathLayout {
 }
 
 /**
- * Whether `latex` parses with no unrecognized commands. The engine never throws
- * (it renders unknowns as placeholders), so this is the editor's "is this valid"
- * signal, not a crash guard.
+ * Whether `latex` has no unknown commands. Rendering never throws. It draws
+ * unknown commands as placeholders. So use this to check if a formula is valid.
+ *
+ * @group Rendering
  */
 export function isValidLatex(latex: string): boolean {
   let ok = true;
@@ -173,7 +188,19 @@ export function isValidLatex(latex: string): boolean {
   return ok;
 }
 
-/** Parse and lay out `latex`. Never throws; invalid input renders partially. */
+/**
+ * Parse and lay out `latex`, ready to draw. It never throws. Invalid input
+ * draws as much as it can.
+ *
+ * ```ts
+ * await loadFonts({ baseUrl: "/fonts" });
+ * const layout = layoutMath("\\frac{a}{b}", { fontSize: 20 });
+ * // x is the left edge, y is the baseline
+ * paintMath(ctx, layout, 0, layout.height);
+ * ```
+ *
+ * @group Rendering
+ */
 export function layoutMath(
   latex: string,
   opts: LayoutOptions = {},
@@ -223,13 +250,15 @@ export function layoutMath(
 }
 
 /**
- * Lay out an authoritative identity-bearing math tree.
+ * Lay out a {@link MathDocument}, ready to draw. The result's items and caret
+ * stops point to the document's own item ids, not to LaTeX offsets. To change
+ * the formula, edit `document` and lay it out again.
  *
- * The current painter still consumes the mature source-span layout engine, so
- * this function makes a transient canonical projection and immediately maps
- * its boxes/carets back to stable document ids. The source is never returned as
- * editable state: callers mutate `document`, then lay it out again.
+ * @group Rendering
  */
+// The painter still runs on the source-span layout engine, so this prints a
+// temporary LaTeX projection, lays that out, and maps boxes and carets back to
+// document ids.
 export function layoutMathDocument(
   document: MathDocument,
   opts: MathDocumentLayoutOptions = {},
@@ -272,12 +301,12 @@ function projectedPendingCommandRange(
 }
 
 /**
- * Source offsets where `latex` may be line-broken at top level — before each
- * binary operator / relation. Empty when the formula has no such break (a single
- * atom, one big construct). A caller wrapping inline math into running text uses
- * these as the only legal split points; the rendered width of each resulting
- * piece is `layoutMath(piece).width` (re-laid-out standalone), so this carries no
- * widths itself — just the break *structure*.
+ * Source offsets where `latex` may wrap to a new line: before each top-level
+ * operator or relation, like `+` or `=`. Returns an empty array when there is
+ * no such place, such as a single symbol or one big fraction. To get a piece's
+ * width, lay it out on its own with `layoutMath(piece).width`.
+ *
+ * @group Rendering
  */
 export function breakpoints(latex: string): number[] {
   const ast = parse(latex);
@@ -342,7 +371,6 @@ export {
 } from "./edit/normalize";
 export {
   enclosingSelectionRanges,
-  isInsideConstruct,
   type MathUnit,
   resolveSelectionRange,
   scriptAttachOffset,
@@ -351,7 +379,7 @@ export {
   unitBefore,
 } from "./edit/unit";
 export type { LoadFontsOptions } from "./fonts/fonts";
-export { ALL_VARIANTS, fontFamily, loadFonts } from "./fonts/fonts";
+export { ALL_VARIANTS, loadFonts } from "./fonts/fonts";
 export { paintMath, type PaintOptions } from "./paint/canvas";
 export { toSVG, type ToSvgOptions } from "./paint/svg";
 export type { TextFallbackChar } from "./parse/ast";
@@ -407,3 +435,6 @@ export {
 // the parse AST (`Node`/`Span`), and `parse`/`ParseOptions` are brittle engine
 // internals, not a stable contract — they live in `@tasfer/tex/internal`.
 // At the root, the box tree is reachable only as the opaque `MathLayout.box`.
+
+// Old exports kept for one more release, each marked `@deprecated`.
+export * from "./deprecated/root";

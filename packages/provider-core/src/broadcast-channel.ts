@@ -153,11 +153,12 @@ class BroadcastChannelTransport implements Transport {
 }
 
 /**
- * Create a BroadcastChannel transport. All replicas using the same `room`
- * string on the same origin converge.
+ * A transport that syncs tabs and frames in one browser, with no server. They
+ * must share an origin (the same scheme, host and port). Every tab that uses
+ * the same `room` sees the same document. Give it to {@link createProvider}.
  *
- * @param room     channel name — same string ⇒ same room.
- * @param localId  this replica's stable id (pass `doc.peerId`).
+ * @param room     channel name. Same string, same room.
+ * @param localId  this tab's stable id (pass `doc.peerId`).
  */
 export function createBroadcastChannelTransport(
   room: string,

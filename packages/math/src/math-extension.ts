@@ -29,6 +29,12 @@ import type { StructuredKindSpec } from "@tasfer/editor/sync/schema";
 
 export type { MathBlockAttrs } from "./data";
 
+/**
+ * What {@link mathExtension} returns: everything the editor needs for block
+ * and inline math, ready to pass to `schema.use(...)`.
+ *
+ * @group Setup
+ */
 export type MathFeatureExtension = {
   readonly name: "math";
   readonly nodes: readonly [BlockSpec<"math", MathBlockAttrs>];
@@ -38,7 +44,29 @@ export type MathFeatureExtension = {
   readonly pasteRules: readonly FeaturePasteRule[];
 };
 
-/** Build a fresh, instance-safe math feature bundle. */
+/**
+ * Adds block and inline math to an editor schema. Each call returns a new
+ * bundle, so every editor gets its own.
+ *
+ * ```ts
+ * import { baseSchema, createEditor } from "@tasfer/editor";
+ * import { mathExtension } from "@tasfer/math";
+ *
+ * const schema = baseSchema.use(mathExtension());
+ * const editor = createEditor({ element, schema });
+ * ```
+ *
+ * For workers and servers with no canvas, use {@link mathDataExtension}.
+ *
+ * Math is not in `baseSchema`, and `@tasfer/editor` never imports this package.
+ * An editor without math pays nothing for it. Install `@tasfer/tex` next to
+ * this package; it is a peer dependency.
+ *
+ * Without math in the schema, `$…$` and `$$…$$` stay plain text, kept exactly
+ * as written. So Markdown read without math loses no formulas.
+ *
+ * @group Setup
+ */
 export function mathExtension(): MathFeatureExtension {
   const data = mathDataExtension();
   return {

@@ -3,9 +3,8 @@
  *
  * A `NodeRegistry` is per-editor-instance (created at mount, stored on
  * `EditorState.nodes`) — not a module global. Hosts compose the set of
- * nodes they want: pass a custom `nodes` list to `mountEditor` to
- * opt in/out of block types, or use `createDefaultNodeRegistry()` for the
- * built-in set.
+ * nodes they want: pass a custom `nodes` list to `createEditor` to
+ * opt in/out of block types, or use `defaultNodes()` for the built-in set.
  *
  * Two low-level primitives back everything: `TextNode` (text geometry: wrap,
  * caret, selection, hit-test) and `AtomicNode` (intrinsic-sized void/embed
@@ -28,30 +27,16 @@ import { Node, NodeRegistry } from "./Node";
 
 export type { CodeBlock } from "../../nodes/code-block";
 export {
-  CANCEL_IMAGE_HANDLE_DRAG,
-  cancelImageHandleDrag,
   canRepositionImage,
   canRepositionImageAt,
-  CREATE_PARAGRAPH_BELOW_IMAGE,
-  END_IMAGE_HANDLE_DRAG,
-  endImageHandleDrag,
   ENTER_IMAGE_REPOSITION,
   EXIT_IMAGE_REPOSITION,
-  getDragHandleAtPoint,
   ImageNode,
-  imageObjectPosition,
   isRepositioning,
-  SET_IMAGE_HOVER,
-  START_IMAGE_HANDLE_DRAG,
-  startImageHandleDrag,
-  UPDATE_IMAGE_HANDLE_DRAG,
-  UPDATE_IMAGE_REPOSITION,
-  updateImageHandleDrag,
 } from "../../nodes/ImageNode";
 export { LineNode } from "../../nodes/LineNode";
 export {
   INDENT_LIST_ITEM,
-  LIST_BLOCK_TYPES,
   ListNode,
   OUTDENT_LIST_ITEM,
   TOGGLE_TODO_CHECKED,
@@ -61,19 +46,16 @@ export {
   getContentWithComposition,
   paintTextRun,
   type PaintTextRunArgs,
-  TEXT_BLOCK_TYPES,
   TextNode,
   type TextNodeLayout,
 } from "../../nodes/TextNode";
 export { AtomicNode } from "./AtomicNode";
 export type { CaretModel, CaretMotion, TextSpan } from "./caret-model";
-export { contentPointCaretRect } from "./content-caret";
 export {
   hitRegion,
   Node,
   type NodeActivateCtx,
   type NodeActivation,
-  type NodeAtomicHit,
   type NodeCaretRect,
   type NodeContentCaretCtx,
   type NodeContentHitCtx,
@@ -90,17 +72,20 @@ export {
   type NodeScrollCtx,
   type Point,
 } from "./Node";
-export { UnknownNode } from "./UnknownNode";
 
 /**
- * The built-in nodes. Each is constructed fresh here (the built-in nodes are
- * stateless, holding only layout/paint logic), so importing this module has no
- * side effects and no module-init ordering hazards.
+ * Returns the built-in nodes, made new on each call: paragraph and headings
+ * (`TextNode`), bullet, numbered and todo lists (`ListNode`), quote, image and
+ * the divider line.
  *
- * `TextNode` backs headings + paragraph; `ListNode` (a subclass) backs the
- * bullet/numbered/todo family. Optional feature nodes (notably math) are not in
- * this list: hosts install them through feature extensions.
+ * Opt-in nodes such as math, code blocks and tables are not in this list. Add
+ * them through their extensions.
+ *
+ * @group Nodes
  */
+// Built-in nodes are stateless (layout/paint logic only), so building them
+// inside this function keeps the module import free of side effects and
+// module-init ordering hazards.
 export function defaultNodes(): Node[] {
   return [
     new LineNode(),
@@ -111,7 +96,12 @@ export function defaultNodes(): Node[] {
   ];
 }
 
-/** Build a registry from an explicit list of nodes (host opt-in). */
+/**
+ * Builds a node registry from the nodes you list. Only those block types get a
+ * node. If two nodes claim the same block type, the later one wins.
+ *
+ * @group Nodes
+ */
 export function createNodeRegistry(nodes: readonly Node[]): NodeRegistry {
   const registry = new NodeRegistry();
   for (const node of nodes) {
@@ -120,7 +110,12 @@ export function createNodeRegistry(nodes: readonly Node[]): NodeRegistry {
   return registry;
 }
 
-/** Build a registry pre-populated with the built-in nodes. */
+/**
+ * Build a registry pre-populated with the built-in nodes.
+ *
+ * @internal The editor builds this itself. Pass `createNodeRegistry(nodes)` a
+ * custom list instead.
+ */
 export function createDefaultNodeRegistry(): NodeRegistry {
   return createNodeRegistry(defaultNodes());
 }

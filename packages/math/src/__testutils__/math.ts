@@ -1,7 +1,6 @@
 /** Test-only helpers for suites that intentionally install optional math. */
 import { mathExtension } from "../math-extension";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import { baseSchema } from "@tasfer/editor/schema";
 import { loadPage } from "@tasfer/editor/serlization/loadPage";
 import type { CRDTbinding } from "@tasfer/editor/state-types";

@@ -14,13 +14,12 @@ import {
   resolveStructuredInlineMathRuns,
 } from "./inline-structured";
 import { mathExtension } from "./math-extension";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import {
   convertBlockAtCursor,
   insertText,
   outdentListItem,
 } from "@tasfer/editor/actions/actions";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import { moveCursorToPosition } from "@tasfer/editor/selection";
 import {

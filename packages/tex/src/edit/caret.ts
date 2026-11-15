@@ -12,18 +12,22 @@
 import type { Box, SlotRole } from "../layout/box";
 import type { MathLayout } from "../index";
 
+/**
+ * One place the caret can sit in a laid-out formula: its offset in the LaTeX
+ * source and where that is on screen. {@link caretStops} lists them all.
+ *
+ * @group Caret and selection
+ */
 export interface CaretStop {
   /** Offset into the source LaTeX string. */
   readonly offset: number;
   /** Horizontal position in pixels (from the layout origin). */
   readonly x: number;
   /**
-   * Baseline of the row this stop sits on, in pixels (0 = the formula baseline,
-   * +down). Glyphs on the same text baseline share this exactly regardless of
-   * their height/depth, so it — not the glyph mid-point — is the discriminator
-   * for which *row* a stop belongs to (a superscript/numerator sits on a row
-   * with a smaller `y`, a subscript/denominator a larger one). Used by
-   * {@link caretVertical}.
+   * Baseline of this stop's row, in pixels from the formula baseline. Positive
+   * is down. Every stop on one row has the same `y`, so use it to tell rows
+   * apart. A superscript or numerator has a smaller `y`, and a subscript or
+   * denominator a larger one. Used by {@link caretVertical}.
    */
   readonly y: number;
   /** Top of the caret in pixels (negative = above baseline). */
@@ -37,12 +41,12 @@ export interface CaretStop {
    */
   readonly caretTop?: number;
   /**
-   * True for a stop at a construct's OUTER edge on the parent baseline (see
-   * {@link ListBox.boundary}). When a source offset is both a construct's edge
-   * and an inner glyph's edge (e.g. the end of `x^{2}` is also the end of the
-   * `2`), {@link caretRect} prefers this one — but only for a TRAILING edge (see
-   * {@link partnerX}) — so the caret sits beside a construct it just LEFT on the
-   * main baseline rather than up on the script row.
+   * `true` for a stop at the outer edge of a construct, on the main line. One
+   * offset can be both a construct's edge and a glyph's edge: the end of
+   * `x^{2}` is also the end of the `2`. For a plain caret, {@link caretRect}
+   * then picks the boundary stop, but only at the construct's trailing edge
+   * (where `partnerX` is to its left). So the caret sits on the main line
+   * beside a construct it just left, not up on the script.
    */
   readonly boundary?: boolean;
   /**
@@ -54,13 +58,13 @@ export interface CaretStop {
    */
   readonly partnerX?: number;
   /**
-   * The script slot this stop sits in (`"sup"`/`"sub"`), and a per-construct id
-   * shared by every stop of the SAME super/subscript construct. Set only for
-   * stops inside a script — used by {@link caretVertical} to connect a
-   * superscript directly to its subscript (↓/↑), stepping *over* the base that
-   * sits between them on the baseline. Undefined everywhere else (the caret
-   * navigates those by pure geometry).
+   * Which script slot this stop is in: `"sup"` or `"sub"`. Set only inside a
+   * superscript or subscript. {@link caretVertical} uses it, with `construct`,
+   * to jump straight between a superscript and its subscript, over the base
+   * between them.
    */
+  // Give `construct` (line 68) its own doc comment, e.g. "Id shared by every
+  // stop of the same script construct. Set together with `slot`."
   readonly slot?: SlotRole;
   readonly construct?: number;
   /** Visual bounds of an empty editable slot, used to enlarge its hit target. */
@@ -70,39 +74,55 @@ export interface CaretStop {
   };
 }
 
+/**
+ * Options for {@link hitTest}, which turns a click or touch point into a caret
+ * position in the formula.
+ *
+ * @group Caret and selection
+ */
 export interface HitTestOptions {
   /** Minimum width and height, in CSS pixels, of an empty-slot hit target. */
   readonly placeholderTargetSize?: number;
   /**
-   * Finger-drag resolution: resolve to the caret stop physically NEAREST the
-   * point in 2-D, instead of the tap path's vertical-band + boundary logic. Used
-   * by the mobile magnifier caret-drag. The tap path, while the finger sits in
-   * the gap between two stacked rows (a fraction's numerator and denominator,
-   * over the fraction bar), falls back to the construct's full-height OUTER
-   * boundary and yanks the caret out beside the whole fraction — so dragging up
-   * from the denominator toward the numerator flickers out to the edge and back.
-   * Nearest-stop resolution transitions cleanly numerator↔denominator at the
-   * visual midpoint between the rows with no such leap, while still reaching
-   * whichever row the finger is closest to. A precise tap leaves this off.
+   * Set this while a finger drags the caret, such as with the magnifier on a
+   * phone. The caret then goes to the stop nearest the finger. So it moves
+   * smoothly between a fraction's top and bottom, and does not jump out beside
+   * the fraction while the finger crosses the bar. Leave it off for a tap or
+   * click.
    */
+  // The tap path, in the gap between stacked rows, falls back to the
+  // construct's full-height outer boundary, which made a drag flicker out to
+  // the edge and back.
   readonly drag?: boolean;
   /**
-   * Drag mode only: the caret's CURRENT source offset. Enables row hysteresis —
-   * the current row's stops get a vertical-distance discount so a wobbling finger
-   * must move decisively toward another row before the caret leaves the one it is
-   * on. Without it, tightly-stacked inline rows (a fraction only ~1em apart) flip
-   * on sub-pixel jitter. Null/omitted disables hysteresis (the first placement of
-   * a drag, or a formula with a single row).
+   * Only used with `drag`: the caret's current source offset. With it, the
+   * caret stays on its current row until the finger moves clearly toward
+   * another row. Small wobbles then do not flip it between a fraction's top and
+   * bottom. Pass `null` or leave it out on the first move of a drag.
    */
   readonly dragPrevOffset?: number | null;
 }
 
+/**
+ * Where to draw the caret in a laid-out formula, in pixels. `x` is measured
+ * from the formula's left edge; `top` and `bottom` from its baseline, so
+ * negative values are above it. Returned by {@link caretRect}.
+ *
+ * @group Caret and selection
+ */
 export interface CaretRect {
   readonly x: number;
   readonly top: number;
   readonly bottom: number;
 }
 
+/**
+ * One highlight rectangle for a selection in a laid-out formula, in pixels.
+ * `x` is measured from the formula's left edge; `y` from its baseline, so
+ * negative values are above it. Returned by {@link selectionRects}.
+ *
+ * @group Caret and selection
+ */
 export interface SelectionRect {
   readonly x: number;
   readonly y: number;
@@ -114,6 +134,8 @@ export interface SelectionRect {
  * Every caret stop for a layout, sorted by source offset then x. Glyphs with no
  * source span (e.g. delimiter pieces) are skipped — the caret only stops at real
  * source positions.
+ *
+ * @group Caret and selection
  */
 export function caretStops(layout: MathLayout): CaretStop[] {
   const stops: CaretStop[] = [];
@@ -395,22 +417,19 @@ function dragHitTest(
 }
 
 /**
- * Source offset nearest to a click at `(x, y)`. Prefers stops whose vertical
- * band contains `y` (so a click in a numerator lands in the numerator), then
- * falls back to the horizontally-closest stop overall.
+ * Returns the source offset for a click or tap at `(x, y)`. `x` is in pixels
+ * from the formula's left edge, `y` from its baseline. Returns `0` when the
+ * formula has no caret stops.
  *
- * The band preference only applies while the click sits horizontally *over* a
- * row's content (between the leftmost and rightmost in-band stop). Past that
- * extent the click is in empty space (a left/right margin): it resolves to the
- * extreme caret position on the click's side via {@link marginStop}. For a
- * WRAPPED equation that extreme is taken on the clicked visual line only (so a
- * click right of line 1 lands at line 1's end, not the widest line's); on a
- * single line it is the whole formula's edge (so clicking right of `+a` in
- * `\frac{b}{c}+a` lands after `a`, not inside the fraction). A tie at that edge —
- * an inner glyph's edge sitting exactly on a construct's outer boundary, e.g. the
- * radicand's right edge and the whole `\sqrt{x}`'s — resolves to the OUTER edge,
- * so a click to the right of a formula ending in a construct rests beside it, not
- * inside it.
+ * A click over a row lands in that row, so a click in a numerator lands in the
+ * numerator. Otherwise it goes to the nearest stop in x. A click left or right
+ * of the content lands at the start or end of that line. In a formula that
+ * wraps, that is the clicked line. A click right of a formula that ends in a
+ * construct, like `\sqrt{x}`, lands after it, not inside it.
+ *
+ * For a finger drag, pass `drag: true` (see {@link HitTestOptions}).
+ *
+ * @group Caret and selection
  */
 export function hitTest(
   layout: MathLayout,
@@ -650,22 +669,24 @@ function marginStop(
 const MIN_CARET_HEIGHT_EM = 0.5;
 
 /**
- * Caret geometry for a source `offset`, or null if the layout has no stops.
+ * Returns where to draw the caret for a source `offset`. Returns `null` when
+ * the formula has no caret stops. If no stop sits exactly at `offset`, the
+ * nearest one is used.
  *
- * One source offset can own several stops at different x — an atom's edge and its
- * neighbour's edge across the inter-atom space (the med/thick space around a `+`
- * or `=`), plus a construct's outer boundary. `edge` disambiguates when the
- * offset is a SELECTION endpoint: `"start"` (the low end) faces its content to
- * the RIGHT so it takes the RIGHTMOST stop, `"end"` (the high end) faces LEFT and
- * takes the LEFTMOST — so the caret/handle hugs the highlighted range instead of
- * drifting out across the operator's surrounding space to a neighbour's edge.
- * Omit `edge` for a bare caret: there a construct's TRAILING boundary wins the
- * tie, so the caret rests beside a construct it has just left on the main
- * baseline (e.g. just past `x^{2}`), not up on its script row. A LEADING boundary
- * does not win — the caret keeps the height of the PRECEDING content rather than
- * leaping to the full height of a construct just ahead of it (between `\det` and
- * a following matrix it stays `\det`-tall, not matrix-tall).
+ * One offset can have several stops, for example on both sides of the space
+ * around a `+`. For a selection end, pass `edge` so the handle hugs the
+ * selected text. `"start"` takes the rightmost stop and `"end"` takes the
+ * leftmost.
+ *
+ * Leave `edge` out for a plain caret. Just after a construct like `x^{2}`, the
+ * caret then sits on the main line, not up on the script. Just before a
+ * construct, it keeps the height of what comes before it.
+ *
+ * @group Caret and selection
  */
+// A leading boundary must not win the bare-caret tie: between `\det` and a
+// following matrix the caret stays `\det`-tall. Short carets are lifted to
+// MIN_CARET_HEIGHT_EM of the font size, capped at the formula's own height.
 export function caretRect(
   layout: MathLayout,
   offset: number,
@@ -741,27 +762,23 @@ function nearestStopByOffset(stops: CaretStop[], offset: number): CaretStop {
 }
 
 /**
- * Source offset one visual row up/down from `offset`, at horizontal position
- * `preferredX` (px from the layout origin) — the vertical caret motion *inside*
- * a formula (a fraction's numerator ↔ denominator, a base ↔ its superscript).
- * Returns null when there is no stop in that direction, so the caller can leave
- * the formula and fall back to normal line navigation.
+ * Moves the caret one row up or down inside a formula, for example from a
+ * fraction's top to its bottom, or from a base to its superscript. Returns the
+ * new source offset. Returns `null` when there is no row in that direction, so
+ * you can move the caret out of the formula as usual.
  *
- * The target is the stop minimizing horizontal distance to `preferredX`, with
- * vertical distance only as a tiebreak (weight {@link VERTICAL_X_WEIGHT}). That
- * bias is what makes the caret land in the slot *directly* above/below — a
- * fraction stacks its halves vertically aligned, whereas a baseline sibling
- * (e.g. a `+` beside the fraction) sits off to the side and so loses on x even
- * though it is geometrically closer. Pure geometry, no structural tree needed.
+ * `preferredX` is the caret's x in pixels from the formula's left edge. The
+ * stop closest to it in x wins, so the caret lands straight above or below.
  *
- * The ONE case geometry can't carry is a super/subscript: its two slots stack
- * vertically but the base sits between them on the baseline at the SAME column,
- * so ↓ from a superscript would land on the base. So before falling back to
- * geometry we take a structural shortcut — ↓ from a superscript (resp. ↑ from a
- * subscript) jumps straight to the paired subscript (resp. superscript) of the
- * same construct, choosing the stop nearest `preferredX` and, when that is
- * ambiguous, the FIRST (leftmost) term in the slot.
+ * When a script has both parts, down from the superscript goes straight to the
+ * subscript, and up from the subscript goes to the superscript. The base
+ * between them is skipped.
+ *
+ * @group Caret and selection
  */
+// Score = |dx| * VERTICAL_X_WEIGHT + dy, so a baseline sibling beside a
+// fraction loses on x even when it is closer. On a tie in the script jump, the
+// first (leftmost) stop wins.
 export function caretVertical(
   layout: MathLayout,
   offset: number,
@@ -824,7 +841,11 @@ export function caretVertical(
 /** How much more horizontal distance counts than vertical in {@link caretVertical}. */
 const VERTICAL_X_WEIGHT = 3;
 
-/** Options for {@link spanAtPoint}. */
+/**
+ * Options for {@link spanAtPoint}.
+ *
+ * @group Caret and selection
+ */
 export interface SpanAtPointOptions {
   /**
    * Minimum width/height, in CSS pixels, of an atom's tap target. A `+`/`=` glyph
@@ -927,18 +948,21 @@ function collectAtomHits(
 }
 
 /**
- * The source span a double-tap / double-click at `(x, y)` selects: the whole atom
- * (or enclosing construct) the point falls on — the POINT-based counterpart to
- * {@link unitAt}, which only sees a caret offset. Working from the point is what
- * makes a small operator selectable: `unitAt` maps a tap to one shared boundary
- * offset and then prefers an adjacent construct, so a `+`/`-`/`=` wedged between
- * two constructs (`x^2+y^2`) is impossible to hit; here the tap simply lands in
- * the operator's own (finger-padded) box and selects it.
+ * Returns the source span that a double-click or double-tap at `(x, y)`
+ * selects. That is the smallest construct the point is in, or the single atom
+ * when it is not in one. For example, a tap on a fraction's top selects the
+ * whole fraction. Returns `null` for an empty formula.
  *
- * Prefers an atom whose box — padded to `minTargetSize` — contains the point;
- * failing that (a tap in the slack above/below a row), the horizontally-nearest
- * atom, so a tap always resolves to the column under the finger. Returns null for
- * an empty formula.
+ * With the `minTargetSize` option, each atom's box counts as at least that wide
+ * and tall, so small operators like `+` or `=` are easy to hit. If no box holds
+ * the point, such as a tap above or below a row, it picks the atom nearest in
+ * x.
+ *
+ * {@link unitAt} does a similar job from a caret offset. Use this one for a
+ * pointer, so an operator between two constructs, like the `+` in `x^2+y^2`,
+ * can still be selected.
+ *
+ * @group Caret and selection
  */
 export function spanAtPoint(
   layout: MathLayout,
@@ -982,10 +1006,12 @@ export function spanAtPoint(
 }
 
 /**
- * Highlight rectangles covering the source range `[start, end)`. Selected glyphs
- * are merged per visual ROW (keyed by baseline `y`) into one rect each, so a
- * single-row formula yields one rect while a wrapped (multi-row) one yields a
- * rect per line — never a single tall block bridging the gaps between rows.
+ * Returns the highlight rectangles for the source range `[start, end)`. The
+ * ends may come in either order. You get one rectangle per visual row, so a
+ * formula that wraps gets one per line, not one tall block across the gaps.
+ * Returns an empty list when nothing in the range is drawn.
+ *
+ * @group Caret and selection
  */
 export function selectionRects(
   layout: MathLayout,

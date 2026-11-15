@@ -13,7 +13,11 @@ import type {
   ProjectedMathItem,
 } from "./print";
 
-/** A stable caret between children of one identity-bearing row. */
+/**
+ * A caret in a row: before, between, or after its children.
+ *
+ * @group Document layout
+ */
 export interface MathDocumentRowPosition {
   readonly kind: "row";
   readonly rowId: MathItemId;
@@ -23,7 +27,11 @@ export interface MathDocumentRowPosition {
   readonly nodeId?: MathItemId;
 }
 
-/** A stable caret inside one CRDT-editable string field. */
+/**
+ * A caret inside one of a node's text fields: `text`, `latex` or `name`.
+ *
+ * @group Document layout
+ */
 export interface MathDocumentFieldPosition {
   readonly kind: "field";
   readonly rowId: MathItemId;
@@ -33,28 +41,57 @@ export interface MathDocumentFieldPosition {
   readonly offset: number;
 }
 
+/**
+ * A caret position inside a {@link MathDocument}, named by stable ids rather
+ * than a text offset: either a gap between the children of a row, or a spot
+ * inside a text field.
+ *
+ * @group Document layout
+ */
 export type MathDocumentCaretPosition =
   | MathDocumentRowPosition
   | MathDocumentFieldPosition;
 
-/** Lookup address; a globally-stable node id makes `rowId` optional for fields. */
+/**
+ * A caret position to look up. It is the same as
+ * {@link MathDocumentCaretPosition}, except a field position may leave out
+ * `rowId`. Its `nodeId` already says where it is.
+ *
+ * @group Document layout
+ */
 export type MathDocumentCaretAddress =
   | MathDocumentRowPosition
   | (Omit<MathDocumentFieldPosition, "rowId"> & {
       readonly rowId?: MathItemId;
     });
 
-/** One visual caret location, with all stable tree positions it represents. */
+/**
+ * One place the caret can be drawn, with every formula position that lands
+ * there.
+ *
+ * @group Document layout
+ */
 export interface MathDocumentCaretStop extends Omit<CaretStop, "offset"> {
   /**
-   * Offset in the transient canonical source used by the current painter.
-   * This is a bridge for existing `caretRect`/selection code, not editor state.
+   * Offset into the LaTeX text the formula is painted from. Use it with
+   * offset-based helpers such as `caretRect`. Do not store it: it can change
+   * whenever the formula changes.
    */
   readonly sourceOffset: number;
-  /** Stable aliases at this visual location (for example row edge + text edge). */
+  /**
+   * Every formula position drawn at this spot, for example the end of a row and
+   * the end of the text inside it.
+   */
   readonly positions: readonly MathDocumentCaretPosition[];
 }
 
+/**
+ * The rectangle around one part of a laid-out formula, in pixels. `x` is
+ * measured from the formula's left edge; `y` from its baseline, so negative
+ * values are above it.
+ *
+ * @group Document layout
+ */
 export interface MathDocumentBounds {
   readonly x: number;
   readonly y: number;
@@ -62,6 +99,12 @@ export interface MathDocumentBounds {
   readonly height: number;
 }
 
+/**
+ * The kind of thing a {@link MathDocumentItemLayout} describes: the root, a
+ * row, a matrix row or cell, or any {@link MathNode} type.
+ *
+ * @group Document layout
+ */
 export type MathDocumentItemType =
   | "root"
   | "row"
@@ -69,7 +112,12 @@ export type MathDocumentItemType =
   | "matrix-cell"
   | MathNode["type"];
 
-/** Visual geometry for one stable root, row, matrix slot, or semantic node. */
+/**
+ * Where one part of a formula sits on screen: the root, a row, a matrix row or
+ * cell, or a node.
+ *
+ * @group Document layout
+ */
 export interface MathDocumentItemLayout {
   readonly id: MathItemId;
   readonly type: MathDocumentItemType;
@@ -79,17 +127,20 @@ export interface MathDocumentItemLayout {
   /** All visual caret stops contained by this item's projected range. */
   readonly caretStops: readonly MathDocumentCaretStop[];
   /**
-   * The item this one sits directly inside — a node's parent row, or the node a
-   * row/matrix slot is a slot of. Absent for the document root and its body.
-   * This is the structural chain {@link mathDocumentCaretVertical} walks; it is
-   * derived from the identity tree, never from caret geometry.
+   * The item this one sits directly inside. For a node, that is its row. For a
+   * row or matrix slot, that is the node it belongs to. Absent for the document
+   * root and its body. {@link mathDocumentCaretVertical} follows this chain.
    */
+  // Derived from the identity tree, never from caret geometry.
   readonly parentId?: MathItemId;
 }
 
 /**
- * Paintable math layout plus identity-keyed geometry for the authoritative
- * {@link MathDocument}. The inherited box tree remains opaque to consumers.
+ * A laid-out formula, ready to paint, plus where each part of its
+ * {@link MathDocument} sits. `items` maps each id to its geometry. Treat `box`
+ * as opaque: it is only for painting.
+ *
+ * @group Document layout
  */
 export interface MathDocumentLayout {
   readonly box: Box;
@@ -103,11 +154,22 @@ export interface MathDocumentLayout {
   readonly caretStops: readonly MathDocumentCaretStop[];
 }
 
+/**
+ * Options for {@link hitTestMathDocument}. The same as {@link HitTestOptions},
+ * except the caret's current position during a drag is given as a document
+ * position instead of a source offset.
+ *
+ * @group Document layout
+ */
 export interface MathDocumentHitTestOptions extends Omit<
   HitTestOptions,
   "dragPrevOffset"
 > {
-  /** Stable equivalent of the source-oriented hit tester's drag offset. */
+  /**
+   * Where the caret is right now. Only used when `drag` is on. It keeps a
+   * wobbling finger from flipping the caret between rows. Leave it out, or pass
+   * `null`, on the first move of a drag.
+   */
   readonly dragPrevPosition?: MathDocumentCaretAddress | null;
 }
 
@@ -160,7 +222,12 @@ export function createMathDocumentLayout(
   return { ...layout, items, caretStops: mappedStops };
 }
 
-/** Resolve a stable tree position to its visual caret and bridge source offset. */
+/**
+ * Finds the caret stop for a position in the formula. Returns `null` when no
+ * stop matches the position.
+ *
+ * @group Document layout
+ */
 export function mathDocumentCaretStop(
   layout: MathDocumentLayout,
   position: MathDocumentCaretAddress,
@@ -173,27 +240,25 @@ export function mathDocumentCaretStop(
 }
 
 /**
- * Resolve one visual row above/below a stable tree-addressed caret.
+ * Moves the caret one row up or down inside a formula. It only moves between
+ * the stacked parts of something the caret is already in: the top and bottom of
+ * a fraction, a superscript and subscript, a root and its index, text set over
+ * or under a base, or the rows of a matrix. When the caret is inside several of
+ * these, the closest one with a row on that side is used. `preferredX` is the
+ * horizontal spot to stay near, in pixels. It defaults to the caret's own `x`.
  *
- * The current stop is resolved by identity rather than by its transient source
- * offset. This matters at aliased construct boundaries, where an outer row edge
- * and an inner field edge may share one printed offset but occupy different
- * visual rows.
+ * Returns `null` when there is nowhere to go, for example on the formula's main
+ * line, or when `position` is not in the layout. The host then moves the caret
+ * to the line above or below.
  *
- * Vertical motion is STRUCTURAL, not free geometry: it only ever moves between
- * the stacked slots of a construct the caret is ALREADY inside (a fraction's
- * halves, a script pair, a matrix's rows), walking outward through the identity
- * chain when the innermost one has no row on that side. A caret on a row that
- * stacks nothing — the formula's own body, a `\sqrt`'s radicand, a delimited
- * body — is flat, so it has nowhere to go and returns null: the host then
- * carries the press on to the line above/below. Geometry alone would instead
- * grab the visually nearest stop anywhere in the formula, so ↑ on a long flat
- * line jumped sideways into some unrelated superscript.
- *
- * Within the chosen construct horizontal distance dominates so a fraction
- * retains the caret column; paired super/subscripts use their shared construct
- * identity to step over the base row directly.
+ * @group Document layout
  */
+// The current stop is found by identity, not by source offset: at construct
+// boundaries an outer row edge and an inner field edge can share one printed
+// offset but sit on different visual rows. Pure geometry would grab the nearest
+// stop anywhere, so up on a long flat line jumped into an unrelated
+// superscript. Within a construct horizontal distance dominates; paired scripts
+// step over the base row via their shared construct id.
 export function mathDocumentCaretVertical(
   layout: MathDocumentLayout,
   position: MathDocumentCaretAddress,
@@ -352,7 +417,13 @@ function resolveItemParents(
   return parents;
 }
 
-/** Resolve a legacy/source hit to the nearest stable tree-addressed caret. */
+/**
+ * Finds the caret stop nearest an offset in the formula's LaTeX source. When
+ * several stops are equally near, the one drawn closest to that offset wins.
+ * Returns `null` only when the formula has no caret stops.
+ *
+ * @group Document layout
+ */
 export function mathDocumentCaretFromSourceOffset(
   layout: MathDocumentLayout,
   sourceOffset: number,
@@ -380,7 +451,13 @@ export function mathDocumentCaretFromSourceOffset(
   );
 }
 
-/** Hit-test pixels directly into a stable tree-addressed caret. */
+/**
+ * Finds the caret stop at a point in a laid-out formula. `x` and `y` are in
+ * pixels, measured like {@link MathDocumentBounds}. Returns `null` only when
+ * the formula has no caret stops.
+ *
+ * @group Document layout
+ */
 export function hitTestMathDocument(
   layout: MathDocumentLayout,
   x: number,

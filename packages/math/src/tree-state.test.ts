@@ -13,6 +13,7 @@ import {
   mathUnitBoundaryOffset,
 } from "./tree-selection";
 import { deleteActiveMathTreeSelection } from "./tree-state";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import { TEXT_INPUT } from "@tasfer/editor/action-bus";
 import { insertText } from "@tasfer/editor/actions/actions";
 import {
@@ -58,8 +59,6 @@ import {
 } from "@tasfer/editor/actions/mouse-actions";
 import { handleKeyDown } from "@tasfer/editor/events/keysEvents";
 import { resolveMarkRuns } from "@tasfer/editor/mark-runs";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import {
   moveCursorToPosition,

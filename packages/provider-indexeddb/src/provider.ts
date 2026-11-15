@@ -42,41 +42,76 @@ import type { Doc, Operation } from "@tasfer/editor";
 import { append, clearStore, openDB, readAll, replaceAll } from "./idb";
 
 /**
- * Batch-count threshold at which the store is compacted into a single entry.
- * Chosen as a balance: high enough that compaction is rare on a normal editing
- * session, low enough that the initial-load `readAll` never fans out over a huge
- * number of records.
+ * How many saved batches of edits build up before the provider merges them into
+ * one entry, so the page loads faster next time.
  */
+// Chosen as a balance: high enough that compaction is rare on a normal editing
+// session, low enough that the initial-load `readAll` never fans out over a
+// huge number of records.
 export const COMPACTION_THRESHOLD = 200;
 
+/**
+ * Options for {@link createIndexedDBProvider}: the document to save and the
+ * name to save it under.
+ */
 export interface CreateIndexedDBProviderOptions {
-  /** The document to persist. Its op log is mirrored to IndexedDB. */
+  /**
+   * The document to save, such as `editor.doc`. Every edit to it is stored in
+   * IndexedDB.
+   */
   doc: Doc;
   /**
-   * Logical document name — the IndexedDB database key (`tasfer:${name}`). Use
-   * a stable, per-document string (e.g. a path like `"notes/today"`); two docs
-   * sharing a name share a store.
+   * The name the document is saved under. The IndexedDB database is called
+   * `tasfer:<name>`. Use a name that stays the same for this document, such as
+   * a path like `"notes/today"`. Two documents with the same name share one
+   * saved copy.
    */
   name: string;
 }
 
+/**
+ * What {@link createIndexedDBProvider} returns. Use it to wait until the saved
+ * document has loaded, to wipe the saved copy, or to stop saving.
+ */
 export interface IndexedDBProvider {
   /**
-   * Resolves once the initial load from IndexedDB has been replayed into the
-   * doc. Await it to guarantee the first paint reflects what's on disk. Never
-   * rejects on a read error — it resolves regardless so a corrupt/empty store
-   * can't deadlock the host; load failures surface as a fresh (empty) doc.
+   * Resolves once the saved copy has loaded into the document. Await it before
+   * you show the document, so the first paint shows what was saved. It never
+   * rejects. If the saved copy cannot be read, it still resolves, and the
+   * document keeps only what it already had.
    */
   readonly whenSynced: Promise<void>;
-  /** Wipe this document's persisted log. The in-memory doc is untouched. */
+  /**
+   * Delete this document's saved copy. It waits for the first load and for
+   * pending saves to finish first. The open document does not change. Saving
+   * goes on afterwards, but the saved copy may then hold only the edits made
+   * after this, not the whole document.
+   */
   clearData(): Promise<void>;
   /**
-   * Detach from the doc and close the IndexedDB connection. Does NOT delete
-   * data — use {@link clearData} for that. Idempotent.
+   * Stop saving and close the IndexedDB connection. The saved copy stays. Edits
+   * that are still waiting to be written are not saved.
+   *
+   * To delete the saved copy, await {@link IndexedDBProvider.clearData} before
+   * you call `destroy`. After `destroy`, `clearData` does nothing. Calling
+   * `destroy` again does nothing.
    */
   destroy(): void;
 }
 
+/**
+ * Save a document in the browser's IndexedDB so it is still there, offline, the
+ * next time the page opens. It loads what was saved into the document, then
+ * stores every new edit. It can run next to a network provider on the same
+ * document. If a save fails, editing goes on and no error is reported.
+ *
+ * ```ts
+ * const saved = createIndexedDBProvider({ doc: editor.doc, name: "notes/today" });
+ * await saved.whenSynced; // the saved copy is now in the document
+ * // later, when the editor closes:
+ * saved.destroy();
+ * ```
+ */
 export function createIndexedDBProvider(
   options: CreateIndexedDBProviderOptions,
 ): IndexedDBProvider {

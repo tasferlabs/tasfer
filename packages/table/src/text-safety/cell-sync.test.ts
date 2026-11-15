@@ -17,6 +17,7 @@ import {
   tableOn,
   tableSource,
 } from "./harness";
+import { TOGGLE_STRONG } from "@tasfer/editor";
 import { insertText } from "@tasfer/editor/actions/actions";
 import {
   DELETE_BACKWARD,
@@ -26,7 +27,6 @@ import {
   COMPOSITION_END,
   COMPOSITION_START,
 } from "@tasfer/editor/actions/input-actions";
-import { TOGGLE_STRONG } from "@tasfer/editor/rendering/marks";
 import type { EditorState } from "@tasfer/editor/state-types";
 import type { Operation } from "@tasfer/editor/sync/sync";
 import { describe, expect, it } from "vitest";

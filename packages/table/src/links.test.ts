@@ -11,6 +11,7 @@ import { tableCaretToContentPoint, tableCellIds } from "./selection";
 import { cellText, getTableDocument, readTable } from "./structured";
 import { tableExtension } from "./table-extension";
 import type { TableBlock } from "./TableNode";
+import { createMarkRegistry, createNodeRegistry } from "@tasfer/editor";
 import { OPEN_LINK } from "@tasfer/editor/action-bus";
 import {
   POINTER_MOVE,
@@ -18,8 +19,6 @@ import {
 } from "@tasfer/editor/actions/pointer-actions";
 import { Editor } from "@tasfer/editor/entries/editor";
 import type { CanvasLayers } from "@tasfer/editor/entries/layers";
-import { createMarkRegistry } from "@tasfer/editor/rendering/marks";
-import { createNodeRegistry } from "@tasfer/editor/rendering/nodes";
 import { baseSchema } from "@tasfer/editor/schema";
 import { loadPage } from "@tasfer/editor/serlization/loadPage";
 import { serializeToMarkdown } from "@tasfer/editor/serlization/serializer";
