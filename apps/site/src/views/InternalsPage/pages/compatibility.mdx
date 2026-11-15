@@ -18,6 +18,7 @@ Thus the editor should be tolerant for operations it has not seen, while also pr
 
 - We never reshape or rename.
 - Unknown types stay in the log, since we do not know if they are new or not.
+- A page or space field an older build does not know also stays in the log, unapplied. The build that learns the field adds a migration step that applies it from the log (`rematerializeSpaceFields`), or devices that got the field before updating never show it.
 - Convergence holds only if every peer runs the same merge function. So the function should not change. Gate any semantic change behind a protocol-version bump.
 - The op log is the source of truth. A snapshot is a rebuildable cache and is not the source.
 
