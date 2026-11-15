@@ -849,6 +849,35 @@ describe("interactive structured MathMark", () => {
     expect(inlineMathCaretEdgeFlag(moveCursorToPosition(start, 0, 2))).toBe(
       "left",
     );
+    // …but one on the leading edge is outside it.
+    expect(inlineMathCaretEdgeFlag(moveCursorToPosition(start, 0, 1))).toBe(
+      "left",
+    );
+  });
+
+  it("types prose at a flat caret before a formula, and → enters it", () => {
+    // A click beside the chip, Home, or ↑/↓ leaves a flat caret on the leading
+    // edge: that is outside the formula, so the letter lands in the prose.
+    const start = chipState("inline-before", "$xy$ tail");
+    const before = moveCursorToPosition(start, 0, 0);
+    expect(inlineMathCaretEdgeFlag(before)).toBe("left");
+    const typed = insertText(before, "z").state;
+    expect(flatText(typed)).toBe(`z${A} tail`);
+    expect(canonicalSource(typed)).toBe("xy");
+
+    const entered = before.actionBus.dispatchState(MOVE_CURSOR_RIGHT, before);
+    expect(entered.state.document.contentSelection?.focus).toEqual(
+      nestedPointAtSourceOffset(entered.state, 0),
+    );
+    expect(inlineMathCaretEdgeFlag(entered.state)).toBe("right");
+  });
+
+  it("points out of a formula's leading edge in an RTL block too", () => {
+    // In RTL the prose before the chip sits on its visual right.
+    const start = chipState("inline-before-rtl", "م$xy$ب");
+    expect(inlineMathCaretEdgeFlag(moveCursorToPosition(start, 0, 1))).toBe(
+      "right",
+    );
   });
 
   it("mirrors the outside formula-edge flag in an RTL block", () => {

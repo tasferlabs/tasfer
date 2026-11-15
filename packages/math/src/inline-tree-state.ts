@@ -1189,6 +1189,36 @@ export function exitActiveInlineMathTreeSelectionHorizontally(
   };
 }
 
+/**
+ * A click that hit a formula right on its leading edge — the side facing the
+ * prose before it (visual left in an LTR block, right in an RTL one) — rests
+ * outside the formula, like a click beside it, so typing there writes prose
+ * and → enters. Undefined for any other click, which keeps the caret the
+ * formula's hit-test chose. An empty formula has no outside to prefer.
+ */
+export function landClickBeforeInlineMath(
+  state: EditorState,
+  clicked: ContentSelection,
+): InlineMathTreeStateResult | undefined {
+  if (!isContentSelectionCollapsed(clicked)) return undefined;
+  const withCaret = updateContentSelection(state, clicked);
+  const context = activeInlineMathContext(withCaret);
+  if (!context) return undefined;
+  const rtl = getBlockDirection(context.block, state.marks) === "rtl";
+  const towardBefore = rtl ? "arrow-right" : "arrow-left";
+  const towardAfter = rtl ? "arrow-left" : "arrow-right";
+  if (moveMathTreeCaret(context.document, context.caret, towardBefore).handled) {
+    return undefined;
+  }
+  if (!moveMathTreeCaret(context.document, context.caret, towardAfter).handled) {
+    return undefined;
+  }
+  return exitActiveInlineMathTreeHorizontally(
+    withCaret,
+    rtl ? "right" : "left",
+  );
+}
+
 /** Whether a nested selection currently belongs to an attached inline tree. */
 export function hasActiveInlineMathTreeCaret(state: EditorState): boolean {
   return ownsActiveInlineMathContentSelection(state);
@@ -1257,10 +1287,11 @@ export function exitActiveInlineMathTreeHorizontally(
  *
  * Inside the formula (a nested caret that the next arrow would carry out) the
  * flag points into the formula. A flat caret on the edge points to where a
- * typed letter goes: out to the prose after an arrow exit (an explicit typing
- * set without the formula's mark), otherwise into the formula it touches (see
- * `editableInlineMathContext`). The formula itself always renders LTR; the
- * prose beside it follows the block's direction.
+ * typed letter goes (see `editableInlineMathContext`): into a formula that
+ * ends at the caret, unless an arrow exit put it outside (an explicit typing
+ * set without the formula's mark); out to the prose before a formula that
+ * only starts there. The formula itself always renders LTR; the prose beside
+ * it follows the block's direction.
  */
 export function inlineMathCaretEdgeFlag(
   state: EditorState,
@@ -1297,8 +1328,9 @@ export function inlineMathCaretEdgeFlag(
   if (!endsHere && !startsHere) return null;
   const marksMode = state.ui.activeMarksMode;
   const outside =
-    marksMode.type === "explicit" &&
-    !marksMode.formats.some((mark) => state.schema.structuredMark(mark.type));
+    !endsHere ||
+    (marksMode.type === "explicit" &&
+      !marksMode.formats.some((mark) => state.schema.structuredMark(mark.type)));
   // Between two touching formulas there is no prose side to point at.
   if (outside && endsHere && startsHere) return null;
   // Logical "before" = the text behind the caret; typing after a formula
@@ -1708,10 +1740,11 @@ function editableInlineMathContext(
   input: string,
 ): InlineMathTreeContext | undefined {
   // A stable nested caret always owns input. A collapsed flat caret resting
-  // on a chip's edge joins the formula for ordinary content keystrokes —
-  // typing flush against a chip continues the same formula (`x^2|` + `z` →
-  // `x^2z`) — while a space or sentence punctuation stays prose, the "leave
-  // the formula" gestures.
+  // on a chip's trailing edge joins the formula for ordinary content
+  // keystrokes — typing flush after a chip continues the same formula
+  // (`x^2|` + `z` → `x^2z`) — while a space or sentence punctuation stays
+  // prose, the "leave the formula" gestures. A flat caret before a chip (a
+  // click beside it, Home, ↑/↓) is outside it and types prose; → enters.
   const active = activeInlineMathContext(state);
   if (active) return active;
   // An explicit typing set without the formula's mark means the caret was put
@@ -1735,12 +1768,11 @@ function editableInlineMathContext(
   if (!position) return undefined;
   const block = state.document.page.blocks[position.blockIndex];
   if (!block || block.deleted || !isTextualBlock(block)) return undefined;
-  const runs = resolveStructuredInlineMathRuns(block);
-  // Prefer the run ENDING at the caret (typing after a chip continues it) so
+  // Only the run ENDING at the caret: typing after a chip continues it, so
   // the boundary between two adjacent chips extends the left formula.
-  const touched =
-    runs.find((run) => run.endIndex === position.textIndex) ??
-    runs.find((run) => run.startIndex === position.textIndex);
+  const touched = resolveStructuredInlineMathRuns(block).find(
+    (run) => run.endIndex === position.textIndex,
+  );
   if (!touched) return undefined;
   return inlineContextFromFlatPosition(
     state,
