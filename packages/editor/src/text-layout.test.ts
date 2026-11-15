@@ -1,4 +1,4 @@
-import { isMidSurrogatePair } from "./code-points";
+import { isInsideEmoji, isMidSurrogatePair } from "./code-points";
 import { notifyFontsChanged } from "./fonts";
 import type { Char } from "./serlization/loadPage";
 import { resolveTheme } from "./styles";
@@ -76,6 +76,8 @@ describe("text click → offset", () => {
         expect(isMidSurrogatePair(text, offset), `x=${x} → ${offset}`).toBe(
           false,
         );
+        // Nor between the parts of a family, a flag or a skin tone.
+        expect(isInsideEmoji(text, offset), `x=${x} → ${offset}`).toBe(false);
       }
     });
   }

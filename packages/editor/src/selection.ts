@@ -1,4 +1,4 @@
-import { nextCodePointEnd, prevCodePointStart } from "./code-points";
+import { nextCaretStop, prevCaretStop } from "./code-points";
 import { undrawnCompositionCaret } from "./composition";
 import { currentFontFamily, measureCharsUpToIndex } from "./fonts";
 import { caretMarkEdgeSide, markEdgeAt, withMarkEdgeSide } from "./mark-edge";
@@ -2786,7 +2786,7 @@ function moveCursorLeftOneStep(state: EditorState): EditorState {
 
     if (textIndex < currentBlockLength) {
       // Logical forward; clamp out of any atomic inline token (e.g. a math chip).
-      const target = nextCodePointEnd(
+      const target = nextCaretStop(
         getBlockTextContent(currentBlock),
         textIndex,
       );
@@ -2831,7 +2831,7 @@ function moveCursorLeftOneStep(state: EditorState): EditorState {
         state,
         blockIndex,
         snapped ??
-          prevCodePointStart(getBlockTextContent(currentBlock), textIndex),
+          prevCaretStop(getBlockTextContent(currentBlock), textIndex),
       );
     } else {
       // Moving to previous visible block
@@ -2905,7 +2905,7 @@ function moveCursorRightOneStep(state: EditorState): EditorState {
     // In RTL text, visual right is logical backward (decrement)
     if (textIndex > 0) {
       // Logical backward; clamp out of any atomic inline token (e.g. a math chip).
-      const target = prevCodePointStart(
+      const target = prevCaretStop(
         getBlockTextContent(currentBlock),
         textIndex,
       );
@@ -2951,7 +2951,7 @@ function moveCursorRightOneStep(state: EditorState): EditorState {
         state,
         blockIndex,
         snapped ??
-          nextCodePointEnd(getBlockTextContent(currentBlock), textIndex),
+          nextCaretStop(getBlockTextContent(currentBlock), textIndex),
       );
     } else {
       // Moving to next visible block

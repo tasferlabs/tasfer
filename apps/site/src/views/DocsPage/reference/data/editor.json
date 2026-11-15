@@ -9622,14 +9622,21 @@
        "sig": "override textStyle(styles: EditorStyles): TextStyle"
       },
       {
-       "name": "estimateLayoutMaxWidth",
+       "name": "trailingInset",
        "kind": "method",
-       "sig": "protected override estimateLayoutMaxWidth(\n  _block: TextualBlock,\n  maxWidth: number,\n  styles: EditorStyles,\n): number"
-      },
-      {
-       "name": "computeLayout",
-       "kind": "method",
-       "sig": "override computeLayout(\n  block: TextualBlock,\n  maxWidth: number,\n  styles: EditorStyles,\n  content?: {\n    chars: Char[];\n    formats: MarkSpan[];\n    compositionRange: { start: number; end: number } | null;\n  },\n): TextNodeLayout"
+       "sig": "protected override trailingInset(\n  _block: TextualBlock,\n  styles: EditorStyles,\n): number",
+       "summary": "The card's inner padding on the side opposite the accent, so wrapped text stops short of the card edge on the line-end side — mirrored for RTL.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "The card's inner padding on the side opposite the accent, so wrapped text\nstops short of the card edge on the line-end side — mirrored for RTL."
+          }
+         ]
+        }
+       ]
       },
       {
        "name": "leadingInset",
@@ -10364,47 +10371,6 @@
        ]
       },
       {
-       "name": "estimateLayoutMaxWidth",
-       "kind": "method",
-       "sig": "protected estimateLayoutMaxWidth(\n  _block: B,\n  maxWidth: number,\n  _styles: EditorStyles,\n): number",
-       "summary": "The width `estimateHeight` measures against, before the list indent and marker are taken off.",
-       "doc": [
-        {
-         "type": "paragraph",
-         "children": [
-          {
-           "type": "text",
-           "value": "The width "
-          },
-          {
-           "type": "inlineCode",
-           "value": "estimateHeight"
-          },
-          {
-           "type": "text",
-           "value": " measures against, before the list indent and\nmarker are taken off. Defaults to "
-          },
-          {
-           "type": "inlineCode",
-           "value": "maxWidth"
-          },
-          {
-           "type": "text",
-           "value": ". If your node narrows the\nwidth in "
-          },
-          {
-           "type": "inlineCode",
-           "value": "computeLayout"
-          },
-          {
-           "type": "text",
-           "value": ", override this to match, as the code and quote\nnodes do."
-          }
-         ]
-        }
-       ]
-      },
-      {
        "name": "layout",
        "kind": "method",
        "sig": "layout(c: NodeLayoutCtx): TextNodeLayout",
@@ -10829,6 +10795,39 @@
           {
            "type": "text",
            "value": ", so the\nvalue flows into every downstream geometry pass (caret, selection, hit-test)\nwithout any of them re-checking the block type."
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "name": "trailingInset",
+       "kind": "method",
+       "sig": "protected trailingInset(_block: B, _styles: EditorStyles): number",
+       "summary": "Horizontal space kept free on the line-END side of the text (the right for LTR, the left for RTL) — a card's inner padding opposite its accent.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Horizontal space kept free on the line-END side of the text (the right for\nLTR, the left for RTL) — a card's inner padding opposite its accent. Zero\nfor plain blocks. Like "
+          },
+          {
+           "type": "inlineCode",
+           "value": "leadingInset"
+          },
+          {
+           "type": "text",
+           "value": " it is folded into "
+          },
+          {
+           "type": "inlineCode",
+           "value": "computeLayout"
+          },
+          {
+           "type": "text",
+           "value": ", so\nit mirrors with the block's direction in every pass at once."
           }
          ]
         }
@@ -33227,6 +33226,31 @@
        "sig": "readonly markerWidth: number"
       },
       {
+       "name": "trailingInset",
+       "kind": "property",
+       "sig": "readonly trailingInset: number",
+       "summary": "Space kept free on the line-end side of the text.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Space kept free on the line-end side of the text. See "
+          },
+          {
+           "type": "inlineCode",
+           "value": "trailingInset"
+          },
+          {
+           "type": "text",
+           "value": "."
+          }
+         ]
+        }
+       ]
+      },
+      {
        "name": "insetY",
        "kind": "property",
        "sig": "readonly insetY: number",
@@ -33271,14 +33295,14 @@
        "name": "adjustedMaxWidth",
        "kind": "property",
        "sig": "readonly adjustedMaxWidth: number",
-       "summary": "Content width available to text (maxWidth minus list indent + marker).",
+       "summary": "Content width available to text (maxWidth minus leading + trailing insets).",
        "doc": [
         {
          "type": "paragraph",
          "children": [
           {
            "type": "text",
-           "value": "Content width available to text (maxWidth minus list indent + marker)."
+           "value": "Content width available to text (maxWidth minus leading + trailing insets)."
           }
          ]
         }

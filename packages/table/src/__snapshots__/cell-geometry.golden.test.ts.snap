@@ -1542,7 +1542,7 @@ exports[`recorded cell geometry > at 300px 1`] = `
           null,
           {
             "cellId": 5,
-            "offset": 7,
+            "offset": 5,
           },
         ],
         [
@@ -12693,7 +12693,7 @@ exports[`recorded cell geometry > at 600px 1`] = `
           null,
           {
             "cellId": 5,
-            "offset": 7,
+            "offset": 5,
           },
         ],
         [
@@ -15711,12 +15711,12 @@ exports[`recorded cell geometry > at 600px 1`] = `
         [
           561,
           46,
-          7,
+          5,
         ],
         [
           566,
           46,
-          7,
+          9,
         ],
         [
           571,
@@ -15921,12 +15921,12 @@ exports[`recorded cell geometry > at 600px 1`] = `
         [
           561,
           103,
-          7,
+          5,
         ],
         [
           566,
           103,
-          7,
+          9,
         ],
         [
           571,
@@ -16131,12 +16131,12 @@ exports[`recorded cell geometry > at 600px 1`] = `
         [
           561,
           63.25,
-          7,
+          5,
         ],
         [
           566,
           63.25,
-          7,
+          9,
         ],
         [
           571,

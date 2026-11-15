@@ -43,6 +43,18 @@ describe("codeSelectionRungs", () => {
     ]);
   });
 
+  it("starts from a whole emoji, never part of one", () => {
+    const family = "👨‍👩‍👧‍👦";
+    const text = `log("hi${family}")`;
+    const inside = text.indexOf(family) + 3; // on a joiner inside the family
+    expect(ladder(text, inside)[0]).toBe(family);
+  });
+
+  it("starts from a whole decimal number", () => {
+    const text = "x = 3.14;";
+    expect(ladder(text, text.indexOf("14"))[0]).toBe("3.14");
+  });
+
   it("takes the inside of quotes before the quotes themselves", () => {
     const text = 'log("hello world")';
     expect(ladder(text, text.indexOf("world"))).toEqual([

@@ -164,38 +164,47 @@
        "sig": "readonly strings: { placeholder: string; }"
       },
       {
-       "name": "estimateLayoutMaxWidth",
+       "name": "trailingInset",
        "kind": "method",
-       "sig": "protected estimateLayoutMaxWidth(\n  _block: TextualBlock,\n  maxWidth: number,\n  styles: EditorStyles,\n): number"
-      },
-      {
-       "name": "computeLayout",
-       "kind": "method",
-       "sig": "computeLayout(\n  block: TextualBlock,\n  maxWidth: number,\n  styles: EditorStyles,\n  content?: {\n    chars: Char[];\n    formats: MarkSpan[];\n    compositionRange: { start: number; end: number } | null;\n  },\n): TextNodeLayout",
-       "summary": "Lays out the block with the same padding on the left and right (`styles.blocks.code.paddingX`).",
+       "sig": "protected override trailingInset(\n  _block: TextualBlock,\n  styles: EditorStyles,\n): number",
+       "summary": "Symmetric horizontal padding.",
        "doc": [
         {
          "type": "paragraph",
          "children": [
           {
            "type": "text",
-           "value": "Lays out the block with the same padding on the left and right\n("
+           "value": "Symmetric horizontal padding: "
           },
           {
-           "type": "inlineCode",
-           "value": "styles.blocks.code.paddingX"
+           "type": "link",
+           "url": "ref:leadingInset",
+           "children": [
+            {
+             "type": "inlineCode",
+             "value": "leadingInset"
+            }
+           ]
           },
           {
            "type": "text",
-           "value": "). The text area is "
+           "value": " pads the line-start side\nand this pads the line-end side, so the text area is "
           },
           {
            "type": "inlineCode",
-           "value": "maxWidth"
+           "value": "maxWidth - 2·paddingX"
           },
           {
            "type": "text",
-           "value": " minus twice\nthat padding."
+           "value": "\nwide and sits "
+          },
+          {
+           "type": "inlineCode",
+           "value": "paddingX"
+          },
+          {
+           "type": "text",
+           "value": " in from both box edges — in either direction."
           }
          ]
         }

@@ -428,6 +428,33 @@ describe("multi-click selection in a cell", () => {
     });
   });
 
+  it("takes a whole emoji, and a number with its dot, as one word", () => {
+    const family = "👨‍👩‍👧‍👦";
+    const source = [
+      "| Fruit basket | Price |",
+      "| --- | --- |",
+      `| hi${family} | 1.20 |`,
+    ].join("\n");
+    const pick = (cell: number, offset: number) => {
+      let state = caretIn(busState(source), cell, offset);
+      state = state.actionBus.dispatchState(SELECT_WORD_AT_POINT, state, {
+        position: { blockIndex: 0, textIndex: 0 },
+      }).state;
+      return rangeOf(state);
+    };
+    // On the emoji, inside it, and just after it (past the cell's text).
+    for (const offset of [2, 5, 2 + family.length]) {
+      expect(pick(2, offset)).toEqual({
+        anchor: { cell: 2, offset: 2 },
+        focus: { cell: 2, offset: 2 + family.length },
+      });
+    }
+    expect(pick(3, 3)).toEqual({
+      anchor: { cell: 3, offset: 0 },
+      focus: { cell: 3, offset: 4 },
+    });
+  });
+
   it("takes the whole cell on a triple click", () => {
     let state = caretIn(busState(TABLE), 4, 2);
     state = state.actionBus.dispatchState(SELECT_LINE_AT_POINT, state, {

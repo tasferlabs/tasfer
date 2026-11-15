@@ -12,8 +12,8 @@
 import { type TableCellLayout, type TableLayout } from "./geometry";
 import { CELL_TEXT_FIELD, readTable } from "./structured";
 import {
-  nextCodePointEnd,
-  prevCodePointStart,
+  nextCaretStop,
+  prevCaretStop,
 } from "@tasfer/editor/code-points";
 import type { CharRun } from "@tasfer/editor/serlization/loadPage";
 import type {
@@ -36,7 +36,7 @@ import {
   findWordBoundary,
   findWordEnd,
   findWordStart,
-  isWordChar,
+  isWordCharAt,
 } from "@tasfer/editor/word-chars";
 
 /**
@@ -503,11 +503,11 @@ export function stepTableCaret(
       return intoNext();
     case "backward":
       return caret.offset > 0
-        ? { ...caret, offset: prevCodePointStart(text, caret.offset) }
+        ? { ...caret, offset: prevCaretStop(text, caret.offset) }
         : intoPrevious();
     case "forward":
       return caret.offset < length
-        ? { ...caret, offset: nextCodePointEnd(text, caret.offset) }
+        ? { ...caret, offset: nextCaretStop(text, caret.offset) }
         : intoNext();
     // Word steps ask the engine's own boundary walk, so Alt+Arrow stops in the
     // same places inside a cell as it does in the paragraph above the table —
@@ -541,14 +541,15 @@ export function cellWordRange(
   const text = getVisibleTextFromRuns(runs);
   const at = Math.max(0, Math.min(caret.offset, text.length));
   const span =
-    at < text.length && isWordChar(text[at])
+    at < text.length && isWordCharAt(text, at)
       ? { from: findWordStart(text, at), to: findWordEnd(text, at) }
       : // Not on a word but just after one — a double-click on the space that
         // follows it, or past the end of the cell's text. Native text fields
         // take the word that ended there, and so does the prose beside the
-        // table.
-        at > 0 && isWordChar(text[at - 1])
-        ? { from: findWordStart(text, at), to: at }
+        // table. Asked from the last character, so an emoji or a Chinese
+        // character (a word by itself) is found too.
+        at > 0 && isWordCharAt(text, at - 1)
+        ? { from: findWordStart(text, at - 1), to: at }
         : undefined;
   if (!span || span.from === span.to) return undefined;
   return {

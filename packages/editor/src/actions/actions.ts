@@ -1,5 +1,5 @@
 import { CONVERT_STRUCTURED_BLOCK, TEXT_INPUTTED } from "../action-bus";
-import { nextCodePointEnd, prevCodePointStart } from "../code-points";
+import { nextCaretStop, prevCaretStop } from "../code-points";
 import { inheritedTypingMarks } from "../mark-edge";
 import { resolveMarkRuns } from "../mark-runs";
 import { invalidateBlockCache } from "../rendering/renderer";
@@ -109,7 +109,7 @@ import {
   findWordDeleteBoundaryRight,
   findWordEnd,
   findWordStart,
-  isWordChar,
+  isWordCharAt,
 } from "../word-chars";
 import {
   cloneStructuredBlockContent,
@@ -2340,7 +2340,7 @@ export function deleteText(state: EditorState): ActionResult {
   if (textIndex > 0) {
     // One character back, not one UTF-16 unit: an astral character (an emoji)
     // is a surrogate pair, and halving it would leave text no font can draw.
-    const charStart = prevCodePointStart(
+    const charStart = prevCaretStop(
       getBlockTextContent(oldBlock),
       textIndex,
     );
@@ -2654,7 +2654,7 @@ export function deleteForward(state: EditorState): ActionResult {
 
   if (textIndex < oldText.length) {
     // One character forward, not one UTF-16 unit — see the backward delete.
-    const charEnd = nextCodePointEnd(oldText, textIndex);
+    const charEnd = nextCaretStop(oldText, textIndex);
     if (
       rangeIntersectsStructuredMark(oldBlock, textIndex, charEnd, state.schema)
     ) {
@@ -3421,7 +3421,7 @@ export function selectWordAtPosition(
     const isOnWord =
       !runStartingHere &&
       textIndex < text.length &&
-      isWordChar(text[textIndex]);
+      isWordCharAt(text, textIndex);
     // Clamps so a word beside a chip never drags chip source into the selection.
     const scanFloor = Math.max(
       0,
@@ -3448,11 +3448,12 @@ export function selectWordAtPosition(
       // of a line that ends in a chip — selects the chip whole.
       wordStart = runEndingHere.startIndex;
       wordEnd = runEndingHere.endIndex;
-    } else if (textIndex > 0 && isWordChar(text[textIndex - 1])) {
+    } else if (textIndex > 0 && isWordCharAt(text, textIndex - 1)) {
       // Not on a word but right after one (a click past the line end, or on
       // the space following a word): select the word that just ended, matching
-      // native text fields.
-      wordStart = Math.max(findWordStart(text, textIndex), scanFloor);
+      // native text fields. Asked from the last character, so a word that is
+      // one unit by itself (an emoji, a Chinese character) is found too.
+      wordStart = Math.max(findWordStart(text, textIndex - 1), scanFloor);
       wordEnd = textIndex;
     } else {
       // Nothing word-like at or before the point.

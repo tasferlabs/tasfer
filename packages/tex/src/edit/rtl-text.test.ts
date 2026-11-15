@@ -32,9 +32,10 @@ describe("caret inside a fallback text run", () => {
     const stops = caretStops(layout);
 
     // Five boundaries (before each of 4 letters + after the last), at real source
-    // offsets between "\text{" (6) and "}" (10).
+    // offsets between "\text{" (6) and "}" (10), plus the group's own two outer
+    // edges (0 before `\text`, 11 after `}`) — the word fills the group.
     const offsets = stops.map((s) => s.offset).sort((a, b) => a - b);
-    expect(offsets).toEqual([6, 7, 8, 9, 10]);
+    expect(offsets).toEqual([0, 6, 7, 8, 9, 10, 11]);
 
     // RTL: the logical-first boundary (offset 6) is at the RIGHT (max x); the
     // final boundary (offset 10) is at the left (min x). So x decreases as the
@@ -44,8 +45,13 @@ describe("caret inside a fallback text run", () => {
       expect(byOffset.get(o + 1)!).toBeLessThan(byOffset.get(o)!);
     }
 
+    // The group edges show on the side the formula flows: before the group at
+    // the box's LEFT (beside the word's last letter), after it at the RIGHT.
+    expect(byOffset.get(0)).toBe(byOffset.get(10));
+    expect(byOffset.get(11)).toBe(byOffset.get(6));
+
     // hitTest ∘ caretRect round-trips for every interior boundary.
-    for (const s of stops) {
+    for (const s of stops.filter((s) => s.offset >= 6 && s.offset <= 9)) {
       const r = caretRect(layout, s.offset)!;
       expect(hitTest(layout, r.x, r.top + 1)).toBe(s.offset);
     }
@@ -61,6 +67,16 @@ describe("caret inside a fallback text run", () => {
     // A two-letter sub-range is narrower than the whole four-letter run.
     expect(part[0].width).toBeLessThan(whole[0].width);
     expect(part[0].width).toBeGreaterThan(0);
+  });
+
+  it("Arabic: the group-edge stops never light the word on their own", () => {
+    const src = "\\text{عربي}";
+    const layout = layoutMath(src, { fontSize, textFallback: tf });
+    // `\text{` alone and `}` alone cover no letter.
+    expect(selectionRects(layout, 0, 6)).toEqual([]);
+    expect(selectionRects(layout, 10, 11)).toEqual([]);
+    // The whole group still lights the whole word.
+    expect(selectionRects(layout, 0, 11)).toHaveLength(1);
   });
 
   it("CJK stays left-to-right (offset grows with x)", () => {

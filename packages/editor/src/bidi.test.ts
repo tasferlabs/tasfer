@@ -79,3 +79,62 @@ describe("visual run order (L2)", () => {
     expect(visual[visual.length - 1].level).toBe(1);
   });
 });
+
+/**
+ * The line's characters in on-screen order, left to right. Every expected
+ * string below was read off Chrome laying out the same text in a
+ * `<p dir="…">`, so these pin the editor's caret/selection geometry to what the
+ * canvas actually paints.
+ */
+function visualText(text: string, dir: "ltr" | "rtl"): string {
+  const { visual } = analyzeLineBidi(text, dir);
+  let out = "";
+  for (const run of visual) {
+    const chars = [...text.slice(run.start, run.end)];
+    out += (run.level % 2 ? chars.reverse() : chars).join("");
+  }
+  return out;
+}
+
+describe("visual order matches the browser", () => {
+  it("phone number groups in an Arabic line read right to left, like the browser", () => {
+    // Each digit group is its own left-to-right island and the spaces between
+    // them follow the Arabic, so "+966" lands rightmost. Standard behavior.
+    expect(visualText("ورقم الهاتف +966 50 123 4567.", "rtl")).toBe(
+      ".4567 123 50 966+ فتاهلا مقرو",
+    );
+  });
+
+  it("a left-to-right mark before the number keeps it in written order", () => {
+    expect(visualText("ورقم الهاتف ‎+966 50 123 4567.", "rtl")).toBe(
+      ".‎+966 50 123 4567 فتاهلا مقرو",
+    );
+  });
+
+  it("a right-to-left mark counts as right-to-left text", () => {
+    expect(visualText("hello ‏ world", "ltr")).toBe("hello ‏ world");
+    expect(resolveBidiLevels("a‏b", "ltr")).toEqual([0, 1, 0]);
+  });
+
+  it("brackets around Arabic stay with the Arabic at the end of an LTR line", () => {
+    expect(
+      visualText("Translate this for me please: هذا نص (بين قوسين).", "ltr"),
+    ).toBe("Translate this for me please: )نيسوق نيب( صن اذه.");
+    expect(visualText("هذا نص (بين قوسين) وهذا {بين حاصرتين}.", "ltr")).toBe(
+      "}نيترصاح نيب{ اذهو )نيسوق نيب( صن اذه.",
+    );
+  });
+
+  it("brackets around a number take the direction of the text before them", () => {
+    expect(visualText("word (2020) كلمة", "rtl")).toBe("ةملك word (2020)");
+  });
+
+  it("ornate Arabic parentheses are brackets, not letters", () => {
+    expect(visualText("x ﴾قرآن﴿ y", "ltr")).toBe("x ﴾نآرق﴿ y");
+  });
+
+  it("Arabic comma and decimal separators join numbers", () => {
+    expect(visualText("a 1،2 b", "ltr")).toBe("a 1،2 b");
+    expect(visualText("ثمن ١٢٫٥ ريال", "ltr")).toBe("لاير ١٢٫٥ نمث");
+  });
+});

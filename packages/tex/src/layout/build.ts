@@ -32,6 +32,7 @@ import {
   type Placed,
   placeholderBox,
   ruleBox,
+  type TextCaret,
   textFallbackBox,
 } from "./box";
 import { chooseSurd, makeDelimiter, SIZE_TO_MAX_HEIGHT } from "./delimiter";
@@ -1445,8 +1446,9 @@ function fallbackCarets(
   run: TextFallbackRun,
   charSpans: readonly Span[],
   size: number,
-): { offset: number; dx: number }[] {
-  const carets: { offset: number; dx: number }[] = [];
+  group: { span: Span; length: number },
+): TextCaret[] {
+  const carets: TextCaret[] = [];
   for (let k = 0; k <= run.length; k++) {
     const offset =
       k < run.length
@@ -1454,6 +1456,18 @@ function fallbackCarets(
         : charSpans[run.start + run.length - 1].end;
     const edge = run.rtl ? run.width - run.edges[k] : run.edges[k];
     carets.push({ offset, dx: edge * size });
+  }
+  // An RTL run that fills an edge of its `\text{…}` group also carries that
+  // group's outer position, on the side it shows: before the group at the
+  // box's left, after it at the right (the formula itself flows left to right).
+  // Its letters' stops alone would put "before the group" beside the first
+  // letter, at the RIGHT, so the caret and a row-edge click would land on the
+  // wrong side of the word.
+  if (run.rtl && run.start === 0) {
+    carets.push({ offset: group.span.start, dx: 0, edge: true });
+  }
+  if (run.rtl && run.start + run.length === group.length) {
+    carets.push({ offset: group.span.end, dx: run.width * size, edge: true });
   }
   return carets;
 }
@@ -1509,7 +1523,10 @@ function buildText(node: Extract<Node, { type: "text" }>, style: Style): Built {
             ascent: run.ascent,
             depth: run.depth,
           },
-          fallbackCarets(run, spans, style.sizeMultiplier),
+          fallbackCarets(run, spans, style.sizeMultiplier, {
+            span: node.span,
+            length: chars.length,
+          }),
         ),
       );
       i += run.length;

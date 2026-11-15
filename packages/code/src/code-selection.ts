@@ -27,7 +27,7 @@ import type { SelectionRungRange } from "@tasfer/editor/actions/selection-expans
 import {
   findWordEnd,
   findWordStart,
-  isWordChar,
+  isWordCharAt,
 } from "@tasfer/editor/word-chars";
 
 const OPENERS: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
@@ -43,9 +43,9 @@ export function codeSelectionRungs(
   const rungs: SelectionRungRange[] = [{ from: 0, to: text.length }];
 
   const seed =
-    from < text.length && isWordChar(text[from])
+    from < text.length && isWordCharAt(text, from)
       ? from
-      : from > 0 && isWordChar(text[from - 1])
+      : from > 0 && isWordCharAt(text, from - 1)
         ? from - 1
         : -1;
   if (seed >= 0) {
