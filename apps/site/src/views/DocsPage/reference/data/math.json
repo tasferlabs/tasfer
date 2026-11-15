@@ -1871,6 +1871,54 @@
        ]
       },
       {
+       "name": "contentCaretRect",
+       "kind": "method",
+       "sig": "contentCaretRect(\n  layout: NodeLayout,\n  point: ContentPoint,\n  c: NodeContentCaretCtx<MathBlock>,\n): NodeCaretRect | null",
+       "summary": "Where a caret at `point` inside this block equation is drawn.",
+       "doc": [
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "Where a caret at "
+          },
+          {
+           "type": "inlineCode",
+           "value": "point"
+          },
+          {
+           "type": "text",
+           "value": " inside this block equation is drawn."
+          }
+         ]
+        },
+        {
+         "type": "paragraph",
+         "children": [
+          {
+           "type": "text",
+           "value": "The editor draws a collaborator's caret only when the block's node says\nwhere it goes. Without this, a peer typing in a block equation showed their\nselection but no caret and no name tag. The local caret lands on the same\nspot through "
+          },
+          {
+           "type": "link",
+           "url": "ref:caretRect",
+           "children": [
+            {
+             "type": "inlineCode",
+             "value": "caretRect"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "value": "."
+          }
+         ]
+        }
+       ]
+      },
+      {
        "name": "caretRect",
        "kind": "method",
        "sig": "caretRect(\n  layout: TextNodeLayout,\n  textIndex: number,\n  originX: number,\n  blockTopY: number,\n  state?: EditorState,\n  blockId?: string,\n  edge?: \"start\" | \"end\",\n): { x: number; y: number; height: number; exact?: boolean }",

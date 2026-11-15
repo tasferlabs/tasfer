@@ -149,6 +149,7 @@ import {
 } from "@tasfer/editor/rendering/decorations";
 import type {
   BlockRuntimeState,
+  NodeCaretRect,
   NodeContentCaretCtx,
   NodeContentHitCtx,
   NodeContentHitOptions,
@@ -191,6 +192,7 @@ import {
   updateMode,
 } from "@tasfer/editor/state-utils";
 import {
+  type ContentPoint,
   type ContentSelection,
   isContentSelectionCollapsed,
   shownContentSelection,
@@ -1799,6 +1801,85 @@ export class MathNode extends TextNode<MathBlock> {
   // ── Caret geometry (via the tex bridge, not text lines) ────────────────────
 
   /**
+   * Where a caret at `point` inside this block equation is drawn.
+   *
+   * The editor draws a collaborator's caret only when the block's node says
+   * where it goes. Without this, a peer typing in a block equation showed their
+   * selection but no caret and no name tag. The local caret lands on the same
+   * spot through {@link caretRect}.
+   */
+  contentCaretRect(
+    layout: NodeLayout,
+    point: ContentPoint,
+    c: NodeContentCaretCtx<MathBlock>,
+  ): NodeCaretRect | null {
+    if (point.blockId !== c.block.id) return null;
+    const l = layout as MathNodeLayout;
+    const { x, y } = c.origin;
+    if (!l.mathLayout) return this.placeholderCaretRect(l, x, y);
+    const rect = this.documentCaretRect(l, point, c.state, c.block, x, y);
+    return rect ? { x: rect.x, y: rect.y, height: rect.height } : null;
+  }
+
+  /**
+   * The caret for a point in the equation's math tree, or `null` when the
+   * equation has no tree or the point isn't a stop in it.
+   */
+  private documentCaretRect(
+    l: MathNodeLayout,
+    point: ContentPoint,
+    state: EditorState,
+    block: MathBlock,
+    originX: number,
+    blockTopY: number,
+  ): { x: number; y: number; height: number; exact: true } | null {
+    if (!l.mathLayout || !l.mathDocumentLayout) return null;
+    const document = getMathStructuredDocument(block);
+    const position = document
+      ? contentPointToMathDocumentPosition(document, point)
+      : null;
+    if (!position) return null;
+    // While a command is being typed at this caret, read the geometry off the
+    // layout that keeps it literal — matching what paint draws — so the caret
+    // tracks the source text (`\pm`), not the resolved glyph (±).
+    const literalCaret = this.pendingDocumentCommandCaret(state, block);
+    const literalDocumentLayout = literalCaret
+      ? this.layoutDocumentEquation(block, l.adjustedMaxWidth, literalCaret)
+      : null;
+    const documentLayout = literalDocumentLayout ?? l.mathDocumentLayout;
+    const stop = mathDocumentCaretStop(documentLayout, position);
+    if (!stop) return null;
+    const mathOffsetX = literalDocumentLayout
+      ? Math.max(0, (l.adjustedMaxWidth - documentLayout.width) / 2)
+      : l.mathOffsetX;
+    const baseX = originX + mathOffsetX;
+    const baselineY = blockTopY + l.mathTop + documentLayout.height;
+    return {
+      x: baseX + stop.x,
+      y: baselineY + (stop.caretTop ?? stop.top),
+      height: stop.bottom - (stop.caretTop ?? stop.top),
+      exact: true,
+    };
+  }
+
+  /**
+   * The caret in an empty equation: the placeholder stays centered and the
+   * caret sits at its leading edge, like an empty input.
+   */
+  private placeholderCaretRect(
+    l: MathNodeLayout,
+    originX: number,
+    blockTopY: number,
+  ): { x: number; y: number; height: number; exact: true } {
+    return {
+      x: originX + Math.max(0, (l.adjustedMaxWidth - l.placeholderWidth) / 2),
+      y: blockTopY + l.mathTop - BLOCK_MATH_FONT_SIZE / 2,
+      height: BLOCK_MATH_FONT_SIZE,
+      exact: true,
+    };
+  }
+
+  /**
    * Returns where to draw the caret inside the equation: its position and
    * height.
    */
@@ -1817,61 +1898,23 @@ export class MathNode extends TextNode<MathBlock> {
         : false;
     const l = layout as MathNodeLayout;
     const contentPoint = state?.document.contentSelection?.focus;
-    if (
-      l.mathLayout &&
-      l.mathDocumentLayout &&
-      state &&
-      blockId &&
-      contentPoint?.blockId === blockId
-    ) {
+    if (state && blockId && contentPoint?.blockId === blockId) {
       const block = state.document.page.blocks.find(
         (candidate) => candidate.id === blockId && !candidate.deleted,
       );
-      const document = block ? getMathStructuredDocument(block) : undefined;
-      const position = document
-        ? contentPointToMathDocumentPosition(document, contentPoint)
-        : null;
-      // While a command is being typed at this caret, read the geometry off the
-      // layout that keeps it literal — matching what paint draws — so the caret
-      // tracks the source text (`\pm`), not the resolved glyph (±).
-      const literalCaret = block
-        ? this.pendingDocumentCommandCaret(state, block)
-        : undefined;
-      const literalDocumentLayout = literalCaret
-        ? this.layoutDocumentEquation(
+      const rect = block
+        ? this.documentCaretRect(
+            l,
+            contentPoint,
+            state,
             block as unknown as MathBlock,
-            l.adjustedMaxWidth,
-            literalCaret,
+            originX,
+            blockTopY,
           )
         : null;
-      const documentLayout = literalDocumentLayout ?? l.mathDocumentLayout;
-      const stop = position
-        ? mathDocumentCaretStop(documentLayout, position)
-        : null;
-      if (stop) {
-        const mathOffsetX = literalDocumentLayout
-          ? Math.max(0, (l.adjustedMaxWidth - documentLayout.width) / 2)
-          : l.mathOffsetX;
-        const baseX = originX + mathOffsetX;
-        const baselineY = blockTopY + l.mathTop + documentLayout.height;
-        return {
-          x: baseX + stop.x,
-          y: baselineY + (stop.caretTop ?? stop.top),
-          height: stop.bottom - (stop.caretTop ?? stop.top),
-          exact: true,
-        };
-      }
+      if (rect) return rect;
     }
-    if (!l.mathLayout) {
-      // The placeholder remains centered, while the caret sits at its leading
-      // edge like a normal empty input.
-      return {
-        x: originX + Math.max(0, (l.adjustedMaxWidth - l.placeholderWidth) / 2),
-        y: blockTopY + l.mathTop - BLOCK_MATH_FONT_SIZE / 2,
-        height: BLOCK_MATH_FONT_SIZE,
-        exact: true,
-      };
-    }
+    if (!l.mathLayout) return this.placeholderCaretRect(l, originX, blockTopY);
 
     // While a command is actively being typed here, read the caret off a layout
     // with that command kept literal (`\in`, not ∈) — matching what paint draws
