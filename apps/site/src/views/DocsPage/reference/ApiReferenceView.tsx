@@ -985,6 +985,22 @@ export default function ApiReferenceView() {
     : (visible.find((group) => group.id === openGroup) ?? visible[0])?.id;
   const meta = INDEX.packages.find((p) => p.slug === slug)!;
   const [major, minor] = INDEX.version.split(".");
+  /** Which version badges this package shows, so the legend explains only those. */
+  const badges = useMemo(() => {
+    const out = { since: false, unreleased: false };
+    const see = (item: ApiDocFields) => {
+      if (!item.since) return;
+      if (isNewer(item.since, INDEX.version)) out.unreleased = true;
+      else out.since = true;
+    };
+    for (const entry of data?.entries ?? []) {
+      for (const symbol of entry.symbols) {
+        see(symbol);
+        symbol.members?.forEach(see);
+      }
+    }
+    return out;
+  }, [data]);
 
   const blocks: ReactNode[] = [];
   let folds: typeof visible = [];
@@ -1073,20 +1089,28 @@ export default function ApiReferenceView() {
   return (
     <Ref.Provider value={ref}>
       <div className="dx-ref">
-        <div className="dx-ref-legend">
-          <span>
-            <span className="dx-ref-badge is-since">
-              {t("docs.ref.since", "Since {{version}}", { version: `${major}.${minor}.x` })}
-            </span>
-            {t("docs.ref.legend.since", "added after the first tracked version")}
-          </span>
-          <span>
-            <span className="dx-ref-badge is-unreleased">
-              {t("docs.ref.unreleased", "Unreleased")}
-            </span>
-            {t("docs.ref.legend.unreleased", "not on npm yet")}
-          </span>
-        </div>
+        {badges.since || badges.unreleased ? (
+          <div className="dx-ref-legend">
+            {badges.since ? (
+              <span>
+                <span className="dx-ref-badge is-since">
+                  {t("docs.ref.since", "Since {{version}}", {
+                    version: `${major}.${minor}.x`,
+                  })}
+                </span>
+                {t("docs.ref.legend.since", "added after the first tracked version")}
+              </span>
+            ) : null}
+            {badges.unreleased ? (
+              <span>
+                <span className="dx-ref-badge is-unreleased">
+                  {t("docs.ref.unreleased", "Unreleased")}
+                </span>
+                {t("docs.ref.legend.unreleased", "not on npm yet")}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
 
         <section className="dx-ref-section" aria-label={t("docs.ref.packages", "Packages")}>
           <div className="dx-ref-intro">
