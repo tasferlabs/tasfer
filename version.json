@@ -1,4 +1,5 @@
 {
   "appVersion": "0.1.14",
-  "packagesVersion": "0.3.0"
+  "packagesVersion": "0.3.0",
+  "minNativeVersion": "0.1.14"
 }
