@@ -57,6 +57,20 @@ export const plugins = {
   CapacitorHttp: {
     enabled: false,
   },
+  CapacitorUpdater: {
+    // Over-the-air web bundle updates, driven by src/platform/mobileUpdate.ts.
+    // The plugin only downloads, swaps and rolls back bundles; it never talks
+    // to Capgo's servers. "off" stops its own update checks (we read a static
+    // manifest from our GitHub release instead) and the empty statsUrl stops
+    // its usage reporting.
+    autoUpdate: "off",
+    statsUrl: "",
+    // How long a freshly applied bundle has to report that its code is running
+    // (notifyAppReady) before the plugin puts the previous bundle back. Double
+    // the 10 s default: putting back a good bundle on a slow phone is a worse
+    // outcome than a few more seconds of blank screen on a dead one.
+    appReadyTimeout: 20000,
+  },
   Keyboard: {
     // "none": the WKWebView keeps its full height when the soft keyboard opens
     // — the keyboard just overlays the bottom of the page. We deliberately do

@@ -13,7 +13,8 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", exact: "8.4.2"),
         .package(name: "CapacitorFilesystem", path: "../../../web/node_modules/@capacitor/filesystem"),
-        .package(name: "CapacitorKeyboard", path: "../../../web/node_modules/@capacitor/keyboard")
+        .package(name: "CapacitorKeyboard", path: "../../../web/node_modules/@capacitor/keyboard"),
+        .package(name: "CapgoCapacitorUpdater", path: "../../../web/node_modules/@capgo/capacitor-updater")
     ],
     targets: [
         .target(
@@ -22,7 +23,8 @@ let package = Package(
                 .product(name: "Capacitor", package: "capacitor-swift-pm"),
                 .product(name: "Cordova", package: "capacitor-swift-pm"),
                 .product(name: "CapacitorFilesystem", package: "CapacitorFilesystem"),
-                .product(name: "CapacitorKeyboard", package: "CapacitorKeyboard")
+                .product(name: "CapacitorKeyboard", package: "CapacitorKeyboard"),
+                .product(name: "CapgoCapacitorUpdater", package: "CapgoCapacitorUpdater")
             ]
         )
     ]
