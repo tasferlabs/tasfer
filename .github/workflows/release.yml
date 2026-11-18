@@ -50,11 +50,7 @@ on:
       npm:
         description: "@tasfer/* packages → npm"
         type: boolean
-        default: false
-      npm_stage:
-        description: "npm: stage the publish for approval instead of publishing"
-        type: boolean
-        default: false
+        default: true
       npm_verbose:
         description: "npm: log what npm does, including the OIDC exchange"
         type: boolean
@@ -483,7 +479,6 @@ jobs:
 
       - name: Publish
         env:
-          STAGE: ${{ inputs.npm_stage }}
           NPM_CONFIG_LOGLEVEL: ${{ inputs.npm_verbose && 'verbose' || 'notice' }}
         run: |
           for p in tex editor math code table provider-core provider-indexeddb provider-relay provider-webrtc react; do
@@ -492,9 +487,6 @@ jobs:
             version=$(node -p "require('./package.json').version")
             if npm view "$name@$version" version > /dev/null 2>&1; then
               echo "▸ $name@$version already published, skipping"
-            elif [ "$STAGE" = "true" ]; then
-              echo "▸ staging $name@$version"
-              npm stage publish
             else
               echo "▸ publishing $name@$version"
               npm publish
