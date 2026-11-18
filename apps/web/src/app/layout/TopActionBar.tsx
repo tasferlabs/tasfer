@@ -7,6 +7,7 @@ import useMobileLayout from "../hooks/useMobileLayout";
 import useKeyboardInset from "../hooks/useKeyboardInset";
 import { Button } from "../../components/ui/button";
 import { usePeerVersion } from "../contexts/PeerVersionContext";
+import { useMobileUpdate } from "../contexts/MobileUpdateContext";
 import { usePageSettings } from "../contexts/PageSettingsContext";
 import { useTopActionBarSlotRef } from "./TopActionBarSlot";
 import { ShortcutTooltip } from "../components/ShortcutTooltip";
@@ -24,6 +25,16 @@ export function TopActionBar({
   // The sidebar warning is invisible while the sidebar is closed, so the button
   // that opens it carries a dot instead.
   const { notice } = usePeerVersion();
+  // Same for the phone apps' update card, in the brand colour: it is news, not
+  // a problem. It shows while the card has something to act on and goes once
+  // the card is collapsed, which is how an update is put off.
+  const mobileUpdate = useMobileUpdate();
+  const updateNotice =
+    mobileUpdate?.notice &&
+    !mobileUpdate.collapsed &&
+    mobileUpdate.notice.phase !== "downloading"
+      ? mobileUpdate.notice
+      : null;
   // Shares the archived banner's wash when the open page is archived.
   const { isPageArchived } = usePageSettings();
 
@@ -65,10 +76,28 @@ export function TopActionBar({
                   className="absolute end-0.5 top-0.5 size-2 rounded-full bg-destructive ring-2 ring-background"
                 />
               )}
+              {notice === null && updateNotice !== null && (
+                <span
+                  aria-hidden
+                  className="absolute end-0.5 top-0.5 size-2 rounded-full bg-primary ring-2 ring-background"
+                />
+              )}
               <span className="sr-only">{t("sidebar.open", "Open sidebar")}</span>
               {notice !== null && (
                 <span className="sr-only">
                   {t("sync.versionIncompatibleTitle", "Can't sync with a device")}
+                </span>
+              )}
+              {updateNotice !== null && (
+                <span className="sr-only">
+                  {updateNotice.phase === "ready"
+                    ? t("update.readyTitle", "Update ready")
+                    : updateNotice.phase === "failed"
+                      ? t(
+                          "update.downloadFailedTitle",
+                          "Couldn't download the update",
+                        )
+                      : t("update.availableTitle", "Update available")}
                 </span>
               )}
             </Button>

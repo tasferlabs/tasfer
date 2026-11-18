@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/drawer";
 import { detectDeviceType } from "@/platform";
 import { publicAssetUrl } from "@/lib/publicAssetUrl";
+import { APP_STORE_URL, GOOGLE_PLAY_URL } from "@/lib/storeLinks";
 import useMobileLayout from "../hooks/useMobileLayout";
 
 /**
@@ -32,8 +33,8 @@ import useMobileLayout from "../hooks/useMobileLayout";
  */
 const DOWNLOAD_LINKS = {
   desktop: "https://github.com/tasferlabs/tasfer/releases/latest",
-  appStore: "https://apps.apple.com/app/tasfer/id6794223843",
-  googlePlay: "https://play.google.com/store/apps/details?id=app.tasfer",
+  appStore: APP_STORE_URL,
+  googlePlay: GOOGLE_PLAY_URL,
 };
 
 // Keep native download UI in place for when the builds and store listings launch.
