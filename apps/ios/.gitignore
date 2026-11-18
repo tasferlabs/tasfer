@@ -25,3 +25,8 @@ App/App/InfoPlist.xcstrings
 # /version.json by scripts/release/gen-ios-version.mjs on install and on every
 # native build. The Xcode project stores no version of its own.
 Version.xcconfig
+
+# Written when the CapApp-SPM package is resolved on its own, outside Xcode.
+# The pins the app builds with are the workspace's
+# App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved.
+App/CapApp-SPM/Package.resolved
