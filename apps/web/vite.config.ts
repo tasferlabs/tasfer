@@ -220,6 +220,10 @@ export default defineConfig({
     https: lanHttps,
     // Replaced by our own devtools-styled overlay (see src/dev/viteErrorOverlay).
     hmr: { overlay: false },
+    // Playwright writes its report (and we edit the specs) inside this folder.
+    // Without this, each write reloads the app under the test that caused it.
+    // `test-results/` is already skipped by Vite itself.
+    watch: { ignored: ["**/playwright-report/**", "**/e2e/**"] },
     proxy: {
       // The prefix is stripped so the worker sees its own `/topic/{hex}` route,
       // and keeps the signaling path from colliding with an app route.
