@@ -70,6 +70,12 @@ export const plugins = {
     // the 10 s default: putting back a good bundle on a slow phone is a worse
     // outcome than a few more seconds of blank screen on a dead one.
     appReadyTimeout: 20000,
+    // Seconds, for the plugin's network requests. On iOS it also caps the
+    // whole bundle download (this value plus 5 s), not just a stall: at the
+    // 20 s default a 10 MB bundle needs about 3.3 Mbit/s or it is cut off,
+    // which a weak mobile signal does not give. 120 s brings that down to
+    // well under 1 Mbit/s. Android uses it as a stall timeout only.
+    responseTimeout: 120,
   },
   Keyboard: {
     // "none": the WKWebView keeps its full height when the soft keyboard opens
