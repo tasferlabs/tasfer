@@ -58,8 +58,7 @@ package or application directory.
 
 The editor's API reference is the "All exports" page (`/docs/editor/reference`).
 It is generated from the doc comments in `packages/*/src`, so the doc comment is
-the spec: when an export's behaviour changes, update its doc comment. Then run
-`npm run api` in `apps/site` and commit the result. Every new export needs a doc
+the spec: when an export's behaviour changes, update its doc comment. Every new export needs a doc
 comment and a `@since <version>` tag, plus a `@group <topic>` tag in editor,
 math, table and tex; CI fails without them.
 

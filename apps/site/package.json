@@ -4,13 +4,14 @@
   "private": true,
   "description": "Tasfer marketing site + documentation (Next.js, static export)",
   "scripts": {
-    "dev": "next dev -p 4100",
-    "build": "npm run og && npm run llms && next build --webpack",
+    "dev": "npm run api && next dev -p 4100",
+    "build": "npm run api && npm run og && npm run llms && next build --webpack",
     "start": "next start -p 4100",
     "og": "node scripts/generate-og.mjs",
     "llms": "node scripts/generate-llms.mjs",
     "api": "node scripts/generate-api.mjs",
-    "api:check": "node scripts/generate-api.mjs --check"
+    "api:check": "node scripts/generate-api.mjs --check",
+    "packages": "bash scripts/build-packages.sh"
   },
   "dependencies": {
     "@fontsource/amiri": "^5.2.8",

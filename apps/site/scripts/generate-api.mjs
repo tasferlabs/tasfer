@@ -15,12 +15,13 @@
  * and so are the old names a package keeps in `src/deprecated/` for one more
  * release.
  *
- * The output is committed. The site build only reads the JSON, so it needs
- * neither the packages nor a compiler, and a pull request that changes the
- * public API shows that change as a diff of these files.
+ * The output is not committed (it is gitignored). `npm run dev` and
+ * `npm run build` regenerate it first, so the site always shows the packages
+ * it was built next to. That needs the packages installed and built:
+ * `npm run packages` (scripts/build-packages.sh) does both.
  *
  *   node scripts/generate-api.mjs                  regenerate (npm run api)
- *   node scripts/generate-api.mjs --check          fail when stale (npm run api:check)
+ *   node scripts/generate-api.mjs --check          check the rules, write nothing (npm run api:check)
  *   node scripts/generate-api.mjs --init-baseline  restart the baseline (see below)
  *
  * Three rules are enforced on every run. The first two only bite on new code:
@@ -34,13 +35,15 @@
  * exports that existed when the rules were introduced (they need no `@since`)
  * and the ones that had no doc comment then (they are tolerated until someone
  * writes one). The second list only shrinks: a regenerate drops a name as soon
- * as it gets documented.
+ * as it gets documented. Unlike the reference data, the baseline is committed;
+ * commit it when a regenerate changes it.
  *
  * Types are read through TypeScript 7's own API (`typescript/unstable/sync`).
- * It is marked unstable, which is why the result is committed rather than
- * produced at build time: a compiler upgrade that changes the API breaks this
- * script, never the site. Inferred types depend on each package's dependencies
- * being installed and on its siblings being built, so both are checked first.
+ * It is marked unstable, so a compiler upgrade that changes the API can break
+ * this script, and with it the site build: CI builds the site on every pull
+ * request, so that shows up there before it can reach a deploy. Inferred types
+ * depend on each package's dependencies being installed and on its siblings
+ * being built, so both are checked first.
  */
 
 import {
@@ -706,13 +709,13 @@ function assertReady(slug, dir, pkg) {
   if (needsDeps && !existsSync(join(dir, "node_modules"))) {
     throw new Error(
       `generate-api: packages/${slug} has no node_modules. Inferred types would differ ` +
-        "from a full install, so run `npm ci` in every package first.",
+        "from a full install, so run `npm run packages` in apps/site first.",
     );
   }
   if (!existsSync(join(dir, "dist"))) {
     throw new Error(
       `generate-api: packages/${slug} is not built. Packages read their siblings' types ` +
-        "from dist/, so run `bash packages/build-all.sh` first.",
+        "from dist/, so run `npm run packages` in apps/site first.",
     );
   }
 }
@@ -920,13 +923,9 @@ function main() {
         .map((name) => join(OUT, name))
         .filter((path) => !files.has(path))
     : [];
-  if (CHECK) {
-    for (const [path] of stale) problems.push(`${repoPath(path)} is out of date.`);
-    for (const path of strays) problems.push(`${repoPath(path)} is no longer generated.`);
-    if (stale.length || strays.length) {
-      problems.push("Run `npm run api` in apps/site and commit the result.");
-    }
-  } else {
+  // --check only reports rule problems: the output is rebuilt on every dev
+  // start and build, so a stale copy on disk is never what ships.
+  if (!CHECK) {
     // Only what changed is touched, so a running dev server reloads just that.
     mkdirSync(OUT, { recursive: true });
     for (const [path, content] of stale) writeFileSync(path, content);
@@ -941,7 +940,7 @@ function main() {
   console.log(
     `generate-api: ${total} exports across ${packages.length} packages at v${version}` +
       (bare ? `, ${bare} still without a doc comment` : "") +
-      (CHECK ? " — up to date." : "."),
+      (CHECK ? " — the rules pass." : "."),
   );
 }
 

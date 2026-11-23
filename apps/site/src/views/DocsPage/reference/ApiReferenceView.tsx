@@ -35,9 +35,10 @@ import type {
    one page, one package at a time.
 
    The data is generated from the packages' source by
-   scripts/generate-api.mjs and committed under ./data. Nothing on
-   this page is written by hand — to change what a row says, change
-   the doc comment in the code and run `npm run api`.
+   scripts/generate-api.mjs into ./data, which is gitignored:
+   `npm run dev` and `npm run build` regenerate it. Nothing on this
+   page is written by hand — to change what a row says, change the
+   doc comment in the code.
 
    The page is addressable like the rest of the docs:
 

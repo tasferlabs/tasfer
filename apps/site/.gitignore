@@ -31,3 +31,6 @@ yarn-error.log*
 /public/docs/
 /public/en/
 /public/ar/
+
+# API reference data (scripts/generate-api.mjs, run by `npm run dev` and `npm run build`).
+/src/views/DocsPage/reference/data/
