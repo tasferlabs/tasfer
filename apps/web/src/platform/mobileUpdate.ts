@@ -111,7 +111,7 @@ export type MobileUpdateStatus =
   | { phase: "idle" }
   /** A newer bundle is published. Nothing has been downloaded. */
   | { phase: "available"; version: string }
-  /** `percent` is 0 to 100, or null until the plugin reports progress. */
+  /** `percent` is 1 to 100, or null until the plugin reports real progress. */
   | { phase: "downloading"; version: string; percent: number | null }
   /** Downloaded, and swapped in at the next fresh start. */
   | { phase: "ready"; version: string }
@@ -659,6 +659,11 @@ export function createMobileUpdater(
         stopProgress = await plugin
           .onDownloadProgress((percent) => {
             if (!downloading) return;
+            // The plugin reports 0 when it starts. On iOS nothing else comes
+            // until the whole zip is in (then 70, 90, 100), so a 0 would sit
+            // on screen for the entire download. Until there is real progress
+            // the card shows a moving bar and no number instead.
+            if (!(percent > 0)) return;
             const clamped = Math.min(100, Math.max(0, percent));
             downloading = { ...downloading, percent: clamped };
             refresh();

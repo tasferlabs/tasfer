@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { storeListing } from "@/lib/storeLinks";
 import { useMobileUpdate } from "../contexts/MobileUpdateContext";
 import { NudgeCard } from "./NudgeCard";
+import styles from "./MobileUpdateBanner.module.css";
 
 /**
  * Sidebar card for the phone apps' over-the-air updates, the sibling of the
@@ -127,12 +128,18 @@ export function MobileUpdateBanner() {
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={percent ?? undefined}
-        className="me-2 mt-2 h-1 overflow-hidden rounded-full bg-muted"
+        className="relative me-2 mt-2 h-1 overflow-hidden rounded-full bg-muted"
       >
-        <div
-          className="h-full rounded-full bg-primary transition-[width] duration-200"
-          style={{ width: `${percent ?? 0}%` }}
-        />
+        {percent !== null ? (
+          <div
+            className="h-full rounded-full bg-primary transition-[width] duration-200"
+            style={{ width: `${percent}%` }}
+          />
+        ) : (
+          // No honest number yet (iOS reports none until the zip is in): a
+          // moving bar says the download is running.
+          <div className={styles.indeterminate} />
+        )}
       </div>
     ) : phase === "store" && listing ? (
       <Button asChild className="mt-2 self-start px-3">

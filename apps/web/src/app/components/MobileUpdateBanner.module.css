@@ -1,0 +1,54 @@
+/*
+ * The download bar while there is no percentage to show. Same motion as the
+ * sidebar's sync bar (Layout.module.css): a short fill sliding across.
+ */
+.indeterminate {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 40%;
+  border-radius: inherit;
+  background-color: var(--primary);
+  animation: mobileUpdateSlide 1.1s ease-in-out infinite;
+}
+
+@keyframes mobileUpdateSlide {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(260%);
+  }
+}
+
+:global([dir="rtl"]) .indeterminate {
+  animation-name: mobileUpdateSlideRtl;
+}
+
+@keyframes mobileUpdateSlideRtl {
+  from {
+    transform: translateX(110%);
+  }
+  to {
+    transform: translateX(-260%);
+  }
+}
+
+/* No travel for reduced motion: the bar breathes in place instead. */
+@media (prefers-reduced-motion: reduce) {
+  .indeterminate {
+    width: 100%;
+    transform: none;
+    animation: mobileUpdatePulse 1.6s ease-in-out infinite;
+  }
+
+  @keyframes mobileUpdatePulse {
+    0%,
+    100% {
+      opacity: 0.3;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+}

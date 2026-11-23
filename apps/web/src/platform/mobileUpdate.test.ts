@@ -342,6 +342,8 @@ describe("downloadUpdate", () => {
 
     const done = updater.downloadUpdate();
     await vi.waitFor(() => expect(plugin.download).toHaveBeenCalled());
+    // The plugin's opening 0 is not progress: the status stays without a number.
+    report(0);
     report(62);
     finish({ id: "bundle-1" });
     await done;
