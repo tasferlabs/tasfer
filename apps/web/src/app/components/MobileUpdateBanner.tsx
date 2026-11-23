@@ -56,7 +56,11 @@ export function MobileUpdateBanner() {
     phase === "ready"
       ? t("update.readyCollapsedCta", "Update ready")
       : phase === "downloading"
-        ? t("update.downloadingCollapsedCta", "Downloading update")
+        ? percent !== null
+          ? t("update.downloadingDescPercent", "{{percent}}% downloaded", {
+              percent,
+            })
+          : t("update.downloadingCollapsedCta", "Downloading update")
         : t("update.availableCollapsedCta", "Update available");
 
   const title =
@@ -219,21 +223,19 @@ export function MobileUpdateBanner() {
               description={description}
               action={action}
               trailing={
-                // A download cannot be put off halfway, so there is nothing to
-                // collapse while it runs.
-                phase === "downloading" ? undefined : (
-                  <Button
-                    type="button"
-                    variant="unstyled"
-                    size="unstyled"
-                    aria-expanded
-                    aria-label={t("common.collapse", "Collapse")}
-                    onClick={() => setCollapsed(true)}
-                    className="-mt-2.5 size-11 shrink-0 justify-center rounded-md text-muted-foreground hover:text-foreground"
-                  >
-                    <ChevronDown className="size-4" />
-                  </Button>
-                )
+                // Collapsing only hides the card: a running download carries
+                // on, and the one-line row keeps showing its progress.
+                <Button
+                  type="button"
+                  variant="unstyled"
+                  size="unstyled"
+                  aria-expanded
+                  aria-label={t("common.collapse", "Collapse")}
+                  onClick={() => setCollapsed(true)}
+                  className="-mt-2.5 size-11 shrink-0 justify-center rounded-md text-muted-foreground hover:text-foreground"
+                >
+                  <ChevronDown className="size-4" />
+                </Button>
               }
             />
           </motion.div>
