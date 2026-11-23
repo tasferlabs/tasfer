@@ -1,3 +1,11 @@
+# 2026-11-23
+
+- The iPhone and Android apps can get new versions without waiting for an App Store or Google Play release; a card in the sidebar and a row in Settings → About show when one is ready, and nothing downloads until you tap Update now or turn on Update automatically
+- If a new version fails to start, the app goes back to the previous one by itself
+- The Information tab in Settings is now called About
+- The sidebar scrollbar stays inside its track
+- Bug fixes and other UI changes
+
 # 2026-11-15
 
 - On phones, the selection handles can select part of a formula, or a formula along with the text around it, in a line or in a block equation

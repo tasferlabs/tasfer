@@ -11,8 +11,10 @@ import { NudgeCard } from "./NudgeCard";
  * Sidebar accordion for the desktop auto-updater, in the same family as the
  * storage-protection and peer-version banners.
  *
- * Desktop-only: the updater is an Electron main-process concern, and the web
- * and mobile builds update through the service worker and the app stores.
+ * Desktop-only: the updater is an Electron main-process concern. The web build
+ * updates through the service worker, and the mobile apps through the stores
+ * plus their own over-the-air bundles, which have their own card
+ * (MobileUpdateBanner).
  *
  * The update downloads on its own in the background, so the banner is mostly a
  * status line — "downloading", then "ready, restart to install". The download

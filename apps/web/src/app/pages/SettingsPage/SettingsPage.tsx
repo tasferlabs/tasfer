@@ -85,7 +85,7 @@ export default function SettingsPage() {
     dateTime: t("settings.dateTime.title", "Date & Time"),
     data: t("export.title", "Export"),
     errorLog: t("settings.errorLog.title", "Error log"),
-    information: t("settings.information.title", "Information"),
+    information: t("settings.information.title", "About"),
   };
 
   if (isMobile) {
@@ -170,7 +170,7 @@ export default function SettingsPage() {
               {t("settings.errorLog.title", "Error log")}
             </TabsTrigger>
             <TabsTrigger value="information">
-              {t("settings.information.title", "Information")}
+              {t("settings.information.title", "About")}
             </TabsTrigger>
           </TabsList>
           <TabsContent value={"profile"}>

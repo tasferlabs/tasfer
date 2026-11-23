@@ -24,7 +24,9 @@ import { installErrorLog } from "./lib/errorLog";
 import { faviconUrl } from "./lib/favicon";
 import { requestPersistentStorage } from "./lib/persistentStorage";
 import { redactRouteParams } from "./lib/reportIssue";
-import { initPlatform } from "./platform";
+import { detectAdapter, initPlatform } from "./platform";
+import { createMobileUpdater } from "./platform/mobileUpdate";
+import { MobileUpdateProvider } from "./app/contexts/MobileUpdateContext";
 import { serviceWorkerBridge } from "./serviceWorkerBridge";
 // Dev only: forwards another device's console to the vite terminal (see the module).
 import { installRemoteDevConsole } from "./dev/remoteDevConsole";
@@ -164,12 +166,14 @@ const App = () => (
                 editor overlays, sidebar chrome — opens through it. */}
             <ExternalLinkProvider>
               <VersionProvider>
-                <Suspense fallback={<LoadingScreen />}>
-                  <PopupQueueProvider>
-                    <RouterProvider router={router} />
-                    {/* <MobileAppNudge /> */}
-                  </PopupQueueProvider>
-                </Suspense>
+                <MobileUpdateProvider updater={mobileUpdater}>
+                  <Suspense fallback={<LoadingScreen />}>
+                    <PopupQueueProvider>
+                      <RouterProvider router={router} />
+                      {/* <MobileAppNudge /> */}
+                    </PopupQueueProvider>
+                  </Suspense>
+                </MobileUpdateProvider>
               </VersionProvider>
             </ExternalLinkProvider>
           </ToastProvider>
@@ -218,10 +222,27 @@ function renderPlatformError(error: unknown) {
   root.render(<DatabaseLockedScreen error={error} />);
 }
 
-if (platformReady) {
-  // Platform already initialized from a previous HMR cycle — just re-render
-  renderApp();
-} else {
+// The iOS and Android apps can replace their web bundle over the air (see
+// platform/mobileUpdate.ts). Null everywhere else.
+const mobileUpdater =
+  detectAdapter() === "capacitor" ? createMobileUpdater() : null;
+let stopMobileUpdates: (() => void) | null = null;
+
+function boot() {
+  if (!mobileUpdater) {
+    startPlatform();
+    return;
+  }
+  // Getting here means this bundle's code loaded and ran. Tell the updater,
+  // and only then open the database: a bundle that fails to load is put back,
+  // but never one that has already touched the user's data. The checks start
+  // here too, so a bundle that loads and then fails can still be replaced by
+  // a fixed one.
+  stopMobileUpdates = mobileUpdater.start();
+  void mobileUpdater.confirmBoot().then(startPlatform);
+}
+
+function startPlatform() {
   // Initialize platform adapter (web/electron/capacitor) before rendering.
   // Must await — the worker-backed SQLite needs time to spin up. On web the
   // device-node SharedWorker is the single database connection for every tab,
@@ -238,6 +259,18 @@ if (platformReady) {
       console.error("[Platform] Failed to initialize:", err);
       renderPlatformError(err);
     });
+}
+
+if (platformReady) {
+  // Platform already initialized from a previous HMR cycle — just re-render
+  renderApp();
+} else if (mobileUpdater?.hasPendingBundle()) {
+  // A newer bundle was downloaded during an earlier session. Swap it in now,
+  // before anything opens the database; the page reloads into it. We only get
+  // past this when the swap did not happen.
+  void mobileUpdater.applyPendingBundle().then(boot);
+} else {
+  boot();
 }
 
 // Register service worker for offline support (skip in Electron — loaded via file://)
@@ -282,5 +315,6 @@ if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     i18next.off("languageChanged", onLanguageChanged);
     i18next.off("initialized", onInitialized);
+    stopMobileUpdates?.();
   });
 }

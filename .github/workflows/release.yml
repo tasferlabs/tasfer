@@ -41,6 +41,22 @@ name: Release
 # is the fastlane lane. Picking "release" IS the confirmation to submit for
 # review (RELEASE_CONFIRM=yes below). "beta" goes to TestFlight / Play open
 # testing. "closed" is Play closed testing.
+#
+# Mobile web bundle: sends the web code to installed iOS and Android apps over
+# the air, with no store review. It never carries native code. The bundle has
+# appVersion as its version, and an app only takes one newer than the web code
+# it runs, so bump appVersion to ship again. When the web code starts to need
+# something only a newer store build has (a new plugin, a changed bridge, a
+# capacitor.config.js change), raise minNativeVersion to that store version
+# and publish the bundle only once that store build is live: apps on older
+# builds skip the bundle and send people to the store for it. A bundle that
+# fails before the app reports it started is put back on the phone by itself;
+# a bug that shows up after that needs a newer bundle. The bundle and a store
+# build of the same version can go out in one run: phones take the bundle at
+# once, the store build follows when its review is done, and an app runs the
+# newer of the two, so nobody is asked to update twice. It lives in its own
+# `mobile-bundle` prerelease, which the desktop and CLI update checks pass
+# over.
 
 on:
   workflow_dispatch:
@@ -70,6 +86,10 @@ on:
         type: choice
         options: [none, beta, release]
         default: none
+      mobile_bundle:
+        description: "Web bundle → installed phone apps, over the air (no store review)"
+        type: boolean
+        default: false
       # Android is off — uncomment these with the `android` job.
       # android:
       #   description: "Google Play: closed = closed testing; beta = open testing; release = submit for review"
@@ -642,6 +662,76 @@ jobs:
           APP_REVIEW_EMAIL_ADDRESS: ${{ secrets.APP_REVIEW_EMAIL_ADDRESS }}
           RELEASE_CONFIRM: yes
         run: bundle exec fastlane ios ${{ inputs.ios }}
+
+  # ─── Mobile web bundle (over the air) ────────────────────────────────────────
+  #
+  # Builds the web app and publishes it for installed phone apps to download
+  # (apps/web/src/platform/mobileUpdate.ts reads it). One zip serves iOS and
+  # Android: both ship the same web build.
+  mobile-bundle:
+    needs: main-only
+    if: inputs.mobile_bundle
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # Full history, so the pack script can compare native files against the
+      # commit the live bundle was built from.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: |
+            apps/web/package-lock.json
+            packages/*/package-lock.json
+
+      # web's postinstall also installs the source-aliased packages/*.
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Build the web app
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Pack and publish the bundle
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="mobile-bundle"
+          out="$RUNNER_TEMP/mobile-bundle"
+          mkdir -p "$out/live"
+
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            # No manifest yet is fine: the first publish never finished.
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+              --pattern mobile-bundle.json --dir "$out/live" || true
+          else
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" --title "Mobile web bundle" --prerelease \
+              --notes "The web bundle installed iOS and Android apps download over the air. Updated in place by the Release workflow; not a release to install."
+          fi
+
+          node scripts/release/mobile-bundle.mjs \
+            --out "$out" --published "$out/live/mobile-bundle.json"
+
+          # The script writes nothing when this version is already live.
+          if [[ ! -f "$out/mobile-bundle.json" ]]; then
+            exit 0
+          fi
+
+          # Zip first: phones follow the manifest, so it must never point at a
+          # file that is not there yet.
+          version="$(node scripts/release/app-version.mjs)"
+          gh release upload "$tag" "$out/tasfer-web-$version.zip" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload "$tag" "$out/mobile-bundle.json" \
+            --repo "$GITHUB_REPOSITORY" --clobber
 
   # Android is off. Uncomment this job together with the `android` and
   # `play_closed_track` inputs.

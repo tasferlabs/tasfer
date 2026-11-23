@@ -1,5 +1,2 @@
-- Select part of a formula with the selection handles.
-- Make formulas and edit matrices inside table cells.
-- Lines mixing Arabic and English show in the right order.
-- Your scroll spot stays put when iOS closes the app.
+- The Information tab in Settings is now called About.
 - Bug fixes and improvements.

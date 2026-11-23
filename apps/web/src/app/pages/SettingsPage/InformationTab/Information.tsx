@@ -23,8 +23,10 @@ import { getClientPlatform } from "@/platform";
 import { publicAssetUrl } from "@/lib/publicAssetUrl";
 import { formatAbsoluteDateTime } from "@/lib/dateTimePreferences";
 import { useDateTimePrefs } from "@/app/contexts/DateTimePrefsContext";
+import { useMobileUpdate } from "@/app/contexts/MobileUpdateContext";
 import { SITE_URL } from "@/app/routes/siteUrl";
 import { APP_VERSION, BUILD_TIMESTAMP, getBuildDate } from "@/version";
+import { AppUpdates } from "./AppUpdates";
 
 // Taps on the version line needed to reveal the hidden Tasfer Inspector toggle
 // (the classic Android "tap build number" gesture).
@@ -110,6 +112,9 @@ export function Information() {
   const devToolsEnabled = useDevToolsEnabled();
   const devToolsUnlocked = useDevToolsUnlocked();
   const tapsRef = useRef(0);
+  // The phone apps show the version in the update rows under the header, so
+  // the footer does not repeat it there.
+  const hasUpdateRows = useMobileUpdate() !== null;
   const [justUnlocked, setJustUnlocked] = useState(false);
 
   // The build instant is stored as UTC ISO; show it in the user's date, time and
@@ -198,6 +203,8 @@ export function Information() {
         </div>
       </div>
 
+      <AppUpdates onVersionTap={handleVersionTap} />
+
       <p className={styles.about}>
         <Trans
           i18nKey="settings.information.author"
@@ -252,9 +259,11 @@ export function Information() {
       )}
 
       <div className={styles.footer}>
-        <p onClick={handleVersionTap} className="select-none w-fit">
-          {t("common.version", "Version")}: {APP_VERSION}
-        </p>
+        {!hasUpdateRows && (
+          <p onClick={handleVersionTap} className="select-none w-fit">
+            {t("common.version", "Version")}: {APP_VERSION}
+          </p>
+        )}
         <p className="w-fit">
           {t("settings.information.built", "Built")}: {builtAt}
         </p>
