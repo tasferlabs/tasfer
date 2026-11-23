@@ -39,7 +39,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { appVersion, repoRoot } from "./app-version.mjs";
 
 const SEMVER = /^\d+\.\d+\.\d+$/;
@@ -159,13 +159,35 @@ if (!existsSync(join(distDir, "index.html"))) {
   );
 }
 
-// Same trimming build-and-sync.sh does for the copy inside the store build:
-// source maps are a large share of the download and hand out the readable
-// source, and their dangling trailers would log a failed fetch per chunk.
+// Files the phone apps never load. Keep this list in step with the trimming
+// in apps/web/scripts/build-and-sync.sh, which does the same for the copy
+// inside the store build.
+//   .map              source maps: a large share of the download, and they
+//                     hand out the readable source
+//   screenshots/      only for the browser's install prompt (manifest.json)
+//   .woff             every @font-face lists the .woff2 first, which every
+//                     phone web view reads; the .woff is a fallback for old
+//                     desktop browsers
+//   hunspell-*.wasm   Vite's hashed copy of the spell checker; the app loads
+//                     app/spell/hunspell.wasm instead (see vite.config.ts)
+// None of these are in the service worker's precache list, so leaving them
+// out cannot break its install on Android.
+function unusedOnPhones(relPath) {
+  const path = relPath.split(sep).join("/");
+  return (
+    path.endsWith(".map") ||
+    path === "screenshots" ||
+    path.startsWith("screenshots/") ||
+    path.endsWith(".woff") ||
+    /(^|\/)hunspell-[^/]*\.wasm$/.test(path)
+  );
+}
+
+// Dangling source-map trailers would log a failed fetch per chunk.
 const staging = mkdtempSync(join(tmpdir(), "tasfer-mobile-bundle-"));
 cpSync(distDir, staging, {
   recursive: true,
-  filter: (source) => !source.endsWith(".map"),
+  filter: (source) => !unusedOnPhones(relative(distDir, source)),
 });
 walk(staging, (path) => {
   if (!path.endsWith(".js")) return;

@@ -140,4 +140,8 @@ if [[ -d "$NATIVE_WEB_DIR" ]]; then
     find "$NATIVE_WEB_DIR" -name '*.js.bak' -type f -delete
     echo "build-and-sync.sh: removed $map_count source map(s) from the $PLATFORM bundle"
   fi
+  # Files the phone apps never load, about 3 MB. Keep in step with
+  # unusedOnPhones() in scripts/release/mobile-bundle.mjs, which explains each.
+  rm -rf "$NATIVE_WEB_DIR/screenshots"
+  find "$NATIVE_WEB_DIR" -type f \( -name '*.woff' -o -name 'hunspell-*.wasm' \) -delete
 fi
