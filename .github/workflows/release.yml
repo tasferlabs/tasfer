@@ -45,7 +45,10 @@ name: Release
 # and publish the bundle only once that store build is live: apps on older
 # builds skip the bundle and send people to the store for it. A bundle that
 # fails before the app reports it started is put back on the phone by itself;
-# a bug that shows up after that needs a newer bundle. It lives in its own
+# a bug that shows up after that needs a newer bundle. The bundle and a store
+# build of the same version can go out in one run: phones take the bundle at
+# once, the store build follows when its review is done, and an app runs the
+# newer of the two, so nobody is asked to update twice. It lives in its own
 # `mobile-bundle` prerelease, which the desktop and CLI update checks pass
 # over.
 

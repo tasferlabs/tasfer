@@ -65,6 +65,13 @@ export const plugins = {
     // its usage reporting.
     autoUpdate: "off",
     statsUrl: "",
+    // A store update leaves downloaded bundles alone. By default the plugin
+    // deletes them and goes back to the copy inside the store build, which is
+    // older whenever that build sat in review while a newer bundle went out:
+    // the person would be asked to update again. With this off the app keeps
+    // the newer of the two; mobileUpdate.ts moves to the store build's copy
+    // when that one is ahead.
+    resetWhenUpdate: false,
     // How long a freshly applied bundle has to report that its code is running
     // (notifyAppReady) before the plugin puts the previous bundle back. Double
     // the 10 s default: putting back a good bundle on a slow phone is a worse

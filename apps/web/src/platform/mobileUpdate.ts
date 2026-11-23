@@ -32,14 +32,19 @@
  * card and Settings point the person at the App Store or Google Play instead
  * of offering a download.
  *
+ * Store updates and bundles together: every release can go out both ways, and
+ * the app runs the newer of the two copies it holds. A store update leaves a
+ * downloaded bundle in place (`resetWhenUpdate` is off in capacitor.config.js),
+ * so a store build that sat in review while a newer bundle went out does not
+ * take the app back, and nobody is asked for the same update twice. When the
+ * store build's own copy is the newer one, the app moves to it at the next
+ * start, before the database is opened (see `confirmBoot`).
+ *
  * Older code on newer data: the rollback in step 4 happens before the new
- * bundle has touched the database, so it never causes this. One case does. A
- * store update makes the plugin drop downloaded bundles and run the copy
- * inside the new store build. If that build was already in review when a
- * newer bundle went out, the app runs the older copy for one session, until
- * it has downloaded the bundle again. The engine is built for that (it leaves
- * a database written by a newer build alone), as it is for syncing with peers
- * on older builds.
+ * bundle has touched the database, and a store update never puts older web
+ * code back, so neither causes this. The engine is built for it all the same
+ * (it leaves a database written by a newer build alone), as it is for syncing
+ * with peers on older builds.
  */
 
 import { APP_VERSION } from "@/version";
@@ -98,6 +103,11 @@ interface UpdateState {
   offered?: BundleManifest;
   /** The published bundle this store build is too old to run. */
   needsStore?: StoreGate;
+  /**
+   * The store build whose own copy the app already tried to move to. Kept so
+   * a move that does not happen is not tried again at every start.
+   */
+  storeCopyTried?: string;
 }
 
 /** A bundle that only a newer store build can run. */
@@ -151,6 +161,8 @@ export interface UpdaterPlugin {
     checksum: string;
   }): Promise<{ id: string }>;
   set(options: { id: string }): Promise<void>;
+  /** Goes back to the copy inside the store build. Reloads the page. */
+  reset(): Promise<void>;
   delete(options: { id: string }): Promise<void>;
   /**
    * Reports how far a running download is, 0 to 100. Resolves with a function
@@ -190,8 +202,10 @@ export interface MobileUpdater {
   /**
    * Call once this bundle's code is running, and wait for it before opening
    * the database. Confirms the running bundle to the plugin so it is not
-   * rolled back, and records a bundle that was rolled back. Always resolves,
-   * within a few seconds at worst.
+   * rolled back, and records a bundle that was rolled back. After a store
+   * update that brought newer web code than the downloaded bundle, it moves
+   * to the store build's copy: the page reloads and the promise never
+   * settles. Otherwise it always resolves, within a few seconds at worst.
    */
   confirmBoot(): Promise<void>;
   /**
@@ -381,6 +395,7 @@ export async function loadUpdaterPlugin(): Promise<UpdaterPlugin> {
     list: () => plugin.list(),
     download: (options) => plugin.download(options),
     set: (options) => plugin.set(options),
+    reset: () => plugin.reset(),
     delete: (options) => plugin.delete(options),
     onDownloadProgress: async (listener) => {
       const handle = await plugin.addListener("updaterEvent", (event) => {
@@ -620,6 +635,13 @@ export function createMobileUpdater(
         return;
       }
       await plugin.notifyAppReady();
+      if (!deps.enabled) return;
+      if (bundle.id === "builtin") {
+        // Not waited for: the app should not boot later because of it.
+        void deleteLeftovers(plugin).catch(() => {});
+        return;
+      }
+      await moveToStoreCopy(plugin, native);
     };
     // The app waits for this before it opens the database, so it must always
     // come back, plugin or no plugin.
@@ -627,6 +649,61 @@ export function createMobileUpdater(
       await withTimeout(confirm(), CONFIRM_TIMEOUT_MS);
     } catch (error) {
       deps.log("could not confirm boot", error);
+    }
+  }
+
+  /**
+   * A downloaded bundle is running. If a store update has since brought newer
+   * web code inside the store build, go back to that copy: the native app's
+   * version is also the version of the web code it shipped with. The page
+   * reloads into it, so on success this never returns. Tried once per store
+   * build, so a move that does not happen cannot slow down every start.
+   */
+  async function moveToStoreCopy(
+    plugin: UpdaterPlugin,
+    native: string,
+  ): Promise<void> {
+    if (
+      !SEMVER.test(native) ||
+      compareVersions(native, deps.runningVersion) <= 0
+    )
+      return;
+    const state = readState();
+    if (state.storeCopyTried === native) return;
+    writeState({ ...state, storeCopyTried: native });
+    deps.log(
+      `the store build has ${native}, newer than ${deps.runningVersion}; moving to it`,
+    );
+    await deps.dropShellCaches().catch(() => {});
+    try {
+      await plugin.reset();
+    } catch (error) {
+      deps.log(`could not move to the store build's ${native}`, error);
+      return;
+    }
+    // The plugin answers before the page has reloaded. Wait here, so this
+    // older code does not go on to open the database in the meantime; the
+    // time limit in `confirmBoot` lets it boot if the reload never comes.
+    await new Promise<never>(() => {});
+  }
+
+  /**
+   * The store build's own copy is running. Deletes downloaded bundles it has
+   * caught up with: the plugin keeps them across a store update, and nothing
+   * will run them again.
+   */
+  async function deleteLeftovers(plugin: UpdaterPlugin): Promise<void> {
+    const waiting = usablePending(readState())?.id;
+    const { bundles } = await plugin.list();
+    for (const bundle of bundles) {
+      if (bundle.id === "builtin" || bundle.id === waiting) continue;
+      if (
+        !SEMVER.test(bundle.version) ||
+        compareVersions(bundle.version, deps.runningVersion) > 0
+      )
+        continue;
+      deps.log(`deleting leftover bundle ${bundle.version}`);
+      await plugin.delete({ id: bundle.id }).catch(() => {});
     }
   }
 

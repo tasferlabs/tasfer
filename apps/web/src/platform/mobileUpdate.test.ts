@@ -44,6 +44,7 @@ function fakePlugin(over: Partial<UpdaterPlugin> = {}): UpdaterPlugin {
     list: vi.fn(async () => ({ bundles: [] })),
     download: vi.fn(async () => ({ id: "bundle-1" })),
     set: vi.fn(() => new Promise<void>(() => {})),
+    reset: vi.fn(() => new Promise<void>(() => {})),
     delete: vi.fn(async () => {}),
     onDownloadProgress: vi.fn(async () => () => {}),
     ...over,
@@ -632,5 +633,129 @@ describe("confirmBoot", () => {
     });
     await updater.confirmBoot();
     expect(plugin.notifyAppReady).not.toHaveBeenCalled();
+  });
+});
+
+describe("confirmBoot, after a store update", () => {
+  /** A downloaded bundle is running inside a store build of `native`. */
+  function onBundle(running: string, native: string, state?: object) {
+    const ctx = setup({ runningVersion: running, state });
+    vi.mocked(ctx.plugin.current).mockResolvedValue({
+      bundle: { id: "bundle-1", version: running },
+      native,
+    });
+    return ctx;
+  }
+
+  it("keeps a downloaded bundle that is newer than the store build", async () => {
+    // The store build sat in review while a newer bundle went out.
+    const { updater, plugin, storage } = onBundle("0.3.0", "0.2.0");
+    await updater.confirmBoot();
+    expect(plugin.notifyAppReady).toHaveBeenCalledTimes(1);
+    expect(plugin.reset).not.toHaveBeenCalled();
+    expect(plugin.delete).not.toHaveBeenCalled();
+    expect(storage.state().storeCopyTried).toBeUndefined();
+  });
+
+  it("keeps a downloaded bundle the store build has only caught up with", async () => {
+    const { updater, plugin } = onBundle("0.2.0", "0.2.0");
+    await updater.confirmBoot();
+    expect(plugin.reset).not.toHaveBeenCalled();
+  });
+
+  it("moves to the store build's copy when that one is newer", async () => {
+    vi.useFakeTimers();
+    try {
+      const { updater, plugin, dropShellCaches } = onBundle("0.2.0", "0.3.0");
+      // Found on a simulator: the plugin answers before the page reloads.
+      vi.mocked(plugin.reset).mockResolvedValue();
+      let resolved = false;
+      void updater.confirmBoot().then(() => {
+        resolved = true;
+      });
+      await vi.advanceTimersByTimeAsync(100);
+      // The bundle is vouched for first, so the plugin does not roll it back
+      // on top of the move.
+      expect(plugin.notifyAppReady).toHaveBeenCalledTimes(1);
+      expect(dropShellCaches).toHaveBeenCalled();
+      expect(plugin.reset).toHaveBeenCalledTimes(1);
+      // The page is reloading: the app must not open the database meanwhile.
+      expect(resolved).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("boots the bundle it has when the move never reloads the page, and does not try again", async () => {
+    vi.useFakeTimers();
+    try {
+      const { updater, plugin, storage } = onBundle("0.2.0", "0.3.0");
+      let resolved = false;
+      void updater.confirmBoot().then(() => {
+        resolved = true;
+      });
+      await vi.advanceTimersByTimeAsync(6000);
+      expect(resolved).toBe(true);
+      expect(storage.state().storeCopyTried).toBe("0.3.0");
+
+      await updater.confirmBoot();
+      expect(plugin.reset).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("boots the bundle it has when the plugin refuses the move", async () => {
+    const { updater, plugin } = onBundle("0.2.0", "0.3.0");
+    vi.mocked(plugin.reset).mockRejectedValue(new Error("Reset failed"));
+    await updater.confirmBoot();
+    expect(plugin.reset).toHaveBeenCalledTimes(1);
+  });
+
+  it("tries again for a later store build", async () => {
+    const { updater, plugin } = onBundle("0.2.0", "0.4.0", {
+      storeCopyTried: "0.3.0",
+    });
+    // Refused, so the test does not have to wait out the reload.
+    vi.mocked(plugin.reset).mockRejectedValue(new Error("Reset failed"));
+    await updater.confirmBoot();
+    expect(plugin.reset).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not move in a dev build", async () => {
+    const { updater, plugin } = setup({
+      runningVersion: "0.2.0",
+      enabled: false,
+    });
+    vi.mocked(plugin.current).mockResolvedValue({
+      bundle: { id: "bundle-1", version: "0.2.0" },
+      native: "0.3.0",
+    });
+    await updater.confirmBoot();
+    expect(plugin.notifyAppReady).toHaveBeenCalledTimes(1);
+    expect(plugin.reset).not.toHaveBeenCalled();
+  });
+
+  it("deletes downloaded bundles the store build's copy has caught up with", async () => {
+    const { updater, plugin } = setup({
+      runningVersion: "0.3.0",
+      state: { pending: { id: "bundle-4", version: "0.4.0" } },
+    });
+    vi.mocked(plugin.current).mockResolvedValue({
+      bundle: { id: "builtin", version: "builtin" },
+      native: "0.3.0",
+    });
+    vi.mocked(plugin.list).mockResolvedValue({
+      bundles: [
+        { id: "builtin", version: "builtin", status: "success" },
+        { id: "bundle-2", version: "0.2.0", status: "success" },
+        { id: "bundle-3", version: "0.3.0", status: "success" },
+        { id: "bundle-4", version: "0.4.0", status: "pending" },
+      ],
+    });
+    await updater.confirmBoot();
+    await vi.waitFor(() => expect(plugin.delete).toHaveBeenCalledTimes(2));
+    expect(plugin.delete).toHaveBeenCalledWith({ id: "bundle-2" });
+    expect(plugin.delete).toHaveBeenCalledWith({ id: "bundle-3" });
   });
 });
