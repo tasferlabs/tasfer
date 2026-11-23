@@ -17,7 +17,7 @@ import { APP_VERSION } from "@/version";
  * for one, download it, restart into it, or, when the new version needs a
  * newer app from the store, open the store.
  *
- * `onVersionTap` is the hidden "tap the version" gesture of the Information
+ * `onVersionTap` is the hidden "tap the version" gesture of the About
  * tab. The row takes it over because the footer drops its own version line
  * where this is shown.
  */

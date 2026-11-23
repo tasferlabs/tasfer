@@ -73,7 +73,7 @@ let enabled = resolveInitial();
 
 /**
  * Whether the in-app developer-tools setting has been revealed. The Settings
- * toggle lives in the Information tab and is kept low-visibility: it stays hidden
+ * toggle lives in the About tab and is kept low-visibility: it stays hidden
  * until the user "unlocks" developer options (tapping the version number there —
  * see `Information`), the classic Android-style gesture. Persisted across reloads.
  */
