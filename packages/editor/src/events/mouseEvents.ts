@@ -1044,9 +1044,13 @@ export function handleMouseMove(
   // Selection hover — the grab cursor that advertises "this text can be
   // dragged". Only the affordance: whether a press actually starts a drag is
   // decided at the press itself (`pressArmsTextDrag`), which is the only moment
-  // early enough for the browser to still take the gesture.
+  // early enough for the browser to still take the gesture. Not while a drag is
+  // still painting the selection: the pointer sits on the text it just
+  // selected, and the hand would flicker in and out over the text caret.
   const isOverSelection =
-    supportsHtml5Drag() && canDragSelection(state)
+    state.ui.mode !== "select" &&
+    supportsHtml5Drag() &&
+    canDragSelection(state)
       ? isPointWithinSelectionRects(
           canvasX,
           canvasY,
