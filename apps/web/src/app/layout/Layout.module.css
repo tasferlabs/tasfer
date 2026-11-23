@@ -743,13 +743,17 @@
   min-width: 0 !important;
 }
 
-.appSidebarScrollArea > div {
+/* Both rules name the viewport rather than "any child div": the scrollbar is
+   a child div too, and `min-height: 100%` on its thumb made the thumb as tall
+   as the whole track, so it slid out past the bottom edge as the list
+   scrolled. */
+.appSidebarScrollArea > :global([data-radix-scroll-area-viewport]) {
   display: block !important;
   height: 100%;
   min-width: 0;
 }
 
-.appSidebarScrollArea > div > div {
+.appSidebarScrollArea > :global([data-radix-scroll-area-viewport]) > div {
   /*
    * Fill the available height when the space list is short (so the area reads
    * as one continuous panel and the trailing drop zone is reachable), but grow
