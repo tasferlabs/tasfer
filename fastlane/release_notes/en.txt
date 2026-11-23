@@ -1,3 +1,2 @@
-- Get new versions without waiting for a store update.
 - The Information tab in Settings is now called About.
 - Bug fixes and improvements.
