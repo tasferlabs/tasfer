@@ -543,18 +543,92 @@ describe("applyPendingBundle", () => {
     expect(storage.state().applying).toBeUndefined();
     expect(storage.state().failed ?? []).toEqual([]);
     expect(updater.hasPendingBundle()).toBe(false);
+    // Its copy goes, so the next download fetches a fresh one.
+    expect(plugin.delete).toHaveBeenCalledWith({ id: "gone" });
   });
 
-  it("gives up on a version whose swap never reloaded the page", async () => {
+  it("downloads a fresh copy after a refusal instead of reusing the refused one", async () => {
+    const { updater, plugin } = setup({
+      state: { pending: { id: "bundle-1", version: "0.2.0" } },
+    });
+    vi.mocked(plugin.set).mockRejectedValue(new Error("refused"));
+    await updater.applyPendingBundle();
+    // The plugin now lists the copy as deleted.
+    vi.mocked(plugin.list).mockResolvedValue({
+      bundles: [{ id: "bundle-1", version: "0.2.0", status: "deleted" }],
+    });
+    await updater.checkForUpdate({ force: true });
+    await updater.downloadUpdate();
+    expect(plugin.download).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives up on a version the plugin refuses a second time", async () => {
+    const { updater, plugin, storage } = setup({
+      state: {
+        pending: { id: "bundle-2", version: "0.2.0" },
+        refused: "0.2.0",
+      },
+    });
+    vi.mocked(plugin.set).mockRejectedValue(new Error("refused"));
+    await updater.applyPendingBundle();
+    expect(storage.state().failed).toEqual(["0.2.0"]);
+    expect(storage.state().refused).toBeUndefined();
+
+    await updater.checkForUpdate({ force: true });
+    expect(updater.getStatus()).toEqual({ phase: "idle" });
+  });
+
+  it("does not blame the version when the plugin cannot be loaded", async () => {
+    const { updater, storage } = setup({
+      state: { pending: { id: "bundle-1", version: "0.2.0" } },
+      loadPlugin: async () => {
+        throw new Error("no plugin");
+      },
+    });
+    await updater.applyPendingBundle();
+    expect(storage.state().applying).toBeUndefined();
+    expect(storage.state().failed ?? []).toEqual([]);
+    expect(storage.state().refused).toBeUndefined();
+  });
+
+  it("reloads the page itself when the plugin takes the swap but does not reload", async () => {
     vi.useFakeTimers();
     try {
-      const { updater, storage } = setup({
+      const { updater, plugin, storage, reload } = setup({
         state: { pending: { id: "bundle-1", version: "0.2.0" } },
       });
-      const done = updater.applyPendingBundle();
-      await vi.advanceTimersByTimeAsync(6000);
-      await done;
-      expect(storage.state().failed).toEqual(["0.2.0"]);
+      vi.mocked(plugin.set).mockResolvedValue();
+      let settled = false;
+      void updater.applyPendingBundle().then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(reload).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(reload).toHaveBeenCalledTimes(1);
+      // Never boots the old code: the database stays closed until the reload.
+      expect(settled).toBe(false);
+      // The start after the reload settles it, whichever bundle comes up.
+      expect(storage.state().applying).toEqual({ id: "bundle-1", version: "0.2.0" });
+      expect(storage.state().failed ?? []).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reloads the page when the plugin never answers the swap", async () => {
+    vi.useFakeTimers();
+    try {
+      const { updater, reload } = setup({
+        state: { pending: { id: "bundle-1", version: "0.2.0" } },
+      });
+      let settled = false;
+      void updater.applyPendingBundle().then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(5100);
+      expect(reload).toHaveBeenCalledTimes(1);
+      expect(settled).toBe(false);
     } finally {
       vi.useRealTimers();
     }
@@ -636,6 +710,95 @@ describe("confirmBoot", () => {
   });
 });
 
+describe("confirmBoot, at a freshly applied bundle's first start", () => {
+  function firstStart(applying: object = { id: "bundle-1", version: "0.2.0" }) {
+    const ctx = setup({ runningVersion: "0.2.0", state: { applying } });
+    vi.mocked(ctx.plugin.current).mockResolvedValue({
+      bundle: { id: "bundle-1", version: "0.2.0" },
+      native: "0.1.0",
+    });
+    return ctx;
+  }
+
+  it("keeps the record until the plugin has heard that the bundle runs", async () => {
+    const { updater, plugin, storage } = firstStart();
+    vi.mocked(plugin.notifyAppReady).mockRejectedValue(new Error("no bridge"));
+    await updater.confirmBoot();
+    // If the plugin now puts the previous bundle back, that code finds this
+    // record and blames 0.2.0, so it is not downloaded again.
+    expect(storage.state().applying).toMatchObject({ version: "0.2.0" });
+  });
+
+  it("clears an earlier refusal once the version runs", async () => {
+    const { updater, storage } = setup({
+      runningVersion: "0.2.0",
+      state: { applying: { id: "bundle-1", version: "0.2.0" }, refused: "0.2.0" },
+    });
+    await updater.confirmBoot();
+    expect(storage.state().refused).toBeUndefined();
+  });
+
+  it("keeps the database closed past the plugin's rollback time when it cannot be told", async () => {
+    vi.useFakeTimers();
+    try {
+      const { updater, plugin } = firstStart();
+      vi.mocked(plugin.current).mockReturnValue(new Promise(() => {}));
+      let resolved = false;
+      void updater.confirmBoot().then(() => {
+        resolved = true;
+      });
+      // The plugin's appReadyTimeout is 20 s: a rollback would come by then.
+      await vi.advanceTimersByTimeAsync(21_000);
+      expect(resolved).toBe(false);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(resolved).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits for the rollback when the plugin reports another bundle", async () => {
+    vi.useFakeTimers();
+    try {
+      const { updater, plugin } = firstStart();
+      vi.mocked(plugin.current).mockResolvedValue({
+        bundle: { id: "bundle-0", version: "0.1.5" },
+        native: "0.1.0",
+      });
+      let resolved = false;
+      void updater.confirmBoot().then(() => {
+        resolved = true;
+      });
+      await vi.advanceTimersByTimeAsync(21_000);
+      expect(resolved).toBe(false);
+      expect(plugin.notifyAppReady).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits that long only once, so a plugin that never answers is not paid for at every start", async () => {
+    vi.useFakeTimers();
+    try {
+      const { updater, plugin, storage } = firstStart();
+      vi.mocked(plugin.current).mockReturnValue(new Promise(() => {}));
+      void updater.confirmBoot();
+      expect(storage.state().applying).toMatchObject({ waited: true });
+
+      const again = firstStart(storage.state().applying);
+      vi.mocked(again.plugin.current).mockReturnValue(new Promise(() => {}));
+      let resolved = false;
+      void again.updater.confirmBoot().then(() => {
+        resolved = true;
+      });
+      await vi.advanceTimersByTimeAsync(6_000);
+      expect(resolved).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("confirmBoot, after a store update", () => {
   /** A downloaded bundle is running inside a store build of `native`. */
   function onBundle(running: string, native: string, state?: object) {
@@ -686,20 +849,110 @@ describe("confirmBoot, after a store update", () => {
     }
   });
 
-  it("boots the bundle it has when the move never reloads the page, and does not try again", async () => {
+  it("reloads the page itself when the move does not, and does not try again", async () => {
     vi.useFakeTimers();
     try {
-      const { updater, plugin, storage } = onBundle("0.2.0", "0.3.0");
+      const { updater, plugin, storage, reload } = onBundle("0.2.0", "0.3.0");
+      vi.mocked(plugin.reset).mockResolvedValue();
       let resolved = false;
       void updater.confirmBoot().then(() => {
         resolved = true;
       });
       await vi.advanceTimersByTimeAsync(6000);
-      expect(resolved).toBe(true);
+      expect(reload).toHaveBeenCalledTimes(1);
+      // The old code never boots with the move under way.
+      expect(resolved).toBe(false);
       expect(storage.state().storeCopyTried).toBe("0.3.0");
 
-      await updater.confirmBoot();
-      expect(plugin.reset).toHaveBeenCalledTimes(1);
+      // The reload brought this bundle back: it boots and does not move again.
+      const again = onBundle("0.2.0", "0.3.0", storage.state());
+      await again.updater.confirmBoot();
+      expect(again.plugin.reset).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reloads the page when the plugin never answers the move", async () => {
+    vi.useFakeTimers();
+    try {
+      const { updater, reload } = onBundle("0.2.0", "0.3.0");
+      let resolved = false;
+      void updater.confirmBoot().then(() => {
+        resolved = true;
+      });
+      await vi.advanceTimersByTimeAsync(5100);
+      expect(reload).toHaveBeenCalledTimes(1);
+      expect(resolved).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("boots once a move that outlasted the time limit is refused", async () => {
+    vi.useFakeTimers();
+    try {
+      const { updater, plugin, reload } = onBundle("0.2.0", "0.3.0");
+      // A slow plugin: the move starts at 3 s and is refused at 5.5 s, after
+      // the 5 s limit.
+      vi.mocked(plugin.current).mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(
+              () =>
+                resolve({
+                  bundle: { id: "bundle-1", version: "0.2.0" },
+                  native: "0.3.0",
+                }),
+              3000,
+            ),
+          ),
+      );
+      vi.mocked(plugin.reset).mockImplementation(
+        () =>
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Reset failed")), 2500),
+          ),
+      );
+      let resolved = false;
+      void updater.confirmBoot().then(() => {
+        resolved = true;
+      });
+      await vi.advanceTimersByTimeAsync(5200);
+      expect(resolved).toBe(false);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(resolved).toBe(true);
+      expect(reload).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not start a move once the app has booted without it", async () => {
+    vi.useFakeTimers();
+    try {
+      const { updater, plugin } = onBundle("0.2.0", "0.3.0");
+      vi.mocked(plugin.current).mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(
+              () =>
+                resolve({
+                  bundle: { id: "bundle-1", version: "0.2.0" },
+                  native: "0.3.0",
+                }),
+              7000,
+            ),
+          ),
+      );
+      let resolved = false;
+      void updater.confirmBoot().then(() => {
+        resolved = true;
+      });
+      await vi.advanceTimersByTimeAsync(5100);
+      expect(resolved).toBe(true);
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(plugin.reset).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

@@ -24,7 +24,9 @@
  *   4. As soon as its code runs, and before it opens the database, the new
  *      bundle reports in (`notifyAppReady`). If that never happens the plugin
  *      puts the previous bundle back, and this module remembers the version so
- *      it is not downloaded again.
+ *      it is not downloaded again. A bundle that cannot report in does not
+ *      open the database either: it waits out the plugin's time limit first,
+ *      so a rollback never lands on a bundle that has touched the data.
  *
  * Only web code can travel this way. A change to the Swift/Kotlin side still
  * needs a store release, and `minNativeVersion` in /version.json keeps a
@@ -61,10 +63,22 @@ const CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const DOWNLOAD_RETRY_MS = 6 * 60 * 60 * 1000;
 /** The first check waits for the app to settle after boot. */
 const FIRST_CHECK_DELAY_MS = 5000;
-/** If the swap has not reloaded the page by now, boot what we have. */
+/** How long the plugin gets to answer a swap before the page is reloaded. */
 const APPLY_TIMEOUT_MS = 5000;
+/**
+ * The plugin reloads the page itself after a swap. If that reload has not
+ * come this long after it answered, the page reloads itself.
+ */
+const RELOAD_FALLBACK_MS = 5000;
 /** The app boots anyway if the plugin has not answered by now. */
 const CONFIRM_TIMEOUT_MS = 5000;
+/**
+ * The same, at the first start of a freshly applied bundle. Longer than the
+ * plugin's `appReadyTimeout` (20 s in capacitor.config.js; keep the two in
+ * step), so a bundle that could not report in is put back before it opens the
+ * database, never after.
+ */
+const FIRST_START_CONFIRM_TIMEOUT_MS = 25000;
 /** Remember this many failed versions; older ones are superseded anyway. */
 const MAX_FAILED_VERSIONS = 10;
 
@@ -89,10 +103,19 @@ interface BundleRef {
 interface UpdateState {
   /** Downloaded and waiting for the next fresh start. */
   pending?: BundleRef;
-  /** Handed to the plugin at this start; cleared once it has booted. */
-  applying?: BundleRef;
+  /**
+   * Handed to the plugin at this start; cleared once the plugin has heard
+   * that it runs. `waited` is set once its first start has had the long wait
+   * for that, so a plugin that never answers costs it only once.
+   */
+  applying?: BundleRef & { waited?: boolean };
   /** Versions that were applied and did not boot. Never tried again. */
   failed?: string[];
+  /**
+   * The version the plugin last refused to swap in. Refused a second time,
+   * with a freshly downloaded copy, it counts as failed.
+   */
+  refused?: string;
   /** When the manifest was last read. */
   lastCheck?: number;
   /** No automatic download attempts before this time. */
@@ -194,9 +217,11 @@ export interface MobileUpdater {
   /** Whether a downloaded bundle is waiting to be swapped in at this start. */
   hasPendingBundle(): boolean;
   /**
-   * Swaps in the waiting bundle. The page reloads into it, so on success the
-   * promise never settles. It resolves only when the swap did not happen, and
-   * the caller should then boot the bundle it already has. Never rejects.
+   * Swaps in the waiting bundle. The page reloads into it, so once the plugin
+   * has taken the swap (or stops answering) the promise never settles; the
+   * page reloads itself if the plugin's reload does not come. It resolves only
+   * when the plugin refused the swap, and the caller should then boot the
+   * bundle it already has. Never rejects.
    */
   applyPendingBundle(): Promise<void>;
   /**
@@ -205,7 +230,9 @@ export interface MobileUpdater {
    * rolled back, and records a bundle that was rolled back. After a store
    * update that brought newer web code than the downloaded bundle, it moves
    * to the store build's copy: the page reloads and the promise never
-   * settles. Otherwise it always resolves, within a few seconds at worst.
+   * settles. Otherwise it always resolves, within a few seconds at worst;
+   * at the first start of a freshly applied bundle that the plugin cannot be
+   * told about, after the plugin's own rollback time limit has passed.
    */
   confirmBoot(): Promise<void>;
   /**
@@ -319,9 +346,16 @@ export function decideUpdate(input: {
   return { action: "download" };
 }
 
+/** A promise did not settle in time (as opposed to rejecting). */
+class TimeoutError extends Error {
+  constructor() {
+    super("timed out");
+  }
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("timed out")), ms);
+    const timer = setTimeout(() => reject(new TimeoutError()), ms);
     promise.then(
       (value) => {
         clearTimeout(timer);
@@ -564,49 +598,95 @@ export function createMobileUpdater(
     writeState({ ...state, pending: undefined, applying: pending });
     await deps.dropShellCaches().catch(() => {});
 
-    // `set` reloads the page into the new bundle, so on success nothing below
-    // runs. A rejection means the plugin refused before touching anything
-    // (the bundle is gone, say): forget it and let a later check fetch it
-    // again. Still being here after the timeout means the swap went wrong in
-    // some way we cannot see, so that version is not tried again.
-    let refused = true;
+    let plugin: UpdaterPlugin;
     try {
-      const plugin = await deps.loadPlugin();
-      deps.log(`applying ${pending.version}`);
-      const swap = plugin.set({ id: pending.id });
-      refused = false;
-      swap.catch(() => {
-        refused = true;
-      });
-      await withTimeout(
-        swap.then(() => new Promise<never>(() => {})),
-        APPLY_TIMEOUT_MS,
-      );
+      plugin = await deps.loadPlugin();
     } catch (error) {
+      // Nothing was handed over, and the bundle is not to blame.
       deps.log(`could not apply ${pending.version}`, error);
+      writeState({ ...readState(), applying: undefined });
+      return;
     }
-    const after = { ...readState(), applying: undefined };
-    writeState(refused ? after : withFailed(after, pending.version));
+
+    // `set` reloads the page into the new bundle. It can answer before that
+    // reload comes, and from then on this code must not open the database, so
+    // it only waits for the reload (and reloads itself if it never comes). An
+    // answer that never comes is treated the same way: the swap may be under
+    // way. Whichever bundle the reload brings up then settles it through
+    // `applying` (see `confirmBoot`). A rejection means the plugin refused
+    // before touching anything, and this code boots as it is.
+    deps.log(`applying ${pending.version}`);
+    try {
+      await withTimeout(plugin.set({ id: pending.id }), APPLY_TIMEOUT_MS);
+    } catch (error) {
+      if (!(error instanceof TimeoutError)) {
+        deps.log(`the plugin refused ${pending.version}`, error);
+        await forgetRefused(plugin, pending);
+        return;
+      }
+      deps.log(`no answer to the swap to ${pending.version}; reloading`);
+      return reloadSoon(0);
+    }
+    return reloadSoon(RELOAD_FALLBACK_MS);
+  }
+
+  /**
+   * The plugin has taken a swap and is about to reload the page. Never
+   * settles, so the code that waits on it never goes on to open the database.
+   * Reloads the page itself after `ms` in case the plugin's reload never
+   * comes; the next start sorts out which bundle came up.
+   */
+  function reloadSoon(ms: number): Promise<never> {
+    setTimeout(() => deps.reload(), ms);
+    return new Promise<never>(() => {});
+  }
+
+  /**
+   * The plugin refused to swap in `bundle`. Its copy is deleted, so the next
+   * download fetches a fresh one instead of handing the plugin the same copy
+   * again. Refused a second time, the version counts as failed: by then a
+   * fresh copy was refused too.
+   */
+  async function forgetRefused(
+    plugin: UpdaterPlugin,
+    bundle: BundleRef,
+  ): Promise<void> {
+    await plugin.delete({ id: bundle.id }).catch(() => {});
+    const state = { ...readState(), applying: undefined };
+    writeState(
+      state.refused === bundle.version
+        ? withFailed({ ...state, refused: undefined }, bundle.version)
+        : { ...state, refused: bundle.version },
+    );
   }
 
   async function confirmBoot(): Promise<void> {
-    let state = readState();
+    const state = readState();
     const applying = state.applying;
-    if (applying) {
-      if (applying.version === deps.runningVersion) {
-        deps.log(`now running ${applying.version}`);
-        state = { ...state, applying: undefined };
-      } else {
-        // The bundle was swapped in but this older code booted: the plugin
-        // rolled it back. Its files may linger in the service worker.
-        deps.log(`${applying.version} did not boot, staying on ${deps.runningVersion}`);
-        state = withFailed({ ...state, applying: undefined }, applying.version);
-        await deps.dropShellCaches().catch(() => {});
-      }
-      writeState(state);
+    // This bundle was swapped in at this start. `applying` stays until the
+    // plugin has heard that it runs: should the plugin put the previous
+    // bundle back first, that code then finds the record and blames this
+    // version. The first time, the wait outlasts the plugin's own time limit,
+    // so that a rollback, if it comes, comes before the database is opened.
+    const startedHere = applying?.version === deps.runningVersion;
+    const longWait = startedHere && !applying?.waited;
+    if (applying && !startedHere) {
+      // The bundle was swapped in but this older code booted: the plugin
+      // rolled it back. Its files may linger in the service worker.
+      deps.log(`${applying.version} did not boot, staying on ${deps.runningVersion}`);
+      writeState(
+        withFailed({ ...state, applying: undefined }, applying.version),
+      );
+      await deps.dropShellCaches().catch(() => {});
       refresh();
+    } else if (longWait) {
+      writeState({ ...state, applying: { ...applying, waited: true } });
     }
 
+    /** A move to the store build's copy has started. */
+    let moving = false;
+    /** The wait below is over and the caller goes on to open the database. */
+    let booted = false;
     const confirm = async () => {
       const plugin = await deps.loadPlugin();
       const { bundle, native } = await plugin.current();
@@ -627,29 +707,55 @@ export function createMobileUpdater(
         refresh();
       }
       // Only vouch for the bundle this code came from. If the plugin thinks a
-      // different one is active, stay silent and let it roll back.
+      // different one is active, stay silent and let it roll back. At a
+      // bundle's first start that rollback is due shortly, so wait for it
+      // rather than open the database.
       if (bundle.id !== "builtin" && bundle.version !== deps.runningVersion) {
         deps.log(
           `plugin reports ${bundle.version} but ${deps.runningVersion} is running; not confirming`,
         );
+        if (longWait) await new Promise<never>(() => {});
         return;
       }
       await plugin.notifyAppReady();
+      if (startedHere) {
+        deps.log(`now running ${deps.runningVersion}`);
+        const after = readState();
+        writeState({
+          ...after,
+          applying: undefined,
+          refused:
+            after.refused === deps.runningVersion ? undefined : after.refused,
+        });
+      }
       if (!deps.enabled) return;
       if (bundle.id === "builtin") {
         // Not waited for: the app should not boot later because of it.
         void deleteLeftovers(plugin).catch(() => {});
         return;
       }
-      await moveToStoreCopy(plugin, native);
+      // Too late: this code has booted, and a move now would reload the page
+      // under it.
+      if (booted) return;
+      await moveToStoreCopy(plugin, native, () => {
+        moving = true;
+      });
     };
     // The app waits for this before it opens the database, so it must always
-    // come back, plugin or no plugin.
+    // come back, plugin or no plugin: with this code booted, or with a reload.
+    const task = confirm();
     try {
-      await withTimeout(confirm(), CONFIRM_TIMEOUT_MS);
+      await withTimeout(
+        task,
+        longWait ? FIRST_START_CONFIRM_TIMEOUT_MS : CONFIRM_TIMEOUT_MS,
+      );
     } catch (error) {
       deps.log("could not confirm boot", error);
+      // A move is under way. It ends in a reload, or in a refusal that lets
+      // this code boot; either comes within a few seconds.
+      if (moving) await task.catch(() => {});
     }
+    booted = true;
   }
 
   /**
@@ -658,10 +764,12 @@ export function createMobileUpdater(
    * version is also the version of the web code it shipped with. The page
    * reloads into it, so on success this never returns. Tried once per store
    * build, so a move that does not happen cannot slow down every start.
+   * `onMove` is called once the move is handed to the plugin.
    */
   async function moveToStoreCopy(
     plugin: UpdaterPlugin,
     native: string,
+    onMove: () => void,
   ): Promise<void> {
     if (
       !SEMVER.test(native) ||
@@ -674,17 +782,23 @@ export function createMobileUpdater(
     deps.log(
       `the store build has ${native}, newer than ${deps.runningVersion}; moving to it`,
     );
+    onMove();
     await deps.dropShellCaches().catch(() => {});
+    // The plugin answers before the page has reloaded. From then on, and when
+    // it does not answer at all, this older code only waits for the reload,
+    // so it never opens the database with the move under way. If the reload
+    // brings this bundle back, `storeCopyTried` keeps it from trying again.
     try {
-      await plugin.reset();
+      await withTimeout(plugin.reset(), APPLY_TIMEOUT_MS);
     } catch (error) {
-      deps.log(`could not move to the store build's ${native}`, error);
-      return;
+      if (!(error instanceof TimeoutError)) {
+        deps.log(`could not move to the store build's ${native}`, error);
+        return;
+      }
+      deps.log(`no answer to the move to ${native}; reloading`);
+      await reloadSoon(0);
     }
-    // The plugin answers before the page has reloaded. Wait here, so this
-    // older code does not go on to open the database in the meantime; the
-    // time limit in `confirmBoot` lets it boot if the reload never comes.
-    await new Promise<never>(() => {});
+    await reloadSoon(RELOAD_FALLBACK_MS);
   }
 
   /**
