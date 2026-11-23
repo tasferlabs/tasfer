@@ -4,6 +4,7 @@
 - If a new version fails to start, the app goes back to the previous one by itself
 - The Information tab in Settings is now called About
 - The sidebar scrollbar stays inside its track
+- The mouse cursor no longer flickers to a hand while you drag to select text
 - Bug fixes and other UI changes
 
 # 2026-11-15
