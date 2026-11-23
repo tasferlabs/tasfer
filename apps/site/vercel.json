@@ -1,6 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
+  "git": {
+    "deploymentEnabled": {
+      "main": false
+    }
+  },
   "redirects": [
     { "source": "/page/:path*", "destination": "/app/page/:path*", "permanent": false },
     { "source": "/:lang(en|ar)/docs/editor/api-react", "destination": "/:lang/docs/editor/reference?pkg=react", "permanent": true },

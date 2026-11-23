@@ -1,8 +1,8 @@
 name: Release
 
 # Every release from one place: desktop installers, the `tasfer` CLI, the
-# @tasfer/* npm packages, and the iOS / Android store builds. Tick what you
-# want when you dispatch it.
+# @tasfer/* npm packages, the iOS / Android store builds, and the website.
+# Tick what you want when you dispatch it.
 #
 # There is no tag input. Everything builds from main, and the version comes
 # from version.json on main. So: bump appVersion, merge to main, then dispatch
@@ -30,6 +30,12 @@ name: Release
 # publish. Every @tasfer/* package on npmjs.com must name `release.yml` as its
 # trusted publisher, or the npm job fails with ENEEDAUTH.
 #
+# Website: tasfer.app's marketing pages and docs (apps/site) go live only from
+# here. Vercel no longer deploys main by itself; pull requests and other
+# branches still get Vercel previews. The docs' API reference is generated
+# from the packages during the build, so tick npm too when the API changed:
+# the site waits for the publish, and never shows a version npm does not have.
+#
 # Store builds: edit and commit fastlane/release_notes/<lang>.txt (every
 # language) before dispatching. Each store has its own choice, and the choice
 # is the fastlane lane. Picking "release" IS the confirmation to submit for
@@ -45,6 +51,10 @@ on:
         default: true
       cli:
         description: "tasfer CLI binaries → v<appVersion> GitHub release"
+        type: boolean
+        default: true
+      site:
+        description: "Website + docs (apps/site) → tasfer.app production"
         type: boolean
         default: true
       npm:
@@ -501,6 +511,55 @@ jobs:
             fi
             cd ../..
           done
+
+  # ─── Website (apps/site → Vercel) ────────────────────────────────────────────
+  #
+  # Builds on this runner and uploads the result as is (`--prebuilt`).
+  # `vercel build` runs the install and build commands from apps/site/vercel.json,
+  # which install and build the packages the API reference is read from. It runs
+  # from the repo root: the project's Root Directory setting (apps/site) is
+  # applied on top of it.
+  #
+  # Needs the VERCEL_TOKEN secret and the VERCEL_ORG_ID / VERCEL_PROJECT_ID
+  # repository variables, which point at the `tasfer-home` project.
+  site:
+    needs: [main-only, npm]
+    # Waits for npm when it runs, so the docs never show an unpublished version.
+    # A failed npm publish skips the site.
+    if: >-
+      ${{ always()
+      && inputs.site
+      && needs.main-only.result == 'success'
+      && (needs.npm.result == 'success' || needs.npm.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: |
+            apps/site/package-lock.json
+            packages/*/package-lock.json
+
+      - name: Build and deploy to production
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          for name in VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::$name is missing — VERCEL_TOKEN is a repository secret, the other two are repository variables"
+              exit 1
+            fi
+          done
+          vercel() { npx --yes vercel@56.3.2 "$@" --token "$VERCEL_TOKEN"; }
+          vercel pull --yes --environment=production
+          vercel build --prod
+          vercel deploy --prebuilt --prod
 
   # ─── App Store / Google Play ─────────────────────────────────────────────────
   #
